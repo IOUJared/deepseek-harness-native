@@ -142,6 +142,7 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let directory = tempfile::tempdir().unwrap();
+        fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700)).unwrap();
         let runtime = directory.path().join("runtime");
         let user = directory.path().join("user");
         fs::create_dir(&runtime).unwrap();

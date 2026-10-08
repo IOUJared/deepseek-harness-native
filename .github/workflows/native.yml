@@ -28,7 +28,7 @@ jobs:
       tag: ${{ steps.package.outputs.tag }}
     steps:
       - name: Check out the triggering commit
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
       - name: Install Linux build dependencies
@@ -36,7 +36,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y build-essential pkg-config libwayland-dev libxkbcommon-dev libegl-dev python3 binutils fonts-dejavu-core
       - name: Select the tested Node version
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Bind fixture interpreter on this disposable runner
@@ -127,7 +127,7 @@ jobs:
       RELEASE_TAG: ${{ needs.checks.outputs.tag }}
     steps:
       - name: Check out the trusted publisher
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
       - name: Download this run's tested assets
