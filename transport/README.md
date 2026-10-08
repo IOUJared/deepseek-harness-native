@@ -6,7 +6,7 @@ MIT Rust HTTP/WebSocket client for **0.2.1-alpha.1**. [Core](<../core/README.md>
 
 | Area | Supported |
 |---|---|
-| Sessions | List, create, prompt, history, projections, model/effort selection |
+| Sessions | List, create, prompt, history, projections, model/effort/speed/output-detail selection |
 | Workspaces | Create/follow, pin/unpin, archive/restore |
 | Decisions | Correlated approval/question replies, cancellation, claim ownership |
 | Files | Bounded staging and root-only ZIP export |
@@ -49,9 +49,14 @@ Malformed frames, gaps, overflow and closure return fixed redacted errors. Snaps
 
 ## Validation and gaps
 
+From the native repository root:
+
 ```sh
-cargo test --locked -j2 -- --test-threads=2
+npm ci --prefix transport/tests --ignore-scripts
+cargo test --locked -j2 --manifest-path transport/Cargo.toml -- --test-threads=2
 ```
+
+Fake-wire fixtures resolve their pinned `ws` dependency locally; no sibling backend installation is needed. Rust fixtures use `/usr/bin/node` (26.10.0 tested).
 
 - [Fake-wire tests](<tests/transport.rs>): envelopes, cookies, correlation, limits, cancellation and privacy; not real Host behavior.
 - Scripted real backend checks: authentication, baselines, session/history operations and clean stop. Evidence remains local.

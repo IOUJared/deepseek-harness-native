@@ -1,0 +1,142 @@
+name: Native Linux CI and releases
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Only superseded PR checks are cancelled; distinct pushes retain their releases.
+  group: native-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_BUILD_JOBS: "2"
+  RUST_BACKTRACE: "1"
+  RUST_TOOLCHAIN: "1.99.0"
+  NODE_VERSION: "26.10.0"
+
+jobs:
+  checks:
+    name: Linux build and regressions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    outputs:
+      tag: ${{ steps.package.outputs.tag }}
+    steps:
+      - name: Check out the triggering commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential pkg-config libwayland-dev libxkbcommon-dev libegl-dev python3 binutils fonts-dejavu-core
+      - name: Select the tested Node version
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Bind fixture interpreter on this disposable runner
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Linux
+          node_executable="$(readlink -f "$(command -v node)")"
+          test -x "$node_executable"
+          test "$("$node_executable" --version)" = "v${NODE_VERSION}"
+          # Rust-owned fake processes deliberately clear PATH and use this literal path.
+          sudo ln -sfn -- "$node_executable" /usr/bin/node
+          test "$(/usr/bin/node --version)" = "v${NODE_VERSION}"
+      - name: Install standalone fake-wire dependency
+        run: npm ci --prefix transport/tests --ignore-scripts --no-audit --no-fund
+      - name: Select the tested Rust version
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
+          cargo --version
+      - name: Cache public Cargo dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: |
+            core
+            transport
+            app
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Prepare empty test scratch
+        run: mkdir -p app/evidence
+      - name: Test release metadata
+        run: python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
+      - name: Test supervisor protocol
+        run: node --test core/runtime/*.test.mjs
+      - name: Test qualification and packaging guards
+        run: |
+          python3 -B -m unittest discover -s scripts -p 'test_*.py'
+          python3 -B -m unittest discover -s benchmarks -p 'test_*.py'
+          python3 -B -m unittest discover -s app -p '*_test.py'
+      - name: Test Core with and without transport
+        run: |
+          cargo test --locked --manifest-path core/Cargo.toml -- --test-threads=2
+          cargo test --locked --manifest-path core/Cargo.toml --features transport -- --test-threads=2
+      - name: Test authenticated transport
+        run: cargo test --locked --manifest-path transport/Cargo.toml -- --test-threads=2
+      - name: Test native app and PUBLIC layout model
+        run: |
+          cargo test --locked --manifest-path app/Cargo.toml --bin dsh-native-app -- --test-threads=2
+          cargo test --locked --manifest-path app/Cargo.toml --features public-layout-fixture --bin dsh-native-app -- --test-threads=2
+          cargo check --locked --manifest-path app/Cargo.toml --all-targets --all-features
+      - name: Build release executable
+        run: cargo build --locked --release --manifest-path app/Cargo.toml --bin dsh-native-app
+      - name: Smoke test without a display or backend
+        run: env -u DISPLAY -u WAYLAND_DISPLAY app/target/release/dsh-native-app --help
+      - name: Ensure checks did not rewrite tracked sources
+        run: git diff --exit-code
+      - name: Package the tested main push
+        id: package
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'IOUJared/deepseek-harness-native'
+        run: |
+          # The license inventory includes all locked targets, including non-Linux sources.
+          cargo fetch --locked --manifest-path app/Cargo.toml
+          python3 -B .github/scripts/package_release.py --binary app/target/release/dsh-native-app --output release-output
+      - name: Retain release assets for the publishing job
+        if: steps.package.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-linux-release
+          path: |
+            release-output/*.tar.gz
+            release-output/SHA256SUMS
+            release-output/release-notes.md
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish versioned development release
+    needs: checks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'IOUJared/deepseek-harness-native'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ needs.checks.outputs.tag }}
+    steps:
+      - name: Check out the trusted publisher
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Download this run's tested assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: native-linux-release
+          path: release-output
+      - name: Verify downloaded assets
+        working-directory: release-output
+        run: sha256sum --check SHA256SUMS
+      - name: Publish verified draft assets, or verify a completed rerun
+        run: python3 -B .github/scripts/publish_release.py

@@ -1,9 +1,8 @@
 // Owned local fake BFF only; no Harness boot, model, profile, credential or external request.
 import http from 'node:http';
 import crypto from 'node:crypto';
-import path from 'node:path';
 import { createRequire } from 'node:module';
-const require = createRequire(path.resolve(import.meta.dirname, '../../../../deepseek-harness-linux/packages/api/gateway/package.json'));
+const require = createRequire(import.meta.url);
 const { WebSocketServer } = require('ws');
 const mode = process.argv[2];
 let origin, cookieName, root, rootId, held, reused = false, posts = 0, lists = 0;

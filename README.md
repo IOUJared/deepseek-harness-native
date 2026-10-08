@@ -33,6 +33,10 @@ cargo build --locked --release -j2 --manifest-path deepseek-harness-native/app/C
 
 [Run instructions](<app/README.md>) · [Feature status](<docs/FEATURE-PARITY.md>) · [Packaging limits](<docs/NATIVE-DEVELOPMENT-PACKAGE.md>)
 
+## CI and downloads
+
+[GitHub Actions](https://github.com/IOUJared/deepseek-harness-native/actions) checks pushes and pull requests. Each successful `main` push publishes a [development prerelease](https://github.com/IOUJared/deepseek-harness-native/releases) such as `v0.1.0-dev.1`, with a Linux executable archive and checksum. The compatible backend and Node remain separate. [Checks and release policy](<docs/CI-RELEASES.md>).
+
 ## Components
 
 | Component | Purpose |

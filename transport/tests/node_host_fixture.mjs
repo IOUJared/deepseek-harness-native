@@ -1,10 +1,9 @@
 // Local fake public BFF only: no Harness import, composition, model, or account mutation.
 import http from 'node:http';
 import crypto from 'node:crypto';
-import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { createRequire } from 'node:module';
-const require = createRequire(path.resolve(import.meta.dirname, '../../../deepseek-harness-linux/packages/api/gateway/package.json'));
+const require = createRequire(import.meta.url);
 const { WebSocketServer } = require('ws');
 const mode = process.argv[2] ?? 'normal';
 let origin, cookieName;

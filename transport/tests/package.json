@@ -1,0 +1,9 @@
+{
+  "name": "dsh-native-wire-fixtures",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "ws": "8.21.0"
+  }
+}
