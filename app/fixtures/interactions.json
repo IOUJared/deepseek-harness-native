@@ -1,0 +1,6 @@
+{
+  "approval": {"toolName":"bash","callId":"call-tool-1","reason":"A write operation requires your decision","displayReason":{"en":"Review this one operation","zh":"请确认此操作"}},
+  "questions": {"questions":[{"id":"mode","question":"Choose the mode","options":[{"label":"Safe","description":"Limited access"},{"label":"Fast"}]},{"id":"features","question":"Select features","multiSelect":true,"options":[{"label":"History"},{"label":"Streaming"}]},{"id":"notes","question":"Optional notes"}]},
+  "timed": {"questions":[{"id":"timed","question":"Timed decision","options":[{"label":"Yes"}]}],"wait":{"callId":"timed-call-1","timed":true}},
+  "plan": {"questions":[{"id":"plan","question":"Review this plan","detail":"1. Inspect files\n2. Change only the requested directory","options":[{"label":"Proceed"},{"label":"Revise"}],"intent":{"kind":"plan-review","approve":"Proceed"}}]}
+}

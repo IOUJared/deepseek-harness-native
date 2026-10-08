@@ -1,0 +1,23 @@
+[package]
+name = "dsh-iced-bench"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+
+[features]
+default = []
+gpu = ["iced/wgpu"]
+
+[dependencies]
+iced = { version = "=0.14.0", default-features = false, features = ["tiny-skia", "wayland", "basic-shaping", "tokio"] }
+serde_json = "=1.0.145"
+tokio = { version = "=1.48.0", features = ["time"] }
+png = "=0.18.0"
+raw-window-handle = "=0.6.2"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

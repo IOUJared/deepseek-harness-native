@@ -1,0 +1,22 @@
+[package]
+name = "dsh-native-transport"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT"
+description = "Secret-private native HTTP and WebSocket client for the DSH alpha BFF"
+
+[dependencies]
+base64 = "=0.22.1"
+cookie = "=0.18.2"
+futures-util = { version = "=0.3.34", features = ["sink"] }
+reqwest = { version = "=0.13.5", default-features = false, features = ["json", "stream"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+sha2 = "=0.10.9"
+tokio = { version = "=1.53.2", features = ["macros", "rt-multi-thread", "net", "sync", "time", "io-util", "process"] }
+tokio-tungstenite = { version = "=0.30.0", default-features = false, features = ["connect", "handshake"] }
+tokio-util = { version = "=0.7.19", features = ["rt"] }
+url = "=2.5.8"
+
+[workspace]

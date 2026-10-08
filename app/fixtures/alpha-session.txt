@@ -1,0 +1,23 @@
+System
+Local instructions
+---
+You
+Replaced user input
+---
+Assistant
+你好 world 🦀
+---
+Tool call
+read
+{"file_path":"example.txt"}
+---
+Tool result
+line one
+line two
+---
+plugin/progress
+{
+  "progress": 1,
+  "token": "[redacted]"
+}
+---

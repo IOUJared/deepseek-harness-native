@@ -1,0 +1,42 @@
+[package]
+name = "dsh-native-app"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT"
+publish = false
+
+[dependencies]
+dsh-native-core = { path = "../core", features = ["transport"] }
+dsh-native-transport = { path = "../transport" }
+iced = { version = "=0.14.0", default-features = false, features = ["wgpu", "tiny-skia", "wayland", "tokio", "advanced-shaping", "advanced"] }
+tokio = { version = "=1.53.2", features = ["macros", "rt-multi-thread", "sync", "time"] }
+futures-util = "=0.3.34"
+raw-window-handle = "=0.6.2"
+serde_json = "=1.0.151"
+serde = {version="=1.0.229",features=["derive"]}
+png = "=0.18.0"
+pulldown-cmark = { version = "=0.13.4", default-features = false }
+rustix = { version = "=1.1.5", features = ["fs"] }
+
+[features]
+public-layout-fixture = []
+
+[[example]]
+name = "layout_smoke"
+required-features = ["public-layout-fixture"]
+
+[[example]]
+name = "scroll_app_smoke"
+required-features = ["public-layout-fixture"]
+
+[workspace]
+
+[profile.dev]
+debug = 1
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

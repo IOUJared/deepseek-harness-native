@@ -1,0 +1,3 @@
+[build]
+# The standalone crate keeps its default target directory separate from Iced.
+jobs = 3
