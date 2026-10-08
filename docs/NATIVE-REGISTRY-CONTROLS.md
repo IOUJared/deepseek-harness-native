@@ -1,32 +1,33 @@
 # Native session pin/archive controls
 
-The native frontend now implements **pin/unpin** and **archive/restore without activity-stop authority**. This is reversible metadata management, not session deletion, rename, fork, import/export or desktop parity.
+Pin/unpin and archive/restore are reversible metadata operations, **without activity-stop authority**. They are not deletion, rename, fork, export or parity.
 
 ## Operator flow
 
-Select a known ordinary session, then **Manage**. Review the chosen operation and explicitly confirm. Current roster, Root connection and registry baseline must be authoritative; smoke, foreign modals and closing/disconnected lifetimes cannot submit. Review is invalidated if a new pin/archive/baseline frame arrives. No automatic retry follows failure.
-
-**View archived** in the native navigation switches to archived conversations. Selecting an archived session retains read-only history and offers Restore through Manage. Restore returns it to recent conversations but does not restore a former pin. Archived/unbaselined sessions cannot Send. The Host checks active turns, jobs, subagents and schedules before an ordinary archive; no `stopActivity` field or forced cancel command exists in this implementation. Archive retains logs and workspace accounting and unpins in the same durable registry write.
-
-Pin order is registry-global, **most recently pinned first**, not alphabetical or recency-with-pin-marker. Repeated pinning does not reorder an existing pin. Full pin arrays replace the previous snapshot. A cached rank map is rebuilt only on full updates to avoid a linear scan of every pin for each navigation sort comparison. Actual navigation is bounded to the first 200 displayed sessions; the roster bound remains 4096, registry lists 8192.
+- Select an ordinary session → **Manage** → review → explicit Confirm. Current roster, Root and registry baseline are required; new registry frames invalidate review. No automatic retry.
+- **View archived** opens read-only history; Restore returns to recent sessions without repinning. Archived/unbaselined sessions cannot Send.
+- Archive checks active turns/jobs/subagents/schedules, retains logs/workspace accounting and durably unpins. No `stopActivity` or forced cancellation.
+- Pins are registry-global, newest pin first; repinning does not reorder. Full arrays replace snapshots. Cached ranks avoid repeated scans. Bounds: **200 displayed / 4096 roster / 8192 registry IDs**.
 
 ## Implementation and lifetimes
 
-- [Typed transport](<../transport/src/http.rs>) exposes only `pin_session`, `unpin_session`, `archive_session`, `unarchive_session` with strict [SessionRegistryRequest DTO](<../transport/src/dto.rs>) containing `sessionId`. Unknown keys, positional arrays, `stopActivity`, `agent` and `signal` are rejected. Existing cookie/Origin authentication, response bounds, cancellation and revocation remain.
-- [Worker](<../app/src/worker.rs>) independently enforces owned epoch, smoke/stopping, eight overall operation slots and a **single management flight**, even for a different session. It discards full sets returned by the HTTP mutation and publishes only the matching metadata receipt. No Agent resume/model/catalog call is part of this mutation dispatch.
-- [Management reducer](<../app/src/management.rs>) fences epoch, selected-session generation, target ID, operation serial, registry review serial and panel lifetime. Closing a panel hides controls but does not cancel or roll back an admitted write. Disconnect invalidates the panel/pending operation; a late result cannot confirm a new lifetime.
-- [Actual UI](<../app/src/ui.rs>) requires the target to exist in its current roster and rejects subagent-origin targets for initial metadata controls. The dialog uses the same inert shell/input-capturing modal layer as native settings; queued background actions cannot Send, Stop, change selection or open another modal. Only actual worker/stream events advance remote state.
-
-**ACK and state are deliberately separate.** The Host has no comparable registry revision across HTTP and follow-stream snapshots. An ACK settles only the matching pending operation; it never installs its potentially older full sets or overwrites a newer stream. Membership and order shown by the UI derive from complete current stream frames. Known UI queue rejection is "not sent"; every admitted error is conservatively unconfirmed/possibly indeterminate. A live stream can show a committed change even if its ACK was lost. No refusal escalation, rollback or retry is inferred.
-
-Duplicate/oversized registry lists or increments without a baseline fail closed; controls/Send require a fresh valid baseline. Archive suppresses a pin during the brief interval between coupled archive/pin frames. Source identity is SessionId, never AgentId.
+- [Transport](<../transport/src/http.rs>): `pin_session`, `unpin_session`, `archive_session`, `unarchive_session`; strict `sessionId` DTO rejects unknown keys, arrays, `stopActivity`, `agent`, `signal`. Cookie/Origin, bounds and revocation remain.
+- [Worker](<../app/src/worker.rs>): owned epoch, no smoke/stopping writes, eight operation slots, one management flight across sessions; no Agent resume/model/catalog calls.
+- [Reducer](<../app/src/management.rs>): epoch/selection/target/operation/review/panel fences. Closing hides controls, **not an admitted write**; disconnect invalidates old receipts. Modal background actions are inert.
+- **ACK is not state:** mutation full sets are discarded; current complete stream frames determine membership/order. Queue rejection is NotSent; admitted errors may be indeterminate. Lost ACK may accompany a committed streamed change. No rollback/retry is inferred.
+- Invalid/duplicate/oversized lists or increments without baseline fail closed. Archive temporarily suppresses coupled pins. Identity is SessionId, not AgentId.
 
 ## Current evidence and remaining gates
 
-Parent coordinated all-target check and **107 native tests** pass (`bash-289`); the later shared suite has **108**, plus **five composed fixture guards = 113 passing Rust tests** (`bash-311`), preserving independently developed modern settings/modal changes. **34 runner tests** pass, including 19 registry guards with complete bounded RGBA8 PNG/CRC/zlib validation, malformed-prefix and decompression-bomb regressions. Seven reducer, six worker and three actual UI management tests cover ordered full-set replacement, archive/unpin coupling, stale reviews/confirmations/receipts, generation/epoch/target/serial/lifetime, modal input guards, baseline/smoke/roster authority, failures and queue/capacity/single-flight semantics. The transport independently passes **26 fixture groups plus one identity compile-fail doctest**, including seven new registry/auth/wire/order/body-bound/cancellation groups.
+Ignored evidence is **local-only, not GitHub downloads**: [qualification](<../app/evidence/parent-registry-qualification.json>).
 
-Read-only source review found no concrete authority/write/race blocker in the examined path. **Real Host composition passes** at application scales 1 and 1.25 using the [fixed PUBLIC actual-App fixture](<../app/examples/registry_composed_smoke.rs>) and [owned runner](<../scripts/qualify-composed-registry.py>). Each new keyless profile creates two sessions and verifies all six matching receipts plus independent full-set increments, pin ordering, archive+unpin coupling, actual archived/recent navigation, retained session registry/workspace accounting and restore without repinning. Both runs exit gracefully with code zero, no forced cleanup and no observed survivors. Parent opened all four archive/restore PNGs: centered dark Rosé Pine cards, explicit readable warning/Confirm/Back controls, no observed clipping. [Parent qualification](<../app/evidence/parent-registry-qualification.json>) links both actual reports. Fixture SHA256 is `edcc8f79245c836e302cfb68d325ebf48ba0998056e7c40c536a8f1b0a82fd90`; this is a separate binary, not the normal application's smoke mode. No real credential, model prompt, installed runtime/data or desktop configuration was used/changed; model/network absence is source/counter scope, not packet tracing. History retention follows the Host source contract, not an independent nonempty-history corpus comparison.
+| Historical checks | Result |
+|---|---|
+| Rust | 107 initially; 108 + five fixture guards = 113 |
+| Runner | 34, including 19 registry guards |
+| Transport | 26 fixture groups + identity compile-fail doctest |
+| Real composed scales 1/1.25 | Six receipts/run, ordering/archive/restore, graceful zero exit; four inspected PNGs |
 
-These scripted runs do **not** prove human keyboard/pointer/IME input, genuine compositor fractional scaling, active-work refusal under every provider, cross-client adversarial races, arbitrary-profile containment, plugin/settings changes authored after this build, or full desktop parity. Parent source formatting recheck subsequently encountered independently evolving plugin-settings worker code; this registry qualification is tied to the rebuilt/tested fingerprint, not a claim that later shared-workspace changes passed those same tests.
+These fingerprints do not qualify later shared-source changes. Human input/IME, compositor fractional scale, every-provider active-work refusal, cross-client races, arbitrary-profile containment and parity remain unqualified. Model/network absence is source/counter scope, not packet tracing; nonempty-history retention was not independently compared.
 
-See [exact alpha contract audit](<NATIVE-SESSION-MANAGEMENT.md>) for source links, global semantics and later rename/fork/export constraints.
+[Exact alpha contract](<NATIVE-SESSION-MANAGEMENT.md>).

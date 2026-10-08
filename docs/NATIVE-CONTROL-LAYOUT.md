@@ -1,62 +1,63 @@
 # Native control layout
 
-The user resumed implementation after the earlier shared-writer pause and requested fewer default paragraphs, small detail disclosures and Harness-style tool activity. The standalone native source now has one Settings entry, a More panel, collapsed secondary information and compact tool rows. Fresh execution and paint evidence is recorded below; historical manifests do not qualify this source.
+One Settings, More disclosure, collapsed secondary copy and compact Harness-style tool activity. Qualification belongs to named builds, not automatically to current source.
 
 ## Latest refinement
 
-[Native content-aware chat geometry](<NATIVE-CHAT-GEOMETRY.md>) supersedes the fixed 160px chat-preview spacing below. The new release uses measured 87–145px slots and narrow short-message user bubbles, while tools remain 40px and other raw roles 160px. Twenty PUBLIC captures plus actual keyless startup/teardown are separately qualified; the previous development archive remains frozen. The subsequent [reader-anchor refinement](<NATIVE-READER-ANCHORS.md>) adds generation/revision/feedback-fenced durable row restoration, with 24 source/model tests and a separate actual native operation probe. Its final capture qualification retains exact executables instead of mutable build targets; all twenty public frames match the fully inspected preceding snapshot. Production scroll/input coupling and real attachment effects remain separate gates.
+- [Chat geometry](<NATIVE-CHAT-GEOMETRY.md>) supersedes fixed preview spacing: measured **87–145px** chat slots, narrow user bubbles; tools 40px/raw roles 160px. Twenty PUBLIC captures plus real keyless startup/teardown; prior archive frozen.
+- [Reader anchors](<NATIVE-READER-ANCHORS.md>): generation/revision/feedback-fenced restoration, 24 source/model tests and native operation probe. Retained executables; twenty frames match prior inspected snapshot. Production scroll/input/attachment coupling remains separate.
 
 ## Observed baseline
 
-The [current native own-window screenshot](<../app/evidence/purposeful-layout-epxodggq/before/own-window.png>) shows two Settings entries (header and sidebar), a Manage/Settings/Info header cluster, persistent technical status, and account/shutdown controls next to everyday navigation. This is a real isolated-keyless native startup capture, not a desktop screenshot. Its binary/source provenance is recorded in [baseline evidence](<../app/evidence/purposeful-layout-epxodggq/baseline.json>) and its startup/teardown checks in [the run report](<../app/evidence/purposeful-layout-epxodggq/before/result.json>). The binary is the preceding release; concurrently changing source is not claimed to match that screenshot.
+**Local evidence, ignored on GitHub:** [before frame](<../app/evidence/purposeful-layout-epxodggq/before/own-window.png>), [provenance](<../app/evidence/purposeful-layout-epxodggq/baseline.json>), [run](<../app/evidence/purposeful-layout-epxodggq/before/result.json>).
+
+Earlier real keyless build showed duplicate Settings, header Manage/Info clutter and persistent technical/account/shutdown copy. Own renderer only; changing source was not claimed identical.
 
 ## Reference layouts and what to borrow
 
-- [Current OpenAI desktop Settings documentation](https://learn.chatgpt.com/docs/reference/settings.md) consolidates preferences into an application settings panel. [Project documentation](https://learn.chatgpt.com/docs/projects.md) groups chat search, projects and recent conversations in the sidebar. Borrow separation of navigation from preferences, not unsupported product features.
-- [Claude Desktop integration documentation](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop) separates configuration in Settings, tool use at the composer, and technical connection diagnostics in Developer settings. Borrow this use/configure/debug distinction.
-- [LM Studio UI modes](https://lmstudio.ai/docs/app/user-interface/modes) explicitly describes a simpler User interface and advanced Developer controls behind Settings. Its [chat documentation](https://lmstudio.ai/docs/app/basics/chat) puts duplication behind conversation-local more actions. The [official reference image](https://lmstudio.ai/assets/marketing/docs/chat.png), [retained locally](<../app/evidence/purposeful-layout-epxodggq/references/lmstudio-chat.png>), was pixel-inspected: chat/project navigation is left, conversation-specific actions are contextual, model choice is separate from message content, and composition stays at the bottom. The image itself labels LM Studio **0.3.2**; it is a historical official illustration, not proof of the latest app's exact appearance.
+| Reference | Borrowed separation |
+| --- | --- |
+| OpenAI [Settings](<https://learn.chatgpt.com/docs/reference/settings.md>)/[projects](<https://learn.chatgpt.com/docs/projects.md>) | Preferences vs navigation |
+| Claude [local MCP](<https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop>) | Use/configure/debug |
+| LM Studio [modes](<https://lmstudio.ai/docs/app/user-interface/modes>)/[chat](<https://lmstudio.ai/docs/app/basics/chat>) | Simple defaults/contextual actions |
 
-The placement reasons below are design inference, not statements from the original designers or measured usability superiority. No reference app/account was launched. Only our native app's own renderer was captured.
+LM Studio [official image](<https://lmstudio.ai/assets/marketing/docs/chat.png>), [local retained evidence](<../app/evidence/purposeful-layout-epxodggq/references/lmstudio-chat.png>), was inspected; labels **0.3.2**, not latest appearance. Placement is design inference, not designer testimony/usability proof. No reference app/account launched.
 
 ## Placement inventory
 
-| Element | Purpose | Placement/reason |
-| --- | --- | --- |
-| Brand and collapse/Menu | Identify the app and recover navigation at narrow sizes | Sidebar top; preserve finite, visibility-gated native motion |
-| New conversation | Start independent work | Beside navigation, not mixed with backend setup |
-| Search, recent conversations, archive view | Find/resume stored work | One sidebar history region; archive is a contextual history filter |
-| Workspaces disclosure | Select/open the filesystem work context | Grouped with navigation; hide directory controls until requested |
-| **Settings** | Application preferences, API login, Codex and plugins | **One stable footer entry**; the expanded sidebar or compact rail uses the same action and label, never both or an additional header shortcut |
-| Conversation title and running indication | Identify the selected work and its observed state | A short header; avoid repeating the model selector here |
-| More options | Less-frequent conversation/application actions | One explicit secondary disclosure; Manage opens the existing reviewed pin/archive/export flow; Information contains capabilities/diagnostics; Close retains owned-backend lifecycle semantics |
-| Transcript and detail disclosure | Distinguish user/assistant work from tool activity | User bubble right, assistant left; slim muted-grey 40px single-line tool summaries with a small detail chevron. Other records retain 160px cards; the same raw-row height function drives visible ranges, spacers and older-page anchors |
-| Editor | Compose without accidentally submitting | Bottom composer; Ctrl+Enter remains explicit Send, Enter remains a new line |
-| Model/catalog and reasoning controls | Choose request-affecting options | Near composition; all provider catalog/model operations remain explicit, with no automatic loading |
-| Send | Submit the user's draft | Primary composer action; preserve all current guards |
-| Stop | Request cancellation of selected work | Composer action, or fixed header/toolbar when composition is replaced by a local panel; do not infer safety from a stale idle summary |
-| Status/diagnostics | Explain progress, failures and uncertainty | Suppress only exact, controlled routine-success copy from the normal header; full status remains in Information. Preserve every warning, unknown/error, refusal and indeterminate result |
-| Decisions | Explicitly allow/reject/answer pending owned requests | Preserve current cards and isolated decision sheets, tickets and acknowledgement semantics |
+| Control | Placement / reason |
+| --- | --- |
+| Brand/collapse/Menu | Navigation top; finite visibility-gated motion |
+| New/search/recent/archive | Sidebar work navigation; archive is a history filter |
+| Workspaces | Navigation disclosure; hide directory controls until needed |
+| **Settings** | **Single footer/rail entry**, never duplicate header control |
+| Title/running | Short identity header, not another model selector |
+| More | Manage reviewed pin/archive/export; Information diagnostics; Close owned shutdown |
+| Transcript | Right user/left assistant; muted 40px tool summaries; raw cards 160px; shared height/anchor calculation |
+| Editor/models/reasoning | Bottom composition; explicit catalog; Enter newline/Ctrl+Enter guarded Send |
+| Send/Stop | Primary action; Stop remains reachable when panels replace composer |
+| Status/decisions | Hide only exact routine success; retain warnings/unknown/errors/consent/cancellation and authority |
 
-Optional/legacy Account metadata is not ChatGPT/Codex login state. Move it to Information with an explicit label rather than displaying a confusing global SignedOut badge. ChatGPT connection status belongs in Settings → Codex.
-
-Compact navigation's Done/Stop toolbar should be fixed outside its scrollable body. Shorter keyboard hints and separately laid-out model/reasoning controls should reserve action space at narrow heights. Long catalog labels must not be silently changed into ambiguous model identities.
+- Legacy Account metadata belongs in Information, explicitly distinct from Codex login.
+- Compact navigation Done/Stop stays outside scroll body; reserve narrow-height action space and preserve unambiguous model identities.
 
 ## Progressive disclosure and conversation
 
-General appearance and shortcut explanations, API help/privacy, Codex recovery and About Harness features/diagnostics are collapsed behind small labelled chevrons. Consent, replacement/no-validation warnings, confirmations, retry uncertainty, errors and active cancellation stay visible. More and Info messages are rejected when their actual controls are covered by navigation or modal panels; disclosures never issue business operations or erase the conversation draft.
-
-The same-version Harness [ToolRow source](<../../deepseek-harness-linux/packages/client/ui-tool/src/client/tool/components/ToolRow.tsx>) separates a compact secondary summary from lazily requested input/output. Native [activity summaries](<../app/src/activity.rs>) borrow that hierarchy, not React/webview implementation. Read/edit/write rows name a file; shell rows show a bounded safe command. Full arguments/output and timestamps require the local read-only detail pane. Exact recorded error flags remain marked in collapsed rows; a recorded call/result never implies execution or success. Pairing uses exact alpha call ID, source, turn and step metadata, with generic fallback for missing/ambiguous data. Known secret-field/command suppression is conservative, not a general secret detector. Durable records, surface folding, sequence identity and source truncation are unchanged.
+- Small chevrons hide General/API help/Codex recovery/About diagnostics—not consent/replacement/no-validation/uncertainty/errors/active cancellation.
+- Covered More/Info messages rejected; disclosure never executes business operations or clears draft.
+- [Harness ToolRow](<https://github.com/IOUJared/deepseek-harness-linux/blob/native-linux/packages/client/ui-tool/src/client/tool/components/ToolRow.tsx>) informs [native summaries](<../app/src/activity.rs>): bounded safe file/command names, lazy read-only details/timestamps, visible recorded errors.
+- Exact call/source/turn/step pairing; ambiguous data falls back. Secret suppression is conservative, not universal detection. Records remain separate; observed call/result is not execution/success proof.
 
 ## Safety and verification
 
-Cancellation admission stays unchanged: selected work may be active before roster.running catches up, and prompt/cancel acknowledgements do not prove idle. Cosmetic simplification must not hide the only cancellation path. Modal backgrounds remain inert; no new exemption allows stale menu messages to bypass settings/management/export/decision fences.
-
-Qualification uses serialized locked/offline Cargo with two jobs and the feature-gated [actual-App public fixture](<../app/src/layout_fixture.rs>) plus [own-renderer runner](<../app/examples/layout_smoke.rs>). Its public presets cover wide, 760×560 and embedded 608×448 logical frames (including application scale 1.25), menu/navigation, long model/reasoning, warning, General/Codex, collapsed/expanded information and tool activity. Widget operations measure only known container bounds; inactive settings backgrounds are painted but excluded from operations. A public fixture has no App subscription, worker start or effect executor, counts and discards captured Commands, and drops widget messages. Programmatic disclosure tests are not physical input.
+- Stop admission never trusts stale roster idle; prompt/cancel ACK is not idle. Modal backgrounds remain inert; no stale-message bypass.
+- [Actual-App fixture](<../app/src/layout_fixture.rs>)/[runner](<../app/examples/layout_smoke.rs>): wide, **760×560/608×448** logical frames and app scale 1.25. Known-container bounds only; no subscription/worker/effect executor; commands counted/dropped, not physical input.
 
 ### Latest execution evidence
 
-The [final qualification](<../app/evidence/control-layout-fyk2oz31/qualification.json>) pins production SHA-256 `e93345bd6921e6a58b6dfe52fb8b02caa02ba082cb3b104f55db87cd0a57b19c` (15,415,656 bytes), separate fixture hash and app-source hashes. Formatting, feature all-target checks, 314 default app tests, 316 feature app tests, 318 fixture-example tests and both optimized builds passed. All 19 public rendering/known-control-bound cases and one actual isolated keyless Wayland startup/real snapshot/graceful teardown passed, with zero catalog/prompt requests. Parent paint inspection covers changed final frames directly and unchanged frames by byte identity with the directly inspected prior capture. [Harness-style conversation](<../app/evidence/control-layout-fyk2oz31/tool-activity/own-window.png>), [requested tool details](<../app/evidence/control-layout-fyk2oz31/tool-activity-details/own-window.png>), [short General settings](<../app/evidence/control-layout-fyk2oz31/settings-general/own-window.png>) and [real keyless native app](<../app/evidence/control-layout-fyk2oz31/real-keyless/own-window.png>) show the actual renderer, not image generation.
+**Local evidence:** [qualification](<../app/evidence/control-layout-fyk2oz31/qualification.json>), [tools](<../app/evidence/control-layout-fyk2oz31/tool-activity/own-window.png>)/[Details](<../app/evidence/control-layout-fyk2oz31/tool-activity-details/own-window.png>)/[General](<../app/evidence/control-layout-fyk2oz31/settings-general/own-window.png>)/[real startup](<../app/evidence/control-layout-fyk2oz31/real-keyless/own-window.png>).
 
-The supplied user screenshot prompted the final change from rounded tool cards to slim single-line grey disclosures. Input and output records remain separately inspectable, with an Output/error suffix that cannot disappear behind a truncated tool name; records are not merged, discarded or treated as proof of execution. Details currently open a local read-only pane rather than the Web UI's inline rich diff/read renderer. Tiny scrollable content may be below the fold, while Settings and the applicable Stop/Send controls stay inside measured frames.
-
-An embedded requested frame is not compositor fractional-scaling qualification. No physical pointer/keyboard/IME, accessibility, integrated performance, real-account/model generation or full-parity claim follows from these checks. The installed Web GUI, real credentials/profiles, desktop settings and historical development package remain unchanged.
+- Release **15,415,656 bytes**, SHA `e93345bd6921e6a58b6dfe52fb8b02caa02ba082cb3b104f55db87cd0a57b19c`; fixture/source pins separate.
+- Formatting/all-target, **314/316/318** default/feature/example tests, both optimized builds; **19** public cases plus real isolated keyless Wayland/fold/clean teardown; zero prompts/catalog requests.
+- Changed frames inspected; unchanged frames byte-match inspected predecessors. Slim grey tool disclosures retain separate input/output, visible Output/error suffix and local read-only Details—not inline rich diff.
+- Settings/Stop/Send remain measured in frame; tiny content may scroll below fold. Not physical input/IME/accessibility, compositor fractional scaling, integrated performance, real account/model generation or parity. Installed GUI/data/desktop and historical package unchanged.

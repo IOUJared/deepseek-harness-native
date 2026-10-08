@@ -1,21 +1,28 @@
 # Native development Node prerequisites
 
-Reference scope: current Linux development launcher and package-qualification scripts, not Core's direct-launch API or a bundled runtime.
+Development launcher/package checks, **not Core direct-launch policy or bundled runtime**.
 
 ## Accepted observations
 
-The [launcher](<../scripts/development-launcher.py>) and [package qualifier](<../scripts/qualify-development-package.py>) share the same strict version parser and five-second probe timeout. The default probe is fixed `/usr/bin/node --version`; current launcher source also accepts an explicit absolute canonical executable via `--node`, never PATH or fallback. A selected program is executed even during `--check`; choose only a trusted executable. Environments scrub credential/Node/loader overrides. Accepted output is ASCII `v26.<numeric minor>.<numeric patch>` with one to four digits in each numeric component and at most one trailing LF. Process status must be exact integer zero; accepted stdout is at most 32 bytes and stderr at most 1,024 bytes. Wrong major, incomplete/malformed versions, extra lines/control bytes, failure and timeout refuse without reporting raw stdout/stderr.
+[Launcher](<../scripts/development-launcher.py>) / [qualifier](<../scripts/qualify-development-package.py>) share strict parser and **five-second** probe. Default `/usr/bin/node --version`; optional `--node` selects an absolute canonical executable, never PATH/fallback. **Even `--check` executes it: trust the selected program.** Credential/Node/loader overrides are scrubbed.
 
-This bounds accepted metadata, **not adversarial probe memory**: Python buffers subprocess output before inspecting its length. The system executable is trusted; the probe does not bind its inode/hash across later startup. No Node subprocess ownership/teardown implementation or Core validation policy changes.
+| Accepted metadata | Bound |
+|---|---|
+| Version | ASCII `v26.<minor>.<patch>`, each numeric component 1–4 digits, optional single trailing LF |
+| Exit status | Exact integer zero |
+| stdout/stderr | ≤32 / ≤1024 bytes |
 
-`--check` returns actual `nodeVersionObserved`, `nodeSelectionMode` and fixed `nodeMajorAccepted:26`; only omitted/default selection additionally reports the legacy `systemNodeVersionObserved`, alongside prerequisite-only flags. It does not acquire the data lock, create native data, start a GUI/Host or validate complete runtime dependency resolution. This additive report does not upgrade a prerequisites-only check to startup qualification. The private `plan()` five-value result remains compatible; optional observations carry only public version metadata.
+Wrong major/malformed/control/extra output/failure/timeout refuse without raw output. Python buffers before length checks: **not adversarial memory containment**. Probe does not bind inode/hash to later launch or change subprocess ownership/Core validation.
 
-The builder's certificate-derived qualified patch was already corrected in the earlier archive work; it is not a new Core fix. Accepting numeric Node 26 patches is development-launch policy, **not qualification of every patch**. The actual system tested here is v26.10.0.
+`--check` reports `nodeVersionObserved`, `nodeSelectionMode`, `nodeMajorAccepted:26`; legacy `systemNodeVersionObserved` only for default selection. It acquires no data lock, creates no data and starts no GUI/Host; prerequisite-only, not runtime dependency/startup validation. Private five-value `plan()` stays compatible.
+
+Numeric Node-26 acceptance does **not qualify every patch**. Actual tested system: **v26.10.0**; certificate patch correction was earlier builder work.
 
 ## Retained qualification
 
-[Parent qualification](<../app/evidence/node-version-observation-apneifwz/qualification.json>) records **66 package/builder/launcher/archive guards** with malformed/status/timeout privacy refusals, alternate PUBLIC patch observations, unchanged tuple consumers and rejection before execution/native data creation. See [guard log](<../app/evidence/node-version-observation-apneifwz/package-guards.log>) and [real prerequisite report](<../app/evidence/node-version-observation-apneifwz/actual-preflight.json>).
+Ignored [parent qualification](<../app/evidence/node-version-observation-apneifwz/qualification.json>) is **local-only**, not a GitHub download.
 
-A new private staging directory contains the current launcher and the frozen previously qualified native executable, SHA-256 `33f79d25f020f84a7ed65174417d489f0b161c6e503880353e299d7a16e3cf5d`. Actual launcher→native→explicit same-version alpha Host runs passed at application scales [1](<../app/evidence/node-version-observation-apneifwz/scale1/result.json>) and [1.25](<../app/evidence/node-version-observation-apneifwz/scale125/result.json>): observed v26.10.0, blank real session/fold, zero catalog/model generation, native Wayland, graceful stop/no observed survivors and released advisory lock. [Scale-1 paint](<../app/evidence/node-version-observation-apneifwz/scale1/evidence/own-window.png>) and [scale-1.25 paint](<../app/evidence/node-version-observation-apneifwz/scale125/evidence/own-window.png>) were directly inspected; both exactly match retained archive paint. These are application scales, not compositor fractional-scaling evidence.
-
-No Rust source or compiled native default changed in this step. In particular, the later source [Details lifecycle fix](<NATIVE-DETAIL-LIFECYCLE.md>) is not present in that frozen executable. That older development archive retains its original hash; the staged launcher verification above is not archive replacement. The separately rebuilt [current development archive](<NATIVE-DEVELOPMENT-PACKAGE.md>) now ships both the observed-Node launcher and Details lifecycle fix with [current distribution evidence](<../app/evidence/package-node-copy-refresh-qpwmgtsn/qualification.json>), which also covers explicit selection/default preservation. The older [lifecycle archive qualification](<../app/evidence/package-lifecycle-refresh-_20f978m/qualification.json>) remains historical. Neither qualification establishes self-contained Node/Host relocation, physical input or full parity. Installed runtime/profile data and desktop settings remain unchanged.
+- **66 guards:** malformed/status/timeout privacy, PUBLIC alternate patches, tuple compatibility, refusal before data/startup.
+- Fresh staging with frozen `33f79d…` native executable: real launcher→native→full alpha Host at application scales **1/1.25**, v26.10.0, blank fold, zero catalog/generation, native Wayland, graceful stop/no observed survivors/released lock. Both inspected paints match prior archive.
+- That binary **lacks later Details lifecycle fix**; staging did not replace its archive. [Current development package](<NATIVE-DEVELOPMENT-PACKAGE.md>) separately qualifies observed/explicit Node plus lifecycle fixes; older evidence stays historical.
+- No Rust/default binary changed in this step. No self-contained Node/Host relocation, physical input, compositor fractional scale or full parity claim; installed data/settings preserved.

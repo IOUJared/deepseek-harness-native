@@ -1,28 +1,31 @@
 # Native registered-Agent discovery
 
-With Core's `transport` feature, `Backend::request(Command::DiscoverSessionAgent(SessionId), timeout)` returns `PublicReply::AgentDiscovery(AgentDiscovery { session_id, agent_id: Option<AgentId> })`. This is a private native control, **not a new Gateway RPC**. The [controller](<../core/runtime/fork-supervisor.mjs>) scans the existing live registry for the requested session, checks the exact registered object, and returns that object's actual `id`. It performs no create, resume, prompt, cancel, history subscription, account read or credential operation. No match returns explicit `None`; ambiguity, stale membership, unavailable service or unsupported identifier fails instead of guessing. Identifiers are nonempty Unicode scalar strings, at most 512 UTF-8 bytes, with no Unicode whitespace/control characters. The complete reply remains inside Core's existing 64 KiB framing limit.
-
-The [typed decoder](<../core/src/agent_discovery.rs>) accepts only `sessionId` plus `agentId` (string or null). The [Core request](<../core/src/lib.rs>) validates the echoed requested session after existing request-ID/command correlation; an unrelated session cannot be delivered as a successful discovery result. The optional `AgentId` is distinct from `SessionId`, even when their wire bytes match. IDs are metadata, not bearer credentials, leases or authorization grants.
+- With Core `transport`: `Backend::request(Command::DiscoverSessionAgent(SessionId), timeout)` → `PublicReply::AgentDiscovery(AgentDiscovery {session_id,agent_id:Option<AgentId>})`.
+- Private control, **not Gateway RPC**. [Controller](<../core/runtime/fork-supervisor.mjs>) scans live registration and checks the exact object. No create/resume/prompt/cancel/follow/account/credential operation.
+- Missing → None; ambiguity/stale membership/unavailable service/unsupported ID → failure, never guessing. IDs: nonempty Unicode scalars, **≤512 UTF-8 bytes**, no whitespace/control; complete Core frame **≤64 KiB**.
+- [Decoder](<../core/src/agent_discovery.rs>) accepts only sessionId/nullable agentId; request/command correlation plus echoed-session validation. AgentId and SessionId are distinct metadata, **not credentials, leases or grants**.
 
 ## Lifetime and use
 
-Run this blocking read on an application worker. A result describes registration at one synchronous Host read only. Retain the originating Host epoch, selected-session generation and request ticket; discard results after navigation, owner replacement, timeout or disconnection. Core checks the requested session echo, but it cannot know a caller's later UI selection. Never automatically resume a missing Agent. Each later Gateway operation must resolve the returned `AgentId` again; disposal/replacement can occur immediately after discovery. This adds no continued-question claim, attachment upload, model call or native subagent control.
-
-The audited alpha [AgentRegistry](<../../deepseek-harness-linux/packages/core/agent/src/index.ts#L459-L463>) actually enforces equal Agent/session ID bytes. Native's differing-ID decoder/service-adapter fixtures check semantic identity preservation; they do **not** demonstrate valid differing-ID registration in that concrete implementation. Existing Session summaries/projections return `agentAvailable`, not actual Agent identity; history follow can activate an Agent and is not substituted for this read.
+- Run on worker; result is one synchronous registration observation. Fence Host epoch, selection generation and request ticket; discard stale/timeouts/disconnects.
+- Never resume a missing Agent automatically. Later Gateway operations re-resolve identity; disposal/replacement may immediately invalidate it.
+- Concrete alpha registry enforces equal Agent/session bytes. Differing-ID adapter tests check semantics, **not valid differing-ID alpha registration**. `agentAvailable` is not identity; history follow can activate.
 
 ## Development SDK upgrade
 
-The transport-enabled `Command` and `PublicReply` enums add `DiscoverSessionAgent` and `AgentDiscovery`; update exhaustive matches in Rust consumers. No dependency, public alpha Remote endpoint, persistence type, session-format generation, installed profile or runtime changed. Default Core builds without `transport` do not expose this operation. Native attachment and subagent UI integration is still pending; the separately paused control-layout work remains untouched.
+Transport-enabled `Command`/`PublicReply` add variants; update exhaustive matches. Default non-transport Core does not expose discovery. No dependency, alpha RPC or persistence change; UI integrations remain separately qualified.
 
 ## Qualification
 
-The [Node tests](<../core/runtime/agent-discovery.test.mjs>) cover exact object identity, explicit absence, ambiguity/stale observations and closed multibyte input limits; they run alongside all 18 existing account observer/retirement cases (22 total). [Rust decoder tests](<../core/src/agent_discovery.rs>) and [owned-process correlation tests](<../core/src/agent_discovery_tests.rs>) cover typed presence/absence, extra/malformed/oversized fields, echoed-session mismatch and graceful process cleanup. Transport-enabled Core passes 56 tests and six privacy doctests; all native app targets compile. These are not a GUI-input qualification.
+Ignored [parent manifest](<../app/evidence/parent-agent-discovery-qualification.json>) is **local-only**.
 
-Two independently owned actual-profile fixtures use the unchanged full same-version public alpha composition, fresh private storage and pidfd-fenced cleanup:
+| Historical checks | Result |
+|---|---|
+| Node | Four discovery + 18 observer cases = 22 |
+| Core/App | 56 transport Core + six privacy doctests; 50 default Core; 285 App; all-target checks |
+| Qualifier denial tests | Eight |
+| Real registry/factory | Absence→registered exact object→repeat→post-disposal absence; no substituted provider |
+| Typed SDK | Explicit separate BFF creation, identity/echo/repeat, history/roster/control, stop/revocation; no prompt/catalog |
+| Production regression | Eight-second keyless Wayland smoke at scale 1.25, graceful stop |
 
-- [Actual registry/factory/private-supervisor run](<../app/evidence/agent-discovery-host-02/result.json>): absent before creation, one actual registered top-level Agent, exact object-derived identity, unrelated-session absence, stable repeated read and absence after disposal. No service provider is substituted; no followup is sent, and a setup-time pre-step guard rejects unexpected wakes. Subject event counters are installed after creation returns; the guard covers earlier unexpected wakes. The report does not claim a process-wide network trace or zero work in mandatory profile boot.
-- [Actual typed Core/HTTP/WS run](<../app/evidence/agent-discovery-sdk-01/result.json>): missing-ID lookup, explicit BFF session creation, typed live identity/echo/repeat checks, normal history/roster/control integration and stop admission/transport revocation. Creating the fixture session is a separate explicit operation, **not a discovery side effect**. The SDK never requests a model catalog or submits a prompt; the initial journal contains no turn/model/tool generation records. Post-disposal absence is qualified by the Node fixture, not this SDK run.
-
-The first [Node run](<../app/evidence/agent-discovery-host-01/result.json>) is retained but superseded: its step counter used the nonexistent `turn/step` key. The primary second run counts actual `step/start` and `step/end`; SDK snapshot denials and their tests include both. This correction does not turn the snapshot into a process-lifetime model/network trace. A [fresh account-default regression](<../app/evidence/account-discovery-regression-01/result.json>) passes zero native-owned observation at Ready, explicit watch activation/retirement and clean exit under the reused ownership runner. The [rebuilt production app](<../app/evidence/agent-discovery-production-01/result.json>) passes an eight-second keyless owned Wayland smoke at application scale 1.25 with graceful shutdown; no new paint/input or representative performance qualification is claimed.
-
-The [parent qualification manifest](<../app/evidence/parent-agent-discovery-qualification.json>) pins source/executable/evidence identities and the checks actually run. Runner `sourceUnchanged` covers only its listed script/binary and three adapter inputs, not a complete dependency build. This round also passes 50 default-Core tests, 285 App tests, Core all-target checks with/without transport and eight qualifier denial tests. Historical packages and earlier evidence retain their own binary identities; they do not inherit this code. Physical input, native attachment intake, rich file previews, subagent/continued-question controls, representative performance and standalone installation remain unfinished.
+First Node run's nonexistent `turn/step` counter is superseded by real step/start/end counts. Counters/snapshots are not process-lifetime network/model tracing; SDK did not qualify post-disposal absence. Runner source pins cover listed inputs, not complete dependency closure. Physical input, files/previews, subagent/continued controls, performance and standalone installation remain unfinished; old packages do not inherit changes.

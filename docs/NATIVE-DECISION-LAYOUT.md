@@ -2,30 +2,27 @@
 
 ## Fixed controls, scrollable request content
 
-[Production decisions](<../app/src/interactions.rs>) now render a finite parent-constrained, centered sheet capped at 760×720 logical units. Header/navigation and terminal reply controls are non-scroll siblings of a Fill-height request scrollable, rather than children of a whole-sheet scrollable. Outer/sheet padding is 12/20 logical units. Long question batches, metadata, rationale, unsupported previews and full bounded error text consume only request-body space; Submit/Cancel/approval controls retain their layout slots. The pending-decision list uses the same fixed Back/navigation hierarchy.
-
-Footer phase/error text is a small static summary, never interpolated multiline transport error content. Full error detail stays in the scrollable request. Explicit questions retain multi/custom/skip instructions and exact complete-answer validation. Native Allow once/Reject/Cancel, local panel Close-versus-business Cancel, submitting/disconnected controls, checked worker key/epoch/attempt admission and ACK retirement are unchanged. Opening/rendering/closing/listing does not emit an answer, acquire a timed claim, delegate or modify permissions. Timed/continued UI stays unsupported.
-
-The header and terminal actions are ordinary Iced native widgets. They are not hardcoded screen coordinates or clipped footer regions. Fill allocation depends on finite parent limits and enough room for non-scroll chrome; this is not a guarantee for arbitrarily tiny windows, unbounded custom parents or every scale. The sheet width/height caps and practical constrained viewport are not settings for the desktop/compositor.
+- [Production sheet](<../app/src/interactions.rs>): centered, parent-constrained **760×720** cap; outer/sheet padding **12/20** logical units. Header/navigation and terminal controls are fixed siblings of the Fill-height request scrollable.
+- Long requests/full errors scroll; footer uses a short static status. Explicit question validation, worker/epoch/attempt fences and ACK retirement are unchanged.
+- Close is local; question Cancel is business cancellation. Render/open/close emits no answer, claim, delegation or permission change. **Timed/continued UI is unsupported**.
+- Native widget allocation requires finite parent limits and room for chrome; no arbitrary tiny-window/all-scale guarantee or compositor settings change.
 
 ## Parent results
 
-[Final parent evidence](<../app/evidence/parent-decision-layout-qualification.json>) pins production SHA `aa299002afc2b57073a8fec56d301bfc59ad051a87ef00fb2fcf2488aa4f5e68` and composed fixture SHA `e42465bb5a5f82a44da6f9d31131c25ae1dd7fe96e11751f1f04adf7ed6adf4c`. All **277 native-app tests**, all-target consumer check, both offline locked release builds and six Python qualification-oracle tests pass.
+Ignored evidence is **local-only, not GitHub downloads**: [qualification](<../app/evidence/parent-decision-layout-qualification.json>).
 
-| Real Host/native renderer run | Parent inspection |
+| Check | Historical result |
 |---|---|
-| [Requested 608×448 logical parent, scale 1.25](<../app/evidence/decision-layout-01-minimum/result.json>) | Complete Close/approval/Submit/Cancel/status visible; only request content scrolls |
-| [Full parent, scale 1.25](<../app/evidence/decision-layout-02-scale-125/result.json>) | Centered capped sheet and complete fixed reply/navigation chrome |
-| [Full parent, scale 1](<../app/evidence/decision-layout-03-scale-1/result.json>) | Readable fixed reply/navigation chrome and request-only scrolling |
+| Tests/builds | 277 App tests, all-target check, two offline locked release builds, six Python oracle tests |
+| Real composed paint | Scales 1/1.25 and requested 608×448 parent at 1.25; six inspected frames with complete fixed controls |
+| Each composed run | Three native ACKs/four Host settlements, exact root/roster, closed zero-step turn, disposal, graceful zero exit/two observed processes |
+| Production lifecycle | One 20-second blank-profile run, scale 1.25; native Wayland/blank fold/clean exit |
 
-All three actual runs retain matching three native ACKs/four independent Host settlements, exact root and successful roster, one audited closed zero-step fixture turn, disposal, two observed owned processes and graceful zero exit without external escalation. Parent inspected all six pending-request frames, including [the constrained question sheet](<../app/evidence/decision-layout-01-minimum/decision-2.png>); these are not painted entered-answer or physical-input captures. The sufficiently large own native window was 1272×1402 in these runs; the constrained preset remains a requested/source-pinned parent constraint, not an independent exact widget-bounds measurement.
-
-A separate [production-binary 20-second keyless startup/lifecycle sample](<../app/evidence/decision-layout-production-01/result.json>) at scale 1.25 also passes native Wayland, actual blank-session fold and clean zero exit/no observed survivors. Late 31-sample full observed process-tree medians are RSS 333,816 KiB (~326 MiB), PSS 262,627 KiB (~256 MiB), DRM VRAM 57,776 KiB; sampled idle CPU is median 0%, mean 0.37%, maximum 1.91% of one core. Compositor-map proxy was ~555 ms, **not** first presented frame timing. This is one fresh blank-profile sample, not representative long-chat/model/tool/Codex workload, a controlled comparison with older startup samples, or evidence that this layout change improved performance. No new installer/development archive is produced.
+Production late-tree medians (31 samples): **RSS 333,816 KiB / PSS 262,627 KiB / DRM VRAM 57,776 KiB**. CPU median/mean/max: **0/0.37/1.91%** of one core. Map proxy **~555ms**, not first-frame timing or measured layout improvement.
 
 ## Verification scope
 
-Debug unit geometry uses the **same generic shell** with Iced's null renderer and space fixtures, checking that header/footer and positive body viewport slots are stable for short versus 8192-unit body content at logical 608×448, 760×560 and 1000×800. It qualifies shell allocation, not actual font shaping, native input or paint. Reducer regressions cover draft-preserving view/list/close/reopen, non-forwarding navigation during submitting/disconnected phases, and fixed footer notice with retained multiline errors. Existing exact approval/question/ownership tests remain applicable.
-
-The [actual Host fixture](<../app/examples/decisions_composed_smoke.rs>) imports these production widgets and handlers and still checks three exact native reply ACKs/four separate real Host settlements, one audited closed zero-step fixture-Agent turn, disposal and graceful shutdown. Its new `--viewport minimum` adds **608×448 logical parent constraints** inside its own window, alongside the existing full view. This is not an OS window resize, change of display settings, division of stored App dimensions or physical scrolling test. The [runner](<../scripts/qualify-composed-decisions.py>) requires matching **declared requested** logical bounds and unchanged binary identity; it does not independently measure effective widget bounds. `Length::Fixed` is clamped by parent limits, so the mapped own window must also have sufficient room for banner, padding and frame. PNG-envelope validation is not enough to establish control visibility: parent inspection of each own-renderer capture must separately verify complete Close/Submit/Cancel/status chrome.
-
-[Earlier composed evidence](<NATIVE-COMPOSED-DECISIONS.md>) remains historical: its large-scale question footer extended below the captured viewport, and its older binary/package/source hashes do not inherit this layout fix. Native keyboard/pointer/scrolling, focus traversal/auto-reveal, IME/accessibility, compositor fractional scaling, all approval outcomes/tool execution and representative integrated performance remain separate qualification work.
+- Null-renderer tests exercise shell slots with short/8192-unit bodies at **608×448, 760×560, 1000×800**; not font shaping/input/paint.
+- [Real fixture](<../app/examples/decisions_composed_smoke.rs>) uses production widgets. `--viewport minimum` requests internal **608×448** constraints, not OS resize. Runner validates declarations/binary, **not independently measured effective bounds**; mapped window was 1272×1402. PNG presence alone cannot prove controls visible.
+- [Earlier composed evidence](<NATIVE-COMPOSED-DECISIONS.md>) retains its clipped footer/older hashes; it does not inherit this fix.
+- Physical input/scroll/focus/IME/accessibility, compositor fractional scaling, every approval/tool outcome and representative integrated performance remain unqualified. No new archive/installer.
