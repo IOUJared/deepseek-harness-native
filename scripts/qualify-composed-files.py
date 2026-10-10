@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Owned scripted actual App/Worker/file upload/private PromptFile binding; no physical input or model history proof."""
+"""Owned actual App/Worker/file admission, keyless catalog and joined draft Tasks; no physical input, model history or full-process restart proof."""
 import argparse
 import asyncio
 import hashlib
@@ -23,10 +23,14 @@ MAX_PNG = 32 * 1024 * 1024
 COUNTERS = {'nativeAcks': 3, 'actualFileStages': 3, 'hostSettlements': 3, 'explicitPrompts': 3,
             'actualAppPromptCommands': 3, 'currentTicketProbeRefusals': 6, 'staleUploadRefusals': 3,
             'duplicateSendRefusals': 6, 'staleRemoveRefusals': 2, 'staleAckRefusals': 2,
-            'unexpectedWork': 0, 'explicitModelPrompts': 0, 'manualBusinessMessagesForwarded': 0, 'recordsDisclosureRoundTrips': 1}
+            'unexpectedWork': 0, 'explicitModelPrompts': 0, 'manualBusinessMessagesForwarded': 0, 'recordsDisclosureRoundTrips': 1,
+            'modelCatalogReads': 1, 'disclosedRows': 6, 'conversationRows': 2,
+            'submittedInputs': 1, 'blockedNotices': 1, 'permissionPresets': 1,
+            'sandboxModes': 1, 'approvalPolicies': 1, 'routineClaims': 1}
 TRUE_FLAGS = ['actualAppExercised', 'nativeWorkerExercised', 'scriptedUiMessages', 'actualRosterSucceeded',
-              'ordinaryHeaderValidated', 'actualRootAgentCorrelated', 'publicFixtureOnly', 'quietProjectionObserved', 'retainedRecordsRevealed']
-FALSE_FLAGS = ['modelCatalogRequested', 'browserSignInRequested', 'realCredentialsUsed', 'processWideNetworkTrace',
+              'ordinaryHeaderValidated', 'actualRootAgentCorrelated', 'publicFixtureOnly', 'submittedInputProjectionObserved', 'retainedRecordsRevealed',
+              'modelCatalogRequested', 'modelCatalogSucceeded', 'draftRecoveryLoaded', 'draftIoJoined', 'draftsCleanAtExit']
+FALSE_FLAGS = ['browserSignInRequested', 'realCredentialsUsed', 'processWideNetworkTrace',
                'nativeKeyboardPointerInputQualified', 'historyDrivenReceiptRetirementQualified']
 EXPECTED_FILES = [{'name': name, 'bytes': len(data)} for _, data, name in FIXTURES]
 EXPECTED_REFS = [{'attachmentId': 'sha256:' + hashlib.sha256(data).hexdigest(), 'name': name, 'bytes': len(data)}
@@ -161,7 +165,7 @@ async def run(options):
     result = await RUNNER.run(options, script=EXAMPLE, report_name='app.json', report_key='app',
         validator=lambda value: valid_app(value, scale), capture_stdout=True,
         command_factory=lambda output: command(output, scale),
-        scope='actual App/Worker raw upload/private PromptFile binding/full Alpha Host plus isolated reject fixture and scripted native window; not physical input or model/user-message history')
+        scope='actual App/Worker raw upload/private PromptFile binding/full Alpha Host, keyless catalog and joined draft Tasks; isolated reject fixture/scripted window, not physical input, model history or full-process restart')
     output = Path(options.output).resolve()
     summary = {'status': 'failed', 'scope': __doc__, 'paintInspected': False,
                'nativeKeyboardPointerInputQualified': False, 'historyDrivenReceiptRetirementQualified': False}

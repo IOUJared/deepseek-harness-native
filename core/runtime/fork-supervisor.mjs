@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 /** Private Linux desktop owner. Only framed inherited pipes carry native commands and credentials. */
 import { createRequire } from 'node:module';
-import { createCodexBridge } from './codex.mjs';
+import { createCodexBridge, validCodexAccountId, validCodexLabel } from './codex.mjs';
+import { initializeManagedCodex } from './codex-profile.mjs';
+import { createCodexUsageBridge } from './codex-usage-bridge.mjs';
+import { validateCodexUsagePreferences } from './codex-usage-preferences.mjs';
+import { openCodexUsageStorage } from './codex-usage-storage.mjs';
+import { validateCodexRuntimeValues, validCodexRuntimeRevision } from './codex-runtime-values.mjs';
 import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
@@ -32,11 +37,25 @@ export function parseForkCommand(line) {
   if (['shutdown', 'inspect', 'open-workspace'].includes(value.type)) return parseBaselineCommand(line);
   if (!requestIdValid(value.requestId)) throw new Error('Invalid native command');
   const serial = number => Number.isSafeInteger(number) && number > 0;
+  const epoch = number => Number.isSafeInteger(number) && number >= 0;
+  if (value.type === 'codex-add' && exact(value, ['type', 'requestId', 'label', 'expectedEpoch']) && validCodexLabel(value.label) && epoch(value.expectedEpoch)) return value;
+  if (['codex-select', 'codex-signout'].includes(value.type) && exact(value, ['type', 'requestId', 'accountId', 'expectedEpoch']) && validCodexAccountId(value.accountId) && epoch(value.expectedEpoch)) return value;
+  if (value.type === 'codex-signout-all' && exact(value, ['type', 'requestId', 'expectedEpoch']) && epoch(value.expectedEpoch)) return value;
+  if (value.type === 'codex-runtime-read' && exact(value, ['type', 'requestId'])) return value;
+  if (value.type === 'codex-runtime-save' && exact(value, ['type', 'requestId', 'expectedRevision', 'values']) && validCodexRuntimeRevision(value.expectedRevision)) {
+    try { return { ...value, values: validateCodexRuntimeValues(value.values) }; }
+    catch (_error) { throw new Error('Invalid native command'); }
+  }
+  if (value.type === 'codex-usage-load' && exact(value, ['type', 'requestId'])) return value;
+  if (value.type === 'codex-usage-save' && exact(value, ['type', 'requestId', 'expectedRevision', 'preferences']) && epoch(value.expectedRevision)) {
+    try { return { ...value, preferences: validateCodexUsagePreferences(value.preferences) }; }
+    catch { throw new Error('Invalid native command'); }
+  }
   if (value.type === 'codex-cancel' && exact(value, ['type', 'requestId', 'attempt']) && serial(value.attempt)) return value;
   if (value.type === 'codex-enable-models' && exact(value, ['type', 'requestId', 'expectedRevision']) && Number.isSafeInteger(value.expectedRevision) && value.expectedRevision >= 0) return value;
   if (value.type === 'codex-callback' && exact(value, ['type', 'requestId', 'attempt', 'prompt', 'response'])
       && serial(value.attempt) && serial(value.prompt) && typeof value.response === 'string' && value.response.length <= 16384 && /^[\x21-\x7e]+$/.test(value.response)) return value;
-  if (['codex-status', 'codex-start', 'onboarding-read', 'account-state', 'account-subscribe', 'account-unsubscribe'].includes(value.type)
+  if (['codex-status', 'codex-accounts-status', 'codex-start', 'onboarding-read', 'account-state', 'account-subscribe', 'account-unsubscribe'].includes(value.type)
       && exact(value, ['type', 'requestId'])) return value;
   if (['account-start', 'account-signout'].includes(value.type)
       && exact(value, ['type', 'requestId', 'locale', 'timezoneOffsetSeconds']) && metadataValid(value)) return value;
@@ -145,9 +164,21 @@ export async function loadForkRuntime(env = process.env) {
     await chmod(canonicalOverlay, 0o700);
     await writeFile(patchPath, DESKTOP_PATCH, { flag: 'wx', mode: 0o600 });
     const environment = appBoot.loadLayeredEnv('dsh-tauri', home, () => process.stderr.write('[harness] environment diagnostic suppressed\n'));
-    return { version: installation.version, environment, resolvedProfile, patchFiles: [patchPath],
+    return { version: installation.version, home, environment, resolvedProfile, patchFiles: [patchPath],
       runProfile: boot.runProfile, credentialRef: credentials.credentialRef, normalizeApiKey: llm.normalizeApiKey,
-      optionalPayloads: OPTIONAL_PAYLOADS, cleanup };
+      optionalPayloads: OPTIONAL_PAYLOADS, cleanup,
+      // Resolve the maintained primitive only from this exact alpha provider context.
+      // Preferences remain lazy: startup/account/model commands do not open this store.
+      async openUsageStorage() {
+        const providerPath = await versionedExport(baseRequire, '@deepseek-ai/dsh-llm-pi-ai', installation.version);
+        const providerRequire = createRequire(providerPath);
+        const manifest = JSON.parse(await readFile(providerRequire.resolve('@deepseek-ai/node-addon-system/package.json'), 'utf8'));
+        if (manifest.name !== '@deepseek-ai/node-addon-system' || manifest.version !== '0.1.2') throw new Error('Unsupported preference storage dependency');
+        const { tryLockExclusive } = await import(pathToFileURL(providerRequire.resolve('@deepseek-ai/node-addon-system/flock')).href);
+        if (typeof tryLockExclusive !== 'function') throw new Error('Unsupported preference storage primitive');
+        return openCodexUsageStorage({ directory: join(home, 'codex-usage'), lockExclusive: tryLockExclusive,
+          maxPendingUpdates: 4, maxDocumentBytes: 4096 });
+      } };
   } catch (error) {
     try { await cleanup(); } catch (cleanupError) { throw new AggregateError([error, cleanupError], 'Fork initialization cleanup failed'); }
     throw error;
@@ -321,6 +352,7 @@ export function startForkSupervisor({ input = process.stdin, send, loadRuntime =
   let installed;
   let runtime;
   let codex;
+  let codexUsage;
   let boot;
   let shutdownPromise;
   const pending = new Set();
@@ -335,6 +367,7 @@ export function startForkSupervisor({ input = process.stdin, send, loadRuntime =
     cancelled = true;
     if (shutdownPromise) return shutdownPromise;
     const accountStopped = accountObserver.dispose();
+    const usageStopped = Promise.resolve(codexUsage?.stop()).then(() => true, () => false);
     return shutdownPromise = (async () => {
       try {
         try { await boot; } catch (_error) { /* Boot observer reports startup errors. */ }
@@ -342,6 +375,7 @@ export function startForkSupervisor({ input = process.stdin, send, loadRuntime =
         try { await codex?.stop(); } catch (_error) { disposalFailed = true; }
         try { if (runtime) await runtime.shutdown.shutdown(0); } catch (_error) { disposalFailed = true; }
         await accountStopped;
+        if (!await usageStopped) disposalFailed = true;
         await Promise.allSettled([...pending]);
         send({ type: 'platform-session', session: null });
         await installed?.cleanup?.();
@@ -369,7 +403,8 @@ export function startForkSupervisor({ input = process.stdin, send, loadRuntime =
       emit({ type: 'request-error', requestId: command.requestId, message: 'Native request unavailable' }); return;
     }
     // Unsubscribe can revoke a pending subscribe; its owner denies replacement until reads retire.
-    const lane = ['codex-start', 'codex-enable-models', 'account-start', 'account-signout', 'account-cancel', 'save-api-key'].includes(command.type) ? 'account-mutation' : command.type;
+    const lane = ['codex-usage-load', 'codex-usage-save'].includes(command.type) ? 'codex-usage-preferences'
+      : ['codex-start', 'codex-add', 'codex-select', 'codex-signout', 'codex-signout-all', 'codex-enable-models', 'codex-runtime-save', 'account-start', 'account-signout', 'account-cancel', 'save-api-key'].includes(command.type) ? 'account-mutation' : command.type;
     if (busy.has(lane)) {
       if (command.type === 'inspect') unknown(command.requestId);
       else emit({ type: 'request-error', requestId: command.requestId, message: 'Native request already pending' });
@@ -382,8 +417,9 @@ export function startForkSupervisor({ input = process.stdin, send, loadRuntime =
       const account = () => requireService(ctx, 'deepseekAccount');
       let value;
       switch (command.type) {
-        case 'codex-status': case 'codex-start': case 'codex-cancel': case 'codex-enable-models': case 'codex-callback':
+        case 'codex-status': case 'codex-accounts-status': case 'codex-start': case 'codex-add': case 'codex-select': case 'codex-signout': case 'codex-signout-all': case 'codex-cancel': case 'codex-enable-models': case 'codex-callback': case 'codex-runtime-read': case 'codex-runtime-save':
           value = await codex.handle(command); break;
+        case 'codex-usage-load': case 'codex-usage-save': value = await codexUsage.handle(command); break;
         case 'inspect': emit({ type: 'inspection', requestId: command.requestId, ...await inspect(ctx) }); return;
         case 'open-workspace': await openWorkspace(ctx, command.path); emit({ type: 'workspace-added', requestId: command.requestId }); return;
         case 'onboarding-read': value = await readOnboarding(ctx, installed.credentialRef); break;
@@ -399,9 +435,10 @@ export function startForkSupervisor({ input = process.stdin, send, loadRuntime =
         default: throw new Error('Invalid native command');
       }
       emit({ type: 'native-result', requestId: command.requestId, command: command.type, value });
-    } catch (_error) {
+    } catch (error) {
       if (command.type === 'inspect') unknown(command.requestId);
-      else emit({ type: 'request-error', requestId: command.requestId, message: 'Native request failed' });
+      else emit({ type: 'request-error', requestId: command.requestId, message: 'Native request failed',
+        ...['CODEX_EPOCH_CONFLICT', 'CODEX_USAGE_CONFLICT', 'CODEX_USAGE_INDETERMINATE', 'CODEX_USAGE_UNAVAILABLE', 'CODEX_RUNTIME_CONFLICT', 'CODEX_RUNTIME_INDETERMINATE', 'CODEX_RUNTIME_UNAVAILABLE'].includes(error?.code) ? { code: error.code } : {} });
     } finally { busy.delete(lane); }
   };
   const receiver = lineReceiver(line => {
@@ -424,7 +461,13 @@ export function startForkSupervisor({ input = process.stdin, send, loadRuntime =
       resolvedProfile: installed.resolvedProfile, patchFiles: installed.patchFiles,
       args: ['--no-open', '--host', '127.0.0.1', '--port', '0'] });
     if (cancelled) return;
+    await initializeManagedCodex(runtime.ctx, installed.home);
+    if (cancelled) return;
     codex = createCodexBridge({ ctx: runtime.ctx, emit, addSecret });
+    codexUsage = createCodexUsageBridge({ openStorage: () => {
+      if (typeof installed.openUsageStorage !== 'function') throw new Error('Preference storage unavailable');
+      return installed.openUsageStorage();
+    } });
     const url = readyUrl(runtime.ctx);
     requireService(runtime.ctx, 'deepseekAccount');
     for (const value of new URL(url).searchParams.values()) addSecret(value);

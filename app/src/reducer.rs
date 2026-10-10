@@ -5,6 +5,15 @@ use std::collections::{BTreeMap, BTreeSet};
 
 #[path = "activity.rs"]
 pub mod activity;
+#[path = "assistant_parts.rs"]
+mod assistant_parts;
+pub use assistant_parts::AssistantParts;
+use assistant_parts::{Block, Kind};
+#[path = "chat_presentation.rs"]
+mod chat_presentation;
+#[cfg(test)]
+#[path = "chat_visibility_tests.rs"]
+mod chat_visibility_tests;
 #[path = "transcript_presentation.rs"]
 pub mod presentation;
 
@@ -38,7 +47,7 @@ struct Attempt {
     turn: u64,
     step: u64,
     next: u64,
-    blocks: BTreeMap<u64, String>,
+    blocks: BTreeMap<u64, Block>,
     pending: BTreeSet<u64>,
 }
 pub struct Transcript {
@@ -80,24 +89,71 @@ impl Transcript {
     /// Project retained rows; cancellation, malformed/future records and Send gates are unchanged.
     pub fn display_rows(&self, records: bool) -> impl Iterator<Item = &DisplayRow> {
         self.rows.iter().filter(move |row| {
-            !self.records.get(&row.key).is_some_and(|event| presentation::ui_control_event(&event.event_type))
+            !self
+                .records
+                .get(&row.key)
+                .is_some_and(|event| presentation::ui_control_event(&event.event_type))
                 && (records
-                || (presentation::conversation_role(&row.role)
-                    && !(row.role == "agent/inbox/spliced"
-                        && self
-                            .records
-                            .get(&row.key)
-                            .is_some_and(|event| presentation::routine_inbox(&event.data)))))
+                    || (presentation::conversation_role(&row.role)
+                        && !(row.surface
+                            && self.records.get(&row.key).is_some_and(|event| {
+                                event.surface_op.as_ref().is_some_and(Value::is_object)
+                            }))
+                        && !(row.role == "agent/inbox/spliced"
+                            && self
+                                .records
+                                .get(&row.key)
+                                .is_some_and(|event| presentation::routine_inbox(&event.data)))))
         })
     }
     /// Display formatting eligibility comes from exact retained provenance, never a role label.
     pub fn assistant_record(&self, key: u64) -> bool {
-        self.records.get(&key).is_some_and(|event|matches!(event.event_type.as_str(),"assistant/message"|"assistant/attempt"))
+        self.records.get(&key).is_some_and(|event| {
+            matches!(
+                event.event_type.as_str(),
+                "assistant/message" | "assistant/attempt"
+            )
+        })
+    }
+    /// Published assistant stream only; context updates and undecodable/unknown blocks stay raw.
+    pub fn assistant_parts(&self, key: u64) -> Option<AssistantParts> {
+        let event = self.records.get(&key)?;
+        if !self.assistant_record(key)
+            || event.surface_op.as_ref().is_some_and(Value::is_object)
+            || !self.rows.iter().any(|row| row.key == key)
+        {
+            return None;
+        }
+        assistant_parts::project(&stream_blocks(&event.data["stream"]).ok()?)
     }
     pub fn inbox_canceled(&self, key: u64) -> bool {
         self.records.get(&key).is_some_and(|event| {
             event.event_type == "agent/inbox/spliced" && event.data["outcome"] == "canceled"
         })
+    }
+    pub fn turn_notice(&self, key: u64) -> bool {
+        self.records.get(&key).is_some_and(|event| {
+            event.event_type == "turn/end" && chat_presentation::turn_notice(&event.data).is_some()
+        })
+    }
+    pub fn submitted_input(&self, key: u64) -> bool {
+        self.records
+            .get(&key)
+            .is_some_and(|event| event.event_type == "agent/inbox/spliced")
+            && self
+                .rows
+                .iter()
+                .any(|row| row.key == key && row.role == "You")
+    }
+    pub fn records(&self) -> impl Iterator<Item = &SessionWireEvent> { self.records.values() }
+    /// Populate a local text draft, never replay file receipts, queue input or model context.
+    pub fn editable_text(&self, key: u64) -> Option<String> {
+        let event = self.records.get(&key)?;
+        if event.event_type != "user/message" || event.surface_op.as_ref().is_some_and(Value::is_object) { return None; }
+        let parts = event.data["content"].as_array()?;
+        if parts.is_empty() || !parts.iter().all(|part| part["type"] == "text" && part["text"].is_string()) { return None; }
+        let text = parts.iter().map(|part| part["text"].as_str().unwrap()).collect::<Vec<_>>().join("\n");
+        (!text.trim().is_empty() && text.len() <= MAX_DISPLAY_BYTES).then_some(text)
     }
     /// Derive a compact tool label from retained metadata, without changing the fold.
     pub fn activity(&self, key: u64) -> Option<activity::Summary> {
@@ -112,28 +168,40 @@ impl Transcript {
     pub fn opening_cursor(&self) -> i64 {
         self.opening
     }
+    pub fn cursor(&self) -> i64 {
+        self.cursor
+    }
     pub fn has_more(&self) -> bool {
         self.more
     }
     pub fn safe_to_send(&self) -> bool {
         self.error.is_none() && self.cursor >= -1 && !self.gap
     }
-    pub fn partial(&self) -> Option<String> {
-        self.attempt
-            .as_ref()
-            .filter(|a| {
-                !self.records.values().any(|event| {
-                    !a.pending.contains(&event.seq)
-                        && matches!(
-                            event.event_type.as_str(),
-                            "assistant/message" | "assistant/attempt"
-                        )
-                        && event.data.get("turn").and_then(Value::as_u64) == Some(a.turn)
-                        && event.data.get("step").and_then(Value::as_u64) == Some(a.step)
-                })
+    fn visible_attempt(&self) -> Option<&Attempt> {
+        self.attempt.as_ref().filter(|a| {
+            !self.records.values().any(|event| {
+                !a.pending.contains(&event.seq)
+                    && matches!(
+                        event.event_type.as_str(),
+                        "assistant/message" | "assistant/attempt"
+                    )
+                    && event.data.get("turn").and_then(Value::as_u64) == Some(a.turn)
+                    && event.data.get("step").and_then(Value::as_u64) == Some(a.step)
             })
-            .map(|a| a.blocks.values().cloned().collect::<Vec<_>>().join("\n"))
+        })
+    }
+    pub fn partial(&self) -> Option<String> {
+        self.visible_attempt()
+            .map(|a| raw_blocks(&a.blocks))
             .filter(|s| !s.is_empty())
+    }
+    /// Uses the same pending settlement and retained-record suppression as `partial`.
+    pub fn partial_parts(&self) -> Option<AssistantParts> {
+        let attempt = self.visible_attempt()?;
+        if attempt.blocks.len() <= 1 && attempt.blocks.values().all(|b| b.text.is_empty()) {
+            return None;
+        }
+        assistant_parts::project(&attempt.blocks)
     }
     pub fn apply(&mut self, generation: u64, frame: SessionFollowFrame) -> Result<(), ReduceError> {
         if generation != self.generation {
@@ -393,6 +461,23 @@ impl Transcript {
     }
     fn rebuild(&mut self) -> Result<(), ReduceError> {
         let mut rows: Vec<DisplayRow> = vec![];
+        let mut surface_nodes = Vec::new();
+        let complete = self.records.contains_key(&0)
+            && self
+                .records
+                .keys()
+                .enumerate()
+                .all(|(index, seq)| *seq == index as u64);
+        let mut invalid = None;
+        let recorded: BTreeSet<&str> = self
+            .records
+            .values()
+            .filter(|event| {
+                event.event_type == "user/message"
+                    && !event.surface_op.as_ref().is_some_and(Value::is_object)
+            })
+            .filter_map(|event| event.data["id"].as_str())
+            .collect();
         let mut unknown = false;
         for event in self.records.values() {
             if self
@@ -403,12 +488,24 @@ impl Transcript {
                 continue;
             }
             let kind = event.event_type.as_str();
+            let submitted = (kind == "agent/inbox/spliced")
+                .then(|| chat_presentation::submitted_text(&event.data, &recorded))
+                .flatten();
             let text = match kind {
                 "user/message" => content(&event.data["content"]),
                 "system/message" | "developer/message" | "tool/result" => {
                     content(&event.data["message"]["content"])
                 }
-                "assistant/message" | "assistant/attempt" => stream_text(&event.data["stream"])?,
+                "assistant/message" | "assistant/attempt" => {
+                    match stream_text(&event.data["stream"]) {
+                        Ok(text) => text,
+                        Err(error) => {
+                            invalid.get_or_insert(error);
+                            "Assistant output could not be decoded. Reload this conversation."
+                                .into()
+                        }
+                    }
+                }
                 "tool/call" => format!(
                     "{}\n{}",
                     event.data["name"].as_str().unwrap_or("Tool"),
@@ -417,9 +514,16 @@ impl Transcript {
                         MAX_DISPLAY_BYTES
                     )
                 ),
+                "agent/inbox/spliced" => {
+                    submitted.clone().unwrap_or_else(|| safe_json(&event.data))
+                }
+                "turn/end" => match chat_presentation::turn_notice(&event.data) {
+                    Some(notice) => notice,
+                    None => continue,
+                },
                 kind if crate::known::LOG_EVENTS.contains(&kind) => safe_json(&event.data),
-                "turn/start" | "turn/end" | "step/start" | "step/end" | "request/header"
-                | "request/context" | "session/end-seed" | "image/offload" => continue,
+                "turn/start" | "step/start" | "step/end" | "request/header" | "request/context"
+                | "session/end-seed" | "image/offload" => continue,
                 _ => {
                     if event.ignorable != Some(true) {
                         unknown = true;
@@ -427,72 +531,54 @@ impl Transcript {
                     safe_json(&event.data)
                 }
             };
-            let role = match kind {
-                "user/message" => "You",
-                "assistant/message" => "Assistant",
-                "assistant/attempt" => "Interrupted assistant attempt",
-                "tool/result" => "Tool result",
-                "tool/call" => "Tool call",
-                "system/message" => "System",
-                "developer/message" => "Developer",
-                _ => kind,
+            let surface = matches!(
+                kind,
+                "system/message"
+                    | "developer/message"
+                    | "user/message"
+                    | "assistant/message"
+                    | "tool/result"
+            );
+            let role = if surface && event.surface_op.as_ref().is_some_and(Value::is_object) {
+                "Model context update"
+            } else {
+                match kind {
+                    "agent/inbox/spliced" if submitted.is_some() => "You",
+                    "turn/end" if event.data["reason"]["kind"] == "error" => "Agent error",
+                    "turn/end" => "Agent notice",
+                    "user/message" => "You",
+                    "assistant/message" => "Assistant",
+                    "assistant/attempt" => "Interrupted assistant attempt",
+                    "tool/result" => "Tool result",
+                    "tool/call" => "Tool call",
+                    "system/message" => "System",
+                    "developer/message" => "Developer",
+                    _ => kind,
+                }
             };
             let row = DisplayRow {
                 key: event.seq,
                 role: bounded(role, 128),
                 text: bounded(&text, MAX_DISPLAY_BYTES),
                 time: event.time,
-                surface: matches!(
-                    kind,
-                    "system/message"
-                        | "developer/message"
-                        | "user/message"
-                        | "assistant/message"
-                        | "tool/result"
-                ),
+                surface,
             };
             if !row.surface {
                 rows.push(row);
                 continue;
             }
-            match &event.surface_op {
-                Some(value) if value.is_object() => {
-                    let op = value["op"].as_str().ok_or(ReduceError::InvalidSurface)?;
-                    let start_seq = value["startSeq"]
-                        .as_u64()
-                        .ok_or(ReduceError::InvalidSurface)?;
-                    let end_seq = value["endSeq"]
-                        .as_u64()
-                        .ok_or(ReduceError::InvalidSurface)?;
-                    if op != "replace" || start_seq > end_seq {
-                        return Err(ReduceError::InvalidSurface);
-                    }
-                    let start = rows
-                        .iter()
-                        .position(|r| r.key >= start_seq && r.key <= end_seq)
-                        .unwrap_or(rows.len());
-                    if let Some(cited) = &event.source_event_seqs {
-                        if rows.iter().any(|r| {
-                            r.surface
-                                && r.key >= start_seq
-                                && r.key <= end_seq
-                                && !cited.as_array().is_some_and(|items| {
-                                    items.iter().any(|v| v.as_u64() == Some(r.key))
-                                })
-                        }) {
-                            return Err(ReduceError::InvalidSurface);
-                        }
-                    }
-                    rows.retain(|r| r.key < start_seq || r.key > end_seq);
-                    rows.insert(start.min(rows.len()), row);
-                }
-                Some(value) if value.as_str() != Some("append") => {
-                    return Err(ReduceError::InvalidSurface);
-                }
-                _ => rows.push(row),
+            if let Err(error) =
+                chat_presentation::surface_update(&mut surface_nodes, event, complete)
+            {
+                invalid.get_or_insert(error);
             }
+            // Context replacements change future model input, never the human chat log.
+            rows.push(row);
         }
         self.rows = rows;
+        if let Some(error) = invalid {
+            return Err(error);
+        }
         if unknown {
             return Err(ReduceError::UnknownRequiredEvent);
         }
@@ -626,49 +712,93 @@ fn compact_chunks(value: &Value) -> Result<Vec<Value>, ReduceError> {
     }
     Ok(chunks)
 }
-fn fold_chunk(blocks: &mut BTreeMap<u64, String>, chunk: &Value) -> Result<(), ReduceError> {
+fn fold_chunk(blocks: &mut BTreeMap<u64, Block>, chunk: &Value) -> Result<(), ReduceError> {
     let index = chunk["index"].as_u64().unwrap_or(0);
     match chunk["type"].as_str() {
-        Some("text-delta" | "reasoning-delta") => {
+        Some(kind @ ("text-delta" | "reasoning-delta")) => {
             let value = chunk["text"].as_str().ok_or(ReduceError::StreamGap)?;
+            let new = !blocks.contains_key(&index);
             let block = blocks.entry(index).or_default();
-            if block.len() + value.len() > MAX_DISPLAY_BYTES {
+            if block.text.len() + value.len() > MAX_DISPLAY_BYTES {
                 return Err(ReduceError::RetentionLimit);
             }
-            block.push_str(value);
+            block.append_kind(
+                if kind == "reasoning-delta" {
+                    Kind::Reasoning
+                } else {
+                    Kind::Answer
+                },
+                new,
+            );
+            block.text.push_str(value);
         }
         Some("block-end") => {
-            blocks.insert(index, content(&Value::Array(vec![chunk["block"].clone()])));
+            let value = &chunk["block"];
+            let kind = match value["type"].as_str() {
+                Some("reasoning") if value["text"].is_string() => Some(Kind::Reasoning),
+                Some("text") if value["text"].is_string() => Some(Kind::Answer),
+                Some("tool-call" | "image" | "file") => Some(Kind::Answer),
+                _ => None,
+            };
+            blocks.insert(
+                index,
+                Block {
+                    text: content(&Value::Array(vec![value.clone()])),
+                    kind,
+                },
+            );
         }
         Some("tool-call-delta") => {
             let value = chunk["argumentsDelta"]
                 .as_str()
                 .ok_or(ReduceError::StreamGap)?;
-            let block = blocks
-                .entry(index)
-                .or_insert_with(|| format!("Tool {}: ", chunk["name"].as_str().unwrap_or("call")));
-            if block.len() + value.len() > MAX_DISPLAY_BYTES {
+            let new = !blocks.contains_key(&index);
+            let block = blocks.entry(index).or_insert_with(|| Block {
+                text: format!("Tool {}: ", chunk["name"].as_str().unwrap_or("call")),
+                kind: Some(Kind::Answer),
+            });
+            if block.text.len() + value.len() > MAX_DISPLAY_BYTES {
                 return Err(ReduceError::RetentionLimit);
             }
-            block.push_str(value);
+            block.append_kind(Kind::Answer, new);
+            block.text.push_str(value);
         }
         Some("block-start" | "usage" | "finish") => {}
         _ => return Err(ReduceError::StreamGap),
     }
+    if chunk["index"].as_u64().is_none()
+        && let Some(block) = blocks.get_mut(&index)
+        && !matches!(
+            chunk["type"].as_str(),
+            Some("block-start" | "usage" | "finish")
+        )
+    {
+        block.kind = None;
+    }
     if blocks.len() > 256
-        || blocks.values().map(String::len).sum::<usize>() + blocks.len().saturating_sub(1)
+        || blocks.values().map(|b| b.text.len()).sum::<usize>() + blocks.len().saturating_sub(1)
             > MAX_DISPLAY_BYTES
     {
         return Err(ReduceError::RetentionLimit);
     }
     Ok(())
 }
-fn stream_text(stream: &Value) -> Result<String, ReduceError> {
+fn raw_blocks(blocks: &BTreeMap<u64, Block>) -> String {
+    blocks
+        .values()
+        .map(|b| b.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+fn stream_blocks(stream: &Value) -> Result<BTreeMap<u64, Block>, ReduceError> {
     let mut blocks = BTreeMap::new();
     for chunk in compact_chunks(stream)? {
         fold_chunk(&mut blocks, &chunk)?;
     }
-    Ok(blocks.values().cloned().collect::<Vec<_>>().join("\n"))
+    Ok(blocks)
+}
+fn stream_text(stream: &Value) -> Result<String, ReduceError> {
+    Ok(raw_blocks(&stream_blocks(stream)?))
 }
 
 #[cfg(test)]
@@ -717,8 +847,14 @@ mod tests {
         s.apply(1, frame(user(1, "next"))).unwrap();
         let replacement = json!({"type":"event","event":{"type":"user/message","seq":2,"time":1002,"data":{"content":[{"type":"text","text":"summary"}]},"surfaceOp":{"op":"replace","startSeq":0,"endSeq":1},"sourceEventSeqs":[0,1]}});
         s.apply(1, frame(replacement)).unwrap();
-        assert_eq!(s.rows.len(), 1);
-        assert_eq!(s.rows[0].text, "summary");
+        assert_eq!(s.rows.len(), 3);
+        assert_eq!(
+            s.display_rows(false)
+                .map(|row| row.text.as_str())
+                .collect::<Vec<_>>(),
+            ["你好 🦀", "next"]
+        );
+        assert_eq!(s.rows[2].text, "summary");
     }
     #[test]
     fn stale_generation_does_not_change_session() {
@@ -775,14 +911,26 @@ mod tests {
         assert!(!s.safe_to_send());
     }
     #[test]
+    fn chat_visibility_golden_projects_confirmed_input_and_supplied_agent_output() {
+        let fixture: SessionFollowFrame =
+            serde_json::from_str(include_str!("../fixtures/chat-visibility.json")).unwrap();
+        let mut transcript = Transcript::new(1);
+        transcript.apply(1, fixture).unwrap();
+        let printed = transcript
+            .display_rows(false)
+            .map(|row| format!("{}\n{}\n---\n", row.role, row.text))
+            .collect::<String>();
+        assert_eq!(printed, include_str!("../fixtures/chat-visibility.txt"));
+        assert!(transcript.safe_to_send());
+    }
+    #[test]
     fn alpha_golden_and_reconnect_prefix() {
         let fixture: SessionFollowFrame =
             serde_json::from_str(include_str!("../fixtures/alpha-session.json")).unwrap();
         let mut s = Transcript::new(1);
         s.apply(1, fixture).unwrap();
         let printed = s
-            .rows()
-            .iter()
+            .display_rows(false)
             .map(|r| format!("{}\n{}\n---\n", r.role, r.text))
             .collect::<String>();
         assert_eq!(printed, include_str!("../fixtures/alpha-session.txt"));
@@ -791,7 +939,7 @@ mod tests {
         assert_eq!(s.partial().as_deref(), Some("partial reply!"));
         s.apply(1,frame(json!({"type":"assistant-stream","frame":{"type":"end","revision":18,"attemptId":"active-attempt","index":4,"outcome":{"kind":"abandoned"}}}))).unwrap();
         assert!(s.partial().is_none());
-        assert_eq!(s.rows.len(), 6);
+        assert_eq!(s.rows.len(), 7);
     }
     #[test]
     fn actual_blank_session_policy_metadata_is_read_only_and_sendable() {
@@ -851,7 +999,7 @@ mod tests {
         s.apply(1, frame(fixture)).unwrap();
         assert!(s.partial().is_none());
         s.apply(1,frame(json!({"type":"assistant-stream","frame":{"type":"end","revision":17,"attemptId":"active-attempt","index":3,"outcome":{"kind":"committed","seq":3,"eventType":"assistant/message"}}}))).unwrap();
-        assert_eq!(s.rows.len(), 6);
+        assert_eq!(s.rows.len(), 7);
         assert!(s.partial().is_none());
     }
 }

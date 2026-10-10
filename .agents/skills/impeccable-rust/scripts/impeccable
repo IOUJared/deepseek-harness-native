@@ -1,0 +1,553 @@
+#!/usr/bin/env bash
+# impeccable: set up, check, and run the command-line tools the impeccable-rust skill names.
+#
+#   impeccable doctor                    which tools run on this host, in the toolbox, or nowhere
+#   impeccable setup toolbox [--rebuild] build the Linux toolbox image (needs Docker)
+#   impeccable setup host [--with-kani] [--dry-run]
+#                                        install the pinned tools on this host
+#   impeccable run [command...]          run a command in the toolbox, on the current project
+#   impeccable sanitize <kind> [args...] cargo test under a sanitizer: address, thread, memory, leak
+#   impeccable bench-guard <baseline> [--allow <check>=<reason>]... [--benches <pathspec>]... [-- command...]
+#                                        check the benchmark contract against a baseline commit,
+#                                        then run the command under a machine-wide benchmark lock
+#
+# Environment:
+#   IMPECCABLE_UNCONFINED=1  run the toolbox without seccomp so gungraun can turn off ASLR
+#   IMPECCABLE_MOUNT=<dir>   mount this directory instead of the detected workspace root
+#   IMPECCABLE_BENCH_LOCK=<dir>  benchmark lock path (default /tmp/impeccable-bench-<uid>.lock)
+set -euo pipefail
+
+resolve_self_dir() {
+  local src=${BASH_SOURCE[0]} dir
+  while [ -L "$src" ]; do
+    dir=$(cd "$(dirname "$src")" && pwd -P)
+    src=$(readlink "$src")
+    case $src in /*) ;; *) src=$dir/$src ;; esac
+  done
+  cd "$(dirname "$src")" && pwd -P
+}
+
+SELF_DIR=$(resolve_self_dir)
+SELF=$SELF_DIR/impeccable
+SKILL_DIR=$(cd "$SELF_DIR/.." && pwd -P)
+TOOLBOX_DIR=$SKILL_DIR/toolbox
+IMAGE_REPO=impeccable-rust-toolbox
+SANITIZERS="address thread memory leak"
+PASS_ENV="RUSTFLAGS RUSTDOCFLAGS MIRIFLAGS RUST_BACKTRACE RUST_LOG PROPTEST_CASES
+  LOOM_MAX_PREEMPTIONS LOOM_MAX_BRANCHES BOLERO_RANDOM_SEED NEXTEST_PROFILE
+  ASAN_OPTIONS TSAN_OPTIONS MSAN_OPTIONS LSAN_OPTIONS"
+
+say() { printf 'impeccable: %s\n' "$*" >&2; }
+die() { say "$*"; exit 1; }
+have() { command -v "$1" >/dev/null 2>&1; }
+in_toolbox() { [ -n "${IMPECCABLE_IN_TOOLBOX:-}" ]; }
+hash12() { { shasum -a 256 2>/dev/null || sha256sum; } | cut -c1-12; }
+first_version() { grep -E -o '[0-9]+\.[0-9]+\.[0-9]+' | head -1; }
+
+usage() {
+  awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$SELF"
+}
+
+tools_file() {
+  local f
+  for f in "$TOOLBOX_DIR/tools.txt" /usr/local/share/impeccable/tools.txt; do
+    if [ -f "$f" ]; then echo "$f"; return 0; fi
+  done
+  die "tools.txt not found next to $SELF"
+}
+
+# Prints "crate version" for every pinned tool.
+tools() { grep -v -E '^[[:space:]]*(#|$)' "$(tools_file)"; }
+
+# True when dotted version $1 is older than $2.
+ver_lt() {
+  local IFS=. i x y
+  local -a a b
+  read -r -a a <<<"$1"
+  read -r -a b <<<"$2"
+  for i in 0 1 2; do
+    x=${a[i]:-0}
+    y=${b[i]:-0}
+    if [ "$((10#$x))" -lt "$((10#$y))" ]; then return 0; fi
+    if [ "$((10#$x))" -gt "$((10#$y))" ]; then return 1; fi
+  done
+  return 1
+}
+
+nightly_installed() {
+  have rustup && rustup toolchain list 2>/dev/null | grep -q '^nightly-'
+}
+
+nightly_triple() {
+  nightly_installed && RUSTUP_AUTO_INSTALL=0 rustc +nightly -vV 2>/dev/null | sed -n 's/^host: //p'
+  return 0
+}
+
+sanitizer_supported() { # kind triple
+  RUSTUP_AUTO_INSTALL=0 rustc +nightly --print cfg -Zsanitizer="$1" --target "$2" >/dev/null 2>&1
+}
+
+host_version() {
+  case $1 in
+    cargo-careful | cargo-auditable)
+      if have "$1"; then echo present; fi ;;
+    kani-verifier)
+      if have cargo-kani; then cargo kani --version 2>/dev/null | first_version || true; fi ;;
+    cargo-*)
+      if have "$1"; then cargo "${1#cargo-}" --version 2>/dev/null | first_version || true; fi ;;
+    *)
+      if have "$1"; then "$1" --version 2>/dev/null | first_version || true; fi ;;
+  esac
+  return 0
+}
+
+toolbox_image() {
+  [ -f "$TOOLBOX_DIR/Dockerfile" ] || die "toolbox files not found in $TOOLBOX_DIR"
+  printf '%s:%s' "$IMAGE_REPO" \
+    "$(cat "$TOOLBOX_DIR/Dockerfile" "$TOOLBOX_DIR/tools.txt" "$TOOLBOX_DIR/entrypoint" "$SELF" | hash12)"
+}
+
+docker_ready() { have docker && docker info >/dev/null 2>&1; }
+image_built() { docker image inspect "$1" >/dev/null 2>&1; }
+
+# The cargo workspace root, else the git root, else the current directory.
+project_root() {
+  local root=""
+  if [ -n "${IMPECCABLE_MOUNT:-}" ]; then
+    (cd "$IMPECCABLE_MOUNT" && pwd -P)
+    return 0
+  fi
+  if have cargo; then
+    root=$(cargo locate-project --workspace --message-format plain 2>/dev/null || true)
+    root=${root%/Cargo.toml}
+  fi
+  if [ -z "$root" ]; then root=$(git rev-parse --show-toplevel 2>/dev/null || true); fi
+  if [ -z "$root" ]; then root=$PWD; fi
+  (cd "$root" && pwd -P)
+}
+
+cmd_doctor() {
+  local triple image="" built="" state tb_nightly name pin v host row_host
+  triple=$(rustc -vV 2>/dev/null | sed -n 's/^host: //p' || true)
+  if in_toolbox; then
+    state="inside the toolbox"
+    built=1
+  elif ! have docker; then
+    state="not installed"
+  elif ! docker info >/dev/null 2>&1; then
+    state="installed, not running"
+  else
+    image=$(toolbox_image)
+    if image_built "$image"; then
+      state="ready, $image built"
+      built=1
+    else
+      state="ready, image not built: impeccable setup toolbox"
+    fi
+  fi
+  tb_nightly=$(sed -n 's/^ARG NIGHTLY=//p' "$TOOLBOX_DIR/Dockerfile" 2>/dev/null || true)
+
+  printf 'impeccable doctor on %s\n\n' "${triple:-a host without rustc}"
+  row() { printf '  %-22s %-37s %s\n' "$1" "$2" "$3"; }
+  row TOOL HOST TOOLBOX
+
+  if nightly_installed; then
+    v=$(RUSTUP_AUTO_INSTALL=0 rustc +nightly -V 2>/dev/null | grep -E -o '[0-9]{4}-[0-9]{2}-[0-9]{2}' || true)
+    row "rust nightly" "nightly ${v:-installed}" "${tb_nightly:-pinned}"
+    for name in miri rust-src; do
+      if rustup +nightly component list --installed 2>/dev/null | grep -q "^$name"; then host=installed
+      else host="missing: rustup +nightly component add $name"; fi
+      row "$name" "$host" yes
+    done
+  else
+    row "rust nightly" "missing: rustup toolchain install nightly" "${tb_nightly:-pinned}"
+  fi
+
+  while read -r name pin _rest; do
+    v=$(host_version "$name")
+    if [ -z "$v" ]; then row_host=missing
+    elif [ "$v" = present ]; then row_host=installed
+    elif ver_lt "$v" "$pin"; then row_host="$v, older than pinned"
+    else row_host=$v; fi
+    if [ "$name" = gungraun-runner ] && [ "$(uname -s)" = Darwin ]; then row_host="unsupported: no Valgrind on macOS"; fi
+    row "$name" "$row_host" "$pin"
+  done < <(tools)
+
+  if have valgrind; then host=$(valgrind --version 2>/dev/null | first_version || true)
+  elif [ "$(uname -s)" = Darwin ]; then host="unsupported on macOS"
+  else host=missing; fi
+  row valgrind "$host" yes
+  if have tlc; then host=installed; else host=missing; fi
+  row "tlc (TLA+)" "$host" "$(sed -n 's/^ARG TLA_VERSION=//p' "$TOOLBOX_DIR/Dockerfile" 2>/dev/null || echo yes)"
+
+  local ntriple kind
+  ntriple=$(nightly_triple)
+  for kind in $SANITIZERS; do
+    if [ -z "$ntriple" ]; then host="needs nightly"
+    elif sanitizer_supported "$kind" "$ntriple"; then host=supported
+    else host="unsupported on $ntriple"; fi
+    row "sanitizer $kind" "$host" supported
+  done
+
+  printf '\n  docker: %s\n' "$state"
+  if [ -z "$built" ] && ! in_toolbox; then
+    printf '  The toolbox column applies once the image is built.\n'
+  fi
+  printf '  Run a tool the host lacks with: impeccable run <command>\n'
+}
+
+cmd_setup() {
+  local what=${1:-}
+  if [ $# -gt 0 ]; then shift; fi
+  case $what in
+    toolbox) setup_toolbox "$@" ;;
+    host) setup_host "$@" ;;
+    *) die "usage: impeccable setup toolbox [--rebuild] | impeccable setup host [--with-kani] [--dry-run]" ;;
+  esac
+}
+
+setup_toolbox() {
+  local image
+  if in_toolbox; then die "already inside the toolbox"; fi
+  docker_ready || die "Docker is not running. Start it, or install the tools here with: impeccable setup host"
+  image=$(toolbox_image)
+  if [ "${1:-}" != --rebuild ] && image_built "$image"; then
+    say "toolbox image $image is up to date"
+    return 0
+  fi
+  local -a secret=()
+  if [ -n "${GH_TOKEN:-}" ]; then secret=(--secret "id=github_token,env=GH_TOKEN")
+  elif [ -n "${GITHUB_TOKEN:-}" ]; then secret=(--secret "id=github_token,env=GITHUB_TOKEN")
+  else say "tip: export GH_TOKEN or GITHUB_TOKEN so tool downloads avoid GitHub's anonymous rate limit"; fi
+  say "building $image; the first build downloads several GB and takes a few minutes"
+  DOCKER_BUILDKIT=1 docker build ${secret[@]+"${secret[@]}"} \
+    -t "$image" -t "$IMAGE_REPO:latest" -f "$TOOLBOX_DIR/Dockerfile" "$SKILL_DIR" >&2
+  say "built $image"
+  local old
+  docker image ls "$IMAGE_REPO" --format '{{.Tag}}' | while read -r old; do
+    case $old in latest | "${image#*:}") ;; *)
+      say "removing superseded image $IMAGE_REPO:$old"
+      docker image rm "$IMAGE_REPO:$old" >/dev/null || true ;;
+    esac
+  done
+}
+
+setup_host() {
+  local dry="" kani="" name pin _rest os
+  local -a specs=()
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --dry-run) dry=1 ;;
+      --with-kani) kani=1 ;;
+      *) die "unknown option: $1" ;;
+    esac
+    shift
+  done
+  have cargo || die "cargo is required"
+  have rustup || die "rustup is required"
+  step() { if [ -n "$dry" ]; then printf '  %s\n' "$*"; else "$@"; fi; }
+
+  if nightly_installed; then
+    step rustup +nightly component add miri rust-src llvm-tools-preview
+  else
+    step rustup toolchain install nightly --profile minimal --component miri,rust-src,llvm-tools-preview
+  fi
+  step rustup component add llvm-tools-preview
+
+  os=$(uname -s)
+  while read -r name pin _rest; do
+    case $name in
+      kani-verifier) continue ;;
+      gungraun-runner)
+        if [ "$os" = Darwin ]; then
+          say "skipping gungraun-runner: Valgrind does not run on macOS, so gungraun runs in the toolbox"
+          continue
+        fi ;;
+    esac
+    specs+=("$name@$pin")
+  done < <(tools)
+  if ! have cargo-binstall && [ -z "$dry" ]; then
+    die "cargo-binstall is required: cargo install --locked cargo-binstall"
+  fi
+  step cargo binstall -y --disable-telemetry --locked "${specs[@]}"
+
+  if [ -n "$kani" ]; then
+    pin=$(tools | awk '$1 == "kani-verifier" { print $2 }')
+    step cargo install --locked kani-verifier --version "$pin"
+    step cargo kani setup
+  fi
+}
+
+cmd_run() {
+  local image root cur rel key var
+  local -a args
+  if [ $# -eq 0 ]; then set -- bash; fi
+  if in_toolbox; then exec "$@"; fi
+  docker_ready || die "Docker is not running. Start it, or install the tools here with: impeccable setup host"
+  image=$(toolbox_image)
+  image_built "$image" || setup_toolbox
+
+  root=$(project_root)
+  cur=$(pwd -P)
+  case $cur in
+    "$root") rel="" ;;
+    "$root"/*) rel=${cur#"$root"/} ;;
+    *) root=$cur; rel="" ;;
+  esac
+  key=$(printf '%s' "$root" | hash12)
+
+  args=(run --rm --init
+    -v "$root:/work" -w "/work${rel:+/$rel}"
+    -v "impeccable-target-$key:/target"
+    -v impeccable-cargo-registry:/usr/local/cargo/registry
+    -v impeccable-cargo-git:/usr/local/cargo/git
+    -v impeccable-cache:/cache)
+  if [ -t 0 ]; then args+=(-i); fi
+  if [ -t 1 ]; then args+=(-t); fi
+  if [ -n "${IMPECCABLE_UNCONFINED:-}" ]; then
+    args+=(--security-opt seccomp=unconfined -e GUNGRAUN_ALLOW_ASLR=false)
+  fi
+  for var in $PASS_ENV; do
+    if [ -n "${!var:-}" ]; then args+=(-e "$var"); fi
+  done
+  exec docker "${args[@]}" "$image" "$@"
+}
+
+cmd_sanitize() {
+  local kind=${1:-} triple flags target_dir
+  local -a build_std=()
+  [ -n "$kind" ] || die "usage: impeccable sanitize <$(echo "$SANITIZERS" | tr ' ' '|')> [cargo test args]"
+  shift
+  case " $SANITIZERS " in *" $kind "*) ;; *) die "unknown sanitizer: $kind" ;; esac
+  nightly_installed || die "a nightly toolchain is required: rustup toolchain install nightly"
+  triple=$(nightly_triple)
+
+  if ! sanitizer_supported "$kind" "$triple"; then
+    if in_toolbox; then die "the $kind sanitizer is not supported on $triple"; fi
+    say "the $kind sanitizer is not supported on $triple; running it in the toolbox"
+    cmd_run impeccable sanitize "$kind" "$@"
+  fi
+
+  case $kind in
+    thread | memory)
+      # Without an instrumented std, rustc refuses to link (ABI mismatch) or reports noise.
+      build_std=(-Zbuild-std)
+      rustup +nightly component list --installed 2>/dev/null | grep -q '^rust-src' ||
+        die "the $kind sanitizer rebuilds std: rustup +nightly component add rust-src" ;;
+  esac
+  flags="-Zsanitizer=$kind"
+  if [ "$kind" = memory ]; then flags="$flags -Zsanitizer-memory-track-origins"; fi
+  export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }$flags"
+  export RUSTDOCFLAGS="${RUSTDOCFLAGS:+$RUSTDOCFLAGS }$flags"
+  # macOS turns leak detection off by default; Linux already has it on.
+  if [ "$kind" = address ]; then export ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=1}"; fi
+
+  target_dir=${CARGO_TARGET_DIR:-$(cargo metadata --format-version 1 --no-deps 2>/dev/null |
+    sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')}
+  export CARGO_TARGET_DIR="${target_dir:-target}/sanitize-$kind"
+
+  say "RUSTFLAGS='$RUSTFLAGS' cargo +nightly test ${build_std[*]+${build_std[*]} }--target $triple $*"
+  exec cargo +nightly test ${build_std[@]+"${build_std[@]}"} --target "$triple" "$@"
+}
+
+# Prints the [profile.*] tables of a Cargo manifest read from stdin.
+profile_tables() {
+  awk '/^[[:space:]]*\[/ { p = ($0 ~ /^[[:space:]]*\[profile\./) } p'
+}
+
+# Prints "name version" for every package in a Cargo.lock read from stdin.
+lock_packages() {
+  awk '/^name = / { n = $3 } /^version = / { v = $3; gsub(/"/, "", n); gsub(/"/, "", v); print n " " v }' | sort -u
+}
+
+# Prints "count path" for Rust lines containing the word `unsafe` that the diff on stdin adds.
+added_unsafe() {
+  awk '/^\+\+\+ / { f = substr($0, 7); next }
+    /^\+/ { l = " " substr($0, 2) " "; if (l ~ /[^A-Za-z0-9_]unsafe[^A-Za-z0-9_]/) c[f]++ }
+    END { for (f in c) print c[f] " " f }'
+}
+
+bench_lock_path() {
+  local dir=/tmp
+  if [ -n "${IMPECCABLE_BENCH_LOCK:-}" ]; then echo "$IMPECCABLE_BENCH_LOCK"; return 0; fi
+  if [ ! -w "$dir" ]; then dir=${TMPDIR:-/tmp}; fi
+  printf '%s/impeccable-bench-%s.lock' "${dir%/}" "$(id -u)"
+}
+
+# Takes the lock directory $1, waiting for a live holder and clearing a dead one.
+acquire_bench_lock() {
+  local lock=$1 pid waited=""
+  while ! mkdir "$lock" 2>/dev/null; do
+    pid=$(cat "$lock/pid" 2>/dev/null || true)
+    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+      say "clearing a benchmark lock left by process $pid, which has exited"
+      rm -rf "$lock"
+      continue
+    fi
+    if [ -z "$waited" ]; then
+      say "another benchmark is running${pid:+ (process $pid)}; waiting so the runs do not compete"
+      waited=1
+    fi
+    sleep 2
+  done
+  echo $$ >"$lock/pid"
+}
+
+cmd_bench_guard() {
+  local base="" top short root rel files old new n fails=0 a lock
+  local -a cmd=() allows=() specs=()
+  local checks="benches build flags release"
+  local usage_line="usage: impeccable bench-guard <baseline> [--allow <check>=<reason>]... [--benches <pathspec>]... [-- command...]"
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --allow) [ $# -ge 2 ] || die "$usage_line"; allows+=("$2"); shift ;;
+      --allow=*) allows+=("${1#--allow=}") ;;
+      --benches) [ $# -ge 2 ] || die "$usage_line"; specs+=("$2"); shift ;;
+      --benches=*) specs+=("${1#--benches=}") ;;
+      --) shift; cmd=("$@"); break ;;
+      -h | --help) say "$usage_line"; return 0 ;;
+      -*) die "unknown option: $1" ;;
+      *) if [ -z "$base" ]; then base=$1; else die "$usage_line"; fi ;;
+    esac
+    shift
+  done
+  [ -n "$base" ] || die "$usage_line"
+  for a in ${allows[@]+"${allows[@]}"}; do
+    case " $checks " in *" ${a%%=*} "*) ;; *) die "--allow takes one of: $checks (got '${a%%=*}')" ;; esac
+    case $a in *=?*) ;; *) die "--allow ${a%%=*} needs a reason: --allow ${a%%=*}=<why>" ;; esac
+  done
+
+  top=$(git rev-parse --show-toplevel 2>/dev/null) || die "bench-guard needs a git repository"
+  git -C "$top" rev-parse --verify --quiet "$base^{commit}" >/dev/null || die "not a commit: $base"
+  short=$(git -C "$top" log -1 --format='%h %s' "$base")
+  root=$(project_root)
+
+  row() { printf '  %-7s %-8s %s\n' "$1" "$2" "$3"; }
+  waiver() {
+    local x
+    for x in ${allows[@]+"${allows[@]}"}; do
+      if [ "${x%%=*}" = "$1" ]; then echo "${x#*=}"; return 0; fi
+    done
+    return 1
+  }
+  verdict() { # check pass|fail detail
+    local why
+    if [ "$2" = pass ]; then row PASS "$1" "$3"
+    elif why=$(waiver "$1"); then row WAIVED "$1" "$3; reason: $why"
+    else row FAIL "$1" "$3"; fails=$((fails + 1)); fi
+  }
+  changed() { # pathspec...
+    { git -C "$top" diff --name-only "$base" -- "$@"; git -C "$top" ls-files --others --exclude-standard -- "$@"; } | sort -u
+  }
+  listed() { # newline-separated items, at most six shown
+    n=$(printf '%s\n' "$1" | wc -l | tr -d ' ')
+    printf '%s\n' "$1" | head -6 | paste -sd ' ' -
+    if [ "$n" -gt 6 ]; then printf ' and %s more' "$((n - 6))"; fi
+  }
+
+  printf 'impeccable bench-guard against %s\n\n' "$short"
+
+  # benches: the benchmark definitions are the contract.
+  if [ ${#specs[@]} -eq 0 ]; then specs=(':(glob)**/benches/**'); fi
+  files=$(changed "${specs[@]}")
+  if [ -z "$files" ]; then verdict benches pass "benchmark files match the baseline"
+  else verdict benches fail "benchmark files differ from the baseline: $(listed "$files")"; fi
+
+  # build: toolchain, cargo config, and profile tables.
+  files=$(changed ':(glob)**/.cargo/config.toml' ':(glob)**/.cargo/config' \
+    ':(glob)**/rust-toolchain' ':(glob)**/rust-toolchain.toml')
+  case $root/ in
+    "$top"/*)
+      rel=${root#"$top"}; rel=${rel#/}; rel=${rel:+$rel/}Cargo.toml
+      if [ -f "$top/$rel" ]; then
+        old=$(git -C "$top" show "$base:$rel" 2>/dev/null | profile_tables || true)
+        new=$(profile_tables <"$top/$rel")
+        if [ "$old" != "$new" ]; then files=$(printf '%s\n%s' "$files" "$rel [profile]" | sed '/^$/d'); fi
+      fi ;;
+  esac
+  if [ -z "$files" ]; then verdict build pass "toolchain, cargo config, and profiles match the baseline"
+  else verdict build fail "build settings differ from the baseline: $(listed "$files")"; fi
+
+  # flags: compiler flags from the environment or user config do not ship.
+  files=$(env | sed -n -E 's/^(RUSTFLAGS|CARGO_ENCODED_RUSTFLAGS|CARGO_BUILD_RUSTFLAGS|CARGO_TARGET_[A-Z0-9_]+_RUSTFLAGS|CARGO_PROFILE_[A-Z0-9_]+)=.*/\1/p')
+  for a in "${CARGO_HOME:-$HOME/.cargo}/config.toml" "${CARGO_HOME:-$HOME/.cargo}/config"; do
+    if [ -f "$a" ] && grep -q -E '^[[:space:]]*rustflags[[:space:]]*=' "$a"; then files=$(printf '%s\n%s' "$files" "$a" | sed '/^$/d'); fi
+  done
+  if [ -z "$files" ]; then verdict flags pass "no compiler flags from the environment or user cargo config"
+  else verdict flags fail "compiler flags that do not ship: $(listed "$files")"; fi
+
+  # release: a cargo command must build an optimized profile.
+  if [ ${#cmd[@]} -gt 0 ]; then
+    local i=0 j sub="" prof=""
+    while [ "$i" -lt ${#cmd[@]} ] && [ "${cmd[i]##*/}" != cargo ]; do i=$((i + 1)); done
+    if [ "$i" -ge ${#cmd[@]} ]; then
+      row NOTE release "not a cargo command; confirm it builds with optimizations"
+    else
+      j=$((i + 1))
+      while [ "$j" -lt ${#cmd[@]} ]; do
+        a=${cmd[j]}
+        case $a in
+          --release | -r) prof=release ;;
+          --profile=*) prof=${a#--profile=} ;;
+          --profile) prof=${cmd[j + 1]:-} ;;
+          --) break ;;
+          [+-]*) ;;
+          *) if [ -z "$sub" ]; then sub=$a; fi ;;
+        esac
+        j=$((j + 1))
+      done
+      if [ "$sub" = bench ] && [ -z "$prof" ]; then prof=bench; fi
+      case $prof in
+        "" | dev | test) verdict release fail "cargo $sub builds the ${prof:-dev} profile; add --release" ;;
+        *) verdict release pass "cargo $sub builds the $prof profile" ;;
+      esac
+    fi
+  fi
+
+  # Notes route new risk to its owner; they never fail the run.
+  files=$(git -C "$top" diff -U0 "$base" -- '*.rs' | added_unsafe)
+  while IFS= read -r a; do
+    [ -n "$a" ] || continue
+    n=$(awk '{ l = " " $0 " "; if (l ~ /[^A-Za-z0-9_]unsafe[^A-Za-z0-9_]/) c++ } END { print c + 0 }' "$top/$a")
+    if [ "$n" -gt 0 ]; then files=$(printf '%s\n%s %s' "$files" "$n" "$a"); fi
+  done < <(git -C "$top" ls-files --others --exclude-standard -- '*.rs')
+  files=$(printf '%s\n' "$files" | sed '/^$/d')
+  if [ -n "$files" ]; then row NOTE unsafe "added lines with unsafe, for Miri: $(listed "$(printf '%s\n' "$files" | awk '{ print $2 " (" $1 ")" }')")"; fi
+
+  rel=${root#"$top"}; rel=${rel#/}; rel=${rel:+$rel/}Cargo.lock
+  if [ -f "$top/$rel" ]; then
+    files=$(comm -13 <(git -C "$top" show "$base:$rel" 2>/dev/null | lock_packages || true) <(lock_packages <"$top/$rel"))
+    if [ -n "$files" ]; then row NOTE deps "crates added or changed, for the dependency checks: $(listed "$files")"; fi
+  fi
+
+  if [ "$fails" -gt 0 ]; then
+    printf '\n'
+    die "$fails check(s) failed. Restore the contract, or waive a check on the record with --allow <check>=<reason>."
+  fi
+  [ ${#cmd[@]} -gt 0 ] || return 0
+
+  lock=$(bench_lock_path)
+  acquire_bench_lock "$lock"
+  # shellcheck disable=SC2064 # expand now: $lock is local and gone when the EXIT trap fires
+  trap "rm -rf $(printf %q "$lock")" EXIT
+  trap 'exit 130' INT TERM
+  printf '\n'
+  say "running under the benchmark lock: ${cmd[*]}"
+  "${cmd[@]}"
+}
+
+main() {
+  local cmd=${1:-help}
+  if [ $# -gt 0 ]; then shift; fi
+  case $cmd in
+    doctor) cmd_doctor "$@" ;;
+    setup) cmd_setup "$@" ;;
+    run) cmd_run "$@" ;;
+    sanitize) cmd_sanitize "$@" ;;
+    bench-guard) cmd_bench_guard "$@" ;;
+    help | -h | --help) usage ;;
+    *) usage >&2; exit 2 ;;
+  esac
+}
+
+main "$@"

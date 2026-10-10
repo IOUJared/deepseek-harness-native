@@ -12,11 +12,13 @@ MIT Rust library owning a private Node Host. No GUI or model engine. Optional `t
 | `stop_async()` | Queue teardown without blocking UI |
 | `stop()` | Stop and join worker threads |
 | `is_known_idle()` | Check confirmed idle; unknown is not idle |
+| `Arc<Backend>::probe_owned_host(timeout).await` | Read-only original-pipe proof; return the existing transport clone (`transport` feature) |
 
 - Start, requests and blocking stop belong on workers, never the UI thread.
 - Drop requests teardown; keep the owner alive until completion.
 - Commands are fixed, not a generic JSON dispatcher. Widgets receive metadata, never credentials.
 - [Account observation](<../docs/NATIVE-LAZY-ACCOUNT.md>) is opt-in; [Agent discovery](<../docs/NATIVE-AGENT-DISCOVERY.md>) returns registered identity without activation.
+- [Same-owned-Host proof](<../docs/NATIVE-OWNED-HOST-PROBE.md>) returns only the cached transport after a correlated original-pipe ACK; it proves neither idle nor HTTP/WS health and never authenticates, restarts or replays a mutation.
 
 ## Launch requirements
 
@@ -36,7 +38,7 @@ MIT Rust library owning a private Node Host. No GUI or model engine. Optional `t
 | Complete input/output frame | 65,536 bytes |
 | Events / in-flight requests | 128 each |
 
-Malformed packets, partial writes and early EOF fail closed. Dropped events are counted; stderr is discarded.
+Malformed packets, partial writes and early EOF fail closed. Dropped events are counted; stderr is discarded. Node line framing counts decoded UTF-8 bytes, including line endings, incrementally; oversized lines stay discarded through their newline. Invalid UTF-8 replacement bytes count toward the limit.
 
 ## Secrets and authorization
 
@@ -46,6 +48,10 @@ Malformed packets, partial writes and early EOF fail closed. Dropped events are 
 - Default credential storage: 0700 directories/0600 files. Custom providers may write elsewhere.
 - Wiping covers owned Rust input/frames—not GUI, Node, kernel, clipboard or swap copies.
 - [Codex](<../docs/NATIVE-CODEX.md>): explicit status/start/callback/browser controls; fixed provider and revision-checked route activation. No generic browser or credential-read access.
+- [Managed Codex accounts](<../docs/NATIVE-MANAGED-CODEX.md>): non-Copy `CodexAccountsMetadata`, branded redacted `CodexAccountId`/`CodexAccountLabel`, explicit Add/select/local logout with epoch checks. Add never selects; unknown writes require explicit `CodexAccountsStatus` reconciliation. No email, plan or quota is inferred.
+
+- [Codex usage preferences](<../docs/NATIVE-CODEX-USAGE-POLICY.md>): typed local load/save, durable revision checks and explicit conflict/unknown outcomes. No quota, credential, notification or retry access.
+- [Codex runtime settings](<../docs/NATIVE-CODEX-USAGE-POLICY.md#remaining-supported-controls>): typed `CodexRuntimeRead` / `CodexRuntimeSave` expose eight fixed transport/cache/timeout/image-input fields through public Settings CAS. Closed snapshots distinguish effective values, inherited defaults and actual user overrides; no credential, endpoint or arbitrary provider access. Native Models/Images editors retain drafts and require explicit reconciliation after uncertainty.
 
 ## Process ownership
 
@@ -62,6 +68,8 @@ cargo test --locked -j2 -- --test-threads=2
 cargo test --locked -j2 --features transport -- --test-threads=2
 ```
 
-[Lifecycle smoke](<examples/smoke.rs>) · [Transport smoke](<examples/transport_smoke.rs>) · [PUBLIC key-save fixture](<examples/api_key_smoke.rs>) · [File upload](<../docs/NATIVE-FILE-UPLOAD.md>)
+[Lifecycle smoke](<examples/smoke.rs>) · [Transport smoke](<examples/transport_smoke.rs>) · [PUBLIC key-save fixture](<examples/api_key_smoke.rs>) · [Cold prompt-admission smoke](<examples/prompt_admission_smoke.rs>) · [File upload](<../docs/NATIVE-FILE-UPLOAD.md>)
+
+The lifecycle smoke accepts `--usage-stage initial|restored|corrupt` for [preference-only pipe qualification](<../docs/NATIVE-CODEX-USAGE-POLICY.md>). Use one owned isolated home for initial/restored; corrupt only its PUBLIC preference fixture before the corrupt stage. These stages never issue account, OAuth or model commands; omission preserves the existing lifecycle checks. `--runtime-stage initial|restored` instead qualifies typed runtime save/stale-CAS/restart/reset on an owned PUBLIC configured route; it cannot be combined with a usage stage.
 
 Fixtures and scripted backend checks do not establish real-key validity, physical input or full app parity. Generated evidence stays local.

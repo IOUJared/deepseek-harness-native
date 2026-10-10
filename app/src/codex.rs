@@ -1,7 +1,10 @@
 //! Explicit ChatGPT authorization controls. URLs, credentials and provider diagnostics stay private.
 use crate::design;
 use crate::ui::{ACCENT, DANGER, MUTED, TEXT, label};
-use dsh_native_core::{CodexMetadata, CodexPhase, SecretCodexCallback};
+use dsh_native_core::{
+    CodexAccountId, CodexAccountLabel, CodexAccountsMetadata, CodexMetadata, CodexPhase,
+    SecretCodexCallback,
+};
 use iced::widget::{button, column, container, row, text_input};
 use iced::{Element, Length};
 use std::sync::{
@@ -16,6 +19,19 @@ mod connect_tests;
 #[path = "codex_tests.rs"]
 mod tests;
 const MAX_INPUT: usize = 16_384;
+#[path = "codex_managed.rs"]
+mod managed;
+#[path = "codex_settings_view.rs"]
+mod settings_view;
+#[path = "codex_usage.rs"]
+mod usage;
+pub use usage::Action as UsageAction;
+#[path = "codex_runtime.rs"]
+mod runtime;
+pub use runtime::{Action as RuntimeAction, Field as RuntimeField};
+pub(crate) use runtime::ack_matches as runtime_ack_matches;
+#[path = "codex_runtime_view.rs"]
+mod runtime_view;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Ticket {
@@ -75,23 +91,109 @@ impl Input {
         self.0.lock().ok()?.take()
     }
 }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Tab {
+    #[default]
+    Account,
+    Models,
+    Images,
+    Maintenance,
+}
+impl Tab {
+    pub const ALL: [Self; 4] = [Self::Account, Self::Models, Self::Images, Self::Maintenance];
+    fn title(self) -> &'static str {
+        match self {
+            Self::Account => "Account",
+            Self::Models => "Models & runtime",
+            Self::Images => "Images",
+            Self::Maintenance => "Maintenance",
+        }
+    }
+}
 #[derive(Clone)]
 pub enum Action {
+    Runtime { ticket: Ticket, action: RuntimeAction },
+    Usage { ticket: Ticket, action: UsageAction },
+    SelectTab {
+        ticket: Ticket,
+        tab: Tab,
+    },
     Connect(Ticket),
+    RefreshAccounts(Ticket),
+    EditLabel {
+        ticket: Ticket,
+        label: String,
+    },
+    AddAccount(Ticket),
+    ReviewSelect {
+        ticket: Ticket,
+        account_id: CodexAccountId,
+    },
+    ReviewSignOut {
+        ticket: Ticket,
+        account_id: CodexAccountId,
+    },
+    ReviewSignOutAll(Ticket),
+    ConfirmAccount(Ticket),
+    DismissAccount(Ticket),
     ToggleAdvanced(Ticket),
     CheckStatus(Ticket),
     Start(Ticket),
-    OpenBrowser { ticket: Ticket, attempt: u64 },
-    Edit { ticket: DraftTicket, input: Input },
+    OpenBrowser {
+        ticket: Ticket,
+        attempt: u64,
+    },
+    Edit {
+        ticket: DraftTicket,
+        input: Input,
+    },
     ReviewCallback(DraftTicket),
     ConfirmCallback(DraftTicket),
     DiscardCallback(DraftTicket),
-    Cancel { ticket: Ticket, attempt: u64 },
+    Cancel {
+        ticket: Ticket,
+        attempt: u64,
+    },
     ReviewEnable(Ticket),
     ConfirmEnable(Ticket),
     DismissReview(Ticket),
 }
 pub enum Effect {
+    RuntimeRead { ticket: Ticket },
+    RuntimeSave {
+        ticket: Ticket,
+        expected_revision: u64,
+        values: dsh_native_core::CodexRuntimeValues,
+        base_values: dsh_native_core::CodexRuntimeValues,
+    },
+    UsageRead { ticket: Ticket },
+    UsageSave {
+        ticket: Ticket,
+        expected_revision: u64,
+        preferences: dsh_native_core::CodexUsagePreferences,
+    },
+    AccountsRead {
+        ticket: Ticket,
+    },
+    AddAccount {
+        ticket: Ticket,
+        label: CodexAccountLabel,
+        expected_epoch: u64,
+    },
+    SelectAccount {
+        ticket: Ticket,
+        account_id: CodexAccountId,
+        expected_epoch: u64,
+    },
+    SignOutAccount {
+        ticket: Ticket,
+        account_id: CodexAccountId,
+        expected_epoch: u64,
+    },
+    SignOutAll {
+        ticket: Ticket,
+        expected_epoch: u64,
+    },
     StatusRead {
         ticket: Ticket,
     },
@@ -118,8 +220,21 @@ pub enum Effect {
     },
 }
 /// Metadata is not evidence that a particular login or model-registration operation succeeded.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub enum Outcome {
+    Runtime(dsh_native_core::CodexRuntimeSnapshot),
+    RuntimeConflict,
+    RuntimeIndeterminate,
+    RuntimeUnavailable,
+    UsageSnapshot(dsh_native_core::CodexUsageSnapshot),
+    UsageConflict,
+    UsageUnavailable,
+    UsageIndeterminate,
+    Accounts(CodexAccountsMetadata),
+    StatusSnapshot {
+        metadata: CodexMetadata,
+        accounts: CodexAccountsMetadata,
+    },
     Metadata(CodexMetadata),
     Confirmed,
     Refused,
@@ -137,6 +252,11 @@ macro_rules! redacted_debug {
 redacted_debug!(Editor, Input, Action, Effect, Outcome, Controller);
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Operation {
+    Accounts,
+    Add,
+    Select,
+    SignOut,
+    SignOutAll,
     Status,
     Start,
     Browser,
@@ -148,6 +268,8 @@ struct Flight {
     ticket: Ticket,
     operation: Operation,
     revision: Option<u64>,
+    // Only a standalone status action may schedule a preference read; OAuth receipts cannot.
+    follow_usage: bool,
 }
 /// An explicit click authorizes this finite chain, not future panels or retries.
 #[derive(Clone, Copy)]
@@ -155,15 +277,22 @@ struct Connection {
     epoch: u64,
     panel: u64,
     step: ConnectStep,
+    auto_select: bool,
 }
 #[derive(Clone, Copy)]
 enum ConnectStep {
     Checking(Ticket),
     Checked(CodexMetadata),
     Starting(Ticket),
+    Adding(Ticket),
     Login(LoginState),
     Opening { ticket: Ticket, login: LoginState },
     Enabling(Ticket),
+    ReadingAdded { ticket: Ticket, attempt: u64 },
+    Selecting(Ticket),
+    Selected,
+    CheckingSelected(Ticket),
+    CheckedSelected,
 }
 #[derive(Clone, Copy)]
 struct LoginState {
@@ -175,11 +304,16 @@ impl Connection {
     fn progress(self) -> &'static str {
         match self.step {
             ConnectStep::Checking(_) | ConnectStep::Checked(_) => "Checking local configuration…",
-            ConnectStep::Starting(_) => "Preparing browser sign-in…",
+            ConnectStep::Starting(_) | ConnectStep::Adding(_) => "Preparing browser sign-in…",
             ConnectStep::Login(_) => {
                 "Complete sign-in/approval in your browser. Waiting for confirmation…"
             }
             ConnectStep::Opening { .. } => "Opening your browser…",
+            ConnectStep::ReadingAdded { .. }
+            | ConnectStep::Selecting(_)
+            | ConnectStep::Selected
+            | ConnectStep::CheckingSelected(_)
+            | ConnectStep::CheckedSelected => "Selecting the just-added local account…",
             ConnectStep::Enabling(_) => "Enabling ChatGPT models…",
         }
     }
@@ -213,7 +347,7 @@ impl Notice {
                 "Opening this section performs no request. Choose Connect ChatGPT to begin."
             }
             Self::Loaded => {
-                "Status checked. Stored credential metadata does not validate your account or confirm this login attempt."
+                "Local status checked; account identity and this login attempt are not verified."
             }
             Self::Invalid => {
                 "Invalid callback. Use 1–16384 printable nonwhitespace ASCII bytes; input is never trimmed. Draft cleared; nothing sent."
@@ -253,6 +387,9 @@ impl Notice {
     }
 }
 pub struct Controller {
+    runtime: runtime::Runtime,
+    usage: usage::Usage,
+    managed: managed::Managed,
     open: bool,
     epoch: u64,
     panel: u64,
@@ -269,11 +406,15 @@ pub struct Controller {
     flight: Option<Flight>,
     connection: Option<Connection>,
     advanced: bool,
+    tab: Tab,
     notice: Notice,
 }
 impl Default for Controller {
     fn default() -> Self {
         Self {
+            runtime: runtime::Runtime::default(),
+            usage: usage::Usage::default(),
+            managed: managed::Managed::default(),
             open: false,
             epoch: 0,
             panel: 0,
@@ -290,6 +431,7 @@ impl Default for Controller {
             flight: None,
             connection: None,
             advanced: false,
+            tab: Tab::default(),
             notice: Notice::Idle,
         }
     }
@@ -304,10 +446,21 @@ impl Controller {
     }
     pub fn operation_ticket(&self) -> Option<Ticket> {
         self.flight.as_ref().map(|f| f.ticket)
+            .or_else(|| self.usage.ticket()).or_else(|| self.runtime.ticket())
+    }
+    /// Permission gate for future usage consumers; no usage execution is connected.
+    #[allow(dead_code)]
+    pub fn effective_consent(&self) -> bool {
+        self.usage.effective_consent()
     }
     pub fn draft_ticket(&self) -> Option<DraftTicket> {
         let m = self.metadata?;
-        if !self.open || !self.fresh || !active(m.phase) || m.retry_blocked || self.owner_uncertain
+        if !self.open
+            || !self.fresh
+            || !active(m.phase)
+            || m.retry_blocked
+            || self.owner_uncertain
+            || self.managed.uncertain
         {
             return None;
         }
@@ -323,10 +476,57 @@ impl Controller {
     }
     /// Short operations and an active/uncertain login both block unrelated credential edits.
     pub fn pending(&self) -> bool {
+        self.runtime.pending() || self.pending_without_runtime()
+    }
+    /// Closed runtime warning/status for the fixed modal footer, outside scrolling content.
+    pub(crate) fn runtime_footer(&self) -> Option<(&'static str, bool)> {
+        (self.runtime.pending() || self.runtime.attention())
+            .then(|| (self.runtime.status(), self.runtime.attention()))
+    }
+    /// Preserve the generic preference reducer's editable draft contract, but rebase the
+    /// native read-only scalar only after an exact pending read settles owned and fresh.
+    pub(crate) fn completed_native(&mut self, ticket: Ticket, outcome: Outcome) {
+        let native_read = self.usage.read_pending_for(ticket);
+        self.completed(ticket, outcome);
+        if native_read {
+            self.usage.rebase_native_read_only_threshold();
+        }
+    }
+    /// Exact-alpha native surface has no observer/alert/retry executor. Allow readback
+    /// and explicit reductions only; durable preference foundations are not active features.
+    pub(crate) fn usage_surface_action_allowed(&self, action: &UsageAction) -> bool {
+        use dsh_native_core::{CodexComposerDisplay, CodexUsageAlert};
+        match action {
+            UsageAction::Refresh | UsageAction::Composer(CodexComposerDisplay::Off)
+                | UsageAction::Alert(CodexUsageAlert::Off) | UsageAction::Retry(false)
+                | UsageAction::Consent(false) => true,
+            UsageAction::Save => self.usage.snapshot.as_ref().is_some_and(|snapshot| {
+                let before = &snapshot.preferences;
+                let after = &self.usage.draft;
+                after != before
+                    && (after.composer_display == before.composer_display || after.composer_display == CodexComposerDisplay::Off)
+                    && (after.usage_alert == before.usage_alert || after.usage_alert == CodexUsageAlert::Off)
+                    && (!after.retry_after_reset || before.retry_after_reset)
+                    && (!after.experimental_quota || before.experimental_quota)
+                    && after.custom_remaining_percent == before.custom_remaining_percent
+            }),
+            _ => false,
+        }
+    }
+    /// Closed local-preferences status for the fixed footer on every Settings category.
+    pub(crate) fn usage_footer(&self) -> Option<(&'static str, bool)> {
+        (self.usage.pending() || self.usage.attention())
+            .then(|| (self.usage.status(), self.usage.attention()))
+    }
+    fn pending_without_runtime(&self) -> bool {
+        self.usage.pending() || self.pending_account_operation()
+    }
+    fn pending_account_operation(&self) -> bool {
         self.flight.is_some()
             || self.connection.is_some()
             || self.detached_login
             || self.owner_uncertain
+            || self.managed.uncertain
             || self
                 .metadata
                 .is_some_and(|m| active(m.phase) || m.retry_blocked)
@@ -337,8 +537,11 @@ impl Controller {
         self.adopt_epoch(epoch);
     }
     pub fn leave(&mut self) {
+        self.usage.initial_queued = false;
+        self.managed_reset_panel();
         self.connection = None;
         self.advanced = false;
+        self.tab = Tab::default();
         self.clear_draft();
         self.open = false;
         self.fresh = false;
@@ -351,13 +554,16 @@ impl Controller {
         if epoch == self.epoch {
             return;
         }
-        let uncertain = self.pending();
+        let uncertain = self.pending_without_runtime();
+        self.runtime.disconnect();
+        self.usage.disconnect();
         self.connection = None;
         self.advanced = false;
         self.clear_draft();
         self.panel += 1;
         self.serial += 1;
         self.epoch = epoch;
+        self.managed = managed::Managed::default();
         self.metadata = None;
         self.deferred = None;
         self.fresh = false;
@@ -383,11 +589,70 @@ impl Controller {
         self.open && c.visible && c.enabled && self.epoch != 0 && c.epoch == self.epoch
     }
     fn ready(&self) -> bool {
-        self.flight.is_none()
+        self.flight.is_none() && !self.usage.pending() && !self.runtime.pending()
+    }
+    fn handle_runtime(&mut self, ticket: Ticket, action: RuntimeAction, context: Context) -> Option<Effect> {
+        if !self.allowed(context) || ticket != self.ticket()
+            || !matches!(self.tab, Tab::Models | Tab::Images)
+        { return None; }
+        // Runtime intent cannot resume an OAuth chain or queue a preference followup.
+        self.connection = None;
+        self.usage.initial_queued = false;
+        match action {
+            RuntimeAction::Refresh if self.ready() => {
+                self.serial += 1;
+                let ticket = self.ticket();
+                self.runtime.read(ticket);
+                Some(Effect::RuntimeRead { ticket })
+            }
+            RuntimeAction::Save if self.ready() && self.runtime.can_save() => {
+                self.serial += 1;
+                let ticket = self.ticket();
+                let (expected_revision, values, base_values) = self.runtime.save(ticket)?;
+                Some(Effect::RuntimeSave { ticket, expected_revision, values, base_values })
+            }
+            RuntimeAction::Refresh | RuntimeAction::Save => None,
+            other if self.flight.is_none() && !self.usage.pending() && !self.runtime.saving() => {
+                self.runtime.edit(other);
+                None
+            }
+            _ => None,
+        }
+    }
+    fn usage_read(&mut self) -> Effect {
+        self.serial += 1;
+        let ticket = self.ticket();
+        self.usage.read(ticket);
+        Effect::UsageRead { ticket }
+    }
+    fn handle_usage(&mut self, ticket: Ticket, action: UsageAction, context: Context) -> Option<Effect> {
+        // Local OFF is a permission fence even when other settings/backend work disables writes.
+        let local = self.open && context.visible && context.epoch == self.epoch
+            && ticket == self.ticket() && self.tab == Tab::Account;
+        if !local { return None; }
+        // Preference intent never authorizes or resumes an OAuth/model-route chain.
+        self.connection = None;
+        self.usage.initial_queued = false;
+        if matches!(action, UsageAction::Consent(false)) {
+            self.usage.edit(action);
+            return None;
+        }
+        if !self.allowed(context) || !self.ready() { return None; }
+        match action {
+            UsageAction::Refresh => Some(self.usage_read()),
+            UsageAction::Save if self.usage.can_save() => {
+                self.serial += 1;
+                let ticket = self.ticket();
+                let (expected_revision, preferences) = self.usage.save(ticket)?;
+                Some(Effect::UsageSave { ticket, expected_revision, preferences })
+            }
+            other => { self.usage.edit(other); None }
+        }
     }
     fn may_start(&self) -> bool {
         self.fresh
             && !self.owner_uncertain
+            && !self.managed.uncertain
             && !self.detached_login
             && self.metadata.is_some_and(|m| {
                 m.available && !m.credential_stored && !m.retry_blocked && !active(m.phase)
@@ -395,6 +660,7 @@ impl Controller {
     }
     fn may_enable(&self) -> bool {
         !self.owner_uncertain
+            && !self.managed.uncertain
             && self.fresh
             && self.metadata.is_some_and(|m| {
                 m.available
@@ -412,8 +678,12 @@ impl Controller {
             ticket,
             operation,
             revision: self.metadata.and_then(|m| m.settings_revision),
+            follow_usage: false,
         });
-        if operation == Operation::Start {
+        if matches!(operation, Operation::Start | Operation::Add) {
+            // Login may add an unselected account without changing the selection epoch.
+            // Losing the automatic chain must not make the pre-login roster writable.
+            self.managed.fresh = false;
             self.deferred = None;
             self.detached_login = true;
         }
@@ -421,6 +691,17 @@ impl Controller {
     }
     /// Called only after a completion/observation. It never starts an intent by itself.
     pub fn continue_connection(&mut self, context: Context) -> Option<Effect> {
+        let effect = self.continue_connection_step(context);
+        if effect.is_some() { return effect; }
+        // A preference receipt cannot advance login/models: auto-read only after the explicit chain ends.
+        if self.connection.is_none() && self.usage.initial_queued && self.allowed(context)
+            && self.ready() && self.tab == Tab::Account
+        {
+            return Some(self.usage_read());
+        }
+        None
+    }
+    fn continue_connection_step(&mut self, context: Context) -> Option<Effect> {
         let connection = self.connection?;
         if !self.allowed(context)
             || connection.epoch != self.epoch
@@ -433,6 +714,18 @@ impl Controller {
             return None;
         }
         let mut next = connection;
+        if let ConnectStep::ReadingAdded { attempt, .. } = connection.step {
+            if let Some(added) = self.managed.added.clone().filter(|a| a.attempt == attempt) {
+                let ticket = self.begin(Operation::Select);
+                next.step = ConnectStep::Selecting(ticket);
+                self.connection = Some(next);
+                return Some(Effect::SelectAccount {
+                    ticket,
+                    account_id: added.account_id,
+                    expected_epoch: added.epoch,
+                });
+            }
+        }
         match connection.step {
             ConnectStep::Checked(receipt) => {
                 // Only this explicit Status receipt authorizes the credential/no-credential branch.
@@ -443,6 +736,10 @@ impl Controller {
                     || self.detached_login
                 {
                     self.stop_connection(Notice::Refused);
+                    return None;
+                }
+                if self.managed_mode() && (!self.managed.fresh || self.managed.uncertain) {
+                    self.stop_connection(Notice::Indeterminate);
                     return None;
                 }
                 if receipt.credential_stored {
@@ -485,10 +782,24 @@ impl Controller {
                     return None;
                 }
                 match m.phase {
-                    CodexPhase::Authorized if m.credential_stored => {
+                    CodexPhase::Authorized if m.credential_stored || self.managed_mode() => {
                         // A terminal can precede Start ACK or Browser ACK. Never bypass an issued opener's receipt.
                         if login.browser_issued && !login.browser_confirmed {
                             return None;
+                        }
+                        if self.managed_mode() && !connection.auto_select {
+                            self.managed.fresh = false;
+                            self.stop_connection(Notice::Loaded);
+                            return None;
+                        }
+                        if self.managed_mode() {
+                            let ticket = self.begin(Operation::Accounts);
+                            next.step = ConnectStep::ReadingAdded {
+                                ticket,
+                                attempt: login.attempt,
+                            };
+                            self.connection = Some(next);
+                            return Some(Effect::AccountsRead { ticket });
                         }
                         if m.route_configured {
                             self.stop_connection(Notice::Connected);
@@ -514,11 +825,43 @@ impl Controller {
                     _ => self.stop_connection(Notice::Indeterminate),
                 }
             }
+            ConnectStep::Selected => {
+                let ticket = self.begin(Operation::Status);
+                next.step = ConnectStep::CheckingSelected(ticket);
+                self.connection = Some(next);
+                return Some(Effect::StatusRead { ticket });
+            }
+            ConnectStep::CheckingSelected(_) => {}
+            ConnectStep::CheckedSelected => {
+                let m = self.metadata?;
+                if !m.credential_stored
+                    || m.retry_blocked
+                    || !self.fresh
+                    || !self.managed.fresh
+                    || !self.managed.added.as_ref().is_some_and(|a| {
+                        self.managed.metadata.as_ref().is_some_and(|accounts| {
+                            accounts.selected.as_ref() == Some(&a.account_id)
+                                && accounts.epoch == a.epoch.checked_add(1)
+                        })
+                    })
+                {
+                    self.stop_connection(Notice::Indeterminate);
+                    return None;
+                }
+                if m.route_configured {
+                    self.stop_connection(Notice::Connected);
+                    return None;
+                }
+                return self.connect_enable(m);
+            }
             // Only completed() may advance these receipt gates, even if metadata is already fresh.
             ConnectStep::Checking(_)
             | ConnectStep::Starting(_)
+            | ConnectStep::Adding(_)
             | ConnectStep::Opening { .. }
-            | ConnectStep::Enabling(_) => {}
+            | ConnectStep::Enabling(_)
+            | ConnectStep::ReadingAdded { .. }
+            | ConnectStep::Selecting(_) => {}
         }
         None
     }
@@ -558,13 +901,14 @@ impl Controller {
             self.connection = None;
             return;
         }
-        let step = match (connection.step, operation, outcome) {
+        let step = match (connection.step, operation, outcome.clone()) {
             (ConnectStep::Checking(expected), Operation::Status, Outcome::Metadata(m))
                 if expected == ticket && accepted =>
             {
                 Some(ConnectStep::Checked(m))
             }
             (ConnectStep::Starting(expected), Operation::Start, Outcome::Metadata(m))
+            | (ConnectStep::Adding(expected), Operation::Add, Outcome::Metadata(m))
                 if expected == ticket && accepted =>
             {
                 m.attempt.map(|attempt| {
@@ -586,6 +930,43 @@ impl Controller {
             ) if expected == ticket => {
                 login.browser_confirmed = true;
                 Some(ConnectStep::Login(login))
+            }
+            (
+                ConnectStep::ReadingAdded {
+                    ticket: expected,
+                    attempt,
+                },
+                Operation::Accounts,
+                Outcome::Accounts(m),
+            ) if expected == ticket && accepted && self.managed_mode() => {
+                if let Some(added) = m.added.filter(|a| {
+                    a.attempt == attempt
+                        && m.epoch == Some(a.epoch)
+                        && m.accounts
+                            .iter()
+                            .any(|account| account.opaque_id == a.account_id)
+                }) {
+                    self.managed.added = Some(added);
+                    // The next effect is emitted only by continue_connection under the original panel receipt.
+                    Some(ConnectStep::ReadingAdded { ticket, attempt })
+                } else {
+                    None
+                }
+            }
+            (ConnectStep::Selecting(expected), Operation::Select, Outcome::Accounts(m))
+                if expected == ticket
+                    && accepted
+                    && self.managed.added.as_ref().is_some_and(|a| {
+                        m.selected.as_ref() == Some(&a.account_id)
+                            && m.epoch == a.epoch.checked_add(1)
+                    }) =>
+            {
+                Some(ConnectStep::Selected)
+            }
+            (ConnectStep::CheckingSelected(expected), Operation::Status, Outcome::Metadata(_))
+                if expected == ticket && accepted =>
+            {
+                Some(ConnectStep::CheckedSelected)
             }
             (ConnectStep::Enabling(expected), Operation::Enable, Outcome::Metadata(_))
                 if expected == ticket
@@ -612,6 +993,31 @@ impl Controller {
         }
     }
     pub fn handle(&mut self, action: Action, context: Context) -> Option<Effect> {
+        if let Action::Runtime { ticket, action } = action {
+            return self.handle_runtime(ticket, action, context);
+        }
+        if let Action::Usage { ticket, action } = action {
+            return self.handle_usage(ticket, action, context);
+        }
+        if let Action::SelectTab { ticket, tab } = action {
+            if self.open
+                && context.visible
+                && context.epoch == self.epoch
+                && ticket == self.ticket()
+            {
+                self.connection = None;
+                self.managed_reset_panel();
+                if self.tab != tab {
+                    self.usage.initial_queued = false;
+                    self.panel += 1;
+                    self.serial += 1;
+                }
+                self.tab = tab;
+                self.clear_draft();
+                self.advanced = false;
+            }
+            return None;
+        }
         if !self.allowed(context) {
             self.connection = None;
         }
@@ -623,6 +1029,45 @@ impl Controller {
                 }
             }
             return None;
+        }
+        if matches!(
+            &action,
+            Action::RefreshAccounts(_)
+                | Action::EditLabel { .. }
+                | Action::AddAccount(_)
+                | Action::ReviewSelect { .. }
+                | Action::ReviewSignOut { .. }
+                | Action::ReviewSignOutAll(_)
+                | Action::ConfirmAccount(_)
+                | Action::DismissAccount(_)
+        ) {
+            return self.handle_account(&action, context);
+        }
+        // Cancel uses a separate reserved worker slot; retire this panel's other ACK, never guess cleanup.
+        if let Action::Cancel { ticket, attempt } = &action {
+            if self.allowed(context)
+                && *ticket == self.ticket()
+                && self.metadata.is_some_and(|m| {
+                    (active(m.phase) || self.owner_uncertain) && m.attempt == Some(*attempt)
+                })
+            {
+                self.connection = None;
+                self.managed.added = None;
+                if self.flight.as_ref().is_some_and(|f| {
+                    matches!(
+                        f.operation,
+                        Operation::Start | Operation::Add | Operation::Callback
+                    )
+                }) {
+                    self.owner_uncertain = true;
+                    self.managed.uncertain |= self.managed_mode();
+                }
+                self.clear_draft();
+                return Some(Effect::CancelLogin {
+                    ticket: self.begin(Operation::Cancel),
+                    attempt: *attempt,
+                });
+            }
         }
         // Consume even rejected/stale/hidden input holders so a clone cannot replay plaintext.
         if let Action::Edit { ticket, input } = &action {
@@ -680,14 +1125,15 @@ impl Controller {
                     epoch: self.epoch,
                     panel: self.panel,
                     step: ConnectStep::Checking(ticket),
+                    auto_select: true,
                 });
                 return Some(Effect::StatusRead { ticket });
             }
             Action::CheckStatus(t) if t == self.ticket() => {
                 self.clear_draft();
-                return Some(Effect::StatusRead {
-                    ticket: self.begin(Operation::Status),
-                });
+                let ticket = self.begin(Operation::Status);
+                self.flight.as_mut().expect("admitted status").follow_usage = true;
+                return Some(Effect::StatusRead { ticket });
             }
             Action::Start(t) if t == self.ticket() && self.may_start() && self.review.is_none() => {
                 self.clear_draft();
@@ -776,15 +1222,82 @@ impl Controller {
         None
     }
     pub fn completed(&mut self, ticket: Ticket, outcome: Outcome) {
+        if self.runtime.ticket() == Some(ticket) {
+            let owned = self.open && ticket.epoch == self.epoch && ticket.panel == self.panel;
+            self.runtime.complete(ticket, outcome, owned);
+            return;
+        }
+        if self.usage.ticket() == Some(ticket) {
+            let owned = self.open && ticket.epoch == self.epoch && ticket.panel == self.panel;
+            self.usage.complete(ticket, outcome, owned);
+            return;
+        }
         if self.operation_ticket() != Some(ticket) {
             return;
         }
         let flight = self.flight.take().expect("matched operation");
         let operation = flight.operation;
+        let outcome = match outcome {
+            Outcome::StatusSnapshot { metadata, accounts }
+                if matches!(operation, Operation::Status | Operation::Accounts) =>
+            {
+                if self.open && ticket.epoch == self.epoch && ticket.panel == self.panel {
+                    if operation == Operation::Status && flight.follow_usage && !self.usage.initial_attempted {
+                        self.usage.initial_queued = true;
+                    }
+                    // Both nonmutating receipts are required to reconcile managed uncertainty.
+                    if accounts.mode == dsh_native_core::CodexAccountMode::Managed
+                        && !active(metadata.phase)
+                        && !metadata.retry_blocked
+                    {
+                        self.detached_login = false;
+                        self.owner_uncertain = false;
+                        self.managed.uncertain = false;
+                    }
+                    if operation == Operation::Accounts {
+                        self.metadata = Some(metadata);
+                        self.fresh = true;
+                        Outcome::Accounts(accounts)
+                    } else {
+                        self.account_receipt(Operation::Accounts, accounts);
+                        Outcome::Metadata(metadata)
+                    }
+                } else {
+                    Outcome::Metadata(metadata)
+                }
+            }
+            Outcome::StatusSnapshot { .. } => Outcome::Indeterminate,
+            other => other,
+        };
+        let outcome = match outcome {
+            Outcome::Metadata(_)
+                if matches!(
+                    operation,
+                    Operation::Accounts
+                        | Operation::Select
+                        | Operation::SignOut
+                        | Operation::SignOutAll
+                ) =>
+            {
+                Outcome::Indeterminate
+            }
+            Outcome::Accounts(_)
+                if !matches!(
+                    operation,
+                    Operation::Accounts
+                        | Operation::Select
+                        | Operation::SignOut
+                        | Operation::SignOutAll
+                ) =>
+            {
+                Outcome::Indeterminate
+            }
+            other => other,
+        };
         if matches!(outcome, Outcome::Indeterminate) {
             if matches!(
                 operation,
-                Operation::Start | Operation::Callback | Operation::Cancel
+                Operation::Start | Operation::Add | Operation::Callback | Operation::Cancel
             ) {
                 self.owner_uncertain = true;
             } else if operation == Operation::Enable {
@@ -792,10 +1305,24 @@ impl Controller {
                 self.fresh = false;
             }
         }
+        if matches!(outcome, Outcome::Indeterminate)
+            && matches!(
+                operation,
+                Operation::Start
+                    | Operation::Add
+                    | Operation::Select
+                    | Operation::SignOut
+                    | Operation::SignOutAll
+            )
+            && self.managed_mode()
+        {
+            self.managed.uncertain = true;
+            self.managed.fresh = false;
+        }
         if !self.open || ticket.epoch != self.epoch || ticket.panel != self.panel {
             self.connection = None;
             // Retire the receipt without hydrating a hidden/new panel. Deferred state remains private.
-            if operation == Operation::Start {
+            if matches!(operation, Operation::Start | Operation::Add) {
                 self.deferred = None;
             }
             self.notice = Notice::Earlier;
@@ -803,10 +1330,30 @@ impl Controller {
         }
         self.clear_draft();
         let mut accepted = false;
-        match outcome {
+        match outcome.clone() {
+            Outcome::Accounts(m)
+                if matches!(
+                    operation,
+                    Operation::Accounts
+                        | Operation::Select
+                        | Operation::SignOut
+                        | Operation::SignOutAll
+                ) =>
+            {
+                self.account_receipt(operation, m);
+                accepted = true;
+                self.notice = Notice::Loaded;
+                // Selection/logout invalidates grant metadata until an explicit status receipt.
+                if operation != Operation::Accounts {
+                    self.fresh = false;
+                }
+            }
+            Outcome::Accounts(_) | Outcome::StatusSnapshot { .. } => {
+                self.notice = Notice::Indeterminate
+            }
             Outcome::Metadata(mut m) => {
                 // Start and status may introduce an attempt. A late Start ACK cannot downgrade a terminal observation.
-                if operation == Operation::Start {
+                if matches!(operation, Operation::Start | Operation::Add) {
                     if let Some(observed) = self
                         .deferred
                         .take()
@@ -815,7 +1362,10 @@ impl Controller {
                         m = observed;
                     }
                 }
-                if matches!(operation, Operation::Start | Operation::Status) || self.same_attempt(m)
+                if matches!(
+                    operation,
+                    Operation::Start | Operation::Add | Operation::Status
+                ) || self.same_attempt(m)
                 {
                     if operation != Operation::Status {
                         if let Some(current) = self.metadata.filter(|current| {
@@ -868,14 +1418,18 @@ impl Controller {
             Outcome::Conflict => {
                 self.notice = Notice::Conflict;
                 self.metadata = None;
+                self.managed.fresh = false;
             }
-            Outcome::Indeterminate => self.notice = Notice::Indeterminate,
+            Outcome::Indeterminate | Outcome::UsageIndeterminate | Outcome::UsageSnapshot(_)
+            | Outcome::UsageConflict | Outcome::UsageUnavailable
+            | Outcome::Runtime(_) | Outcome::RuntimeConflict | Outcome::RuntimeIndeterminate
+            | Outcome::RuntimeUnavailable => self.notice = Notice::Indeterminate,
             Outcome::NotSent => {
                 self.notice = Notice::NotSent;
                 if operation == Operation::Callback {
                     self.submitted_prompt = None;
                 }
-                if operation == Operation::Start {
+                if matches!(operation, Operation::Start | Operation::Add) {
                     self.detached_login = false;
                     self.deferred = None;
                 }
@@ -895,7 +1449,7 @@ impl Controller {
         if self
             .flight
             .as_ref()
-            .is_some_and(|f| f.operation == Operation::Start)
+            .is_some_and(|f| matches!(f.operation, Operation::Start | Operation::Add))
         {
             if let Some(attempt) = metadata.attempt {
                 // Core attempt IDs increase monotonically. An old terminal must not pin this slot
@@ -912,7 +1466,7 @@ impl Controller {
             }
             return;
         }
-        if !self.same_attempt(metadata) {
+        if !self.open || !self.fresh || !self.same_attempt(metadata) {
             return;
         }
         if self.connection.is_some()
@@ -977,16 +1531,13 @@ impl Controller {
         }
         Some(container(body).width(Length::Fill).into())
     }
-    pub fn view(&self, context: Context) -> Element<'_, Action> {
-        if let Some(review) = self.review_view(context) {
-            return review;
-        }
+    fn connection_view(&self, context: Context) -> Element<'_, Action> {
         let allowed = self.allowed(context) && self.ready();
         let t = self.ticket();
-        let mut body = column![label("Codex", TEXT).size(23),
+        let mut body = column![
             button("Connect ChatGPT").padding([10, 14]).style(design::primary_button)
                 .on_press_maybe((allowed && self.connection.is_none()).then_some(Action::Connect(t))),
-            label("Opens OpenAI sign-in and connects models; current session model stays unchanged. Sign-in may store credentials locally.", MUTED)]
+            label("Opens OpenAI sign-in and connects model access. This chat’s model stays unchanged; credentials may be stored locally.", MUTED)]
             .spacing(14).width(Length::Fill);
         if self.connection.is_some() || !matches!(self.notice, Notice::Idle) {
             body = body.push(label(
@@ -996,11 +1547,11 @@ impl Controller {
             ));
         }
         if self.owner_uncertain {
-            body = body.push(label("A sign-in operation has an unknown outcome. Restart the application before another sign-in, callback or model-route change. Check status or explicitly cancel the tracked attempt; metadata cannot release this safety block.", DANGER));
+            body = body.push(label("A sign-in operation has an unknown outcome. Do not retry. Cancel the tracked attempt if needed, then explicitly Refresh accounts to reconcile managed state once it settles. Legacy uncertainty requires restarting the application.", DANGER));
         }
         if let Some(m) = self.metadata.filter(|_| self.fresh) {
             if m.credential_stored && m.route_configured {
-                body = body.push(label("Local configuration is not account or model-entitlement validation; plan/provider limits apply.", MUTED));
+                body = body.push(label("Model entitlement is unverified; plan/provider limits apply.", MUTED));
             }
             if m.retry_blocked {
                 body = body.push(label("An earlier login may still be running. Restart before another sign-in. Cancellation does not guarantee credentials were not stored.", DANGER));
@@ -1012,7 +1563,10 @@ impl Controller {
                     button("Cancel attempt")
                         .padding([10, 14])
                         .style(design::danger)
-                        .on_press_maybe(allowed.then_some(Action::Cancel { ticket: t, attempt })),
+                        .on_press_maybe(
+                            self.allowed(context)
+                                .then_some(Action::Cancel { ticket: t, attempt }),
+                        ),
                 );
             }
         }

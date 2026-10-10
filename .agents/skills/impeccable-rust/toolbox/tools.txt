@@ -1,0 +1,20 @@
+# Tools the toolbox installs, pinned. `impeccable setup host` installs the same
+# versions on the host. Keep gungraun-runner equal to the gungraun your benches
+# use; the toolbox installs a matching runner on demand when a lockfile differs.
+#
+# crate              version
+cargo-nextest        0.9.146
+cargo-mutants        27.1.0
+cargo-llvm-cov       0.9.1
+cargo-careful        0.4.10
+cargo-fuzz           0.13.2
+cargo-bolero         0.13.4
+cargo-semver-checks  0.50.0
+cargo-public-api     0.52.0
+cargo-deny           0.20.2
+cargo-audit          0.22.2
+cargo-auditable      0.7.6
+cargo-vet            0.10.2
+zizmor               1.30.1
+gungraun-runner      0.20.0
+kani-verifier        0.68.0

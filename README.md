@@ -8,7 +8,7 @@ Native Linux client built with **Rust + Iced**, styled in **Rosé Pine**. No Ele
 |---|---|
 | Chat, tool activity, session navigation | Live model/login verification |
 | Approvals, questions, settings | Physical input and accessibility testing |
-| Session export, pin/archive controls | Rich attachments, terminal and plugin panels |
+| Session export, pin/archive, picker/previews/drafts | Rich/multiple attachments, terminal and plugin panels |
 | Native Wayland rendering | Installers, updates, Windows/macOS parity |
 
 ## Build
@@ -28,14 +28,18 @@ cargo build --locked --release -j2 --manifest-path deepseek-harness-native/app/C
 |---|---|
 | Rust | 1.99 |
 | Backend | 0.2.1-alpha.1 |
-| Node | 26; 26.10 tested |
+| Node | 26; 26.11.1 locally tested |
 | Tested desktop | Linux x86_64, Wayland, glibc 2.44 |
 
 [Run instructions](<app/README.md>) · [Feature status](<docs/FEATURE-PARITY.md>) · [Packaging limits](<docs/NATIVE-DEVELOPMENT-PACKAGE.md>)
 
 ## CI and downloads
 
-[GitHub Actions](https://github.com/IOUJared/deepseek-harness-native/actions) checks pushes and pull requests. Each successful `main` push publishes a [development prerelease](https://github.com/IOUJared/deepseek-harness-native/releases) such as `v0.1.0-dev.1`, with a Linux executable archive and checksum. The compatible backend and Node remain separate. [Checks and release policy](<docs/CI-RELEASES.md>).
+[GitHub Actions](https://github.com/IOUJared/deepseek-harness-native/actions) checks pushes and pull requests. Calendar development releases use **`year.month.day-rN`**, starting with **`2026.10.10-r1`**, and are published explicitly after combined-source verification; legacy plain-version pushes retain `dev.run` automation. [Downloads](https://github.com/IOUJared/deepseek-harness-native/releases) · [Changelog](<CHANGELOG.md>) · [Release verification](<RELEASES/2026.10.10-r1.md>) · [Policy](<docs/CI-RELEASES.md>). The compatible backend and Node remain separate.
+
+## Development quality
+
+[Verification guide](<docs/VERIFICATION.md>) · [Impeccable Rust skill](<.agents/skills/impeccable-rust/SKILL.md>). Frontend, Core, transport and backend changes use risk-based production checks, retained failure evidence and measured performance—not compilation alone.
 
 ## Components
 
@@ -58,6 +62,6 @@ cargo build --locked --release -j2 --manifest-path deepseek-harness-native/app/C
 
 - Separate backend required; not self-contained or generally portable yet.
 - Existing Harness profiles and credentials stay separate.
-- Evidence, screenshots, private homes and binaries are local-only; historical evidence links may not resolve on GitHub.
+- Private qualification reports/screenshots/homes remain local-only; historical evidence links are not GitHub downloads. Published binary/checksum assets appear only on the release page.
 - Packaging still needs the original local Cargo cache; clean-machine packaging is not verified.
 - [MIT](<LICENSE>); dependency redistribution requirements remain separate.

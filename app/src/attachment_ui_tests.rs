@@ -1,7 +1,7 @@
 //! Pure UI/channel proof only: no file reads, Host receipts, Node, dialogs or model requests.
 use super::*;
 use worker::attachments::{Metadata, Outcome, PromptOutcome, Ticket};
-fn ready_app() -> (App, tokio::sync::mpsc::Receiver<Command>) {
+pub(super) fn ready_app() -> (App, tokio::sync::mpsc::Receiver<Command>) {
     let (handle, feed, receiver, _events, _closing) = worker::test_channels();
     let options = crate::config::parse(
         [
@@ -33,7 +33,7 @@ fn ready_app() -> (App, tokio::sync::mpsc::Receiver<Command>) {
     assert!(app.file_context().allowed);
     (app, receiver)
 }
-fn upload(app: &mut App, receiver: &mut tokio::sync::mpsc::Receiver<Command>) -> Ticket {
+pub(super) fn upload(app: &mut App, receiver: &mut tokio::sync::mpsc::Receiver<Command>) -> Ticket {
     let _ = app.update(Message::FileOpen);
     let stamp = app.files.editor().unwrap().0;
     let _ = app.update(Message::FilePath(stamp, "/PUBLIC_pure_no_read.bin".into()));
@@ -65,6 +65,42 @@ fn send(
     }
 }
 #[test]
+fn keyboard_send_never_submits_empty_or_whitespace_file_drafts() {
+    for text in ["", " \n\t", "\u{2003}"] {
+        let (mut app, mut rx) = ready_app();
+        let ticket = upload(&mut app, &mut rx);
+        app.editor = text_editor::Content::with_text(text);
+        assert!(app.send_allowed()); // Explicit button still supports file-only sending.
+        drop(app.update(Message::KeyboardSend));
+        assert!(rx.try_recv().is_err());
+        assert!(app.files.ready().is_some());
+        assert!(!app.files.prompt_pending());
+        let (owner, _) = send(&mut app, &mut rx);
+        assert_eq!(owner, ticket);
+    }
+}
+#[test]
+fn keyboard_send_uses_existing_prompt_guard_and_does_not_insert_newline_or_duplicate() {
+    let (mut app, mut rx) = ready_app();
+    app.editor = text_editor::Content::with_text("PUBLIC Enter text");
+    drop(app.update(Message::KeyboardSend));
+    let Command::Prompt { request, .. } = rx.try_recv().unwrap() else {
+        panic!("expected text prompt")
+    };
+    assert!(
+        matches!(&request.content[..],[PromptContentPart::Text{text}] if text=="PUBLIC Enter text")
+    );
+    assert_eq!(app.editor.text(), "PUBLIC Enter text"); // ACK still owns clearing.
+    drop(app.update(Message::KeyboardSend));
+    assert!(rx.try_recv().is_err());
+    let (mut app, mut rx) = ready_app();
+    app.editor = text_editor::Content::with_text("PUBLIC blocked");
+    app.follow_ready = false;
+    drop(app.update(Message::KeyboardSend));
+    assert!(rx.try_recv().is_err());
+    assert_eq!(app.editor.text(), "PUBLIC blocked");
+}
+#[test]
 fn file_only_send_uses_ticket_not_receipt_and_blocks_duplicate_send() {
     let (mut app, mut rx) = ready_app();
     let t = upload(&mut app, &mut rx);
@@ -76,6 +112,7 @@ fn file_only_send_uses_ticket_not_receipt_and_blocks_duplicate_send() {
     assert!(rx.try_recv().is_err());
     let _ = app.receive(Event::Prompt {
         generation: t.generation,
+        request_id:request.request_id.clone(),
         result: Ok(Accepted { accepted: true }),
     });
     assert!(app.files.prompt_pending());
@@ -97,7 +134,7 @@ fn file_only_send_uses_ticket_not_receipt_and_blocks_duplicate_send() {
     assert!(app.files.ticket().is_none());
 }
 #[test]
-fn unknown_file_send_keeps_text_and_blocks_until_explicit_remove() {
+fn unknown_file_send_keeps_text_and_blocks_remove_until_explicit_admission_check() {
     let (mut app, mut rx) = ready_app();
     upload(&mut app, &mut rx);
     app.editor = text_editor::Content::with_text("PUBLIC unchanged draft");
@@ -116,21 +153,22 @@ fn unknown_file_send_keeps_text_and_blocks_until_explicit_remove() {
     let _ = app.update(Message::Send);
     assert!(rx.try_recv().is_err());
     let _ = app.update(Message::FileRemove(t.clone()));
-    assert!(matches!(rx.try_recv().unwrap(),Command::DiscardFile(owner) if owner==t));
-    assert!(app.send_allowed());
-    assert!(app.files.ticket().is_none());
+    assert!(rx.try_recv().is_err());
+    assert!(!app.send_allowed());
+    assert!(app.files.ticket().is_some());
+    assert!(!app.pending.is_empty());
 }
 #[test]
 fn local_prompt_queue_failure_restores_ready_without_auto_retry() {
     let (mut app, mut rx) = ready_app();
     upload(&mut app, &mut rx);
-    while app.handle.send(Command::Catalog).is_ok() {}
+    while app.handle.send(Command::Inspect).is_ok() {}
     let _ = app.update(Message::Send);
     assert!(app.files.ready().is_some());
     assert!(!app.files.prompt_pending());
     assert!(app.pending.is_empty());
     while let Ok(command) = rx.try_recv() {
-        assert!(matches!(command, Command::Catalog));
+        assert!(matches!(command, Command::Inspect));
     }
     assert!(app.send_allowed());
 }
@@ -138,7 +176,7 @@ fn local_prompt_queue_failure_restores_ready_without_auto_retry() {
 fn full_queue_remove_keeps_authority_until_discard_is_delivered() {
     let (mut app, mut rx) = ready_app();
     let t = upload(&mut app, &mut rx);
-    while app.handle.send(Command::Catalog).is_ok() {}
+    while app.handle.send(Command::Inspect).is_ok() {}
     let _ = app.update(Message::FileRemove(t.clone()));
     assert_eq!(app.files.ticket(), Some(&t));
     assert!(app.files.ready().is_some());

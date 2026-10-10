@@ -181,6 +181,7 @@ pub(crate) fn monitor(
     let mut unknown = root.is_none() || root_fd.is_none();
     let mut waiters = Vec::new();
     let mut shutdown = None;
+    let mut shutdown_write_pending = false;
     let mut phase = 0u8;
     let mut forced = false;
     let mut root_exit = None;
@@ -195,20 +196,28 @@ pub(crate) fn monitor(
                     }
                     if shutdown.is_none() {
                         inner.begin_stop();
-                        let _ = inner.send_shutdown();
+                        shutdown_write_pending = true;
                         shutdown = Some(Instant::now() + inner.stop.graceful);
                     }
                 }
                 Err(mpsc::TryRecvError::Disconnected) => {
                     if shutdown.is_none() {
                         inner.begin_stop();
-                        let _ = inner.send_shutdown();
+                        shutdown_write_pending = true;
                         shutdown = Some(Instant::now() + inner.stop.graceful);
                     }
                     break;
                 }
                 Err(mpsc::TryRecvError::Empty) => break,
             }
+        }
+        if shutdown_write_pending
+            && phase == 0
+            && root_exit.is_none()
+            && shutdown.is_some_and(|deadline| Instant::now() < deadline)
+        {
+            // WriterBusy means no frame bytes were written; partial/poisoned writes are never replayed.
+            shutdown_write_pending = matches!(inner.send_shutdown(), Err(crate::Error::WriterBusy));
         }
         if inner.fault.load(std::sync::atomic::Ordering::Acquire) && shutdown.is_none() {
             inner.begin_stop();
@@ -262,7 +271,6 @@ pub(crate) fn monitor(
         }
         if let Some(deadline) = shutdown {
             if Instant::now() >= deadline && (root_exit.is_none() || !owned.is_empty()) {
-                forced = true;
                 let signal = if phase == 0 {
                     libc::SIGTERM
                 } else {
@@ -272,6 +280,7 @@ pub(crate) fn monitor(
                     // Child has not been reaped, so its PID cannot be reused. Recheck before group use.
                     match child.try_wait() {
                         Ok(None) => {
+                            forced = true;
                             if root.is_some_and(|root| {
                                 identity(root.pid) == Some(root) && root.group == root.pid
                             }) {
@@ -299,6 +308,9 @@ pub(crate) fn monitor(
                             unknown = true;
                         }
                     }
+                }
+                if !owned.is_empty() {
+                    forced = true;
                 }
                 for process in owned.values() {
                     process.signal(signal);
@@ -411,9 +423,7 @@ pub(crate) fn read_output(mut output: std::process::ChildStdout, inner: Arc<Inne
         }
         match output.read(&mut chunk) {
             Ok(0) => {
-                inner
-                    .reader_eof
-                    .store(true, std::sync::atomic::Ordering::Release);
+                inner.channel_eof();
                 if !pending.is_empty() {
                     inner.protocol_fault();
                 }

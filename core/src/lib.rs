@@ -8,6 +8,12 @@ mod agent_discovery;
 pub use agent_discovery::AgentDiscovery;
 mod browser;
 mod codex;
+mod codex_runtime;
+#[cfg(test)]
+mod codex_runtime_tests;
+mod codex_usage;
+#[cfg(test)]
+mod codex_usage_tests;
 mod options;
 mod process;
 mod protocol;
@@ -15,7 +21,18 @@ mod secret;
 #[cfg(test)]
 mod tests;
 
-pub use codex::{CodexMetadata, CodexPhase};
+pub use codex::{
+    CodexAccount, CodexAccountId, CodexAccountLabel, CodexAccountMode, CodexAccountsMetadata,
+    CodexAddedAccount, CodexLegacyGrant, CodexMetadata, CodexPhase,
+};
+pub use codex_runtime::{
+    CodexCacheRetention, CodexIdleMillis, CodexImageBudget, CodexRuntimeNatural,
+    CodexRuntimeSnapshot, CodexRuntimeTransport, CodexRuntimeValues,
+};
+pub use codex_usage::{
+    CodexComposerDisplay, CodexRemainingPercent, CodexUsageAlert, CodexUsagePreferences,
+    CodexUsageSnapshot,
+};
 pub use options::RustBackendOptions;
 pub use secret::{SecretApiKey, SecretCodexCallback};
 use serde_json::{Value, json};
@@ -46,6 +63,13 @@ pub enum Error {
     Exited,
     Protocol,
     RequestFailed,
+    CodexEpochConflict,
+    CodexUsageConflict,
+    CodexUsageIndeterminate,
+    CodexUsageUnavailable,
+    CodexRuntimeConflict,
+    CodexRuntimeIndeterminate,
+    CodexRuntimeUnavailable,
     WriterBusy,
     ControlClosed,
     WriteTimeout,
@@ -65,12 +89,47 @@ impl std::error::Error for Error {}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
     CodexStatus,
+    /// Explicit non-mutating managed-account reconciliation; no login or token access.
+    CodexAccountsStatus,
     CodexStart,
+    /// Add a labelled account without selecting it; completion arrives as an attempt-fenced receipt.
+    CodexAdd {
+        label: CodexAccountLabel,
+        expected_epoch: u64,
+    },
+    CodexSelect {
+        account_id: CodexAccountId,
+        expected_epoch: u64,
+    },
+    /// Local deletion only, never issuer revocation or selection of a different account.
+    CodexSignOut {
+        account_id: CodexAccountId,
+        expected_epoch: u64,
+    },
+    CodexSignOutAll {
+        expected_epoch: u64,
+    },
     CodexCancel {
         attempt: u64,
     },
     CodexEnableModels {
         expected_revision: u64,
+    },
+    /// Read local preferences; no account, provider or quota observation is started.
+    CodexUsageLoad,
+    /// Compare-and-swap local preferences. An uncertain receipt requires an explicit load,
+    /// never an automatic save retry.
+    CodexUsageSave {
+        expected_revision: u64,
+        preferences: CodexUsagePreferences,
+    },
+    /// Read only the fixed Codex provider's eight effective, base and explicit override values.
+    CodexRuntimeRead,
+    /// Compare-and-swap runtime overrides; None unsets. An uncertain receipt requires an explicit
+    /// read, never an automatic save retry. No provider/account/model operation is started.
+    CodexRuntimeSave {
+        expected_revision: u64,
+        values: CodexRuntimeValues,
     },
     Inspect,
     OpenWorkspace(PathBuf),
@@ -124,6 +183,9 @@ pub struct OnboardingMetadata {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PublicReply {
     Codex(CodexMetadata),
+    CodexAccounts(CodexAccountsMetadata),
+    CodexUsage(CodexUsageSnapshot),
+    CodexRuntime(CodexRuntimeSnapshot),
     CodexCallbackAccepted(bool),
     Inspection(Inspection),
     WorkspaceAdded,
@@ -202,6 +264,13 @@ struct State {
     stop_result: Option<StopResult>,
 }
 impl State {
+    #[cfg(feature = "transport")]
+    fn revoke_transport(&mut self) {
+        self.transport_cancel.cancel();
+        if let Some(client) = &self.transport_client {
+            client.invalidate();
+        }
+    }
     fn clear_private(&mut self) {
         self.endpoint = None;
         self.account_session = None;
@@ -211,10 +280,9 @@ impl State {
         self.codex_known_attempt = None;
         self.codex_cancelled = None;
         #[cfg(feature = "transport")]
-        self.transport_cancel.cancel();
-        #[cfg(feature = "transport")]
-        if let Some(client) = self.transport_client.take() {
-            client.invalidate();
+        {
+            self.revoke_transport();
+            self.transport_client = None;
         }
     }
 }
@@ -235,6 +303,12 @@ impl std::fmt::Display for ConnectError {
 #[cfg(feature = "transport")]
 impl std::error::Error for ConnectError {}
 
+#[derive(Default)]
+struct CodexAccountControl {
+    busy: bool,
+    uncertain: bool,
+    managed: bool,
+}
 struct Pending {
     command: &'static str,
     reply: mpsc::Sender<Result<PublicReply, Error>>,
@@ -242,6 +316,7 @@ struct Pending {
 struct Inner {
     input: Mutex<ChildStdin>,
     pending: Mutex<HashMap<String, Pending>>,
+    codex_account_control: Mutex<CodexAccountControl>,
     next: AtomicU64,
     stopping: AtomicBool,
     poisoned: AtomicBool,
@@ -263,10 +338,7 @@ impl Inner {
         state.codex_metadata = None;
         #[cfg(feature = "transport")]
         {
-            state.transport_cancel.cancel();
-            if let Some(client) = &state.transport_client {
-                client.invalidate();
-            }
+            state.revoke_transport();
             // Publish stopping only after all authenticated authority is revoked.
             self.stopping.store(true, Ordering::Release);
         }
@@ -279,10 +351,25 @@ impl Inner {
         }
     }
     fn protocol_fault(&self) {
-        self.state.0.lock().unwrap().codex_browser = None;
-        if !self.fault.swap(true, Ordering::AcqRel) {
+        let mut state = self.state.0.lock().unwrap();
+        state.codex_browser = None;
+        #[cfg(feature = "transport")]
+        state.revoke_transport();
+        let first = !self.fault.swap(true, Ordering::AcqRel);
+        drop(state);
+        if first {
             self.emit(PublicEvent::Warning(Warning::ProtocolFailure));
         }
+        self.state.1.notify_all();
+    }
+    fn channel_eof(&self) {
+        let mut state = self.state.0.lock().unwrap();
+        #[cfg(feature = "transport")]
+        state.revoke_transport();
+        #[cfg(not(feature = "transport"))]
+        let _ = &mut state;
+        self.reader_eof.store(true, Ordering::Release);
+        drop(state);
         self.state.1.notify_all();
     }
     fn send_shutdown(&self) -> Result<(), Error> {
@@ -396,6 +483,26 @@ impl Backend {
             ),
             ("supervisor.mjs", include_str!("../runtime/supervisor.mjs")),
             ("codex.mjs", include_str!("../runtime/codex.mjs")),
+            (
+                "codex-runtime-values.mjs",
+                include_str!("../runtime/codex-runtime-values.mjs"),
+            ),
+            (
+                "codex-profile.mjs",
+                include_str!("../runtime/codex-profile.mjs"),
+            ),
+            (
+                "codex-usage-bridge.mjs",
+                include_str!("../runtime/codex-usage-bridge.mjs"),
+            ),
+            (
+                "codex-usage-storage.mjs",
+                include_str!("../runtime/codex-usage-storage.mjs"),
+            ),
+            (
+                "codex-usage-preferences.mjs",
+                include_str!("../runtime/codex-usage-preferences.mjs"),
+            ),
         ] {
             let path = directory.path().join(name);
             std::fs::write(&path, script).map_err(|_| Error::Spawn)?;
@@ -460,6 +567,7 @@ impl Backend {
                 let inner = Arc::new(Inner {
                     input: Mutex::new(input),
                     pending: Mutex::new(HashMap::new()),
+                    codex_account_control: Mutex::new(CodexAccountControl::default()),
                     next: AtomicU64::new(1),
                     stopping: AtomicBool::new(false),
                     poisoned: AtomicBool::new(false),
@@ -559,8 +667,18 @@ impl Backend {
     ) -> Result<dsh_native_transport::NativeClient, ConnectError> {
         let (launch, cancelled) = {
             let mut state = self.inner.state.0.lock().unwrap();
-            if state.root_exited || self.inner.stopping.load(Ordering::Acquire) {
+            if state.root_exited
+                || self.inner.stopping.load(Ordering::Acquire)
+                || self.inner.reader_eof.load(Ordering::Acquire)
+                || self.inner.reader_stop.load(Ordering::Acquire)
+            {
                 return Err(ConnectError::Backend(Error::Exited));
+            }
+            if self.inner.fault.load(Ordering::Acquire)
+                || self.inner.poisoned.load(Ordering::Acquire)
+                || state.transport_cancel.is_cancelled()
+            {
+                return Err(ConnectError::Backend(Error::Protocol));
             }
             if state.transport_attempted {
                 return Err(ConnectError::AlreadyAttempted);
@@ -583,7 +701,14 @@ impl Backend {
         };
         let accepted = {
             let mut state = self.inner.state.0.lock().unwrap();
-            if state.root_exited || self.inner.stopping.load(Ordering::Acquire) {
+            if state.root_exited
+                || self.inner.stopping.load(Ordering::Acquire)
+                || self.inner.fault.load(Ordering::Acquire)
+                || self.inner.poisoned.load(Ordering::Acquire)
+                || self.inner.reader_eof.load(Ordering::Acquire)
+                || self.inner.reader_stop.load(Ordering::Acquire)
+                || state.transport_cancel.is_cancelled()
+            {
                 false
             } else {
                 state.transport_client = Some(client.clone());
@@ -597,11 +722,78 @@ impl Backend {
         Ok(client)
     }
 
+    /// Read-only proof that this original owned Host answered on its inherited private pipe.
+    /// Returns a clone of the already initialized Core-owned transport, never a new connection.
+    /// Task-count uncertainty is not Host-identity uncertainty. This proves neither idle state nor
+    /// HTTP/WS health; a subsequent read may fail if the same client closes or Host stops.
+    /// No restart, authentication, Agent activation or observation is performed. Cancellation of
+    /// this future does not cancel its admitted bounded worker; timeout must be 1ns–30s.
+    #[cfg(feature = "transport")]
+    pub async fn probe_owned_host(
+        self: &Arc<Self>,
+        timeout: Duration,
+    ) -> Result<dsh_native_transport::NativeClient, Error> {
+        if timeout.is_zero() || timeout > Duration::from_secs(30) {
+            return Err(Error::InvalidCommand);
+        }
+        let backend = Arc::clone(self);
+        tokio::task::spawn_blocking(move || {
+            drop(backend.owned_transport()?);
+            match backend.request(Command::Inspect, timeout) {
+                Ok(PublicReply::Inspection(_)) => {}
+                Ok(_) => {
+                    backend.inner.protocol_fault();
+                    return Err(Error::Protocol);
+                }
+                Err(error) => {
+                    if error == Error::Protocol {
+                        backend.inner.protocol_fault();
+                    }
+                    return Err(error);
+                }
+            }
+            backend.owned_transport()
+        })
+        .await
+        .map_err(|_| Error::RequestFailed)?
+    }
+
+    #[cfg(feature = "transport")]
+    fn owned_transport(&self) -> Result<dsh_native_transport::NativeClient, Error> {
+        let state = self.inner.state.0.lock().unwrap();
+        if state.root_exited || state.stop_result.is_some() {
+            return Err(Error::Exited);
+        }
+        if self.inner.stopping.load(Ordering::Acquire) {
+            return Err(Error::Stopping);
+        }
+        if self.inner.fault.load(Ordering::Acquire) {
+            return Err(Error::Protocol);
+        }
+        if self.inner.poisoned.load(Ordering::Acquire) {
+            return Err(Error::ControlClosed);
+        }
+        if self.inner.reader_eof.load(Ordering::Acquire)
+            || self.inner.reader_stop.load(Ordering::Acquire)
+        {
+            return Err(Error::Exited);
+        }
+        if state.transport_cancel.is_cancelled() {
+            return Err(Error::ControlClosed);
+        }
+        if state.endpoint.is_none() {
+            return Err(Error::Starting);
+        }
+        state.transport_client.clone().ok_or(Error::Starting)
+    }
+
     /// Bounded write (500ms), then bounded reply wait. Only allowlisted reply metadata can return.
     pub fn request(&self, command: Command, timeout: Duration) -> Result<PublicReply, Error> {
         let id = self.request_id(timeout)?;
         let value = command.encode(&id)?;
-        if matches!(command, Command::CodexStart) {
+        if matches!(command, Command::CodexStart)
+            && !self.inner.codex_account_control.lock().unwrap().managed
+        {
             let state = self.inner.state.0.lock().unwrap();
             if state.codex_cancelled.is_some()
                 || state.codex_metadata.is_some_and(|m| m.retry_blocked)
@@ -630,8 +822,84 @@ impl Backend {
                 }
             }
         }
-        let reply =
-            self.control_request(command.name(), id, || self.inner.send(&value), timeout)?;
+        let account_mutation = matches!(
+            &command,
+            Command::CodexStart
+                | Command::CodexAdd { .. }
+                | Command::CodexSelect { .. }
+                | Command::CodexSignOut { .. }
+                | Command::CodexSignOutAll { .. }
+        );
+        let account_read = matches!(&command, Command::CodexAccountsStatus);
+        if matches!(&command, Command::CodexEnableModels { .. }) {
+            let control = self.inner.codex_account_control.lock().unwrap();
+            if control.busy || control.uncertain {
+                return Err(Error::RequestFailed);
+            }
+        }
+        if account_mutation || account_read {
+            let mut control = self.inner.codex_account_control.lock().unwrap();
+            if control.busy || account_mutation && control.uncertain {
+                return Err(Error::RequestFailed);
+            }
+            control.busy = true;
+        }
+        let result = self
+            .control_request(command.name(), id, || self.inner.send(&value), timeout)
+            .and_then(|reply| {
+                if let PublicReply::CodexAccounts(metadata) = &reply {
+                    let mismatch = match &command {
+                        Command::CodexSelect {
+                            account_id,
+                            expected_epoch,
+                        } => {
+                            metadata.selected.as_ref() != Some(account_id)
+                                || metadata.epoch.is_none_or(|epoch| epoch < *expected_epoch)
+                        }
+                        Command::CodexSignOut {
+                            account_id,
+                            expected_epoch,
+                        } => {
+                            metadata
+                                .accounts
+                                .iter()
+                                .any(|row| &row.opaque_id == account_id)
+                                || metadata.epoch.is_none_or(|epoch| epoch < *expected_epoch)
+                        }
+                        Command::CodexSignOutAll { expected_epoch } => {
+                            !metadata.accounts.is_empty()
+                                || metadata.selected.is_some()
+                                || metadata.epoch.is_none_or(|epoch| epoch < *expected_epoch)
+                        }
+                        _ => false,
+                    };
+                    if mismatch {
+                        return Err(Error::Protocol);
+                    }
+                }
+                Ok(reply)
+            });
+        if account_mutation || account_read {
+            let mut control = self.inner.codex_account_control.lock().unwrap();
+            control.busy = false;
+            if let (true, Ok(PublicReply::CodexAccounts(metadata))) = (account_read, &result) {
+                control.uncertain = false;
+                control.managed = metadata.mode == CodexAccountMode::Managed;
+            } else if account_mutation
+                && matches!(
+                    &result,
+                    Err(Error::RequestTimeout
+                        | Error::RequestFailed
+                        | Error::Protocol
+                        | Error::Exited
+                        | Error::ControlClosed
+                        | Error::WriteTimeout)
+                )
+            {
+                control.uncertain = true;
+            }
+        }
+        let reply = result?;
         #[cfg(feature = "transport")]
         if let (Command::DiscoverSessionAgent(requested), PublicReply::AgentDiscovery(found)) =
             (&command, &reply)

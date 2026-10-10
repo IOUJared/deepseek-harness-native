@@ -1,7 +1,10 @@
 //! Presentation-only diagnostics; retained events and Send authority stay unchanged.
 use serde_json::Value;
 pub fn ui_control_event(kind: &str) -> bool {
-    matches!(kind, "session/title" | "session/title-llm-request")
+    matches!(
+        kind,
+        "session/title" | "session/title-llm-request" | "model/selection"
+    )
 }
 pub fn conversation_role(role: &str) -> bool {
     !matches!(
@@ -40,12 +43,16 @@ pub fn routine_inbox(data: &Value) -> bool {
                 && message["id"].as_str().is_some_and(|id| !id.is_empty())
                 && message["role"] == "user"
                 && message["source"].as_object().is_some_and(|s| {
-                    s.keys()
-                        .all(|k| matches!(k.as_str(), "kind" | "rpcId" | "clientTimeZone"))
-                        && message["source"]["kind"] == "user"
+                    s.keys().all(|k| {
+                        matches!(
+                            k.as_str(),
+                            "kind" | "rpcId" | "clientTimeZone" | "promptFingerprint"
+                        )
+                    }) && message["source"]["kind"] == "user"
                         && s.get("rpcId")
                             .is_none_or(|v| v.as_str().is_some_and(|id| !id.is_empty()))
                         && s.get("clientTimeZone").is_none_or(Value::is_string)
+                        && s.get("promptFingerprint").is_none_or(Value::is_string)
                 })
                 && message["content"].as_array().is_some_and(|parts| {
                     !parts.is_empty()

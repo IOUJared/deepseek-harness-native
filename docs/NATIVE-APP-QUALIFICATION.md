@@ -2,6 +2,8 @@
 
 **Historical build-specific evidence.** Later features have their own guides; this page is not a current parity/performance certificate. All evidence links below are **local ignored artifacts, unavailable on GitHub**.
 
+[New matched idle observations](<NATIVE-IDLE-RESOURCES.md>) retain window CPU/tick resolution instead of treating a 0% sample median as no work. [Catalog ownership](<NATIVE-CATALOG-OWNERSHIP.md>) covers global epoch/read tickets and stale success/error guards; this is separate from real provider execution.
+
 ## Native Codex support
 
 [Codex](<NATIVE-CODEX.md>): explicit same-version Host browser sign-in, masked fallback and revision-CAS model route. Keyless tests/status/rendering do not establish real authorization, entitlement or GPT generation.

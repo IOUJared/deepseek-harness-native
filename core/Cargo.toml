@@ -1,6 +1,6 @@
 [package]
 name = "dsh-native-core"
-version = "0.1.0"
+version = "2026.10.10-r1"
 edition = "2024"
 license = "MIT"
 description = "Framework-neutral Linux native Harness Host lifecycle foundation"
@@ -29,6 +29,10 @@ required-features = ["transport"]
 
 [[example]]
 name = "file_upload_smoke"
+required-features = ["transport"]
+
+[[example]]
+name = "prompt_admission_smoke"
 required-features = ["transport"]
 
 [workspace]

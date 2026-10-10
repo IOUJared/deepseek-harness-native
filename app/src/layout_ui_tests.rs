@@ -122,6 +122,38 @@ fn cancellation_remains_available_when_summary_running_is_unknown_or_false() {
     assert!(queue.try_recv().is_err());
 }
 #[test]
+fn smoke_stop_is_muted_and_rejects_cancel_at_ui_admission() {
+    let (mut app, mut queue) = app();
+    app.ready = true;
+    app.selected = Some(SessionId::new("PUBLIC-smoke-stop").unwrap());
+    app.options.smoke = Some(crate::config::Smoke {
+        exit_after: std::time::Duration::from_secs(1),
+        report: "/PUBLIC/report".into(),
+        screenshot: None,
+    });
+    assert!(!app.stop_allowed());
+    assert_eq!(app.stop_color(), MUTED);
+    drop(app.stop_button());
+    drop(app.update(Message::Stop));
+    assert!(!app.cancel_pending);
+    assert!(queue.try_recv().is_err());
+    app.cancel_pending = true;
+    assert_eq!(app.stop_color(), DANGER); // A genuine admitted cancellation remains visible.
+}
+#[test]
+fn disabled_stop_is_muted_but_normal_cancel_does_not_depend_on_roster_running() {
+    let (mut app, mut queue) = app();
+    assert_eq!(app.stop_color(), MUTED);
+    app.ready = true;
+    app.selected = Some(SessionId::new("PUBLIC-normal-stop").unwrap());
+    assert!(app.stop_allowed());
+    assert_eq!(app.stop_color(), DANGER);
+    app.close = Close::Stopping;
+    assert!(!app.stop_allowed());
+    assert_eq!(app.stop_color(), MUTED);
+    assert!(queue.try_recv().is_err());
+}
+#[test]
 fn routine_status_is_an_exact_allowlist_not_an_error_filter() {
     let success = "Live real session; UTC timestamps; no generation started";
     assert!(routine_status(success));

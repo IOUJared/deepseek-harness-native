@@ -197,6 +197,10 @@ pub struct ModelSelection {
     pub model: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_verbosity: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -222,11 +226,32 @@ pub struct ModelReasoning {
     pub default_effort: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RequestControlChoice {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelServiceTier {
+    pub tiers: Vec<RequestControlChoice>,
+    pub default_tier: Option<String>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelTextVerbosity {
+    pub levels: Vec<RequestControlChoice>,
+    pub default_level: Option<String>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CatalogModel {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
     pub reasoning: Option<ModelReasoning>,
+    pub service_tier: Option<ModelServiceTier>,
+    pub text_verbosity: Option<ModelTextVerbosity>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ModelGroup {

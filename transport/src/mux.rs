@@ -217,7 +217,7 @@ impl Mux {
                                 Message::Close(_) => return Err(Error::Closed),
                                 Message::Text(text) => {
                                     if text.len() > inner.limits.max_result_bytes { return Err(Error::Oversize); }
-                                    let frame: Value = serde_json::from_str(&text).map_err(|_| Error::InvalidFrame)?;
+                                    let mut frame: Value = serde_json::from_str(&text).map_err(|_| Error::InvalidFrame)?;
                                     validate_json(&frame, inner.limits.max_json_items)?;
                                     let object = frame.as_object().ok_or(Error::InvalidFrame)?;
                                     let tag = object.get("type").and_then(Value::as_str).ok_or(Error::InvalidFrame)?;
@@ -236,7 +236,7 @@ impl Mux {
                                     match tag {
                                         "item" if object.keys().all(|k| ["type","streamId","value"].contains(&k.as_str())) => {
                                             let reg = streams.get_mut(id).ok_or(Error::Correlation)?;
-                                            let value = object.get("value").cloned().ok_or(Error::InvalidFrame)?;
+                                            let value = take_item_value(&mut frame)?;
                                             let event_delivery = if matches!(reg.kind, Kind::Events) { register_event(&inner, reg, &value)? } else { None };
                                             let bytes = inbound.clone().try_acquire_many_owned(text.len() as u32).map_err(|_| Error::QueueFull)?;
                                             reg.sender.try_send(Ok(Delivery { value, event_delivery, _bytes: bytes })).map_err(|_| Error::QueueFull)?;
@@ -601,6 +601,41 @@ async fn send(
         result = tokio::time::timeout(timeout, socket.send(message)) => {
             result.map_err(|_| Error::Timeout)?.map_err(|_| Error::Network)
         },
+    }
+}
+
+// Envelope validation and delivery authority remain in the actor before admission.
+fn take_item_value(frame: &mut Value) -> Result<Value> {
+    frame
+        .as_object_mut()
+        .and_then(|object| object.remove("value"))
+        .ok_or(Error::InvalidFrame)
+}
+
+#[cfg(test)]
+mod item_value_tests {
+    use super::*;
+
+    #[test]
+    fn transfers_payload_storage_without_cloning_and_keeps_envelope() {
+        let mut frame = json!({"type":"item", "streamId":"g1-s1", "value":{"text":"PUBLIC".repeat(32768), "nested":[1,2,3]}});
+        let pointer = frame["value"]["text"].as_str().unwrap().as_ptr();
+        let expected = frame["value"].clone();
+        let value = take_item_value(&mut frame).unwrap();
+        assert_eq!(value, expected);
+        assert_eq!(value["text"].as_str().unwrap().as_ptr(), pointer);
+        assert_eq!(frame["type"], "item");
+        assert_eq!(frame["streamId"], "g1-s1");
+        assert!(frame.get("value").is_none());
+        assert!(matches!(take_item_value(&mut frame), Err(Error::InvalidFrame)));
+    }
+
+    #[test]
+    fn explicit_null_is_not_a_missing_payload() {
+        assert_eq!(take_item_value(&mut json!({"value":null})).unwrap(), Value::Null);
+        for mut frame in [json!({}), json!([]), Value::Null] {
+            assert!(matches!(take_item_value(&mut frame), Err(Error::InvalidFrame)));
+        }
     }
 }
 

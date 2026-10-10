@@ -54,6 +54,8 @@ const KNOWN_IDS: &[&str] = &[
     "native-header",
     "native-file-open",
     "native-file-draft",
+    "native-file-picker",
+    "native-file-preview",
     "native-detail-formatted",
     "native-detail-source",
     "native-detail-back",
@@ -67,6 +69,18 @@ struct Options {
     scale: f32,
     screenshot: PathBuf,
     report: PathBuf,
+    drop_file: Option<PathBuf>,
+    drop_rejected: bool,
+}
+fn public_drop_file(value: String) -> Result<PathBuf, &'static str> {
+    let path=PathBuf::from(value);
+    let name=path.file_name().and_then(|n|n.to_str()).ok_or("public-file-required")?;
+    if !path.is_absolute() || path.components().any(|p|matches!(p,Component::ParentDir)) || !name.starts_with("PUBLIC-") || path.canonicalize().ok().as_ref()!=Some(&path) {return Err("canonical-public-file-required");}
+    let info=fs::symlink_metadata(&path).map_err(|_|"public-file-unavailable")?;
+    let uid=fs::metadata("/proc/self").map_err(|_|"ownership-unavailable")?.uid();
+    let parent=fs::metadata(path.parent().ok_or("public-parent-required")?).map_err(|_|"public-parent-unavailable")?;
+    if !info.is_file() || info.uid()!=uid || info.len()>4*1024*1024 || !parent.is_dir() || parent.uid()!=uid || parent.permissions().mode()&0o7777!=0o700 {return Err("owned-private-public-file-required");}
+    Ok(path)
 }
 fn new_output(value: String) -> Result<PathBuf, &'static str> {
     let path = PathBuf::from(value);
@@ -108,6 +122,7 @@ fn options() -> Result<Options, &'static str> {
             "--scale",
             "--screenshot",
             "--report",
+            "--drop-file", "--drop-expect",
         ]
         .contains(&key.as_str())
         {
@@ -146,13 +161,10 @@ fn options() -> Result<Options, &'static str> {
     if screenshot == report {
         return Err("distinct-new-output-files-required");
     }
-    Ok(Options {
-        mode,
-        size,
-        scale,
-        screenshot,
-        report,
-    })
+    let drop_file=values.remove("--drop-file").map(public_drop_file).transpose()?;
+    let drop_rejected=match values.remove("--drop-expect").as_deref(){None|Some("accepted")=>false,Some("rejected")=>true,_=>return Err("unknown-drop-expectation")};
+    if (drop_rejected && drop_file.is_none()) || (drop_file.is_some() && mode!="narrow-welcome") {return Err("drop-check-requires-public-file-and-narrow-welcome");}
+    Ok(Options {mode,size,scale,screenshot,report,drop_file,drop_rejected})
 }
 fn public_options(scale: f32) -> config::Options {
     // These explicit fake private paths are inert metadata. Never invoke startup/parse or
@@ -256,7 +268,9 @@ impl LayoutObservation {
                 )
             && self.count("native-detail-back") == usize::from(metadata["detailVisible"] == true)
             && self.count("native-detail-copy-source")
-                == usize::from(metadata["detailVisible"] == true);
+                == usize::from(metadata["detailVisible"] == true)
+            && self.count("native-file-picker") == usize::from(metadata["filePickerExpected"] == true)
+            && self.count("native-file-preview") == usize::from(metadata["localPreviewSnapshotSimulated"] == true || metadata["localPreviewReadFromDroppedFile"] == true);
         let states_match = metadata["composerStateMatchesPreset"] == true
             && metadata["reasoningStateMatchesPreset"] == true
             && metadata["validPublicSnapshotApplied"] == true
@@ -298,6 +312,7 @@ impl LayoutObservation {
 #[derive(Clone)]
 enum Message {
     App(ui::Message),
+    WorkingFrame,
     Opened(window::Id),
     Native {
         backend: &'static str,
@@ -331,14 +346,22 @@ struct Fixture {
 }
 impl Fixture {
     fn boot(options: Options) -> (Self, Task<Message>) {
+        let deadline=if options.drop_file.is_some(){45}else{8};
         let (app, commands) =
             ui::layout_fixture::build(public_options(options.scale), &options.mode, options.size);
         let mut report = ui::layout_fixture::metadata(&app, &options.mode);
         report["pid"] = json!(std::process::id());
+        report["nativeDropCheckOptIn"]=json!(options.drop_file.is_some());
+        report["nativeDropEvents"]=json!(0);report["nativeDropCancelEvents"]=json!(0);
+        report["unexpectedDropPaths"]=json!(0);
+        report["dropExpectedRejected"]=json!(options.drop_rejected);
+        report["physicalMouseQualified"]=json!(false);
         report["rendererRequested"] = json!("wgpu");
         report["font"] = json!("DejaVu Sans");
         report["theme"] = json!("RosePine");
         report["capturedCommandKinds"] = json!([]);
+        report["workingTickCount"] = json!(0);
+        report["workingFramePhases"] = json!([]);
         report["publicFixtureBannerOutsideAppFrame"] = json!(true);
         report["fixtureBannerLogicalHeight"] = json!(BANNER_HEIGHT);
         report["privateOwnedOutputParentsValidated"] = json!(true);
@@ -361,7 +384,7 @@ impl Fixture {
         (
             fixture,
             Task::perform(
-                async { tokio::time::sleep(Duration::from_secs(8)).await },
+                async move { tokio::time::sleep(Duration::from_secs(deadline)).await },
                 |_| Message::Deadline,
             ),
         )
@@ -384,9 +407,11 @@ impl Fixture {
                 worker::Command::Select { .. } => "Select",
                 worker::Command::Create { .. } => "Create",
                 worker::Command::OpenWorkspace(_) => "OpenWorkspace",
-                worker::Command::Catalog => "Catalog",
+                worker::Command::Catalog(_) => "Catalog",
                 worker::Command::SelectModel { .. } => "SelectModel",
                 worker::Command::Prompt { .. } => "Prompt",
+                worker::Command::CheckSubmission(_) => "CheckSubmission",
+                worker::Command::RejoinObservations{..} => "RejoinObservations",
                 worker::Command::Cancel { .. } => "Cancel",
                 worker::Command::Page { .. } => "Page",
                 worker::Command::Inspect => "Inspect",
@@ -438,14 +463,55 @@ impl Fixture {
     }
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::App(message) => {
-                // Actual App view, intentionally no physical-input/business dispatch path.
-                drop(message);
-                self.ignored_app_messages += 1;
+            Message::WorkingFrame if self.options.mode == "working-conversation" && !self.capture_started && !self.finished => {
+                let phase = ui::layout_fixture::advance_working(&mut self.app);
+                let count = self.report["workingTickCount"].as_u64().unwrap_or(0);
+                self.report["workingTickCount"] = json!(count + 1);
+                self.report["workingPhase"] = json!(phase);
+                if count < 128 { self.report["workingFramePhases"].as_array_mut().unwrap().push(json!(phase)); }
                 self.inspect_commands();
+            }
+            Message::App(message) => {
+                let allowed=if let Some(expected)=&self.options.drop_file {
+                    match &message {
+                        ui::Message::FileDropped(id,path) if Some(*id)==self.window => {
+                            let key=if path==expected {"nativeDropEvents"}else{"unexpectedDropPaths"};
+                            self.report[key]=json!(self.report[key].as_u64().unwrap_or(0)+1);
+                            path==expected
+                        },
+                        ui::Message::FileDropCancelled(id) if Some(*id)==self.window => {
+                            self.report["nativeDropCancelEvents"]=json!(self.report["nativeDropCancelEvents"].as_u64().unwrap_or(0)+1);true
+                        },
+                        ui::Message::FilePreviewRead(..)=>true,
+                        _=>false,
+                    }
+                }else{false};
+                if allowed && !self.finished {
+                    // These messages originate ONLY from the real Iced native window subscription
+                    // or the production local preview Task. Never construct a synthetic FileDropped.
+                    let task=self.app.update(message).map(Message::App);
+                    self.inspect_commands();
+                    let state=ui::layout_fixture::attachment_drop_state(&self.app,self.options.drop_file.as_ref().unwrap());
+                    self.report["localPreviewReadFromDroppedFile"]=state["localImagePreviewReady"].clone();
+                    self.report["filePreviewQualified"]=state["localImagePreviewReady"].clone();
+                    self.report["filePathReviewVisible"]=state["editorOpen"].clone();
+                    let complete=if self.options.drop_rejected {
+                        self.report["nativeDropCancelEvents"].as_u64().unwrap_or(0)>0 && state["cancelNoticeVisible"]==true && state["editorOpen"]==false
+                    }else{
+                        self.report["nativeDropEvents"]==1 && state["reviewPathMatches"]==true && state["localImagePreviewReady"]==true
+                    };
+                    self.report["actualAttachmentState"]=state.clone();
+                    self.report["actualProductionNativeDropQualified"]=json!(complete && state["localReadBusy"]==false && state["uploadPending"]==false && state["uploadReceiptPresent"]==false && self.captured_count==0);
+                    if self.report["actualProductionNativeDropQualified"]==true && !self.capture_started {
+                        if let Some(id)=self.window {return Task::batch([task,Task::perform(async {tokio::time::sleep(Duration::from_millis(150)).await;},move |_|Message::Observe(id))]);}
+                    }
+                    return task;
+                }
+                drop(message);self.ignored_app_messages+=1;self.inspect_commands();
             }
             Message::Opened(id) if self.window.is_none() && !self.finished => {
                 self.window = Some(id);
+                if self.options.drop_file.is_some() {drop(self.app.update(ui::Message::NativeOpened(id)));}
                 return window::run(id, |w| match w.display_handle().map(|h| h.as_raw()) {
                     Ok(raw_window_handle::RawDisplayHandle::Wayland(_)) => "wayland",
                     Ok(
@@ -474,11 +540,28 @@ impl Fixture {
                 self.report["measuredWindowLogicalViewport"] = json!([size.width, size.height]);
                 self.viewport = Some(size);
                 // Do NOT feed outer window geometry into App: its requested inner frame is fixed.
+                if self.options.drop_file.is_some() {
+                    self.report["nativeInputEventSource"]=json!("actual-Iced-window-events-and-production-local-preview-Task");
+                    let ready=json!({"publicOnly":true,"pid":std::process::id(),"nativeWayland":backend=="wayland","capturedCommandCount":self.captured_count});
+                    let parent=self.options.report.parent().unwrap();
+                    let saved=fs::OpenOptions::new().create_new(true).write(true).mode(0o600).open(parent.join("drop-ready.json")).and_then(|file|serde_json::to_writer(&file,&ready).map_err(std::io::Error::other)).is_ok();
+                    if !saved {return self.finish(false);}
+                    return Task::none();
+                }
                 if let Some(id) = self.window {
-                    return Task::perform(
-                        async { tokio::time::sleep(Duration::from_millis(1000)).await },
-                        move |_| Message::Observe(id),
-                    );
+                    let scroll = if matches!(self.options.mode.as_str(), "settings-codex-usage" | "settings-codex-usage-unknown" | "settings-codex-runtime-unknown") {
+                        self.report["settingsScrollFixtureRequested"] = json!("end");
+                        iced::widget::operation::snap_to_end("native-settings-body")
+                    } else {
+                        Task::none()
+                    };
+                    return Task::batch([
+                        scroll,
+                        Task::perform(
+                            async { tokio::time::sleep(Duration::from_millis(1000)).await },
+                            move |_| Message::Observe(id),
+                        ),
+                    ]);
                 }
             }
             Message::Observe(id) if !self.capture_started && !self.finished => {
@@ -493,7 +576,16 @@ impl Fixture {
                 self.report["measuredWindowLogicalViewport"] = json!([size.width, size.height]);
                 self.report["layoutObservation"] =
                     observation.report(self.options.size, self.viewport, &self.report);
-                return window::screenshot(id).map(Message::Screenshot);
+                // Iced 0.14 rebuilds layout before running this handler's tasks,
+                // invalidating the last draw's weak editor reference. Allow the
+                // requested redraw, then capture directly without another App
+                // message/rebuild. This bounded scheduling assumption is not an
+                // atomic frame-identity or deterministic paint-barrier guarantee.
+                return Task::future(async {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                })
+                .then(move |()| window::screenshot(id))
+                .map(Message::Screenshot);
             }
             Message::Screenshot(screenshot) if !self.finished => {
                 let path = self.options.screenshot.clone();
@@ -512,9 +604,17 @@ impl Fixture {
             Message::Saved(saved, size) if !self.finished => {
                 self.report["capture"]["saved"] = json!(saved);
                 self.report["capture"]["physicalBufferSize"] = json!(size);
+                let progressed = self.options.mode != "working-conversation"
+                    || (self.report["workingTickCount"].as_u64().unwrap_or(0) >= 2
+                        && self.report["workingFramePhases"].as_array().is_some_and(|phases|
+                            phases.first().is_some_and(|first| phases.iter().any(|phase| phase != first))));
+                self.report["workingClockProgressionRequired"] = json!(self.options.mode == "working-conversation");
+                self.report["workingClockProgressionPassed"] = json!(progressed);
                 let passed = saved
                     && self.report["windowBackend"] == "wayland"
-                    && self.report["layoutObservation"]["passed"] == true;
+                    && self.report["layoutObservation"]["passed"] == true
+                    && progressed
+                    && (self.options.drop_file.is_none() || (self.report["actualProductionNativeDropQualified"]==true && self.report["unexpectedDropPaths"]==0));
                 return self.finish(passed);
             }
             Message::Deadline | Message::Close if !self.finished => {
@@ -553,13 +653,22 @@ impl Fixture {
             .into()
     }
     fn subscription(&self) -> Subscription<Message> {
-        // Deliberately omit App.subscription(): no worker stream, keyboard or animation loop.
-        window::events().filter_map(|(id, event)| match event {
-            window::Event::Opened { .. } => Some(Message::Opened(id)),
-            window::Event::CloseRequested => Some(Message::Close),
-            window::Event::Closed => Some(Message::Closed),
-            _ => None,
-        })
+        // Omit App.subscription(): no worker stream or keyboard/business dispatch.
+        let drop_check=self.options.drop_file.is_some();
+        // Only this explicit PUBLIC working preset owns a bounded local presentation clock.
+        Subscription::batch([
+            window::events().with(drop_check).filter_map(|(drop_check,(id,event))| match event {
+                window::Event::FileDropped(path) if drop_check=>Some(Message::App(ui::Message::FileDropped(id,path))),
+                window::Event::FilesHoveredLeft if drop_check=>Some(Message::App(ui::Message::FileDropCancelled(id))),
+                window::Event::Opened { .. } => Some(Message::Opened(id)),
+                window::Event::CloseRequested => Some(Message::Close),
+                window::Event::Closed => Some(Message::Closed),
+                _ => None,
+            }),
+            if self.options.mode == "working-conversation" && !self.capture_started && !self.finished {
+                iced::time::every(Duration::from_millis(100)).map(|_| Message::WorkingFrame)
+            } else { Subscription::none() },
+        ])
     }
 }
 fn report_passed(path: &Path) -> bool {

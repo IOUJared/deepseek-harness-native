@@ -144,8 +144,23 @@ fn inspection(value: &Value) -> Inspection {
 
 fn public_result(command: &str, value: &Value) -> Result<PublicReply, Error> {
     match command {
-        "codex-status" | "codex-start" | "codex-cancel" | "codex-enable-models" => {
+        "codex-status" | "codex-start" | "codex-add" | "codex-cancel" | "codex-enable-models" => {
             Ok(PublicReply::Codex(crate::codex::metadata(value)?))
+        }
+        "codex-accounts-status" | "codex-select" | "codex-signout" | "codex-signout-all" => {
+            let metadata = crate::codex::accounts_metadata(value)?;
+            if command != "codex-accounts-status"
+                && metadata.mode != crate::CodexAccountMode::Managed
+            {
+                return Err(Error::Protocol);
+            }
+            Ok(PublicReply::CodexAccounts(metadata))
+        }
+        "codex-usage-load" | "codex-usage-save" => {
+            Ok(PublicReply::CodexUsage(crate::codex_usage::snapshot(value)?))
+        }
+        "codex-runtime-read" | "codex-runtime-save" => {
+            Ok(PublicReply::CodexRuntime(crate::codex_runtime::snapshot(value)?))
         }
         "codex-callback" => Ok(PublicReply::CodexCallbackAccepted(
             value["ok"].as_bool().ok_or(Error::Protocol)?,
@@ -221,6 +236,17 @@ pub(crate) fn parse(bytes: &[u8], expected_version: &str) -> Result<Event, Error
                 "native-result" => {
                     public_result(command.as_deref().ok_or(Error::Protocol)?, &value["value"])
                 }
+                _ if value["code"] == "CODEX_EPOCH_CONFLICT" => Err(Error::CodexEpochConflict),
+                _ if value["code"] == "CODEX_USAGE_CONFLICT" => Err(Error::CodexUsageConflict),
+                _ if value["code"] == "CODEX_USAGE_INDETERMINATE" => {
+                    Err(Error::CodexUsageIndeterminate)
+                }
+                _ if value["code"] == "CODEX_USAGE_UNAVAILABLE" => Err(Error::CodexUsageUnavailable),
+                _ if value["code"] == "CODEX_RUNTIME_CONFLICT" => Err(Error::CodexRuntimeConflict),
+                _ if value["code"] == "CODEX_RUNTIME_INDETERMINATE" => {
+                    Err(Error::CodexRuntimeIndeterminate)
+                }
+                _ if value["code"] == "CODEX_RUNTIME_UNAVAILABLE" => Err(Error::CodexRuntimeUnavailable),
                 _ => Err(Error::RequestFailed),
             };
             Event::Reply {
@@ -237,9 +263,18 @@ impl Command {
     pub(crate) fn name(&self) -> &'static str {
         match self {
             Self::CodexStatus => "codex-status",
+            Self::CodexAccountsStatus => "codex-accounts-status",
             Self::CodexStart => "codex-start",
+            Self::CodexAdd { .. } => "codex-add",
+            Self::CodexSelect { .. } => "codex-select",
+            Self::CodexSignOut { .. } => "codex-signout",
+            Self::CodexSignOutAll { .. } => "codex-signout-all",
             Self::CodexCancel { .. } => "codex-cancel",
             Self::CodexEnableModels { .. } => "codex-enable-models",
+            Self::CodexUsageLoad => "codex-usage-load",
+            Self::CodexUsageSave { .. } => "codex-usage-save",
+            Self::CodexRuntimeRead => "codex-runtime-read",
+            Self::CodexRuntimeSave { .. } => "codex-runtime-save",
             Self::Inspect => "inspect",
             Self::OpenWorkspace(_) => "open-workspace",
             Self::OnboardingRead => "onboarding-read",
@@ -254,6 +289,36 @@ impl Command {
     pub(crate) fn encode(&self, id: &str) -> Result<Value, Error> {
         let mut value = json!({"type": self.name(), "requestId": id});
         match self {
+            Self::CodexAdd {
+                label,
+                expected_epoch,
+            } => {
+                if *expected_epoch > crate::codex::MAX_SAFE_INTEGER {
+                    return Err(Error::InvalidCommand);
+                }
+                value["label"] = json!(label.as_str());
+                value["expectedEpoch"] = json!(expected_epoch);
+            }
+            Self::CodexSelect {
+                account_id,
+                expected_epoch,
+            }
+            | Self::CodexSignOut {
+                account_id,
+                expected_epoch,
+            } => {
+                if *expected_epoch > crate::codex::MAX_SAFE_INTEGER {
+                    return Err(Error::InvalidCommand);
+                }
+                value["accountId"] = json!(account_id.as_str());
+                value["expectedEpoch"] = json!(expected_epoch);
+            }
+            Self::CodexSignOutAll { expected_epoch } => {
+                if *expected_epoch > crate::codex::MAX_SAFE_INTEGER {
+                    return Err(Error::InvalidCommand);
+                }
+                value["expectedEpoch"] = json!(expected_epoch);
+            }
             Self::CodexCancel { attempt } => {
                 if !crate::codex::valid_id(*attempt) {
                     return Err(Error::InvalidCommand);
@@ -265,6 +330,27 @@ impl Command {
                     return Err(Error::InvalidCommand);
                 }
                 value["expectedRevision"] = json!(expected_revision);
+            }
+            Self::CodexUsageSave {
+                expected_revision,
+                preferences,
+            } => {
+                if *expected_revision > crate::codex::MAX_SAFE_INTEGER {
+                    return Err(Error::InvalidCommand);
+                }
+                value["expectedRevision"] = json!(expected_revision);
+                value["preferences"] = preferences.encode();
+            }
+            Self::CodexRuntimeSave {
+                expected_revision,
+                values,
+            } => {
+                // MAX is readable but exhausted: no safe successor revision can be saved.
+                if *expected_revision >= crate::codex::MAX_SAFE_INTEGER {
+                    return Err(Error::InvalidCommand);
+                }
+                value["expectedRevision"] = json!(expected_revision);
+                value["values"] = values.encode();
             }
             Self::OpenWorkspace(path) => {
                 if !crate::options::absolute(path) || path.as_os_str().len() > 32768 {
@@ -302,8 +388,17 @@ pub(crate) fn matches_reply(name: &str, reply: &PublicReply) -> bool {
     matches!(
         (name, reply),
         (
-            "codex-status" | "codex-start" | "codex-cancel" | "codex-enable-models",
+            "codex-status" | "codex-start" | "codex-add" | "codex-cancel" | "codex-enable-models",
             PublicReply::Codex(_)
+        ) | (
+            "codex-accounts-status" | "codex-select" | "codex-signout" | "codex-signout-all",
+            PublicReply::CodexAccounts(_)
+        ) | (
+            "codex-usage-load" | "codex-usage-save",
+            PublicReply::CodexUsage(_)
+        ) | (
+            "codex-runtime-read" | "codex-runtime-save",
+            PublicReply::CodexRuntime(_)
         ) | ("codex-callback", PublicReply::CodexCallbackAccepted(_))
             | ("inspect", PublicReply::Inspection(_))
             | ("open-workspace", PublicReply::WorkspaceAdded)

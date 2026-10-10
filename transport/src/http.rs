@@ -117,6 +117,7 @@ pub(crate) struct Inner {
     pub generation: u64,
     pub rpc: AtomicU64,
     pub rpc_slots: Semaphore,
+    pub cancel_slot: Semaphore,
     pub upload_slots: Arc<Semaphore>,
     pub tasks: TaskTracker,
     pub owners: AtomicU64,
@@ -162,6 +163,7 @@ enum Endpoint {
     SessionList,
     SessionCreate,
     SessionPrompt,
+    PromptAdmission,
     ModelCatalog,
     SelectModel,
     Cancel,
@@ -185,6 +187,7 @@ impl Endpoint {
             Self::SessionList => "session/list",
             Self::SessionCreate => "session/create",
             Self::SessionPrompt => "session/prompt",
+            Self::PromptAdmission => "session/promptAdmission",
             Self::ModelCatalog => "session/modelCatalog",
             Self::SelectModel => "session/selectModel",
             Self::Cancel => "session/cancel",
@@ -276,6 +279,7 @@ impl NativeClient {
                 generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
                 rpc: AtomicU64::new(1),
                 rpc_slots: Semaphore::new(limits.max_concurrent_rpc),
+                cancel_slot: Semaphore::new(1),
                 upload_slots: Arc::new(Semaphore::new(crate::upload::MAX_UPLOAD_JOBS)),
                 tasks: TaskTracker::new(),
                 owners: AtomicU64::new(1),
@@ -312,6 +316,7 @@ impl NativeClient {
             .acquire_many(self.inner.limits.max_concurrent_rpc as u32)
             .await
             .ok();
+        let cancel = self.inner.cancel_slot.acquire().await.ok();
         self.inner.tasks.wait().await;
         if let Ok(mut authority) = self.inner.authority.lock() {
             authority.take();
@@ -322,6 +327,7 @@ impl NativeClient {
             }
             pending.clear();
         }
+        drop(cancel);
         drop(permits);
     }
 
@@ -345,12 +351,13 @@ impl NativeClient {
         args: Value,
         delivery: Option<&crate::EventDelivery>,
     ) -> Result<T> {
-        let _permit = self
-            .inner
-            .rpc_slots
-            .acquire()
-            .await
-            .map_err(|_| Error::Closed)?;
+        // Only the fixed active-turn cancellation endpoint can use the independent lane.
+        let slots = if matches!(endpoint, Endpoint::Cancel) {
+            &self.inner.cancel_slot
+        } else {
+            &self.inner.rpc_slots
+        };
+        let _permit = slots.acquire().await.map_err(|_| Error::Closed)?;
         if let Some(delivery) = delivery {
             delivery.check(&self.inner, None)?;
         }
@@ -455,6 +462,16 @@ impl NativeClient {
                 .await?,
         )
     }
+    /// Read the original request identity without following/promoting an Agent or replaying a prompt.
+    pub async fn session_prompt_admission(
+        &self,
+        request: crate::prompt_admission::PromptAdmissionRequest,
+    ) -> Result<crate::prompt_admission::PromptAdmission> {
+        crate::prompt_admission::project(
+            self.invoke(Endpoint::PromptAdmission, request_args(request)?)
+                .await?,
+        )
+    }
     pub async fn model_catalog(&self) -> Result<ModelCatalog> {
         self.invoke(Endpoint::ModelCatalog, json!({})).await
     }
@@ -462,6 +479,7 @@ impl NativeClient {
         self.invoke(Endpoint::SelectModel, request_args(request)?)
             .await
     }
+    /// Reserved one-operation lane. The BFF preserves queued inbox input; ACK is not idle.
     pub async fn session_cancel(&self, session_id: &SessionId) -> Result<Accepted> {
         accepted(
             self.invoke(

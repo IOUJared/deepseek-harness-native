@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Toolbox entrypoint. gungraun-runner must match the gungraun version a project locks,
+# so install a matching runner into the cache volume when they differ, then run the command.
+set -euo pipefail
+
+lock=""
+for f in Cargo.lock /work/Cargo.lock; do
+  if [ -f "$f" ]; then lock=$f; break; fi
+done
+
+if [ -n "$lock" ]; then
+  want=$(awk '$0 == "name = \"gungraun\"" { getline; gsub(/version = |"/, ""); print; exit }' "$lock")
+  have=$(gungraun-runner --version 2>/dev/null | awk '{ print $2 }' || true)
+  if [ -n "$want" ] && [ "$want" != "$have" ]; then
+    root=/cache/gungraun-runner-$want
+    if [ ! -x "$root/bin/gungraun-runner" ]; then
+      echo "impeccable: installing gungraun-runner $want to match $lock" >&2
+      cargo binstall -y --disable-telemetry --root "$root" "gungraun-runner@$want" >&2
+    fi
+    export GUNGRAUN_RUNNER=$root/bin/gungraun-runner
+  fi
+fi
+
+exec "$@"

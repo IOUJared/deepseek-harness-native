@@ -6,7 +6,7 @@ MIT Rust HTTP/WebSocket client for **0.2.1-alpha.1**. [Core](<../core/README.md>
 
 | Area | Supported |
 |---|---|
-| Sessions | List, create, prompt, history, projections, model/effort/speed/output-detail selection |
+| Sessions | List, create, prompt, read-only admission by original IDs, active-turn cancel, history, projections, model/effort/speed/output-detail selection |
 | Workspaces | Create/follow, pin/unpin, archive/restore |
 | Decisions | Correlated approval/question replies, cancellation, claim ownership |
 | Files | Bounded staging and root-only ZIP export |
@@ -26,6 +26,8 @@ MIT Rust HTTP/WebSocket client for **0.2.1-alpha.1**. [Core](<../core/README.md>
 ## Mutation rules
 
 - ACK settles delivery, **not tool execution, generation completion or idle**.
+- `session/promptAdmission` reads only original `sessionId`/`requestId`: exact finite evidence/rejection fields, 16 KiB complete metadata, 4 KiB opaque message ID and safe-integer sequence. Unknown/missing/malformed results never establish non-admission.
+- Only fixed `session/cancel` uses an independent one-RPC lane. Body remains `{sessionId}`; BFF preserves inbox while cancelling the active turn. Other RPCs keep their normal permits.
 - [Decision replies](<../docs/NATIVE-DECISION-OWNERSHIP.md>) use exact delivery instances; stale replies cannot acquire reused IDs.
 - [Question claims](<../docs/NATIVE-TIMED-QUESTIONS.md>) retain Host ownership through termination. Dropping a claim is unsubscribe, not question cancellation; native timed controls remain disabled.
 - [Registry receipts](<../docs/NATIVE-SESSION-MANAGEMENT.md#stream-authoritative-state-and-races>) preserve global order. Follow streams stay authoritative; receipts carry no comparable revision.

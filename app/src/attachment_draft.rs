@@ -340,7 +340,11 @@ impl Draft {
         {
             return;
         }
-        self.prompt_owner = None;
+        if matches!(&self.state, State::Unknown(t, _) if t == ticket) && outcome != PromptOutcome::Unknown {
+            self.reconcile_prompt(ticket, request_id, outcome == PromptOutcome::Accepted, c);
+            return;
+        }
+        if outcome != PromptOutcome::Unknown { self.prompt_owner = None; }
         if !matches!(&self.state, State::Sending(t, _) if t == ticket) {
             return;
         }
@@ -365,6 +369,14 @@ impl Draft {
                 State::Unknown(t, Some(metadata))
             }
         };
+    }
+    /// Exact identity observation retires unknown prompt ownership, never restores an upload receipt.
+    pub fn reconcile_prompt(&mut self, ticket: &Ticket, request_id: &SessionRequestId, accepted: bool, c: &Context) {
+        if self.prompt_owner.as_ref().is_none_or(|(t,r)|t!=ticket || r!=request_id) { return; }
+        self.prompt_owner=None;
+        if !c.matches(ticket) || !matches!(&self.state,State::Unknown(t,_) | State::Sending(t,_) if t==ticket) { return; }
+        self.state=State::Empty;
+        self.notice=(!accepted).then_some("Original submission was rejected before dispatch. Upload receipt is not reused; choose the file again explicitly.");
     }
 }
 
@@ -774,14 +786,14 @@ mod tests {
     }
 
     #[test]
-    fn unknown_prompt_is_sticky_and_cannot_be_restored_by_late_callbacks() {
+    fn unknown_prompt_retains_owner_until_exact_observation_and_never_restores_a_receipt() {
         let c = context();
         let mut draft = Draft::default();
         let ticket = staged(&mut draft, &c);
         let id = request();
         draft.begin_prompt(&c, id.clone()).unwrap();
         draft.prompt_complete(&ticket, &id, PromptOutcome::Unknown, &c);
-        assert!(!draft.prompt_pending());
+        assert!(draft.prompt_pending());
         assert!(!draft.can_send(&c));
         assert!(!draft.has_file(&c));
         assert!(draft.ready().is_none());
@@ -789,15 +801,29 @@ mod tests {
         assert_eq!(draft.notice(), Some(PROMPT_UNKNOWN));
         assert!(draft.begin_prompt(&c, id.clone()).is_none());
         assert!(!draft.open(&c));
-        draft.prompt_complete(&ticket, &id, PromptOutcome::NotSent, &c);
-        draft.prompt_complete(&ticket, &id, PromptOutcome::Accepted, &c);
-        assert_eq!(draft.notice(), Some(PROMPT_UNKNOWN));
-        assert_eq!(draft.remove(&c), Some(ticket));
+        let wrong=SessionRequestId::new("PUBLIC wrong observation").unwrap();
+        draft.reconcile_prompt(&ticket,&wrong,true,&c);
+        assert!(draft.prompt_pending());
+        draft.reconcile_prompt(&ticket,&id,false,&c);
+        assert!(!draft.prompt_pending());
+        assert!(draft.ready().is_none());
         assert!(draft.can_send(&c));
         assert!(draft.metadata().is_none());
-        assert!(draft.notice().is_none());
+        assert!(draft.notice().unwrap().contains("not reused"));
     }
 
+    #[test]
+    fn exact_old_reconciliation_after_view_invalidation_does_not_clear_a_new_file_or_delayed_read() {
+        let c=context();let next=other_contexts().remove(1);let mut draft=Draft::default();
+        let old=staged(&mut draft,&c);let id=request();draft.begin_prompt(&c,id.clone());draft.prompt_complete(&old,&id,PromptOutcome::Unknown,&c);
+        draft.invalidate();
+        let fresh=Ticket{epoch:next.epoch,generation:next.generation,serial:old.serial+1,target:next.target.clone().unwrap()};
+        draft.state=State::Ready(fresh.clone(),metadata());draft.read_owner=Some(fresh.clone());
+        draft.reconcile_prompt(&old,&id,true,&next);
+        assert!(!draft.prompt_pending());assert_eq!(draft.ready().unwrap().0,&fresh);assert!(draft.pending());
+        draft.complete(&old,Outcome::Staged(metadata()),&next);
+        assert_eq!(draft.ready().unwrap().0,&fresh);assert!(draft.pending());
+    }
     #[test]
     fn stale_prompt_and_disconnect_callbacks_never_clobber_fresh_draft_and_debug_is_redacted() {
         let c = context();
@@ -814,6 +840,7 @@ mod tests {
                 let id = request();
                 draft.begin_prompt(&c, id.clone()).unwrap();
                 draft.prompt_complete(&ticket, &id, outcome, &wrong);
+                if outcome==PromptOutcome::Unknown {assert!(draft.prompt_pending());assert!(!draft.can_send(&wrong));draft.reconcile_prompt(&ticket,&id,true,&wrong);}
                 assert!(!draft.prompt_pending());
                 assert!(draft.metadata().is_none());
                 assert!(draft.notice().is_none());
@@ -846,6 +873,7 @@ mod tests {
             assert!(!draft.open(&next));
             assert!(!draft.can_send(&next));
             draft.prompt_complete(&ticket, &id, outcome, &next);
+            if outcome==PromptOutcome::Unknown {assert!(draft.prompt_pending());draft.reconcile_prompt(&ticket,&id,true,&next);}
             assert!(!draft.prompt_pending());
             assert!(draft.metadata().is_none());
             assert!(draft.notice().is_none());

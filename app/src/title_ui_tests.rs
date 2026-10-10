@@ -91,6 +91,69 @@ fn logged_titles_update_elements_not_chat_even_when_records_expanded() {
     assert!(queue.try_recv().is_err());
 }
 #[test]
+fn ignored_conflicting_or_older_replay_does_not_publish_title_metadata() {
+    let (mut app, mut queue) = app();
+    deliver(
+        &mut app,
+        event(0, "session/title", json!({"title":"PUBLIC accepted title"})),
+    );
+    deliver(
+        &mut app,
+        event(
+            0,
+            "session/title",
+            json!({"title":"PUBLIC conflicting replay"}),
+        ),
+    );
+    assert_eq!(heading(&app), "PUBLIC accepted title");
+    assert_eq!(app.transcript.rows().len(), 1);
+    assert!(
+        app.transcript.rows()[0]
+            .text
+            .contains("PUBLIC accepted title")
+    );
+    assert!(!app.transcript.rows()[0].text.contains("conflicting replay"));
+    deliver(
+        &mut app,
+        event(1, "session/title", json!({"title":"PUBLIC latest title"})),
+    );
+    deliver(
+        &mut app,
+        event(0, "session/title", json!({"title":"PUBLIC older replay"})),
+    );
+    assert_eq!(heading(&app), "PUBLIC latest title");
+    assert!(app.transcript.safe_to_send());
+    assert!(queue.try_recv().is_err());
+}
+#[test]
+fn ignored_title_at_an_existing_message_coordinate_never_enters_title_state() {
+    let (mut app, mut queue) = app();
+    let mut frame = event(
+        0,
+        "user/message",
+        json!({"content":[{"type":"text","text":"PUBLIC actual user message"}]}),
+    );
+    if let SessionFollowFrame::Event { event } = &mut frame {
+        event.surface_op = Some(json!("append"));
+    }
+    deliver(&mut app, frame);
+    let before = heading(&app);
+    deliver(
+        &mut app,
+        event(
+            0,
+            "session/title",
+            json!({"title":"PUBLIC unretained title"}),
+        ),
+    );
+    assert_eq!(heading(&app), before);
+    assert_eq!(app.transcript.rows().len(), 1);
+    assert_eq!(app.transcript.rows()[0].role, "You");
+    assert_eq!(app.scroll_projection().0, vec![0]);
+    assert!(app.transcript.safe_to_send());
+    assert!(queue.try_recv().is_err());
+}
+#[test]
 fn messages_with_title_event_names_are_not_hidden() {
     let (mut app, mut queue) = app();
     let mut frame = event(

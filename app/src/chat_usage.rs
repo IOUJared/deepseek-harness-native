@@ -1,0 +1,402 @@
+//! Read-only alpha usage display; context projections are approximate, not billing or Send gates.
+use dsh_native_transport::dto::SessionWireEvent;
+use serde_json::{Map, Value};
+use std::collections::BTreeMap;
+
+const MAX_COUNT: u64 = 9_007_199_254_740_991;
+const MAX_RECORDS: usize = 4096;
+const UNAVAILABLE: &str = "Usage unavailable";
+
+#[derive(Clone, PartialEq, Eq)]
+struct Route<'a> {
+    provider: &'a str,
+    model: &'a str,
+}
+fn route(value: &Value) -> Option<Route<'_>> {
+    let object = value.as_object()?;
+    let provider = object.get("provider")?.as_str()?;
+    let model = object.get("model")?.as_str()?;
+    if provider.is_empty() || model.is_empty() || provider.len() > 4096 || model.len() > 4096 {
+        return None;
+    }
+    Some(Route { provider, model })
+}
+fn count(value: &Value) -> Option<u64> {
+    value.as_u64().filter(|value| *value <= MAX_COUNT)
+}
+fn field(object: &Map<String, Value>, key: &str) -> Result<Option<u64>, ()> {
+    object
+        .get(key)
+        .map(count)
+        .map_or(Ok(None), |value| value.map(Some).ok_or(()))
+}
+fn sum(values: &[u64]) -> Option<u64> {
+    values
+        .iter()
+        .try_fold(0_u64, |total, value| total.checked_add(*value))
+        .filter(|total| *total <= MAX_COUNT)
+}
+fn compact(value: u64) -> String {
+    if value >= 1000 && value % 1000 == 0 {
+        format!("{}k", value / 1000)
+    } else {
+        value.to_string()
+    }
+}
+struct Usage {
+    prompt: Option<u64>,
+    output: Option<u64>,
+    total: u64,
+}
+fn usage(value: &Value) -> Option<Usage> {
+    let object = value.as_object()?;
+    let input = field(object, "inputTokens").ok()?;
+    let output = field(object, "outputTokens").ok()?;
+    let read = field(object, "cacheReadTokens").ok()?;
+    let write = field(object, "cacheWriteTokens").ok()?;
+    let reasoning = field(object, "reasoningTokens").ok()?;
+    let reported = field(object, "totalTokens").ok()?;
+    if let Some(reasoning) = reasoning {
+        if reasoning > output? {
+            return None;
+        }
+    }
+    let known_prompt = sum(&[input.unwrap_or(0), read.unwrap_or(0), write.unwrap_or(0)])?;
+    let prompt = match (input, read, write) {
+        (Some(input), Some(read), Some(write)) => Some(sum(&[input, read, write])?),
+        _ => None,
+    };
+    let total = match reported {
+        Some(total) => {
+            let known_total = sum(&[known_prompt, output.unwrap_or(0)])?;
+            if total < known_total {
+                return None;
+            }
+            if let (Some(prompt), Some(output)) = (prompt, output) {
+                if sum(&[prompt, output])? != total {
+                    return None;
+                }
+            }
+            total
+        }
+        None => sum(&[prompt?, output?])?,
+    };
+    Some(Usage {
+        prompt,
+        output,
+        total,
+    })
+}
+fn settlement_usage(event: &SessionWireEvent) -> Option<Usage> {
+    if event.event_type == "assistant/message" {
+        if let Some(value) = event.data.get("usage") {
+            return usage(value);
+        }
+    }
+    let stream = event.data.get("stream")?.as_array()?;
+    if stream.len() > MAX_RECORDS {
+        return None;
+    }
+    // Usage is never packed into text/reasoning/tool runs. Last sample replaces earlier samples.
+    stream
+        .iter()
+        .rev()
+        .find_map(|record| {
+            (record.get("type")?.as_str()? == "chunk")
+                .then(|| record.get("chunk"))?
+                .filter(|chunk| chunk.get("type").and_then(Value::as_str) == Some("usage"))
+        })
+        .and_then(|chunk| chunk.get("usage"))
+        .and_then(usage)
+}
+fn selection_pending(projections: &BTreeMap<String, Value>) -> bool {
+    let Some(selection) = projections.get("modelSelection") else {
+        return false;
+    };
+    let Some(object) = selection.as_object() else {
+        return true;
+    };
+    let next = object.get("next").and_then(route);
+    let used = object.get("lastUsed").and_then(route);
+    match (next, used) {
+        (Some(next), Some(used)) => next != used,
+        (None, None)
+            if object.get("next") == Some(&Value::Null)
+                && object.get("lastUsed") == Some(&Value::Null) =>
+        {
+            false
+        }
+        _ => true,
+    }
+}
+fn context(projections: &BTreeMap<String, Value>) -> Option<String> {
+    let object = projections.get("contextPressure")?.as_object()?;
+    let projected = field(object, "projectedTokens").ok()?;
+    let pressure = field(object, "pressureTokens").ok()?;
+    let capacity = field(object, "contextWindow").ok()??;
+    if capacity == 0 {
+        return None;
+    }
+    let used = projected.or(pressure)?;
+    Some(format!(
+        "Context ~{} / {}",
+        compact(used),
+        compact(capacity)
+    ))
+}
+
+/// Describe current approximate Host context or the last retained authoritative request.
+/// The caller owns session/epoch/watermark validity; stale projections cannot supply capacity.
+/// Retained records must be a contiguous chronological window, not a whole-log usage aggregate.
+pub fn describe<'a>(
+    projections: &BTreeMap<String, Value>,
+    projection_current: bool,
+    records: impl Iterator<Item = &'a SessionWireEvent>,
+) -> String {
+    let mut previous = None;
+    let mut context_route = None;
+    let mut last = None;
+    let mut changed_route = false;
+    for (index, event) in records.enumerate() {
+        if index >= MAX_RECORDS
+            || event.seq > MAX_COUNT
+            || previous.is_some_and(|seq: u64| seq.checked_add(1) != Some(event.seq))
+        {
+            return UNAVAILABLE.into();
+        }
+        previous = Some(event.seq);
+        match event.event_type.as_str() {
+            "request/context" => {
+                let Some(next) = route(&event.data) else {
+                    return UNAVAILABLE.into();
+                };
+                if context_route.as_ref().is_some_and(|old| old != &next) {
+                    last = None;
+                    changed_route = true;
+                }
+                context_route = Some(next);
+            }
+            "model/selection" => {
+                let Some(next) = route(&event.data) else {
+                    return UNAVAILABLE.into();
+                };
+                if context_route.as_ref() != Some(&next) {
+                    last = None;
+                    changed_route = true;
+                }
+            }
+            "assistant/message" | "assistant/attempt" => {
+                let source = event
+                    .data
+                    .get("message")
+                    .and_then(|message| message.get("source"));
+                if let Some(source) = source {
+                    let Some(source_route) = route(source) else {
+                        return UNAVAILABLE.into();
+                    };
+                    if context_route
+                        .as_ref()
+                        .is_some_and(|current| current != &source_route)
+                    {
+                        return UNAVAILABLE.into();
+                    }
+                }
+                last = settlement_usage(event);
+                // A fresh settled request supplies pressure for the new route.
+                changed_route = last.is_none();
+            }
+            _ => {}
+        }
+    }
+    let pending = selection_pending(projections);
+    if projection_current && !pending && !changed_route {
+        if let Some(label) = context(projections) {
+            return label;
+        }
+    }
+    if pending || changed_route {
+        return UNAVAILABLE.into();
+    }
+    match last {
+        Some(Usage {
+            prompt: Some(prompt),
+            output: Some(output),
+            ..
+        }) => {
+            format!(
+                "Last request: {} in · {} out",
+                compact(prompt),
+                compact(output)
+            )
+        }
+        Some(Usage { total, .. }) => format!("Last request: {} tokens", compact(total)),
+        None => UNAVAILABLE.into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    fn event(seq: u64, kind: &str, data: Value) -> SessionWireEvent {
+        SessionWireEvent {
+            event_type: kind.into(),
+            seq,
+            time: 1,
+            data,
+            ignorable: None,
+            source_event_seqs: None,
+            surface_op: None,
+        }
+    }
+    fn pressure(value: Value) -> BTreeMap<String, Value> {
+        BTreeMap::from([("contextPressure".into(), value)])
+    }
+    fn message(value: Value) -> SessionWireEvent {
+        event(10, "assistant/message", json!({"usage":value}))
+    }
+    #[test]
+    fn public_context_is_approximate_and_never_uses_stale_capacity() {
+        let p = pressure(
+            json!({"pressureTokens":17000,"projectedTokens":18000,"contextWindow":128000}),
+        );
+        assert_eq!(describe(&p, true, [].iter()), "Context ~18k / 128k");
+        assert_eq!(describe(&p, false, [].iter()), UNAVAILABLE);
+        assert_eq!(
+            describe(
+                &pressure(json!({"pressureTokens":0,"contextWindow":128000})),
+                true,
+                [].iter()
+            ),
+            "Context ~0 / 128k"
+        );
+    }
+    #[test]
+    fn complete_disjoint_buckets_and_reasoning_are_not_double_counted() {
+        let events = [message(
+            json!({"inputTokens":100,"cacheReadTokens":40,"cacheWriteTokens":10,
+            "outputTokens":20,"reasoningTokens":8,"totalTokens":170}),
+        )];
+        assert_eq!(
+            describe(&BTreeMap::new(), false, events.iter()),
+            "Last request: 150 in · 20 out"
+        );
+        let incomplete = [message(
+            json!({"inputTokens":100,"outputTokens":20,"totalTokens":170}),
+        )];
+        assert_eq!(
+            describe(&BTreeMap::new(), false, incomplete.iter()),
+            "Last request: 170 tokens"
+        );
+        let unknown = [message(json!({"inputTokens":100,"outputTokens":20}))];
+        assert_eq!(
+            describe(&BTreeMap::new(), false, unknown.iter()),
+            UNAVAILABLE
+        );
+    }
+    #[test]
+    fn raw_compact_last_sample_and_top_level_usage_replace_not_sum() {
+        let events = [event(
+            0,
+            "assistant/attempt",
+            json!({"stream":[
+                {"type":"chunk","time":1,"chunk":{"type":"usage","usage":{"totalTokens":10}}},
+                {"type":"chunk","time":2,"chunk":{"type":"usage","usage":{"totalTokens":20}}}
+            ]}),
+        )];
+        assert_eq!(
+            describe(&BTreeMap::new(), false, events.iter()),
+            "Last request: 20 tokens"
+        );
+        let events = [event(
+            0,
+            "assistant/message",
+            json!({"usage":{"totalTokens":30},"stream":[
+                {"type":"chunk","time":2,"chunk":{"type":"usage","usage":{"totalTokens":20}}}
+            ]}),
+        )];
+        assert_eq!(
+            describe(&BTreeMap::new(), false, events.iter()),
+            "Last request: 30 tokens"
+        );
+    }
+    #[test]
+    fn malformed_numbers_and_unsafe_sums_fail_closed() {
+        for bad in [
+            json!(-1),
+            json!(1.5),
+            Value::Null,
+            json!("12"),
+            json!(MAX_COUNT + 1),
+        ] {
+            let p = pressure(json!({"projectedTokens":bad,"contextWindow":128000}));
+            assert_eq!(describe(&p, true, [].iter()), UNAVAILABLE);
+            let events = [message(json!({"inputTokens":bad,"totalTokens":100}))];
+            assert_eq!(
+                describe(&BTreeMap::new(), false, events.iter()),
+                UNAVAILABLE
+            );
+        }
+        for bad in [
+            json!({"totalTokens":5,"outputTokens":10}),
+            json!({"inputTokens":MAX_COUNT,"outputTokens":1,"cacheReadTokens":0,"cacheWriteTokens":0}),
+            json!({"inputTokens":1,"outputTokens":1,"cacheReadTokens":0,"cacheWriteTokens":0,"totalTokens":3}),
+            json!({"outputTokens":1,"reasoningTokens":2,"totalTokens":3}),
+        ] {
+            assert_eq!(
+                describe(&BTreeMap::new(), false, [message(bad)].iter()),
+                UNAVAILABLE
+            );
+        }
+        assert_eq!(
+            describe(
+                &pressure(json!({"pressureTokens":1,"contextWindow":0})),
+                true,
+                [].iter()
+            ),
+            UNAVAILABLE
+        );
+    }
+    #[test]
+    fn later_route_and_pending_selection_do_not_borrow_old_window() {
+        let p = pressure(json!({"pressureTokens":100,"contextWindow":128000}));
+        let events = [
+            event(
+                0,
+                "request/context",
+                json!({"provider":"PUBLIC","model":"a"}),
+            ),
+            event(1, "assistant/message", json!({"usage":{"totalTokens":100}})),
+            event(
+                2,
+                "request/context",
+                json!({"provider":"PUBLIC","model":"b"}),
+            ),
+        ];
+        assert_eq!(describe(&p, true, events.iter()), UNAVAILABLE);
+        let mut pending = p;
+        pending.insert(
+            "modelSelection".into(),
+            json!({"lastUsed":{"provider":"PUBLIC","model":"a"},
+            "next":{"provider":"PUBLIC","model":"b"}}),
+        );
+        assert_eq!(describe(&pending, true, [].iter()), UNAVAILABLE);
+    }
+    #[test]
+    fn nonsequential_range_and_latest_missing_usage_fail_closed() {
+        let p = pressure(json!({"pressureTokens":100,"contextWindow":128000}));
+        for sequences in [[1, 3], [2, 1], [1, 1], [MAX_COUNT, MAX_COUNT + 1]] {
+            let events = sequences.map(|seq| event(seq, "PUBLIC/ignorable", json!({})));
+            assert_eq!(describe(&p, true, events.iter()), UNAVAILABLE);
+        }
+        let events = [
+            event(0, "assistant/message", json!({"usage":{"totalTokens":100}})),
+            event(1, "assistant/message", json!({"stream":[]})),
+        ];
+        assert_eq!(describe(&p, true, events.iter()), UNAVAILABLE);
+        let events: Vec<_> = (0..=MAX_RECORDS)
+            .map(|seq| event(seq as u64, "PUBLIC/ignorable", json!({})))
+            .collect();
+        assert_eq!(describe(&p, true, events.iter()), UNAVAILABLE);
+    }
+}

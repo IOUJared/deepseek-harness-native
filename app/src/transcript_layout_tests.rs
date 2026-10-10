@@ -143,15 +143,17 @@ fn older_page_anchor_uses_real_compact_activity_height_not_record_count() {
         .collect();
     let snapshot:SessionFollowFrame=serde_json::from_value(serde_json::json!({"type":"snapshot","records":tails,"cursor":13,"hasMore":true,"header":{"version":4,"id":"s1","createdAt":1000,"isSeeded":false},"projections":{"asOfSeq":13,"values":{}},"assistantStream":{"revision":0}})).unwrap();
     app.transcript.apply(0, snapshot).unwrap();
-    app.offset = 320.0;
     app.viewport = 70.0;
     app.follow_bottom = false;
-    let before_refs: Vec<_> = app.transcript.rows().iter().collect();
+    let before_refs: Vec<_> = app.transcript.display_rows(false).collect();
     let before = app.row_geometries(&before_refs);
-    assert_eq!(before.iter().map(|g| g.height).sum::<f32>(), 870.0);
-    assert!(app.offset + app.viewport < 870.0);
     assert_eq!(before_refs[3].key, 7);
-    let within = app.offset - before[..3].iter().map(|g| g.height).sum::<f32>();
+    let within = 59.0;
+    let before_prefix = before[..3].iter().map(|g| g.height).sum::<f32>();
+    let before_total = before.iter().map(|g| g.height).sum::<f32>();
+    app.offset = before_prefix + within;
+    assert!(within < before[3].height);
+    assert!(app.offset + app.viewport < before_total);
     let mut records = vec![
         event(
             0,
@@ -182,10 +184,11 @@ fn older_page_anchor_uses_real_compact_activity_height_not_record_count() {
         result: Ok(page),
     }));
     assert_eq!(app.transcript.rows().len(), 14);
-    assert_eq!(app.offset, 487.0); //40+40+87 visible added; secondary160px policy row stays retained.
     let after_refs: Vec<_> = app.transcript.display_rows(app.records_expanded).collect();
+    assert!(!after_refs.iter().any(|row| row.key == 2)); // Policy record retained, never an added displayed slot.
     let after = app.row_geometries(&after_refs);
     let anchor = after_refs.iter().position(|r| r.key == 7).unwrap();
+    assert!(app.offset + app.viewport < after.iter().map(|g| g.height).sum::<f32>());
     assert_eq!(
         app.offset - after[..anchor].iter().map(|g| g.height).sum::<f32>(),
         within

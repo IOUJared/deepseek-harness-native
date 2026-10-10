@@ -88,6 +88,12 @@ jobs:
           cargo test --locked --manifest-path app/Cargo.toml --bin dsh-native-app -- --test-threads=2
           cargo test --locked --manifest-path app/Cargo.toml --features public-layout-fixture --bin dsh-native-app -- --test-threads=2
           cargo check --locked --manifest-path app/Cargo.toml --all-targets --all-features
+          cargo test --locked --manifest-path app/Cargo.toml -p winit --lib data_device -- --test-threads=2
+          python3 -B scripts/verify-native.py --suite examples --online
+      - name: Check selected Rust safety lints
+        run: |
+          rustup component add clippy
+          python3 -B scripts/verify-native.py --suite clippy --online
       - name: Build release executable
         run: cargo build --locked --release --manifest-path app/Cargo.toml --bin dsh-native-app
       - name: Smoke test without a display or backend
@@ -102,7 +108,7 @@ jobs:
           cargo fetch --locked --manifest-path app/Cargo.toml
           python3 -B .github/scripts/package_release.py --binary app/target/release/dsh-native-app --output release-output
       - name: Retain release assets for the publishing job
-        if: steps.package.outcome == 'success'
+        if: steps.package.outputs.tag != ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: native-linux-release
@@ -116,7 +122,7 @@ jobs:
   release:
     name: Publish versioned development release
     needs: checks
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'IOUJared/deepseek-harness-native'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'IOUJared/deepseek-harness-native' && needs.checks.outputs.tag != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

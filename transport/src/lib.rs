@@ -8,6 +8,7 @@ pub use event::{EventDelivery, OwnedRemoteEvent};
 mod http;
 mod mux;
 pub mod plugin;
+pub mod prompt_admission;
 mod question;
 pub mod upload;
 pub use http::{Limits, NativeClient, SecretLaunchUrl};

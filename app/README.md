@@ -1,6 +1,6 @@
 # Native app
 
-Rust/Iced frontend for the isolated **0.2.1-alpha.1** backend. Native Wayland, Rosé Pine, no primary webview. Startup sends no prompt and loads no model catalog.
+Rust/Iced frontend for the isolated **0.2.1-alpha.1** backend. Native Wayland, Rosé Pine, no primary webview. Startup loads the catalog to show the actual active model; no prompt is sent.
 
 ## Build and run
 
@@ -26,19 +26,26 @@ cargo build --locked --release -j2
 | Area | Use |
 |---|---|
 | Sidebar | Create, select, filter and manage sessions |
-| Chat | Compact tool rows; click for stored details |
-| Composer | Send, stop, model/effort popup |
-| Settings | General, API login, Codex and Plugins |
+| Chat | Collapsible supplied thoughts, native Markdown/code, Copy/Edit; compact tool details |
+| Composer | Send, stop, model/effort popup; Attach opens the native file picker |
+| Settings | General, Models, Built-in plugins, Codex and Agent presets |
 | More | Manage, export and information |
 | Enter / Ctrl+Enter | Send non-whitespace text; file-only drafts require Send button |
 | Shift+Enter | Newline |
+| Ctrl+F | Find in loaded messages, with native highlights |
 | Ctrl+B / Escape | Toggle navigation / close auxiliary views |
 
+- Navigation shows at most 200 matching sessions in pin/update order. Large-workspace lookup indexes borrow IDs and last only for the current iteration.
 - [Title events](<../docs/NATIVE-TITLE-CONTROLS.md>) update labels, never chat rows; raw history stays retained.
-- Unknown required events disable Send; reload to recover. No automatic reconnect.
-- Drafts survive failed Send. An ACK is not generation or tool-execution success.
-- Model/effort choices use real catalog metadata. Load/Reload may contact providers; opening the popup does not.
-- Speed and output-detail preferences remain unavailable, not simulated.
+- Unknown required events disable Send. Reconnect observations explicitly only after Core verifies the same owned Host; no automatic restart or session follow. Saved sessions require explicit resume and may run queued input.
+- Lost Send ACK freezes original text, file ownership, IDs and payload; new draft stays separate. **Check submission** is read-only; unknown/missing/malformed results never permit resend. Frozen recovery is in-memory; exiting is not rollback.
+- Verified queued/claimed/admitted/recorded admission releases original ownership, not provider completion. Unsafe writes remain blocked while unresolved. Stop cancels the active turn through its reserved lane, preserves queued inbox, and never implies idle.
+- [Attachments](<../docs/NATIVE-ATTACHMENT-UX.md>): one local file, bounded PNG/JPEG preview, explicit Upload then Send; Cancel/Remove never undo Host storage. Wayland drops use the pinned native protocol patch; physical file-manager input remains unqualified.
+- [Chat features](<../docs/NATIVE-CHAT-FEATURES.md>): Edit fills a local draft; Send stays explicit. Regenerate is unsupported. Usage is read-only, unavailable without valid Host data.
+- [Chat visibility](<../docs/NATIVE-CHAT-VISIBILITY.md>): submitted messages remain visible through preparation; streamed replies, supplied reasoning and failures appear in chat. Context rewrites do not erase conversation.
+- Opening the model selector automatically fetches available models and may contact providers. Click a model to switch this chat; no separate Load button. [Catalog receipts](<../docs/NATIVE-CATALOG-OWNERSHIP.md>) now own a global epoch/read ticket; stale/duplicate success or error cannot replace a newer read.
+- Without a selection/read, the pill says **Choose model**, not loading. Offline/error beats pending-read text; known names/applying state remain. Smoke Stop is muted/disabled, matching its worker guard; normal cancellation stays reachable despite unknown/false roster activity.
+- [Speed/output detail](<../docs/NATIVE-REQUEST-CONTROLS.md>) use provider-backed choices; unsupported routes remain unavailable. Fast may increase billing or quota consumption.
 
 ## Safety
 
@@ -54,7 +61,11 @@ cargo build --locked --release -j2
 - Timeouts/disconnects may follow a committed write. **No automatic retry; closing is not rollback.**
 - Buffer wiping covers owned Rust allocations, not all widget, Node, kernel, clipboard or swap copies.
 - Custom providers may store credentials elsewhere; default-provider checks do not guarantee confinement.
-- Settings deactivate the background. Closing/category changes discard unsaved drafts, not submitted writes.
+- Codex accounts: Refresh explicitly; local labels/selection are not verified identity or entitlement. Add stays unselected; Connect selects only its exact just-added receipt. Quota is unavailable.
+- Account switch/local sign-out require Review → Confirm at the committed epoch; consent replaces the connection/account list. Local sign-out does not revoke OpenAI authorization; legacy grants are never imported. Unknown writes require explicit reconciliation, never automatic retry.
+- [Codex usage preferences](<../docs/NATIVE-CODEX-USAGE-POLICY.md>) save locally with revision checks. Local quota opt-out fences immediately; quota display, notifications and reset retry remain unavailable.
+- [Codex Models/Images](<../docs/NATIVE-CODEX-USAGE-POLICY.md#remaining-supported-controls>) edit transport, cache retention, timeouts and image-input limits through revision-checked Save. Refresh reconciles uncertainty; Reset edits the shared draft only. Critical runtime status stays in the fixed modal footer.
+- Settings deactivate the background. Closing/category changes never roll back submitted writes; runtime/usage drafts and local opt-out remain retained.
 - Transcript: 4,096 records/16 MiB; Details: 32 KiB. Limits fail explicitly, without silently dropping history.
 
 ## Reference

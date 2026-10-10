@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join } from 'node:path';
 import { createAccountObserver, startForkSupervisor } from './fork-supervisor.mjs';
+import { createCodexUsagePreferencesStore, defaultCodexUsagePreferences } from './codex-usage-preferences.mjs';
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
@@ -34,7 +38,13 @@ function observer() {
   const controller = createAccountObserver({ send: packet => packets.push(packet), addSecret: secret => secrets.push(secret) });
   return { controller, packets, secrets };
 }
-function supervisor(fixtureAccount = account()) {
+async function supervisor(fixtureAccount = account(), openUsageStorage) {
+  const home = await realpath(await mkdtemp(join(tmpdir(), 'dsh-account-observer-')));
+  const dir = join(home, 'profiles', 'desktop');
+  const patchPath = join(dir, 'cordis.patch.yml');
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  await writeFile(patchPath, '[]\n', { mode: 0o600, flag: 'wx' });
+  const providerEntry = { options: { id: 'llm-pi-ai', name: '@deepseek-ai/dsh-llm-pi-ai', config: { providers: {} } }, fiber: { await: async () => {} } };
   const input = new EventEmitter(); input.pause = () => {};
   const packets = [], secrets = [], disposers = [];
   let inject;
@@ -42,6 +52,17 @@ function supervisor(fixtureAccount = account()) {
     webServer: { host: '127.0.0.1', port: 34567 },
     connection: { authenticatedUrl: base => `${base}/?token=PUBLIC_FIXTURE_LAUNCH_TOKEN` },
     deepseekAccount: fixtureAccount.service,
+    profileContext: { name: 'desktop', home, dir, patchPath },
+    configEditor: {
+      documentPath: patchPath,
+      entries: () => [providerEntry],
+      edit: async (entry, change) => {
+        assert.equal(entry, providerEntry);
+        entry.options.config = change(entry.options.config);
+        assert.deepEqual(entry.options.config.providers, {});
+        ctx.codexAccounts = { describe: async () => ({ accounts: [], selected: null, epoch: 0, legacy: 'absent' }) };
+      },
+    },
     settings: { describe: () => [{ ns: 'llm-deepseek', value: { apiKeyEnv: 'PUBLIC_FIXTURE_KEY_REF' } }] },
     credentials: { describe: async () => ({ configured: false, writable: true }) },
     llm: { listConfigurableProviders: () => [] },
@@ -54,8 +75,15 @@ function supervisor(fixtureAccount = account()) {
     },
   };
   const installed = {
-    version: '0.2.1-alpha.1', environment: {}, resolvedProfile: {}, patchFiles: [], optionalPayloads: [],
+    version: '0.2.1-alpha.1', home, environment: {}, resolvedProfile: {}, patchFiles: [], optionalPayloads: [],
+    cleanup: async () => {
+      assert.equal(await realpath(home), home);
+      assert.equal(dirname(home), await realpath(tmpdir()));
+      assert.equal(basename(home).startsWith('dsh-account-observer-'), true);
+      await rm(home, { recursive: true });
+    },
     credentialRef: value => value,
+    openUsageStorage,
     runProfile: async request => {
       assert.equal(request.profile, 'desktop');
       return { ctx, shutdown: { shutdown: async () => { for (const dispose of disposers.splice(0)) await dispose(); } } };
@@ -73,7 +101,7 @@ function supervisor(fixtureAccount = account()) {
 
 test('native supervisor boot and one-shot onboarding do not start observation or mirror Platform credentials', { timeout: 2000 }, async () => {
   const provider = account();
-  const f = supervisor(provider);
+  const f = await supervisor(provider);
   try {
     await f.controller.boot;
     assert.equal(f.packets.filter(packet => packet.type === 'ready').length, 1);
@@ -87,6 +115,45 @@ test('native supervisor boot and one-shot onboarding do not start observation or
     assert.equal(provider.calls.session, 0);
     assert.equal(f.packets.some(packet => packet.type === 'platform-session'), false);
   } finally { await f.controller.shutdown(); }
+});
+
+test('supervisor lazily owns preference commands without observing accounts or starting login', { timeout: 2000 }, async () => {
+  const provider = account(); let openings = 0, stored = null;
+  const owner = createCodexUsagePreferencesStore({ maxPendingUpdates: 4, maxDocumentBytes: 4096,
+    readDocument: async () => stored, commitDocument: async packet => { stored = packet.document; return { status: 'committed' }; } });
+  const f = await supervisor(provider, async () => { openings++; return owner; });
+  try {
+    await f.controller.boot; assert.equal(openings, 0);
+    f.command({ type: 'codex-usage-load', requestId: 'usage-load' }); await tick();
+    assert.deepEqual(f.packets.find(packet => packet.requestId === 'usage-load')?.value,
+      { version: 1, revision: 0, persisted: false, preferences: defaultCodexUsagePreferences() });
+    f.command({ type: 'codex-usage-save', requestId: 'usage-save', expectedRevision: 0,
+      preferences: { ...defaultCodexUsagePreferences(), composerDisplay: 'percent' } }); await tick();
+    assert.equal(f.packets.find(packet => packet.requestId === 'usage-save')?.value.revision, 1);
+    f.command({ type: 'codex-usage-save', requestId: 'usage-conflict', expectedRevision: 0,
+      preferences: defaultCodexUsagePreferences() }); await tick();
+    assert.equal(f.packets.find(packet => packet.requestId === 'usage-conflict')?.code, 'CODEX_USAGE_CONFLICT');
+    assert.equal(openings, 1);
+    assert.deepEqual(provider.calls, { watch: 0, state: 0, session: 0, ended: 0 });
+    assert.equal(f.packets.some(packet => packet.type === 'platform-session'), false);
+  } finally { await f.controller.shutdown(); }
+  await assert.rejects(owner.load(), error => error.code === 'CLOSED');
+});
+
+test('supervisor shutdown drains admitted preference writes and suppresses their late ACK', { timeout: 2000 }, async () => {
+  const entered = deferred(), release = deferred(); let committed = false;
+  const owner = createCodexUsagePreferencesStore({ maxPendingUpdates: 4, maxDocumentBytes: 4096,
+    readDocument: async () => null,
+    commitDocument: async () => { entered.resolve(); await release.promise; committed = true; return { status: 'committed' }; } });
+  const f = await supervisor(account(), async () => owner);
+  await f.controller.boot;
+  f.command({ type: 'codex-usage-save', requestId: 'late-usage-save', expectedRevision: 0, preferences: defaultCodexUsagePreferences() });
+  await entered.promise;
+  let stopped = false; const ending = f.controller.shutdown().then(() => { stopped = true; });
+  await tick(); assert.equal(stopped, false); assert.equal(committed, false);
+  release.resolve(); await ending; assert.equal(committed, true);
+  assert.equal(f.packets.some(packet => packet.requestId === 'late-usage-save'), false);
+  assert.equal(f.packets.at(-1).type, 'shutdown-complete');
 });
 
 test('explicit repeated subscription owns one watch and unsubscribe awaits iterator retirement', { timeout: 2000 }, async () => {
@@ -158,7 +225,7 @@ for (const failed of [false, true]) test(`ended=${!failed} failed=${failed} watc
 });
 
 test('provider disposal invalidates exact follow and requires a new explicit subscription', { timeout: 2000 }, async () => {
-  const first = account(), fresh = account(); const f = supervisor(first);
+  const first = account(), fresh = account(); const f = await supervisor(first);
   try {
     await f.controller.boot;
     f.command({ type: 'account-subscribe', requestId: 'sub1' }); await tick();
@@ -175,7 +242,7 @@ test('provider disposal invalidates exact follow and requires a new explicit sub
 test('retiring owner rejects resubscribe during blocked unsubscribe and shutdown joins the held owner', { timeout: 2000 }, async () => {
   const entered = deferred(), release = deferred();
   const provider = account({ session: async () => { entered.resolve(); return release.promise; } });
-  const f = supervisor(provider);
+  const f = await supervisor(provider);
   try {
     await f.controller.boot;
     f.command({ type: 'account-subscribe', requestId: 'sub1' }); await entered.promise; await tick();
@@ -199,7 +266,7 @@ test('retiring owner rejects resubscribe during blocked unsubscribe and shutdown
 test('priority unsubscribe revokes a pending initial status read without early ACK or stale subscribe result', { timeout: 2000 }, async () => {
   const entered = deferred(), release = deferred();
   const provider = account({ state: async () => { entered.resolve(); return release.promise; } });
-  const f = supervisor(provider);
+  const f = await supervisor(provider);
   try {
     await f.controller.boot;
     f.command({ type: 'account-subscribe', requestId: 'held-sub' });

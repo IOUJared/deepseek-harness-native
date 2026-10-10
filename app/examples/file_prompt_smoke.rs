@@ -399,9 +399,10 @@ async fn exercise(
         loop {
             let event = next(feed).await?;
             observe(&event, report)?;
-            if let Event::Prompt { generation, result } = event {
-                if generation != 1
-                    || !matches!(result, Err(ref error) if error == GENERIC_FILE_REFUSAL)
+            if let Event::PromptNotSent { ticket:owner } = event {
+                if owner.generation != 1
+                    || owner.session != session
+                    || owner.request_id.as_str() != "PUBLIC_native_file_forged"
                 {
                     return Err("generic-file-prompt-not-refused");
                 }

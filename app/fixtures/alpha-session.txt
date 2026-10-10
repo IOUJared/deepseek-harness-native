@@ -2,7 +2,7 @@ System
 Local instructions
 ---
 You
-Replaced user input
+Original user input
 ---
 Assistant
 你好 world 🦀

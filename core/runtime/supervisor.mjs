@@ -34,21 +34,30 @@ export function parseCommand(line) {
 export function lineReceiver(onLine, onOversize, limit = MAX_COMMAND_BYTES) {
   const decoder = new StringDecoder('utf8');
   let pending = '';
+  let pendingBytes = 0;
   let dropping = false;
   const feedText = text => {
     for (const part of text.split(/(?<=\n)/)) {
       if (!part) continue;
       const ended = part.endsWith('\n');
       if (!dropping) {
-        if (Buffer.byteLength(pending) + Buffer.byteLength(part) > limit) {
+        // Count decoded text (including replacement characters), not raw chunk bytes.
+        // StringDecoder never splits a decoded Unicode scalar between parts.
+        const partBytes = Buffer.byteLength(part);
+        if (pendingBytes + partBytes > limit) {
           pending = '';
+          pendingBytes = 0;
           dropping = true;
           onOversize();
-        } else pending += part;
+        } else {
+          pending += part;
+          pendingBytes += partBytes;
+        }
       }
       if (ended) {
         if (!dropping) onLine(pending.replace(/\r?\n$/, ''));
         pending = '';
+        pendingBytes = 0;
         dropping = false;
       }
     }

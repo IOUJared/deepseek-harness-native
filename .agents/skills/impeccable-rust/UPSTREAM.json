@@ -1,0 +1,49 @@
+{
+  "repository": "https://github.com/hexuria/impeccable-rust",
+  "commit": "1e85e9ad30d157f9627bbd1ab50107f9938bf3f6",
+  "license": "MIT",
+  "files": [
+    {
+      "source": "LICENSE",
+      "path": "LICENSE",
+      "gitBlob": "cf2cff3a449083cce1bd19ddc62d5c3b5b2840e5",
+      "sha256": "df52f3a940eccd69df1d01a115cebf624fb4bdef0b07c1138a3c91255df0e407"
+    },
+    {
+      "source": "skill/SKILL.md",
+      "path": "references/upstream.md",
+      "gitBlob": "e45189d47dacca5a8171a497c39c73319c8ad6b9",
+      "sha256": "ef5d70df2f9526e51afbf215d16f3396a2c28e4a8dd62aaabeee72d6e5a7a744"
+    },
+    {
+      "source": "skill/performance.md",
+      "path": "performance.md",
+      "gitBlob": "e69c4cbdc996efd7059de1bda28f90c81bf2de9e",
+      "sha256": "d8fe155ac06f6c842fa6fc8a420782759762fec3e3b2a0ef948fa4b5ded133bd"
+    },
+    {
+      "source": "skill/scripts/impeccable",
+      "path": "scripts/impeccable",
+      "gitBlob": "2c443ae95eb9f300f9be2de62d7a0f27771e809a",
+      "sha256": "d9014cb7703840e976cc7245e8598036ca59aef357fa6b5546748d18182b12e8"
+    },
+    {
+      "source": "skill/toolbox/Dockerfile",
+      "path": "toolbox/Dockerfile",
+      "gitBlob": "4761e3f60126a380717d0d17e16415e2ebb7b7ad",
+      "sha256": "6584270fdf684216fc34b307a4ef3deba94a104fab2bdedcd40ff133aeb851d1"
+    },
+    {
+      "source": "skill/toolbox/entrypoint",
+      "path": "toolbox/entrypoint",
+      "gitBlob": "7878d9d019a983f9dd9a1bb252cfc2f9abfe3d9b",
+      "sha256": "2ad87e0a4f471dfe9b16992c6fd0e9c0928249b0955ef4c215513da442dc6655"
+    },
+    {
+      "source": "skill/toolbox/tools.txt",
+      "path": "toolbox/tools.txt",
+      "gitBlob": "1b7de9f3ece9183b38cf5db1aaf9910452850983",
+      "sha256": "65bf6ad3ee27922ff2a8c6a4b1c309bbf9f20ec1628a5b68c15e8f896911aaad"
+    }
+  ]
+}

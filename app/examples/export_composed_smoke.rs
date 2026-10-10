@@ -667,7 +667,7 @@ impl Fixture {
                             return Task::batch([task, confirm]);
                         }
                     }
-                    worker::Event::Catalog(_)
+                    worker::Event::Catalog { .. }
                     | worker::Event::Model { .. }
                     | worker::Event::Prompt { .. }
                     | worker::Event::Cancel { .. }

@@ -43,6 +43,25 @@ def capture_valid(evidence, app):
     return dimensions is not None and isinstance(app, dict) and app.get('screenshotPhysicalSize') == list(dimensions)
 
 
+MAX_RESOURCE_SAMPLES = 256
+
+
+def warm_cpu_window(samples):
+    """Endpoint CPU is meaningful only for a stable observed identity set/window."""
+    unknown = dict(sampleCount=len(samples), identitiesStable=False, seconds=None,
+                   cpuPercentOneCore=None, oneTickPercentOneCore=None)
+    if not 2 <= len(samples) <= MAX_RESOURCE_SAMPLES: return unknown
+    first, last = samples[0], samples[-1]
+    identities = first['ticks'].keys()
+    if not identities or any(s['ticks'].keys() != identities for s in samples): return unknown
+    if any(b['at'] <= a['at'] or any(b['ticks'][key] < a['ticks'][key] for key in identities)
+           for a, b in zip(samples, samples[1:])): return unknown
+    elapsed = last['at'] - first['at']
+    return dict(sampleCount=len(samples), identitiesStable=True, seconds=elapsed,
+                cpuPercentOneCore=REG.NATIVE.METRICS.cpu_percent(first, last),
+                oneTickPercentOneCore=100 / REG.NATIVE.METRICS.HZ / elapsed)
+
+
 async def run(options):
     started = time.monotonic()
     package = Path(options.package).resolve(strict=True)
@@ -96,6 +115,8 @@ async def run(options):
                             node_identities.add(key)
                 remaining = deadline - time.monotonic()
                 if interrupted.is_set() or remaining <= 0: forced = True; break
+                if len(samples) >= MAX_RESOURCE_SAMPLES:
+                    failure, forced = 'resource-sample-bound-exceeded', True; break
                 sample = REG.NATIVE.METRICS.sample_tree(child.pid, root['start_ticks'])
                 sample['elapsedMs'] = (sample['at'] - started) * 1000
                 if samples: sample['cpuPercentOneCore'] = REG.NATIVE.METRICS.cpu_percent(samples[-1], sample)
@@ -145,7 +166,9 @@ async def run(options):
                   nativeContainerAndHostPrivateMarkerVerified=marker_valid, inheritedLockReleasedAfterOwnedStop=lock_released,
                   firstOwnWindowMappedUpperBoundMs=mapped_ms, fullTreeWarmMedianRssKiB=median('rss_kib'),
                   fullTreeWarmMedianPssKiB=median('pss_kib'), fullTreeWarmMedianCpuPercentOneCore=median('cpuPercentOneCore'),
-                  warmSamples=len(warm), performanceScope='single fresh blank-profile eight-second integrated smoke; sampling overhead, not representative long-chat benchmark',
+                  warmSamples=len(warm), warmCpuWindow=warm_cpu_window(warm), resourceSamples=samples,
+                  resourceSampleBound=MAX_RESOURCE_SAMPLES,
+                  performanceScope='single fresh blank-profile eight-second integrated smoke; warm window 3–6.5s; sampled RSS/PSS and identity-checked CPU, not representative long-chat benchmark',
                   elapsedWallSeconds=time.monotonic() - started, hardTotalWallClockBoundClaimed=False,
                   containmentScope='observed pidfd-pinned identities only', primaryExecutableEntrypointQualified=bool(passed),
                   physicalNativeInputQualified=False, actualModelCalls=0, realCredentialsUsed=False,

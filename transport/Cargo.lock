@@ -172,7 +172,7 @@ dependencies = [
 
 [[package]]
 name = "dsh-native-transport"
-version = "0.1.0"
+version = "2026.10.10-r1"
 dependencies = [
  "base64 0.22.1",
  "cookie",

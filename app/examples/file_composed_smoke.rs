@@ -1,4 +1,5 @@
-//! Scripted production App/Worker/Core/Alpha file flow in an own native window; no model step.
+//! Scripted production App/Worker/Core/Alpha file flow; real draft Tasks and keyless catalog metadata.
+//! No model step, full-process restart or shutdown during a blocked filesystem syscall is qualified.
 #![allow(dead_code)]
 #[path = "../src/codex.rs"]
 mod codex;
@@ -28,8 +29,30 @@ mod smoke;
 mod worker;
 mod ui {
     include!("../src/ui.rs");
+    pub(super) fn draft_ready(a: &App) -> bool {
+        a.draft_state.ready() && a.draft_state.failure().is_none()
+    }
+    pub(super) fn draft_io_busy(a: &App) -> bool {
+        a.draft_state.busy()
+    }
+    pub(super) fn draft_failed(a: &App) -> bool {
+        a.draft_state.failure().is_some()
+    }
+    pub(super) fn drafts_clean(a: &App) -> bool {
+        a.draft_state.can_exit()
+    }
+    pub(super) fn shutdown_observed(a: &App) -> bool {
+        a.stopped
+    }
+    pub(super) fn close_failed(a: &App) -> bool {
+        matches!(a.close, Close::Failed(_))
+    }
+    pub(super) fn submission_resolved(a: &App) -> bool {
+        a.pending.is_empty()
+    }
     pub(super) fn startup_ready(a: &App) -> bool {
         a.ready && a.root_ready && !a.roster_pending && a.management.registry.ready() && !a.stopped
+            && !a.catalog_read.pending() && draft_ready(a)
     }
     pub(super) fn selected_ready(a: &App, target: &SessionId) -> bool {
         a.selected.as_ref() == Some(target)
@@ -58,7 +81,7 @@ mod ui {
             .then(|| a.files.ready().unwrap().0.clone())
     }
     pub(super) fn send_ready(a: &App) -> bool {
-        a.send_allowed() && a.files.has_file(&a.file_context())
+        draft_ready(a) && a.send_allowed() && a.files.has_file(&a.file_context())
     }
     pub(super) fn request(
         a: &App,
@@ -79,17 +102,66 @@ mod ui {
             a.smoke_evidence.catalog_requested,
         )
     }
-    pub(super) fn projection(a: &App) -> (bool, usize, usize, usize) {
-        (
-            a.records_expanded,
-            a.transcript.rows().len(),
-            a.transcript.display_rows(a.records_expanded).count(),
-            a.transcript
-                .rows()
-                .iter()
-                .filter(|r| r.role == "agent/inbox/spliced" && !a.transcript.inbox_canceled(r.key))
-                .count(),
-        )
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub(super) struct Projection {
+        pub expanded: bool,
+        pub retained: Vec<u64>,
+        pub disclosed: Vec<u64>,
+        pub visible: Vec<u64>,
+        pub submitted: Vec<u64>,
+        pub notices: Vec<u64>,
+        pub metadata: [Vec<u64>; 3],
+        pub claims: Vec<u64>,
+        pub controls: Vec<u64>,
+    }
+    impl Projection {
+        pub fn submitted_and_blocked(&self) -> bool {
+            !self.expanded
+                && self.submitted.len() == 1
+                && self.notices.len() == 1
+                && self.metadata.iter().all(|keys| keys.len() == 1)
+                && self.claims.len() == 1
+                && self.disclosed.len() == 6
+                && self.retained.len() == self.disclosed.len() + self.controls.len()
+                && self.visible.len() == 2
+                && self.visible.contains(&self.submitted[0])
+                && self.visible.contains(&self.notices[0])
+        }
+        pub fn expanded(&self) -> Self {
+            let mut result = self.clone();
+            result.expanded = true;
+            result.visible = result.disclosed.clone();
+            result
+        }
+    }
+    pub(super) fn projection(a: &App) -> Projection {
+        let rows = a.transcript.rows();
+        Projection {
+            expanded: a.records_expanded,
+            retained: rows.iter().map(|row| row.key).collect(),
+            disclosed: a.transcript.display_rows(true).map(|row| row.key).collect(),
+            visible: a.transcript.display_rows(a.records_expanded).map(|row| row.key).collect(),
+            submitted: rows.iter().filter(|row| a.transcript.submitted_input(row.key))
+                .map(|row| row.key).collect(),
+            notices: rows.iter().filter(|row| a.transcript.turn_notice(row.key)
+                && row.role == "Agent notice"
+                && a.transcript.records().any(|event| event.seq == row.key
+                    && event.data["reason"]["kind"] == "blocked"))
+                .map(|row| row.key).collect(),
+            metadata: ["permission/preset", "sandbox/mode", "approval/policy"].map(|role| {
+                rows.iter().filter(|row| row.role == role).map(|row| row.key).collect()
+            }),
+            claims: rows.iter().filter(|row| row.role == "agent/inbox/spliced"
+                && a.transcript.records().any(|event| event.seq == row.key
+                    && crate::reducer::presentation::routine_inbox(&event.data)
+                    && event.data["inserted"].as_array().is_some_and(Vec::is_empty)
+                    && event.data["removedCount"] == 1))
+                .map(|row| row.key).collect(),
+            controls: rows.iter().filter(|row| a.transcript.records().any(|event| {
+                event.seq == row.key
+                    && crate::reducer::presentation::ui_control_event(&event.event_type)
+            })).map(|row| row.key).collect(),
+        }
     }
     pub(super) fn cleared(a: &App) -> bool {
         a.files.ticket().is_none()
@@ -97,6 +169,159 @@ mod ui {
             && !a.files.prompt_pending()
             && a.pending.is_empty()
             && a.editor.text().is_empty()
+    }
+    #[cfg(test)]
+    mod lifecycle_preflight_tests {
+        use super::*;
+        use crate::{Fixture, Message as FixtureMessage};
+
+        // Routing/state tests only: every returned IO/exit Task is dropped, no Host or disk runs.
+        fn fixture() -> Fixture {
+            let (handle, feed, _, _, _) = worker::test_channels();
+            let options = crate::config::parse(
+                [
+                    "--runtime", "/PUBLIC-never-start/apps/cli",
+                    "--expected-version", "0.2.1-alpha.1",
+                    "--home", "/PUBLIC-never-write/harness",
+                    "--user-home", "/PUBLIC-never-write/user",
+                    "--cwd", "/tmp",
+                ].map(str::to_owned),
+            ).unwrap().unwrap();
+            let (fixture, task) = Fixture::boot(
+                options, std::path::PathBuf::from("/PUBLIC-never-write"), handle, feed,
+            );
+            drop(task);
+            fixture
+        }
+        fn load(fixture: &mut Fixture) {
+            let ticket = fixture.app.draft_state.start_load().unwrap();
+            drop(fixture.update(FixtureMessage::Ui(Message::DraftOutcome(
+                draft_recovery::Outcome::Loaded { ticket, result: Ok(Default::default()) },
+            ))));
+        }
+        #[test]
+        fn startup_waits_for_forwarded_initial_draft_load() {
+            let mut fixture = fixture();
+            fixture.app.ready = true;
+            fixture.app.root_ready = true;
+            fixture.app.roster_pending = false;
+            fixture.app.management.baseline(vec![], vec![]);
+            assert!(!startup_ready(&fixture.app));
+            load(&mut fixture);
+            assert!(startup_ready(&fixture.app));
+            assert_eq!(fixture.report["draftRecoveryLoaded"], true);
+            assert!(!fixture.completed);
+        }
+        #[test]
+        fn stopped_waits_for_exact_save_outcome_and_failed_save_never_reports_clean() {
+            for failed in [false, true] {
+                let mut fixture = fixture();
+                load(&mut fixture);
+                fixture.app.selected = Some(SessionId::new("PUBLIC-owned-save").unwrap());
+                fixture.app.editor = text_editor::Content::with_text("PUBLIC unsent body");
+                fixture.app.touch_draft();
+                let ticket = fixture.app.draft_state.next_save().unwrap();
+                drop(fixture.stop(Some("PUBLIC routing-only failure")));
+                drop(fixture.update(FixtureMessage::Ui(Message::Worker(Event::Stopped(Ok(
+                    dsh_native_core::StopResult {
+                        exited: true, graceful: true, containment_unknown: false,
+                        observed_descendants_remaining: 0, exit_code: Some(0),
+                    },
+                ))))));
+                assert!(!fixture.completed);
+                assert!(draft_io_busy(&fixture.app));
+                let stale = draft_recovery::Ticket { id: ticket.id + 1, ..ticket };
+                drop(fixture.update(FixtureMessage::Ui(Message::DraftOutcome(
+                    draft_recovery::Outcome::Saved { ticket: stale, result: Ok(()) },
+                ))));
+                assert!(!fixture.completed);
+                assert!(draft_io_busy(&fixture.app));
+                drop(fixture.update(FixtureMessage::Ui(Message::DraftOutcome(
+                    draft_recovery::Outcome::Saved {
+                        ticket,
+                        result: if failed { Err(draft_store::Failure::Indeterminate) } else { Ok(()) },
+                    },
+                ))));
+                assert!(fixture.completed);
+                assert_eq!(fixture.report["status"], "failed");
+                assert_eq!(fixture.report["draftIoJoined"], true);
+                assert_eq!(fixture.report["draftsCleanAtExit"], !failed);
+                assert!(!draft_io_busy(&fixture.app));
+                assert_eq!(draft_failed(&fixture.app), failed);
+            }
+        }
+        #[test]
+        fn no_backend_result_cannot_bypass_an_owned_initial_read() {
+            let mut fixture = fixture();
+            let ticket = fixture.app.draft_state.start_load().unwrap();
+            drop(fixture.update(FixtureMessage::Ui(Message::Worker(Event::NoBackendStarted))));
+            assert!(!fixture.completed);
+            assert!(draft_io_busy(&fixture.app));
+            drop(fixture.update(FixtureMessage::Ui(Message::DraftOutcome(
+                draft_recovery::Outcome::Loaded {
+                    ticket, result: Err(draft_store::Failure::InvalidData),
+                },
+            ))));
+            assert!(fixture.completed);
+            assert_eq!(fixture.report["status"], "failed");
+            assert_eq!(fixture.report["draftIoJoined"], true);
+            assert_eq!(fixture.report["draftsCleanAtExit"], false);
+            assert!(draft_failed(&fixture.app));
+        }
+        #[test]
+        fn rejected_pre_step_keeps_submitted_input_and_notice_but_hides_routine_metadata() {
+            let mut fixture = fixture();
+            let generation = fixture.app.generation;
+            let frame = serde_json::from_value(serde_json::json!({
+                "type":"snapshot",
+                "header":{"version":4,"id":"PUBLIC-projection","createdAt":1000,"isSeeded":false},
+                "cursor":6,"hasMore":false,"projections":{"asOfSeq":6,"values":{}},
+                "assistantStream":{"revision":0},
+                "records":[
+                    {"type":"event","event":{"type":"permission/preset","seq":0,"time":1000,"data":{"preset":"PUBLIC"}}},
+                    {"type":"event","event":{"type":"sandbox/mode","seq":1,"time":1001,"data":{"mode":"PUBLIC"}}},
+                    {"type":"event","event":{"type":"approval/policy","seq":2,"time":1002,"data":{"policy":"PUBLIC"}}},
+                    {"type":"event","event":{"type":"agent/inbox/spliced","seq":3,"time":1003,"data":{
+                        "target":"next-turn","start":0,"inserted":[{
+                            "id":"PUBLIC-submitted","role":"user","source":{"kind":"user","rpcId":"PUBLIC-request"},
+                            "content":[{"type":"text","text":crate::TEXT},{"type":"file","attachment":{"name":"PUBLIC owned file.bin","attachmentId":"PUBLIC-receipt","bytes":5003}}]
+                        }]
+                    }}},
+                    {"type":"event","event":{"type":"turn/start","seq":4,"time":1004,"data":{"turn":1}}},
+                    {"type":"event","event":{"type":"agent/inbox/spliced","seq":5,"time":1005,"data":{"target":"next-turn","start":0,"removedCount":1,"inserted":[]}}},
+                    {"type":"event","event":{"type":"turn/end","seq":6,"time":1006,"data":{"turn":1,"reason":{"kind":"blocked"}}}}
+                ]
+            })).unwrap();
+            fixture.app.transcript = Transcript::new(generation);
+            fixture.app.transcript.apply(generation, frame).unwrap();
+            let cached = projection(&fixture.app);
+            assert!(cached.submitted_and_blocked());
+            assert_eq!(cached.visible, [3, 6]);
+            assert_eq!(cached.metadata, [vec![0], vec![1], vec![2]]);
+            assert_eq!(cached.claims, [5]);
+            let submitted = fixture.app.transcript.rows().iter().find(|row| row.key == 3).unwrap();
+            assert!(submitted.text.contains(crate::TEXT));
+            assert!(submitted.text.contains("PUBLIC owned file.bin"));
+            drop(fixture.dispatch(Message::ToggleRecords));
+            assert_eq!(projection(&fixture.app), cached.expanded());
+            drop(fixture.dispatch(Message::ToggleRecords));
+            assert_eq!(projection(&fixture.app), cached);
+            assert_eq!(counters(&fixture.app).1, 0);
+        }
+        #[test]
+        fn keyless_catalog_failure_is_counted_without_model_work_permission() {
+            let mut fixture = fixture();
+            let ticket = worker::catalog_read::State::default().begin(worker::TRANSPORT_EPOCH).unwrap();
+            drop(fixture.update(FixtureMessage::Ui(Message::Worker(Event::Catalog {
+                ticket, result: Err("PUBLIC metadata unavailable".into()),
+            }))));
+            assert!(fixture.failed);
+            assert_eq!(fixture.report["modelCatalogReads"], 1);
+            assert_eq!(fixture.report["modelCatalogSucceeded"], false);
+            assert_eq!(fixture.report["unexpectedWork"], 0);
+            assert_eq!(counters(&fixture.app).1, 0);
+            assert!(!fixture.completed);
+        }
     }
 }
 use dsh_native_transport::dto::*;
@@ -272,6 +497,7 @@ struct Fixture {
     failed: bool,
     completed: bool,
     capture: Option<Capture>,
+    projection: Option<ui::Projection>,
     capture_cancel: tokio::sync::watch::Sender<bool>,
     report: Value,
 }
@@ -290,7 +516,13 @@ impl Fixture {
             },
             |_| Message::Deadline,
         );
-        let report = json!({"status":"running","version":"0.2.1-alpha.1","pid":std::process::id(),"scope":"scripted actual native App/worker/Core/full Alpha Host file intake and prompt admission; no model step or history retirement","applicationScale":options.scale,"actualAppExercised":true,"nativeWorkerExercised":true,"scriptedUiMessages":true,"publicFixtureOnly":true,"modelCatalogRequested":false,"browserSignInRequested":false,"realCredentialsUsed":false,"processWideNetworkTrace":false,"nativeKeyboardPointerInputQualified":false,"historyDrivenReceiptRetirementQualified":false,"manualBusinessMessagesForwarded":0,"unexpectedWork":0,"explicitModelPrompts":0,"explicitPrompts":0,"actualAppPromptCommands":0,"actualFileStages":0,"nativeAcks":0,"hostSettlements":0,"currentTicketProbeRefusals":0,"staleUploadRefusals":0,"duplicateSendRefusals":0,"staleRemoveRefusals":0,"staleAckRefusals":0,"recordsDisclosureRoundTrips":0,"quietProjectionObserved":false,"retainedRecordsRevealed":false,"files":CASES.map(|(name,bytes)|json!({"name":name,"bytes":bytes})),"requests":[],"tickets":[],"phases":[],"captures":[]});
+        let mut report = json!({"status":"running","version":"0.2.1-alpha.1","pid":std::process::id(),"scope":"scripted actual native App/worker/Core/full Alpha Host file admission, keyless catalog and joined draft Tasks; no model step, history retirement or full-process restart","applicationScale":options.scale,"actualAppExercised":true,"nativeWorkerExercised":true,"scriptedUiMessages":true,"publicFixtureOnly":true,"modelCatalogRequested":false,"modelCatalogReads":0,"modelCatalogSucceeded":false,"draftRecoveryLoaded":false,"draftIoJoined":false,"draftsCleanAtExit":false,"browserSignInRequested":false,"realCredentialsUsed":false,"processWideNetworkTrace":false,"nativeKeyboardPointerInputQualified":false,"historyDrivenReceiptRetirementQualified":false,"manualBusinessMessagesForwarded":0,"unexpectedWork":0,"explicitModelPrompts":0,"explicitPrompts":0,"actualAppPromptCommands":0,"actualFileStages":0,"nativeAcks":0,"hostSettlements":0,"currentTicketProbeRefusals":0,"staleUploadRefusals":0,"duplicateSendRefusals":0,"staleRemoveRefusals":0,"staleAckRefusals":0,"recordsDisclosureRoundTrips":0,"submittedInputProjectionObserved":false,"retainedRecordsRevealed":false,"files":CASES.map(|(name,bytes)|json!({"name":name,"bytes":bytes})),"requests":[],"tickets":[],"phases":[],"captures":[]});
+        for key in [
+            "disclosedRows", "conversationRows", "submittedInputs", "blockedNotices",
+            "permissionPresets", "sandboxModes", "approvalPolicies", "routineClaims",
+        ] {
+            report[key] = Value::from(0_u64);
+        }
         (
             Self {
                 options,
@@ -309,6 +541,7 @@ impl Fixture {
                 failed: false,
                 completed: false,
                 capture: None,
+                projection: None,
                 capture_cancel,
                 report,
             },
@@ -332,6 +565,45 @@ impl Fixture {
         self.capture_cancel.send_replace(true);
         self.phase = Phase::Stopping;
         self.dispatch(ui::Message::ConfirmClose)
+    }
+    fn finish_shutdown(&mut self) -> Task<Message> {
+        if self.phase != Phase::Stopping
+            || !ui::shutdown_observed(&self.app)
+            || ui::draft_io_busy(&self.app)
+            || self.completed
+        {
+            return Task::none();
+        }
+        let clean = ui::drafts_clean(&self.app);
+        let failed_close = ui::close_failed(&self.app);
+        if !clean && !failed_close {
+            // The production outcome task still owns the final coalesced save.
+            return Task::none();
+        }
+        self.report["draftIoJoined"] = json!(true);
+        self.report["draftsCleanAtExit"] = json!(clean);
+        let passed = clean
+            && !failed_close
+            && ui::submission_resolved(&self.app)
+            && !self.failed
+            && self.native
+            && self.report["gracefulStopped"] == true
+            && self.report["draftRecoveryLoaded"] == true
+            && self.report["modelCatalogReads"] == 1
+            && self.report["modelCatalogSucceeded"] == true
+            && self.report["submittedInputProjectionObserved"] == true
+            && self.report["recordsDisclosureRoundTrips"] == 1
+            && self.report["nativeAcks"] == 3
+            && self.report["hostSettlements"] == 3
+            && self.report["host"]["status"] == "passed";
+        self.finish(passed);
+        if failed_close {
+            // A failed fixture explicitly accepts uncertainty, only after admitted IO has joined.
+            self.dispatch(ui::Message::ExitAnyway)
+        } else {
+            // Exit comes only from the already-returned production Stopped/DraftOutcome task.
+            Task::none()
+        }
     }
     fn start_review(&mut self, index: usize) -> Task<Message> {
         if !ui::selected_ready(&self.app, self.subject.as_ref().unwrap()) || !ui::cleared(&self.app)
@@ -511,7 +783,7 @@ impl Fixture {
     }
     fn tick(&mut self) -> Task<Message> {
         if self.phase == Phase::Stopping {
-            return Task::none();
+            return self.finish_shutdown();
         }
         let control = self.output.join("fixture/control");
         if fs::symlink_metadata(control.join("failed.json")).is_ok() {
@@ -607,11 +879,34 @@ impl Fixture {
                 message @ (ui::Message::Resized(..)
                 | ui::Message::WindowActive(..)
                 | ui::Message::MotionFrame(..)
+                | ui::Message::WorkingTick
                 | ui::Message::ScrollApplied { .. }),
             ) => self.dispatch(message),
+            Message::Ui(message @ (ui::Message::DraftOutcome(_) | ui::Message::DraftFlush)) => {
+                let task = self.dispatch(message);
+                if ui::draft_ready(&self.app) {
+                    self.report["draftRecoveryLoaded"] = json!(true);
+                }
+                let stop = if ui::draft_failed(&self.app) {
+                    self.stop(Some("native-draft-recovery-failed"))
+                } else {
+                    Task::none()
+                };
+                let finish = self.finish_shutdown();
+                Task::batch([task, stop, finish])
+            }
             Message::Ui(ui::Message::Close) => self.stop(Some("manual-close-before-complete")),
             Message::Ui(ui::Message::Worker(event)) => {
-                let task = self.dispatch(ui::Message::Worker(event.clone()));
+                let stop = if matches!(&event, worker::Event::NoBackendStarted) {
+                    self.stop(Some("owned-backend-not-started"))
+                } else if matches!(&event, worker::Event::Stopped(_))
+                    && self.phase != Phase::Stopping
+                {
+                    self.stop(Some("unexpected-owned-backend-stop"))
+                } else {
+                    Task::none()
+                };
+                let task = Task::batch([stop, self.dispatch(ui::Message::Worker(event.clone()))]);
                 if let worker::Event::Selected {
                     frame: SessionFollowFrame::Event { event },
                     ..
@@ -636,6 +931,16 @@ impl Fixture {
                     worker::Event::Roster(Ok(_)) => {
                         self.report["actualRosterSucceeded"] = json!(true);
                         task
+                    }
+                    worker::Event::Catalog { result, .. } => {
+                        self.increment("modelCatalogReads");
+                        self.report["modelCatalogSucceeded"] = json!(result.is_ok());
+                        if result.is_err() || self.report["modelCatalogReads"] != 1 {
+                            let stop = self.stop(Some("keyless-catalog-metadata-not-qualified"));
+                            Task::batch([task, stop])
+                        } else {
+                            task
+                        }
                     }
                     worker::Event::Selected {
                         frame: SessionFollowFrame::Snapshot { header, .. },
@@ -729,24 +1034,19 @@ impl Fixture {
                             }
                             Err(_) => false,
                         };
-                        self.finish(
-                            clean
-                                && !self.failed
-                                && self.native
-                                && self.report["nativeAcks"] == 3
-                                && self.report["hostSettlements"] == 3
-                                && self.report["host"]["status"] == "passed",
-                        );
-                        Task::batch([task, iced::exit()])
+                        self.report["gracefulStopped"] = json!(clean);
+                        let finish = self.finish_shutdown();
+                        Task::batch([task, finish])
                     }
                     worker::Event::Fault(_)
                     | worker::Event::FollowError { .. }
                     | worker::Event::Roster(Err(_)) => {
-                        self.stop(Some("real-worker-or-follow-failed"))
+                        let stop = self.stop(Some("real-worker-or-follow-failed"));
+                        Task::batch([task, stop])
                     }
                     worker::Event::NoBackendStarted => {
-                        self.finish(false);
-                        iced::exit()
+                        let finish = self.finish_shutdown();
+                        Task::batch([task, finish])
                     }
                     _ => task,
                 }
@@ -766,26 +1066,33 @@ impl Fixture {
                 match (capture, self.phase) {
                     (Capture::Review, Phase::Review(0)) => self.upload(0),
                     (Capture::Ready(1), Phase::Upload(1)) => {
-                        let (expanded, raw, displayed, splices) = ui::projection(&self.app);
-                        if expanded || raw < 5 || displayed != 0 || splices < 2 {
-                            return self.stop(Some("actual-routine-inbox-projection-not-quiet"));
+                        let projection = ui::projection(&self.app);
+                        self.report["disclosedRows"] = json!(projection.disclosed.len());
+                        self.report["conversationRows"] = json!(projection.visible.len());
+                        self.report["submittedInputs"] = json!(projection.submitted.len());
+                        self.report["blockedNotices"] = json!(projection.notices.len());
+                        self.report["permissionPresets"] = json!(projection.metadata[0].len());
+                        self.report["sandboxModes"] = json!(projection.metadata[1].len());
+                        self.report["approvalPolicies"] = json!(projection.metadata[2].len());
+                        self.report["routineClaims"] = json!(projection.claims.len());
+                        if !projection.submitted_and_blocked() {
+                            return self.stop(Some("actual-submitted-input-or-blocked-notice-missing"));
                         }
-                        self.report["quietProjectionObserved"] = json!(true);
+                        self.report["submittedInputProjectionObserved"] = json!(true);
                         let task = self.dispatch(ui::Message::ToggleRecords);
-                        let (expanded, visible_raw, displayed, _) = ui::projection(&self.app);
-                        if !expanded || raw != visible_raw || raw != displayed {
+                        if ui::projection(&self.app) != projection.expanded() {
                             return self.stop(Some("actual-records-disclosure-not-retained"));
                         }
+                        self.projection = Some(projection);
                         self.report["retainedRecordsRevealed"] = json!(true);
                         Task::batch([task, self.schedule_capture(Capture::Records)])
                     }
                     (Capture::Records, Phase::Upload(1)) => {
                         let task = self.dispatch(ui::Message::ToggleRecords);
-                        if ui::projection(&self.app).0
-                            || ui::projection(&self.app).2 != 0
+                        if self.projection.take().as_ref() != Some(&ui::projection(&self.app))
                             || !ui::send_ready(&self.app)
                         {
-                            return self.stop(Some("actual-records-disclosure-close-not-quiet"));
+                            return self.stop(Some("actual-records-disclosure-changed-human-projection"));
                         }
                         self.increment("recordsDisclosureRoundTrips");
                         Task::batch([task, self.probe(1, 0)])

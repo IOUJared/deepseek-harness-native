@@ -3,6 +3,8 @@ use dsh_native_transport::{Error, Limits, NativeClient, SecretLaunchUrl, dto::*}
 mod event_delivery;
 #[path = "support/question_claim.rs"]
 mod question_claim;
+#[path = "support/prompt_recovery.rs"]
+mod prompt_recovery;
 
 #[tokio::test]
 async fn plugin_projection_and_revisioned_scalar_write_use_exact_private_wire() {
@@ -871,6 +873,27 @@ fn opaque_ids_and_exact_dto_names() {
         assert!(!format!("{error:?} {error}").contains("SECRET_SENTINEL"));
     }
 }
+#[test]
+fn optional_request_controls_preserve_old_wire_and_use_exact_new_fields() {
+    let old = serde_json::json!({"provider":"PUBLIC_provider","model":"PUBLIC_model"});
+    let mut selection: ModelSelection = serde_json::from_value(old.clone()).unwrap();
+    assert!(selection.service_tier.is_none() && selection.text_verbosity.is_none());
+    assert_eq!(serde_json::to_value(&selection).unwrap(), old);
+    selection.service_tier = Some("priority".into());
+    selection.text_verbosity = Some("high".into());
+    let wire = serde_json::to_value(SelectModelRequest {
+        session_id: SessionId::new("PUBLIC_session").unwrap(), selection,
+    }).unwrap();
+    assert_eq!(wire["serviceTier"], "priority");
+    assert_eq!(wire["textVerbosity"], "high");
+    assert!(wire.get("service_tier").is_none());
+    let catalog: CatalogModel = serde_json::from_value(serde_json::json!({
+        "id":"PUBLIC_model","name":"PUBLIC demo", "serviceTier":{"tiers":[{"id":"priority","name":"Fast"}]},
+        "textVerbosity":{"levels":[{"id":"high","name":"Detailed"}],"defaultLevel":"low"}
+    })).unwrap();
+    assert_eq!(catalog.service_tier.unwrap().tiers[0].id, "priority");
+    assert_eq!(catalog.text_verbosity.unwrap().default_level.as_deref(), Some("low"));
+}
 #[tokio::test]
 async fn cookie_exchange_and_all_unary_wire_dtos() {
     let mut fixture = NodeHostFixture::start("normal").await;
@@ -912,7 +935,9 @@ async fn cookie_exchange_and_all_unary_wire_dtos() {
                 selection: ModelSelection {
                     provider: "example".into(),
                     model: "model".into(),
-                    reasoning_effort: None
+                    reasoning_effort: None,
+                    service_tier: None,
+                    text_verbosity: None
                 }
             })
             .await

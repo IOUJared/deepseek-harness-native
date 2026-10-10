@@ -5,21 +5,24 @@
 | Event | Result |
 |---|---|
 | Any push or pull request | Linux compilation, headless tests and release-build `--help` smoke |
-| Successful push to `main` | Automatic versioned development prerelease |
+| Successful plain-version push to `main` | Legacy automatic `dev.run` prerelease |
+| Calendar-version push to `main` | Checks only; explicit combined-source release publication |
 | Failed checks | No release |
 | Manual workflow run | Checks only |
 | Rerun of a published main build | Verify tag target and original downloaded assets; do not overwrite them |
 
 ## Versions
 
-Tags use the app's plain [Cargo version](<../app/Cargo.toml>) plus the workflow run number: `v0.1.0-dev.1`, `v0.1.0-dev.2`, and so on. Gaps are expected when PR, branch or failed runs consume numbers. Reruns keep their number. Changing the app version starts a new series; automation does not edit manifests or create commit loops. Each tag targets the exact tested push commit, not the latest branch tip.
+Calendar [Cargo versions](<../app/Cargo.toml>) use `year.month.day-rN` in America/Chicago; `N` counts that day's explicit releases. `2026.10.10-r1` maps to `v2026.10.10-r1`, independent of CI run numbers. The release collects reviewed combined agent work, a changelog, matching rebuilt consumers and verified assets; CI does not race or replace these calendar assets. [Changelog](<../CHANGELOG.md>) · [Release checks](<../RELEASES/2026.10.10-r1.md>).
+
+Legacy plain versions retain `v0.1.0-dev.run` automation. Gaps reflect workflow runs; reruns keep their number and verify existing assets. Every release targets its exact tested commit, not a moving branch tip. Automation does not edit manifests or create commit loops.
 
 ## Checks
 
 - Ubuntu 24.04 / Linux x86_64, Rust 1.99.0 and Node 26.10.0.
 - Separate Core, transport and app suites; PUBLIC layout models and all-target compilation.
 - Supervisor tests, Python qualification/packaging guards and release metadata tests.
-- Locked public dependencies; standalone [fake-wire npm dependency](<../transport/tests/package.json>) instead of a sibling backend installation.
+- Locked public dependencies and standalone [fake-wire npm dependency](<../transport/tests/package.json>). Native-only CI has no built sibling alpha: **22 real-flock/Cordis tests explicitly skip**, while seven portable bridge tests still run. `DSH_REQUIRE_ALPHA_TEST_ARTIFACTS=1` makes absent artifacts fail; wrong versions, broken imports/ABI/exports and assertions always fail. Strict companion-artifact checks and full-profile native composition remain separate release evidence.
 - Empty synthetic test scratch only; no private evidence, API keys, login, GUI startup or real model calls.
 
 Read-only permissions apply to checks. Only the successful main-push publishing job receives `contents: write`. Actions are pinned to commit IDs. PR updates cancel superseded PR checks; distinct pushes keep their own runs.

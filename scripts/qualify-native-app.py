@@ -70,7 +70,8 @@ async def run(options):
                "--home", str(output / "harness"), "--cwd", str(output / "workspace"),
                "--user-home", str(output / "user"), "--scale", str(options.scale),
                "--smoke-new-session", "--exit-after-seconds", str(options.seconds),
-               "--smoke-report", str(output / "app.json")]
+               "--smoke-report", str(output / "app.json"),
+               "--smoke-evidence-root", str(output)]
     if options.screenshot:
         command += ["--smoke-screenshot", str(output / "own-window.png")]
     binary_sha256 = hashlib.sha256(binary.read_bytes()).hexdigest()

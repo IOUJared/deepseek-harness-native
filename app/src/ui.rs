@@ -13,6 +13,8 @@ use iced::widget::{
 use iced::{Color, Element, Length, Subscription, Task, Theme, keyboard, window};
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
+#[path = "workspace_membership.rs"]
+mod workspace_membership;
 const ROW_HEIGHT: f32 = 160.0;
 #[cfg(test)]
 const ACTIVITY_HEIGHT: f32 = 40.0;
@@ -38,9 +40,12 @@ impl std::fmt::Display for Effort {
 pub struct Model {
     provider: String,
     id: String,
+    name: String,
     label: String,
     efforts: Vec<Effort>,
     default_effort: Option<String>,
+    service_tiers: Vec<model_controls::Choice>,
+    verbosity_levels: Vec<model_controls::Choice>,
 }
 impl std::fmt::Display for Model {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -62,17 +67,71 @@ impl InfoSection {
 }
 #[path = "attachment_draft.rs"]
 mod attachment_draft;
+#[path = "attachment_picker.rs"]
+mod attachment_picker;
+#[path = "attachment_preview.rs"]
+mod attachment_preview;
+#[path = "attachment_ui.rs"]
+mod attachment_ui;
 #[cfg(test)]
 #[path = "attachment_ui_tests.rs"]
 mod attachment_ui_tests;
+#[cfg(test)]
+#[path = "prompt_recovery_ui_tests.rs"]
+mod prompt_recovery_ui_tests;
 #[path = "detail_panel.rs"]
 mod detail_panel;
+#[path = "conversation_content.rs"]
+mod conversation_content;
+#[path = "chat_usage.rs"]
+mod chat_usage;
+#[path = "conversation_search.rs"]
+mod conversation_search;
+#[path = "draft_store.rs"]
+mod draft_store;
+#[path = "draft_recovery.rs"]
+mod draft_recovery;
+#[path = "draft_recovery_ui.rs"]
+mod draft_recovery_ui;
+#[path = "model_controls.rs"]
+mod model_controls;
+#[path = "anchored_popup.rs"]
+mod anchored_popup;
+#[path = "working_indicator.rs"]
+mod working_indicator;
+#[path = "working_status.rs"]
+mod working_status;
+#[cfg(test)]
+#[path = "working_ui_tests.rs"]
+mod working_ui_tests;
+#[cfg(test)]
+#[path = "model_metadata_ui_tests.rs"]
+mod model_metadata_ui_tests;
+#[cfg(test)]
+#[path = "chat_flow_ui_tests.rs"]
+mod chat_flow_ui_tests;
+#[cfg(test)]
+#[path = "conversation_actions_ui_tests.rs"]
+mod conversation_actions_ui_tests;
+#[cfg(test)]
+#[path = "conversation_recovery_ui_tests.rs"]
+mod conversation_recovery_ui_tests;
+#[cfg(test)]
+#[path = "draft_lifecycle_ui_tests.rs"]
+mod draft_lifecycle_ui_tests;
 #[cfg(test)]
 #[path = "detail_ui_tests.rs"]
 mod detail_ui_tests;
 #[derive(Clone)]
 pub enum Message {
     FileOpen,
+    FileChoose,
+    FilePicker(attachment_picker::Action),
+    FilePickerRead(std::sync::Arc<attachment_picker::Completion>),
+    FileDropped(window::Id, std::path::PathBuf),
+    FileDropCancelled(window::Id),
+    FilePreview(attachment_draft::EditorStamp),
+    FilePreviewRead(attachment_ui::PreviewTicket, std::sync::Arc<attachment_preview::Outcome>),
     FilePath(attachment_draft::EditorStamp, String),
     FileUpload(attachment_draft::EditorStamp),
     FileCancel(attachment_draft::EditorStamp),
@@ -87,6 +146,7 @@ pub enum Message {
     Resized(iced::Size),
     WindowActive(bool),
     MotionFrame(Instant),
+    WorkingTick,
     Settings(crate::settings::Action),
     Management(crate::management::Action),
     ExportSession(crate::management::Ticket),
@@ -94,8 +154,14 @@ pub enum Message {
     ArchivedView,
     Interaction(crate::interactions::Action),
     Worker(Event),
+    CheckSubmission(prompt_recovery::Ticket),
+    ReviewSubmission(prompt_recovery::Ticket),
+    StopSubmission(prompt_recovery::Ticket),
+    RejoinObservations,
     Editor(text_editor::Action),
     Send,
+    KeyboardSend,
+    ModelControls(model_controls::Action),
     Stop,
     Select(SessionId),
     Workspace(Option<WorkspaceId>),
@@ -126,6 +192,20 @@ pub enum Message {
     DetailMode(detail_panel::Stamp, detail_panel::Mode),
     HideDetails(detail_panel::Stamp),
     CopyDetailSource(detail_panel::Stamp),
+    ToggleThoughts(conversation_content::Ticket),
+    CopyCode(conversation_content::Ticket, usize),
+    CopyMessage { generation: u64, key: u64 },
+    EditMessage { generation: u64, key: u64 },
+    ConfirmEdit { generation: u64, key: u64, draft_serial: u64 },
+    CancelEdit,
+    DraftFlush,
+    DraftReload,
+    ReviewRecovered {generation:u64,serial:u64},
+    DraftOutcome(draft_recovery::Outcome),
+    SearchOpen,
+    SearchInput { generation:u64, serial:u64, query:String },
+    SearchNext { generation:u64, serial:u64, backwards:bool },
+    SearchClose { generation:u64, serial:u64 },
     Capabilities,
     Close,
     Stay,
@@ -157,11 +237,7 @@ enum Close {
     Stopping,
     Failed(String),
 }
-struct Pending {
-    session: SessionId,
-    text: String,
-    file_request_id: Option<SessionRequestId>,
-}
+use crate::worker::prompt_recovery::{self, Pending};
 pub struct App {
     pub options: Options,
     handle: Handle,
@@ -179,6 +255,7 @@ pub struct App {
     management: crate::management::Management,
     exporter: crate::exporter::Exporter,
     files: attachment_draft::Draft,
+    local_files: attachment_ui::LocalFiles,
     show_archived: bool,
     workspace_path: String,
     workspace_controls: bool,
@@ -188,19 +265,26 @@ pub struct App {
     transcript: Transcript,
     follow_ready: bool,
     editor: text_editor::Content,
+    draft_serial:u64,
     drafts: BTreeMap<SessionId, String>,
-    pending: BTreeMap<u64, Pending>,
+    pending: prompt_recovery::Controller,
     prompt_serial: u64,
     models: Vec<Model>,
     chosen_model: Option<Model>,
     chosen_effort: Option<Effort>,
+    chosen_service_tier: Option<String>,
+    chosen_text_verbosity: Option<String>,
     model_pending: bool,
-    catalog_pending: bool,
+    catalog_read: worker::catalog_read::State,
+    model_controls: model_controls::State,
     model_selections: BTreeMap<SessionId, ModelSelection>,
     new_pending: bool,
     workspace_pending: bool,
     page_pending: bool,
     cancel_pending: bool,
+    cancel_generation:Option<u64>,
+    observations_lost:bool,
+    rejoin_pending:bool,
     offset: f32,
     viewport: f32,
     follow_bottom: bool,
@@ -224,13 +308,29 @@ pub struct App {
     sidebar_sheet: bool,
     records_expanded: bool,
     sidebar_motion: design::SidebarMotion,
+    working_phase: u8,
     chat_geometry: chat_geometry::Cache,
+    reply_content: conversation_content::Cache,
+    thoughts_expanded: std::collections::BTreeSet<u64>,
+    edit_review: Option<(u64, u64, u64)>,
+    search_open: bool,
+    search_query: String,
+    search_serial: u64,
+    search_cursor: Option<u64>,
+    draft_state: draft_recovery::State,
+    draft_store: Option<std::sync::Arc<std::sync::Mutex<draft_store::Store>>>,
+    draft_exit_requested: bool,
+    draft_discard_on_exit: bool,
+    draft_recovered: std::collections::BTreeSet<SessionId>,
+    draft_review: Option<(u64,u64)>,
+    draft_versions: std::collections::BTreeMap<SessionId,u64>,
     scroll_revision: Option<u64>,
     scroll_feedback: Option<u64>,
     scroll_target: Option<f32>,
 }
 impl App {
     pub fn boot(options: Options, handle: Handle, feed: Feed) -> (Self, Task<Message>) {
+        let draft_store=if options.smoke.is_none() {draft_store::Store::new(options.backend.native_home.clone()).ok().map(|store|std::sync::Arc::new(std::sync::Mutex::new(store)))}else{None};
         let workspace_path = options
             .backend
             .working_directory
@@ -267,6 +367,7 @@ impl App {
                 management: crate::management::Management::default(),
                 exporter: crate::exporter::Exporter::default(),
                 files: attachment_draft::Draft::default(),
+                local_files: Default::default(),
                 show_archived: false,
                 workspace_path,
                 workspace_controls: false,
@@ -276,19 +377,26 @@ impl App {
                 transcript: Transcript::new(0),
                 follow_ready: false,
                 editor: text_editor::Content::new(),
+                draft_serial:0,
                 drafts: BTreeMap::new(),
-                pending: BTreeMap::new(),
+                pending: prompt_recovery::Controller::default(),
                 prompt_serial: 0,
                 models: vec![],
                 chosen_model: None,
                 chosen_effort: None,
+                chosen_service_tier: None,
+                chosen_text_verbosity: None,
                 model_pending: false,
-                catalog_pending: false,
+                catalog_read: worker::catalog_read::State::default(),
+                model_controls: Default::default(),
                 model_selections: BTreeMap::new(),
                 new_pending: false,
                 workspace_pending: false,
                 page_pending: false,
                 cancel_pending: false,
+                cancel_generation:None,
+                observations_lost:false,
+                rejoin_pending:false,
                 offset: 0.0,
                 viewport: 480.0,
                 follow_bottom: true,
@@ -315,7 +423,22 @@ impl App {
                 sidebar_sheet: false,
                 records_expanded: false,
                 sidebar_motion: design::SidebarMotion::new(design::SIDEBAR),
+                working_phase: 0,
                 chat_geometry: Default::default(),
+                reply_content: Default::default(),
+                thoughts_expanded: Default::default(),
+                edit_review: None,
+                search_open: false,
+                search_query: String::new(),
+                search_serial: 0,
+                search_cursor: None,
+                draft_state: Default::default(),
+                draft_store,
+                draft_exit_requested: false,
+                draft_discard_on_exit: false,
+                draft_recovered: Default::default(),
+                draft_review: None,
+                draft_versions: Default::default(),
                 scroll_revision: Some(0),
                 scroll_feedback: Some(0),
                 scroll_target: None,
@@ -335,6 +458,8 @@ impl App {
                 window::Event::CloseRequested => Some(Message::Close),
                 window::Event::Opened { .. } => Some(Message::NativeOpened(id)),
                 window::Event::Resized(size) => Some(Message::Resized(size)),
+                window::Event::FileDropped(path) => Some(Message::FileDropped(id, path)),
+                window::Event::FilesHoveredLeft => Some(Message::FileDropCancelled(id)),
                 window::Event::Focused => Some(Message::WindowActive(true)),
                 window::Event::Unfocused | window::Event::Closed => {
                     Some(Message::WindowActive(false))
@@ -351,6 +476,14 @@ impl App {
                 _ => None,
             }),
             animation,
+            if self.draft_state.ready() && self.draft_state.dirty() && !self.draft_state.busy() && self.draft_state.failure().is_none() && matches!(self.close,Close::None) {
+                iced::time::every(Duration::from_millis(750)).map(|_|Message::DraftFlush)
+            }else{Subscription::none()},
+            if self.working_animation_active() {
+                iced::time::every(Duration::from_millis(100)).map(|_| Message::WorkingTick)
+            } else {
+                Subscription::none()
+            },
         ])
     }
     fn layout_size(&self) -> iced::Size {
@@ -394,6 +527,9 @@ impl App {
             .running(self.window_active && self.layout_controls_enabled())
     }
     fn composer_visible(&self) -> bool {
+        self.composer_base_visible() && !self.local_files.picker.is_open()
+    }
+    fn composer_base_visible(&self) -> bool {
         self.layout_controls_enabled()
             && !self.capabilities
             && !self.conversation_menu
@@ -433,14 +569,34 @@ impl App {
         let ticket=Some(detail_panel::Stamp{generation:self.generation,opening});
         self.detail=Some(detail_panel::Detail::new(heading,source,metadata,assistant,ticket));
     }
+    fn request_catalog(&mut self) {
+        if self.options.smoke.is_some() || !self.ready || self.stopped
+            || self.observations_lost || !matches!(self.close, Close::None)
+            || self.catalog_read.pending()
+        {
+            return;
+        }
+        let Some(ticket) = self.catalog_read.begin(self.transport_epoch) else {
+            self.model_controls.catalog_failed(true);
+            self.status = "Catalog read identity unavailable or exhausted; no request sent".into();
+            return;
+        };
+        self.model_controls.catalog_failed(false);
+        self.command(Command::Catalog(ticket));
+    }
     fn command(&mut self, command: Command) {
+        if let Command::Catalog(ticket) = &command {
+            if !self.catalog_read.owns(*ticket, self.transport_epoch) {
+                return;
+            }
+        }
         if matches!(
             &command,
             Command::Prompt { .. } | Command::PromptFile { .. }
         ) {
             self.smoke_evidence.model_prompts += 1;
         }
-        if matches!(&command, Command::Catalog) {
+        if matches!(&command, Command::Catalog(_)) {
             self.smoke_evidence.catalog_requested = true;
         }
         if let Err(command) = self.handle.send(command) {
@@ -467,7 +623,16 @@ impl App {
                 Command::Codex(effect) => {
                     use crate::codex::Effect;
                     let ticket = match &effect {
-                        Effect::StatusRead { ticket }
+                        Effect::RuntimeRead { ticket }
+                        | Effect::RuntimeSave { ticket, .. }
+                        | Effect::UsageRead { ticket }
+                        | Effect::UsageSave { ticket, .. }
+                        | Effect::AccountsRead { ticket }
+                        | Effect::AddAccount { ticket, .. }
+                        | Effect::SelectAccount { ticket, .. }
+                        | Effect::SignOutAccount { ticket, .. }
+                        | Effect::SignOutAll { ticket, .. }
+                        | Effect::StatusRead { ticket }
                         | Effect::StartLogin { ticket }
                         | Effect::OpenBrowser { ticket, .. }
                         | Effect::SubmitCallback { ticket, .. }
@@ -509,14 +674,26 @@ impl App {
                 Command::Shutdown => {
                     self.close = Close::Failed("Owned shutdown signal unavailable".into())
                 }
-                Command::Create { .. } => self.new_pending = false,
+                Command::Create { .. } => {
+                    self.new_pending = false;
+                    self.model_controls.new_selection = None;
+                    self.reconcile_model_selection();
+                },
                 Command::OpenWorkspace(_) => self.workspace_pending = false,
-                Command::Catalog => self.catalog_pending = false,
-                Command::Prompt { generation, .. } => {
-                    self.pending.remove(&generation);
+                Command::Catalog(ticket) => {
+                    if self.catalog_read.complete(ticket, self.transport_epoch) {
+                        self.model_controls.catalog_failed(true);
+                    }
+                },
+                Command::Prompt { generation, request } => {
+                    let ticket=prompt_recovery::Ticket{epoch:self.transport_epoch,generation,session:request.session_id,request_id:request.request_id};
+                    self.pending.settle(&ticket,prompt_recovery::Receipt::NotSent);
                 }
+                Command::CheckSubmission(ticket) => {self.pending.checked(&ticket,None);}
+                Command::RejoinObservations{..}=>{self.rejoin_pending=false;}
                 Command::SelectModel { generation, .. } if generation == self.generation => {
-                    self.model_pending = false
+                    self.model_pending = false;
+                    self.reconcile_model_selection();
                 }
                 Command::Page { generation, .. } if generation == self.generation => {
                     self.page_pending = false
@@ -529,6 +706,7 @@ impl App {
         }
     }
     fn choose(&mut self, session: SessionId) {
+        self.capture_draft();
         self.files.invalidate();
         if let Some(old) = &self.selected {
             self.drafts.insert(old.clone(), self.editor.text());
@@ -541,6 +719,14 @@ impl App {
         self.generation += 1;
         self.transcript = Transcript::new(self.generation);
         self.chat_geometry = Default::default();
+        self.reply_content = Default::default();
+        self.thoughts_expanded.clear();
+        self.edit_review = None;
+        self.draft_review=None;
+        self.search_open = false;
+        self.search_query.clear();
+        self.search_serial = 0;
+        self.search_cursor = None;
         self.invalidate_scroll();
         self.follow_ready = false;
         self.page_pending = false;
@@ -553,26 +739,8 @@ impl App {
         self.offset = 0.0;
         self.follow_bottom = true;
         self.projections.clear();
-        self.chosen_model = self
-            .model_selections
-            .get(&session)
-            .and_then(|s| {
-                self.models
-                    .iter()
-                    .find(|m| m.provider == s.provider && m.id == s.model)
-            })
-            .cloned();
-        self.chosen_effort = self
-            .chosen_model
-            .as_ref()
-            .and_then(|m| {
-                self.model_selections.get(&session).and_then(|s| {
-                    m.efforts
-                        .iter()
-                        .find(|e| Some(&e.id) == s.reasoning_effort.as_ref())
-                })
-            })
-            .cloned();
+        self.model_controls.dismiss();
+        self.reconcile_model_selection();
         self.status = "Opening authoritative session snapshot…".into();
         let address = self.address(&session);
         self.command(Command::Select {
@@ -601,6 +769,7 @@ impl App {
             generation: self.generation,
             target: self.selected.clone(),
             allowed: self.options.smoke.is_none()
+                && !self.observations_lost && self.pending.is_empty()
                 && self.ready
                 && self.root_ready
                 && self.follow_ready
@@ -611,21 +780,24 @@ impl App {
                         && self.management.registry.ready()
                         && !self.pending.values().any(|p| &p.session == id)
                 })
-                && !self.model_pending
+                && !self.model_pending && !self.new_pending
                 && matches!(self.close, Close::None)
-                && self.composer_visible(),
+                && self.composer_base_visible(),
         }
     }
     fn file_local_context(&self) -> attachment_draft::Context {
         let mut context = self.file_context();
-        context.allowed = self.options.smoke.is_none()
+        context.allowed = self.pending.is_empty() && self.options.smoke.is_none()
             && matches!(self.close, Close::None)
             && self.composer_visible()
             && !self.files.prompt_pending();
         context
     }
     fn send_allowed(&self) -> bool {
-        self.options.smoke.is_none()
+        self.pending.is_empty() && self.draft_serial!=u64::MAX
+            && !self.local_files.picker.is_open()
+            && !self.model_controls.is_open()
+            && self.options.smoke.is_none()
             && self.ready
             && self.root_ready
             && self.follow_ready
@@ -636,30 +808,53 @@ impl App {
                     && self.management.registry.ready()
                     && !self.pending.values().any(|p| &p.session == id)
             })
-            && !self.model_pending
+            && !self.model_pending && !self.new_pending
             && self.files.can_send(&self.file_context())
+            && self.draft_load_allows_send()
             && (!self.editor.text().trim().is_empty() || self.files.has_file(&self.file_context()))
             && self.editor.text().len() <= 32 * 1024
             && matches!(self.close, Close::None)
             && self.composer_visible()
     }
     fn stop_allowed(&self) -> bool {
-        self.ready
+        self.options.smoke.is_none()
+            && self.ready
             && self.selected.is_some()
             && !self.cancel_pending
             && matches!(self.close, Close::None)
     }
     fn shutdown(&mut self) {
+        self.capture_draft();
+        self.draft_exit_requested=true;
+        self.pending.disconnect();
         self.files.invalidate();
         self.management.disconnect();
         self.exporter.disconnect();
         self.settings.disconnect();
         self.settings.close();
         self.close = Close::Stopping;
-        self.ready = false;
+        self.local_files.invalidate();
+        self.catalog_read.retire(); self.ready = false;
         self.command(Command::Shutdown);
     }
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        self.reconcile_local_files();
+        // Joined local callbacks must settle even behind another modal or during shutdown.
+        match message {
+            Message::FilePickerRead(result) => return self.picker_completed(result),
+            Message::FilePreviewRead(stamp, result) => return self.complete_file_preview(stamp, result),
+            _ => {}
+        }
+        if self.local_files.picker.is_open()
+            && (background_message(&message) || matches!(&message,Message::Settings(_)))
+            && !matches!(&message, Message::FilePicker(_)) { return Task::none(); }
+        if (self.observations_lost || !self.pending.is_empty()) && matches!(&message,Message::Send|Message::KeyboardSend|Message::NewSession|Message::OpenWorkspace|Message::Model(_)|Message::Effort(_)|Message::ModelControls(_)|Message::Reload|Message::Select(_)|Message::FileUpload(_)|Message::FileRemove(_)|Message::ExportSession(_)) {return Task::none();}
+        if matches!(&message, Message::WorkingTick) {
+            if self.working_animation_active() {
+                self.working_phase = (self.working_phase + 1) % working_indicator::PHASES;
+            }
+            return Task::none();
+        }
         // Fence stale widget messages too: the dimmed shell is presentation-only.
         if self.settings.is_open() && background_message(&message) {
             return Task::none();
@@ -688,6 +883,7 @@ impl App {
                 | Message::WindowActive(_)
                 | Message::ToggleSidebar
                 | Message::ToggleRecords
+                | Message::ToggleThoughts(_)
         );
         let reader_anchor = if geometry_change {
             self.reader_anchor()
@@ -707,8 +903,23 @@ impl App {
                 | Message::ToggleSidebar
         ) {
             self.conversation_menu = false;
+            self.model_controls.dismiss();
+        }
+        if matches!(&message,Message::ToggleConversationMenu | Message::FileOpen | Message::Details(_) | Message::Resized(_) | Message::WindowActive(false)) {
+            self.model_controls.dismiss();
         }
         match message {
+            Message::DismissPanel if self.search_open && self.composer_visible() => {
+                return self.update(Message::SearchClose {generation:self.generation,serial:self.search_serial});
+            }
+            Message::ModelControls(action) => return self.model_control_action(action),
+            Message::FileChoose => return self.file_choose(),
+            Message::FilePicker(action) => return self.file_picker_action(action),
+            Message::FilePreview(stamp) => return self.start_file_preview(stamp),
+            Message::FileDropped(id, path) if self.own_window == Some(id) => return self.choose_local_file(path),
+            Message::FileDropCancelled(id) if self.own_window == Some(id) && self.file_context().allowed => {
+                self.status = "Drop canceled or unsupported. Attach one local file (up to 4 MiB).".into();
+            }
             Message::FileOpen => {
                 let context = self.file_context();
                 self.files.open(&context);
@@ -720,6 +931,7 @@ impl App {
             Message::FileUpload(stamp) => {
                 let context = self.file_context();
                 if let Some(submission) = self.files.stage(stamp, &context) {
+                    self.preview_uploaded(stamp, submission.ticket.clone());
                     self.command(Command::StageFile(submission));
                 }
             }
@@ -812,6 +1024,7 @@ impl App {
                 }
             }
             Message::MotionFrame(now) => self.sidebar_motion.advance(now),
+
             Message::ToggleSidebar if self.layout_controls_enabled() => {
                 if self.compact() {
                     self.sidebar_sheet = !self.sidebar_sheet;
@@ -912,7 +1125,10 @@ impl App {
                     && matches!(self.close, Close::None) =>
             {
                 self.smoke_evidence.screenshot_started = true;
-                return window::screenshot(id).map(Message::OwnScreenshot);
+                // Allow a draw after layout rebuild; capture directly, with no intervening
+                // App message. A bounded scheduling assumption, not an atomic draw barrier.
+                return Task::future(async {tokio::time::sleep(Duration::from_millis(100)).await;})
+                    .then(move |()|window::screenshot(id)).map(Message::OwnScreenshot);
             }
             Message::OwnScreenshot(screenshot) => {
                 if let Some(path) = self
@@ -947,11 +1163,30 @@ impl App {
                 if !self.layout_controls_enabled() {
                     self.conversation_menu = false;
                 }
+                if !self.composer_visible() || !self.ready {
+                    self.model_controls.dismiss();
+                }
                 return task;
             }
-            Message::Editor(action) => {
+            Message::ReviewRecovered {generation,serial} if generation==self.generation && serial==self.draft_serial && self.composer_visible() && self.pending.is_empty() && self.recovered_draft_needs_review() => {self.draft_review=Some((generation,serial));}
+            Message::DraftFlush => return self.flush_drafts(),
+            Message::DraftOutcome(outcome) => return self.drafts_completed(outcome),
+            Message::DraftReload if self.composer_visible() && self.draft_state.failure().is_some() => return self.load_drafts(true),
+            Message::Editor(action) if !self.model_controls.is_open() && self.composer_visible() => {
+                let changed=matches!(&action,text_editor::Action::Edit(_));
+                if changed {self.draft_serial=self.draft_serial.saturating_add(1); self.edit_review=None;}
                 self.editor.perform(action);
+                if changed {self.touch_draft();}
             }
+            Message::KeyboardSend if !self.editor.text().trim().is_empty() => {
+                return self.update(Message::Send);
+            }
+            Message::StopSubmission(ticket) if self.ready && !self.stopped && !self.cancel_pending && ticket.epoch==self.transport_epoch && self.pending.ticket().as_ref()==Some(&ticket) && self.composer_visible()=>{self.cancel_pending=true;self.cancel_generation=Some(ticket.generation);self.command(Command::Cancel{generation:ticket.generation,session:ticket.session});}
+            Message::RejoinObservations if self.ready && self.observations_lost && !self.rejoin_pending && !self.stopped=>{self.rejoin_pending=true;self.command(Command::RejoinObservations{epoch:self.transport_epoch});}
+            Message::CheckSubmission(ticket) if self.ready && !self.stopped && self.composer_visible() => {
+                if let Some(check)=self.pending.begin_check(&ticket,self.transport_epoch) {self.command(Command::CheckSubmission(check));}
+            }
+            Message::ReviewSubmission(ticket) if self.pending.ticket().as_ref()==Some(&ticket) && self.composer_visible()=>{self.pending.expanded=!self.pending.expanded;}
             Message::Send if self.send_allowed() => {
                 let session = self.selected.clone().unwrap();
                 let value = self.editor.text();
@@ -996,14 +1231,21 @@ impl App {
                     },
                     client_time_zone: Some("UTC".into()),
                 };
-                self.pending.insert(
+                let captured=self.pending.insert(
                     self.generation,
                     Pending {
                         session,
                         text: value,
+                        draft_serial:self.draft_serial,
                         file_request_id: file_ticket.as_ref().map(|_| request_id),
+                        epoch:self.transport_epoch,
+                        file:self.files.metadata().cloned(),
+                        file_ticket:file_ticket.clone(),
+                        request:request.clone(),
                     },
                 );
+                if !captured {if let Some(ticket)=&file_ticket {let context=self.file_context();self.files.prompt_complete(ticket,&request.request_id,worker::attachments::PromptOutcome::NotSent,&context);}self.status="Original intent could not be captured; no prompt dispatched.".into();return Task::none();}
+                self.touch_draft(); // Scrub this owned original from the next private snapshot.
                 self.status = "Sending prompt; awaiting Host inbox acceptance…".into();
                 if let Some(ticket) = file_ticket {
                     self.command(Command::PromptFile { ticket, request });
@@ -1022,7 +1264,7 @@ impl App {
                     session: self.selected.clone().unwrap(),
                 });
             }
-            Message::Select(id) if self.ready => self.choose(id),
+            Message::Select(id) if self.ready && self.pending.is_empty() => self.choose(id),
             Message::Workspace(id) => {
                 self.workspace = id;
             }
@@ -1061,16 +1303,16 @@ impl App {
             }
             Message::Filter(value) => self.filter = value,
             Message::LoadModels
-                if self.options.smoke.is_none() && self.ready && !self.catalog_pending =>
+                if self.options.smoke.is_none() && self.ready && !self.catalog_read.pending()
+                    && !self.observations_lost && !self.stopped && matches!(self.close, Close::None) =>
             {
-                self.catalog_pending = true;
-                self.status = "Loading real provider catalog (explicit request)…".into();
-                self.command(Command::Catalog);
+                self.status = "Loading available models…".into();
+                self.request_catalog();
             }
             Message::Model(model)
                 if self.options.smoke.is_none()
                     && self.ready
-                    && self.selected.is_some()
+                    && !self.new_pending
                     && !self.model_pending =>
             {
                 self.chosen_effort = model
@@ -1078,6 +1320,10 @@ impl App {
                     .as_ref()
                     .and_then(|id| model.efforts.iter().find(|e| &e.id == id))
                     .cloned();
+                if self.chosen_model.as_ref().is_none_or(|previous| previous.provider != model.provider || previous.id != model.id) {
+                    self.chosen_service_tier = None;
+                    self.chosen_text_verbosity = None;
+                }
                 self.chosen_model = Some(model);
                 self.select_model();
             }
@@ -1172,6 +1418,41 @@ impl App {
                     self.open_detail(heading,source,metadata,assistant);
                 }
             }
+            Message::ToggleThoughts(ticket) if ticket.generation == self.generation && self.composer_visible() => {
+                if self.reply_parts(ticket.key).is_some_and(|reply| reply.ticket == Some(ticket) && !reply.reasoning.is_empty()) {
+                    if !self.thoughts_expanded.remove(&ticket.key) { self.thoughts_expanded.insert(ticket.key); }
+                }
+            }
+            Message::CopyCode(ticket, index) if ticket.generation == self.generation && self.composer_visible() => {
+                if let Some(reply) = self.reply_parts(ticket.key).filter(|reply| reply.ticket == Some(ticket))
+                    && let Some(source) = reply.code(index).filter(|source| !source.is_empty()) {
+                    self.status = "Code copy requested.".into();
+                    return iced::clipboard::write(source.to_owned());
+                }
+            }
+            Message::CopyMessage {generation,key} if generation == self.generation && self.composer_visible() => {
+                if let Some(source) = self.row_copy_source(key) { self.status = "Message copy requested.".into(); return iced::clipboard::write(source); }
+            }
+            Message::EditMessage {generation,key} if self.edit_message_allowed(generation,key) => {
+                if self.editor.text().is_empty() { self.populate_message_draft(key); }
+                else { self.edit_review = Some((generation,key,self.draft_serial)); }
+            }
+            Message::ConfirmEdit {generation,key,draft_serial} if self.edit_review == Some((generation,key,draft_serial))
+                && self.draft_serial == draft_serial && self.edit_message_allowed(generation,key) => { self.populate_message_draft(key); }
+            Message::SearchOpen if self.composer_visible() && self.selected.is_some() && self.search_serial != u64::MAX => {
+                if !self.search_open {self.search_serial+=1;self.search_open=true;}
+                return iced::widget::operation::focus("native-chat-search");
+            }
+            Message::SearchInput {generation,serial,query} if generation==self.generation && serial==self.search_serial && self.search_open && self.composer_visible() => {
+                self.search_query=if query.len()<=conversation_search::MAX_QUERY_BYTES {query}else{self.status="Search is limited to 256 bytes.".into();String::new()};
+                self.search_cursor=None;return self.jump_search(false,true);
+            }
+            Message::SearchNext {generation,serial,backwards} if generation==self.generation && serial==self.search_serial && self.search_open && self.composer_visible() => {return self.jump_search(backwards,false);}
+            Message::SearchClose {generation,serial} if generation==self.generation && serial==self.search_serial && self.search_open && self.composer_visible() => {
+                let anchor=self.reader_anchor();self.search_open=false;self.search_cursor=None;
+                return self.reflow_transcript(anchor);
+            }
+            Message::CancelEdit => { self.edit_review = None; }
             Message::CopyDetailSource(ticket) => {
                 if let Some(source) = self.detail_copy_source(ticket) {
                     // Iced writes Standard clipboard without a success acknowledgement.
@@ -1190,10 +1471,11 @@ impl App {
                 self.info_expanded = 0;
             }
             Message::Close => {
+                self.local_files.invalidate();
                 self.settings.close();
                 self.exporter.dismiss();
                 if self.stopped {
-                    if self.last_stop.as_ref().is_some_and(|r|matches!(r,Ok(s) if s.exited&&!s.containment_unknown&&s.observed_descendants_remaining==0)){return iced::exit();}
+                    if self.last_stop.as_ref().is_some_and(|r|matches!(r,Ok(s) if s.exited&&!s.containment_unknown&&s.observed_descendants_remaining==0)){self.capture_draft();self.draft_exit_requested=true;self.close=Close::Stopping;return self.finish_draft_exit();}
                     self.close = Close::Failed(
                         "Backend stop result is uncertain; review before exiting".into(),
                     );
@@ -1204,11 +1486,15 @@ impl App {
                     self.command(Command::Inspect);
                 }
             }
-            Message::Stay => self.close = Close::None,
+            Message::Stay => {
+                self.close=Close::None;self.draft_exit_requested=false;self.draft_discard_on_exit=false;
+                if self.ready && !self.stopped {return Task::batch([self.load_drafts(false),self.position_transcript()]);}
+            },
             Message::ConfirmClose => self.shutdown(),
-            Message::ExitAnyway if self.stopped => return iced::exit(),
+            Message::ExitAnyway if self.stopped && !self.draft_state.busy() && !self.local_files.busy() => {self.draft_discard_on_exit=true;return iced::exit();},
             _ => {}
         }
+        self.reconcile_local_files();
         if geometry_change {
             self.reflow_transcript(reader_anchor)
         } else if was_active != self.transcript_active() {
@@ -1219,6 +1505,18 @@ impl App {
         }
     }
     fn select_model(&mut self) {
+        if self.selected.is_none() {
+            if let Some(model) = self.chosen_model.as_ref().filter(|_| !self.new_pending && self.ready && self.options.smoke.is_none()) {
+                self.model_controls.new_selection = Some((self.transport_epoch, self.generation, ModelSelection {
+                    provider: model.provider.clone(), model: model.id.clone(),
+                    reasoning_effort: self.chosen_effort.as_ref().map(|e| e.id.clone()),
+                    service_tier: self.chosen_service_tier.clone(), text_verbosity: self.chosen_text_verbosity.clone(),
+                }));
+                self.new_pending = true;
+                self.command(Command::Create { workspace: self.workspace.clone(), cwd: self.workspace.is_none().then(|| self.options.backend.working_directory.to_string_lossy().into_owned()) });
+            }
+            return;
+        }
         if let (Some(session), Some(model)) = (self.selected.clone(), self.chosen_model.clone()) {
             self.model_pending = true;
             self.command(Command::SelectModel {
@@ -1229,6 +1527,8 @@ impl App {
                         provider: model.provider,
                         model: model.id,
                         reasoning_effort: self.chosen_effort.as_ref().map(|e| e.id.clone()),
+                        service_tier: self.chosen_service_tier.clone(),
+                        text_verbosity: self.chosen_text_verbosity.clone(),
                     },
                 },
             });
@@ -1245,6 +1545,10 @@ impl App {
         let mut changed = false;
         match event {
             Event::Ready(version) => {
+                if self.transport_epoch != worker::TRANSPORT_EPOCH {
+                    self.catalog_read.retire();
+                    self.model_controls.dismiss();
+                }
                 self.ready = true;
                 self.transport_epoch = worker::TRANSPORT_EPOCH;
                 self.settings.adopt_epoch(self.transport_epoch);
@@ -1260,6 +1564,8 @@ impl App {
                     ));
                 }
                 self.status = format!("Owned Core {version}; authenticated native transport ready");
+                self.request_catalog();
+                if !self.stopped && matches!(self.close,Close::None) {return self.load_drafts(false);}
             }
             Event::Core(PublicEvent::Codex(metadata)) => {
                 self.settings.codex_observed(metadata);
@@ -1288,12 +1594,13 @@ impl App {
                 self.status = format!("Core warning: {warning:?}")
             }
             Event::Core(PublicEvent::Exited(result)) => {
+                self.pending.disconnect();
                 self.files.disconnect();
                 self.management.disconnect();
                 self.exporter.disconnect();
                 self.settings.disconnect();
                 self.account = "Account metadata unavailable (disconnected)".into();
-                self.ready = false;
+                self.catalog_read.retire(); self.ready = false;
                 self.root_ready = false;
                 self.decisions.disconnect();
                 self.status = format!(
@@ -1318,17 +1625,9 @@ impl App {
                     pending.session == ticket.target
                         && pending.file_request_id.as_ref() == Some(&request_id)
                 }) {
-                    let pending = self.pending.remove(&ticket.generation).unwrap();
-                    if outcome == worker::attachments::PromptOutcome::Accepted {
-                        if ticket.generation == self.generation
-                            && self.editor.text() == pending.text
-                        {
-                            self.editor = text_editor::Content::new();
-                        }
-                        if self.drafts.get(&pending.session) == Some(&pending.text) {
-                            self.drafts.remove(&pending.session);
-                        }
-                    }
+                    let owner=prompt_recovery::Ticket{epoch:ticket.epoch,generation:ticket.generation,session:ticket.target.clone(),request_id:request_id.clone()};
+                    let receipt=match outcome {worker::attachments::PromptOutcome::Accepted=>prompt_recovery::Receipt::Accepted,worker::attachments::PromptOutcome::NotSent=>prompt_recovery::Receipt::NotSent,worker::attachments::PromptOutcome::Unknown=>prompt_recovery::Receipt::Unknown};
+                    if let Some(pending)=self.pending.settle(&owner,receipt) {self.prompt_resolved(pending,ticket.generation,receipt);}
                     if ticket.generation == self.generation {
                         self.status=match outcome {worker::attachments::PromptOutcome::Accepted=>"Attachment prompt accepted into Host inbox; generation/history still come from Host events",worker::attachments::PromptOutcome::NotSent=>"Attachment prompt not admitted; file remains ready",worker::attachments::PromptOutcome::Unknown=>"Attachment Send outcome unknown; do not retry automatically"}.into();
                     }
@@ -1346,13 +1645,14 @@ impl App {
                     Ok(roster) => {
                         if roster.items.len() > 4096 {
                             self.status = "Session list exceeds native 4096-row limit".into();
-                            self.ready = false;
+                            self.catalog_read.retire(); self.ready = false;
                         } else {
                             self.sessions = roster
                                 .items
                                 .into_iter()
                                 .map(|s| (s.session_id.clone(), s))
                                 .collect();
+                            self.title_updates.retain(|id, _| self.sessions.contains_key(id));
                             for frame in std::mem::take(&mut self.early_root) {
                                 self.root(frame, None);
                             }
@@ -1423,17 +1723,19 @@ impl App {
                     } else {
                         self.status =
                             "Roster event buffer overflow; close and restart native app".into();
-                        self.ready = false;
+                        self.catalog_read.retire(); self.ready = false;
                     }
                 } else {
                     self.root(frame, decision_key);
                 }
             }
             Event::Selected { generation, frame } if generation == self.generation => {
+                if matches!(&frame,SessionFollowFrame::Snapshot {..}) { self.reply_content.clear(); self.thoughts_expanded.clear(); }
+                if matches!(&frame,SessionFollowFrame::AssistantStream {..}) { self.reply_content.clear_live(); }
                 let snapshot = matches!(&frame, SessionFollowFrame::Snapshot { .. });
                 let title_change = match &frame {
                     SessionFollowFrame::Snapshot { projections, .. } => projections.values.get("title").map(|value| (projections.as_of_seq, value.clone())),
-                    SessionFollowFrame::Event { event } if event.event_type == "session/title" => event.data.get("title").and_then(|value| i64::try_from(event.seq).ok().map(|seq| (seq, value.clone()))),
+                    SessionFollowFrame::Event { event } if event.event_type == "session/title" => event.data.get("title").and_then(|value| i64::try_from(event.seq).ok().filter(|seq| *seq > self.transcript.cursor()).map(|seq| (seq, value.clone()))),
                     _ => None,
                 };
                 if let SessionFollowFrame::Snapshot {
@@ -1467,6 +1769,7 @@ impl App {
                             serde_json::from_value::<ModelSelection>(value.clone())
                         {
                             self.model_selections.insert(id, selection);
+                            self.reconcile_model_selection();
                         }
                     }
                     self.follow_ready = true;
@@ -1494,12 +1797,21 @@ impl App {
             }
             Event::Created(result) => {
                 self.new_pending = false;
+                let deferred = self.model_controls.new_selection.take()
+                    .filter(|(epoch, generation, _)| *epoch == self.transport_epoch && *generation == self.generation && self.selected.is_none() && self.ready && !self.stopped && matches!(self.close, Close::None));
                 match result {
                     Ok(value) => {
                         self.smoke_evidence.session_created = true;
                         self.choose(value.session_id);
+                        if let Some((_, _, selection)) = deferred {
+                            self.model_pending = true;
+                            self.command(Command::SelectModel { generation: self.generation, request: SelectModelRequest { session_id: self.selected.clone().unwrap(), selection } });
+                        }
                     }
-                    Err(error) => self.status = error,
+                    Err(error) => {
+                        self.status = error;
+                        self.reconcile_model_selection();
+                    }
                 }
             }
             Event::WorkspaceOpened(result) => {
@@ -1527,10 +1839,17 @@ impl App {
                     Err(error) => self.status = error,
                 }
             }
-            Event::Catalog(result) => {
-                self.catalog_pending = false;
+            Event::Catalog { ticket, result } => {
+                if !self.catalog_read.complete(ticket, self.transport_epoch)
+                    || !self.ready || self.observations_lost || self.stopped
+                    || !matches!(self.close, Close::None)
+                {
+                    return Task::none();
+                }
+                self.model_controls.catalog_failed(result.is_err());
                 match result {
                     Ok(catalog) => {
+                        self.model_controls.catalog_default = Some(catalog.default.clone());
                         self.models = catalog
                             .groups
                             .into_iter()
@@ -1543,6 +1862,11 @@ impl App {
                                         provider: provider.clone(),
                                         id: model.id,
                                         label: format!("{} / {}", group_name, model.name),
+                                        name: model.name,
+                                        service_tiers: model_controls::Choice::from_catalog(
+                                            model.service_tier.map_or(vec![], |t| t.tiers), model_controls::Section::Speed),
+                                        verbosity_levels: model_controls::Choice::from_catalog(
+                                            model.text_verbosity.map_or(vec![], |v| v.levels), model_controls::Section::OutputDetail),
                                         default_effort: reasoning
                                             .as_ref()
                                             .and_then(|r| r.default_effort.clone()),
@@ -1560,6 +1884,7 @@ impl App {
                             })
                             .take(4096)
                             .collect();
+                        self.reconcile_model_selection();
                         self.status = format!(
                             "{} routable models; {} provider failures (details redacted); existing session model unchanged",
                             self.models.len(),
@@ -1584,31 +1909,36 @@ impl App {
                         self.status = error;
                     }
                 }
+                self.reconcile_model_selection();
             }
-            Event::Prompt { generation, result }
-                if self
-                    .pending
-                    .get(&generation)
-                    .is_some_and(|pending| pending.file_request_id.is_none()) =>
-            {
-                if let Some(pending) = self.pending.remove(&generation) {
-                    match result {
-                        Ok(accepted) if accepted.accepted => {
-                            if generation == self.generation && self.editor.text() == pending.text {
-                                self.editor = text_editor::Content::new();
-                            }
-                            if self.drafts.get(&pending.session) == Some(&pending.text) {
-                                self.drafts.remove(&pending.session);
-                            }
-                            self.status="Prompt accepted; transcript and running state come from Host events".into();
-                        }
-                        Ok(_) => self.status = "Host did not accept prompt; draft retained".into(),
-                        Err(error) => self.status = error,
-                    }
+            Event::ObservationsLost=>{
+                self.catalog_read.retire();
+                self.observations_lost=true;self.rejoin_pending=false;self.root_ready=false;self.follow_ready=false;self.pending.disconnect();self.files.invalidate();self.management.disconnect();self.decisions.disconnect();self.model_controls.dismiss();
+                self.status="Observation connection lost; original Host identity not re-verified. Check/reconnect explicitly; no automatic restart or session resume.".into();
+            }
+            Event::ObservationsRejoined{epoch,result} if epoch==self.transport_epoch && self.ready=>{
+                self.rejoin_pending=false;
+                match result {Ok(())=>{self.observations_lost=false;self.status="Same owned Host verified; root observations rejoined. Check original submission, then select a session explicitly to resume.".into();},Err(error)=>self.status=error,}
+            }
+            Event::Prompt { generation, request_id, result } => {
+                if let Some(ticket)=self.pending.ticket().filter(|t|t.generation==generation && t.request_id==request_id && t.epoch==self.transport_epoch && self.pending.get(&generation).is_some_and(|p|p.file_request_id.is_none())) {
+                    let receipt=if result.as_ref().is_ok_and(|accepted|accepted.accepted) {prompt_recovery::Receipt::Accepted} else {prompt_recovery::Receipt::Unknown};
+                    if let Some(pending)=self.pending.settle(&ticket,receipt) {self.prompt_resolved(pending,generation,receipt);}
+                    else {self.status="Submission outcome unknown. Original intent retained; do not resend. Check submission explicitly.".into();}
                 }
             }
-            Event::Cancel { generation, result } if generation == self.generation => {
+            Event::PromptNotSent { ticket } => {
+                if let Some(pending)=self.pending.settle(&ticket,prompt_recovery::Receipt::NotSent) {self.prompt_resolved(pending,ticket.generation,prompt_recovery::Receipt::NotSent);}
+            }
+            Event::SubmissionChecked { ticket,value } => {
+                if let Some((pending,receipt))=self.pending.checked(&ticket,value) {
+                    if let Some(file)=&pending.file_ticket {let context=self.file_context();self.files.reconcile_prompt(file,&pending.request.request_id,receipt==prompt_recovery::Receipt::Accepted,&context);}
+                    self.prompt_resolved(pending,ticket.submission.generation,receipt);
+                } else if self.pending.ticket().as_ref()==Some(&ticket.submission) {self.status="No verified admission decision. Original submission still owned; no resend permission. Check again only explicitly.".into();}
+            }
+            Event::Cancel { generation, result } if generation == self.generation || self.cancel_generation==Some(generation) => {
                 self.cancel_pending = false;
+                self.cancel_generation=None;
                 self.status = match result {
                     Ok(value) if value.accepted => {
                         "Cancellation accepted; awaiting actual Host status".into()
@@ -1636,7 +1966,8 @@ impl App {
                 self.status = error;
             }
             Event::Inspection(result) if matches!(self.close, Close::Inspecting) => match result {
-                Ok(inspection) if inspection.is_known_idle() => self.shutdown(),
+                Ok(inspection) if inspection.is_known_idle() && self.pending.is_empty() => self.shutdown(),
+                Ok(_) if !self.pending.is_empty() => {self.close=Close::Confirm("Original submission is unresolved. Closing stops only this owned Host and discards local recovery state; it is not rollback or permission to resend.".into());},
                 Ok(Inspection {
                     active_tasks,
                     scheduled_tasks,
@@ -1672,12 +2003,13 @@ impl App {
             Event::KeyMetadata { ticket, result } => self.settings.metadata(ticket, result),
             Event::KeySaved { ticket, result } => self.settings.saved(ticket, result),
             Event::Fault(error) => {
+                self.pending.disconnect();
                 self.files.disconnect();
                 self.management.disconnect();
                 self.exporter.disconnect();
                 self.settings.disconnect();
                 self.account = "Account metadata unavailable (disconnected)".into();
-                self.ready = false;
+                self.catalog_read.retire(); self.ready = false;
                 self.root_ready = false;
                 self.decisions.disconnect();
                 self.status = error;
@@ -1688,14 +2020,15 @@ impl App {
                 self.exporter.disconnect();
                 self.settings.disconnect();
                 self.account = "Account metadata unavailable (disconnected)".into();
-                self.ready = false;
+                self.catalog_read.retire(); self.ready = false;
                 self.stopped = true;
                 self.status = "No owned backend was started".into();
                 if matches!(self.close, Close::Stopping) {
-                    return iced::exit();
+                    return self.finish_draft_exit();
                 }
             }
             Event::Stopped(result) => {
+                self.pending.disconnect();
                 self.files.disconnect();
                 self.management.disconnect();
                 self.exporter.disconnect();
@@ -1719,7 +2052,7 @@ impl App {
                     }
                     return iced::exit();
                 }
-                self.ready = false;
+                self.catalog_read.retire(); self.ready = false;
                 self.root_ready = false;
                 self.stopped = true;
                 self.decisions.disconnect();
@@ -1731,7 +2064,7 @@ impl App {
                                 && !stop.containment_unknown
                                 && stop.observed_descendants_remaining == 0 =>
                         {
-                            return iced::exit();
+                            return self.finish_draft_exit();
                         }
                         Ok(stop) => {
                             self.close = Close::Failed(format!(
@@ -1756,6 +2089,7 @@ impl App {
             }
             _ => {}
         }
+        self.reconcile_local_files();
         let screenshot = self.maybe_screenshot();
         if projection_change {
             Task::batch([self.reflow_transcript(reader_anchor), screenshot])
@@ -1921,7 +2255,7 @@ impl App {
         }
     }
     fn settings_enabled(&self) -> bool {
-        self.exporter.pending().is_none()
+        self.pending.is_empty() && !self.observations_lost && self.exporter.pending().is_none()
             && !self.exporter.is_open()
             && self.options.smoke.is_none()
             && self.ready
@@ -1961,6 +2295,10 @@ impl App {
         }
         if let Some(dialog) = self.decisions.dialog(self.decision_replies_enabled()) {
             return dialog.map(Message::Interaction);
+        }
+        if let Some(ticket) = self.local_files.picker.ticket() {
+            return settings_overlay(self.presentation_shell(false), self.picker_view(ticket),
+                Message::FilePicker(attachment_picker::Action::Close(ticket)));
         }
         self.presentation_shell(self.composer_visible())
     }
@@ -2190,6 +2528,9 @@ impl App {
     fn panel_stop_visible(&self) -> bool {
         self.layout_controls_enabled() && !self.composer_visible() && self.selected.is_some()
     }
+    fn stop_color(&self) -> Color {
+        if self.cancel_pending || self.stop_allowed() { DANGER } else { MUTED }
+    }
     fn stop_button(&self) -> Element<'_, Message> {
         // Keep cancellation reachable even when the displayed running state lags the Host.
         container(
@@ -2200,7 +2541,7 @@ impl App {
                     } else {
                         "Stop"
                     },
-                    DANGER,
+                    self.stop_color(),
                 )
                 .size(12),
             )
@@ -2266,11 +2607,7 @@ impl App {
             .and_then(|id| self.sessions.get(id))
             .map(|session| self.session_title(session))
             .unwrap_or_else(|| "DeepSeek Harness".into());
-        let running = self
-            .selected
-            .as_ref()
-            .and_then(|id| self.sessions.get(id))
-            .is_some_and(|s| s.running);
+        let observed = self.selected.as_ref().and_then(|id| self.sessions.get(id));
         let title_limit = if self.layout_size().width < 700.0 {
             18
         } else if self.compact() {
@@ -2286,8 +2623,8 @@ impl App {
         .spacing(8)
         .align_y(iced::Alignment::Center)
         .width(Length::Fill);
-        if running {
-            identity = identity.push(label("Running", design::FOAM).size(11));
+        if let Some(session) = observed.filter(|session| session.running) {
+            identity = identity.push(self.working_badge(session));
         }
         let mut actions = row![identity].spacing(6).align_y(iced::Alignment::Center);
         if self.panel_stop_visible() {
@@ -2341,6 +2678,9 @@ impl App {
                         .padding(7)
                         .size(12)
                         .width(Length::Fill),
+                    button(label("Browse…", MUTED).size(12))
+                        .on_press_maybe((context.allowed && !self.local_files.busy()).then_some(Message::FilePicker(attachment_picker::Action::Open(stamp))))
+                        .style(design::button_style).padding([6, 9]),
                     button(label("Upload", TEXT).size(12))
                         .on_press_maybe(
                             (context.allowed && !path.is_empty())
@@ -2361,6 +2701,8 @@ impl App {
                 .align_y(iced::Alignment::Center),
             );
             body = body.push(label(attachment_draft::UPLOAD_CONSENT, MUTED).size(10));
+            body = body.push(button(label("Preview image", MUTED).size(10)).style(design::button_style)
+                .on_press_maybe((context.allowed && !path.is_empty() && !self.local_files.busy()).then_some(Message::FilePreview(stamp))));
         } else if let Some(ticket) = self.files.ticket() {
             let title = if let Some(metadata) = self.files.metadata() {
                 format!("File · {} · {} bytes", metadata.name, metadata.bytes)
@@ -2394,9 +2736,10 @@ impl App {
                 .spacing(6)
                 .align_y(iced::Alignment::Center),
             );
-        } else if self.files.pending() || self.files.prompt_pending() {
+        } else if self.files.pending() || self.files.prompt_pending() || self.local_files.busy() {
             body = body.push(label("Previous file operation is finishing…", MUTED).size(11));
         }
+        body = body.push(self.local_file_preview());
         if let Some(notice) = self.files.notice() {
             body = body.push(label(notice, DANGER).size(11));
         }
@@ -2405,133 +2748,94 @@ impl App {
             .width(Length::Fill)
             .into()
     }
+    fn prompt_resolved(&mut self,pending:Pending,generation:u64,receipt:prompt_recovery::Receipt) {
+        self.draft_state.touch(&pending.session); // Includes definitive NotSent/queue refusal.
+        if receipt==prompt_recovery::Receipt::Accepted {
+            if generation==self.generation && self.draft_serial==pending.draft_serial && self.editor.text()==pending.text {self.editor=text_editor::Content::new();self.touch_draft();}
+            if self.draft_versions.get(&pending.session)==Some(&pending.draft_serial) && self.drafts.get(&pending.session)==Some(&pending.text) {self.drafts.remove(&pending.session);self.draft_versions.remove(&pending.session);self.draft_recovered.remove(&pending.session);self.draft_state.touch(&pending.session);}
+            self.status="Submission admission verified; recorded is not provider completion. Transcript/running state come from Host events.".into();
+        } else {self.status="Original submission was definitely not dispatched; original draft retained. No automatic resend.".into();}
+    }
     fn composer(&self) -> Element<'_, Message> {
         let allowed = self.send_allowed() && self.composer_visible();
+        let keyboard_allowed = allowed && !self.editor.text().trim().is_empty();
         let small = self.layout_size().height < 620.0;
         let editor = text_editor(&self.editor)
-            .placeholder("Message DeepSeek Harness…")
+            .placeholder("Message DeepSeek Harness… or drop a file")
             .on_action(Message::Editor)
             .height(if small { 70 } else { 96 })
             .padding(12)
             .font(FONT)
             .size(15)
             .style(design::editor)
-            .key_binding(move |event| composer_binding(event, allowed));
-        let models: Element<'_, Message> = if self.models.is_empty() {
-            row![
-                label("Session model unchanged", MUTED)
-                    .size(11)
-                    .width(Length::Fill),
-                button(
-                    label(
-                        if self.catalog_pending {
-                            "Loading…"
-                        } else {
-                            "Load models"
-                        },
-                        MUTED
-                    )
-                    .size(12)
-                )
-                .on_press_maybe(
-                    (self.options.smoke.is_none() && self.ready && !self.catalog_pending)
-                        .then_some(Message::LoadModels)
-                )
-                .style(design::button_style)
-                .padding([6, 10])
-            ]
-            .spacing(8)
-            .align_y(iced::Alignment::Center)
-            .into()
-        } else {
-            let picker = pick_list(
-                self.models.as_slice(),
-                self.chosen_model.as_ref(),
-                Message::Model,
-            )
-            .placeholder("Existing session model")
-            .width(Length::Fill)
-            .padding(7)
-            .text_size(12)
-            .style(design::picker_style);
-            let refresh = button(label("Reload models", MUTED).size(11))
-                .on_press_maybe(
-                    (self.options.smoke.is_none() && self.ready && !self.catalog_pending)
-                        .then_some(Message::LoadModels),
-                )
-                .style(design::button_style)
-                .padding([6, 9]);
-            row![picker, refresh]
-                .spacing(6)
-                .align_y(iced::Alignment::Center)
-                .into()
-        };
-        let models = container(models)
-            .id("native-model-controls")
-            .width(Length::Fill);
+            .key_binding(move |event| composer_binding(event, keyboard_allowed));
         let sending = self
             .pending
             .values()
             .any(|p| Some(&p.session) == self.selected.as_ref());
         let mut inner = column![editor].spacing(4);
+        if self.recovered_draft_needs_review() {
+            inner=inner.push(column![label("Recovered text may already have been submitted. Check the conversation first.",DANGER).size(11),
+                button(label("Reviewed · enable a new Send",TEXT).size(11)).style(design::button_style)
+                    .on_press_maybe(self.pending.is_empty().then_some(Message::ReviewRecovered {generation:self.generation,serial:self.draft_serial}))].spacing(3));
+        }
+        if self.options.smoke.is_none() && (self.draft_state.ready() || self.draft_state.is_loading() || self.draft_state.failure().is_some()) {
+            let mut recovery=row![label(self.draft_state.status(),if self.draft_state.failure().is_some(){DANGER}else{MUTED}).size(10).width(Length::Fill)];
+            if self.draft_state.failure().is_some() {recovery=recovery.push(button(label("Reload drafts",MUTED).size(10)).style(design::button_style).on_press_maybe((!self.draft_state.busy()).then_some(Message::DraftReload)));}
+            inner=inner.push(recovery);
+        }
+        if let Some((generation,key,draft_serial))=self.edit_review {
+            inner=inner.push(row![label("Replace your unsent draft?",MUTED).size(11).width(Length::Fill),
+                button(label("Replace draft",TEXT).size(11)).style(design::button_style).on_press_maybe((self.draft_serial==draft_serial && self.edit_message_allowed(generation,key)).then_some(Message::ConfirmEdit {generation,key,draft_serial})),
+                button(label("Cancel",MUTED).size(11)).style(design::button_style).on_press(Message::CancelEdit)].spacing(6));
+        }
+        if self.observations_lost {inner=inner.push(button("Reconnect observations · no session resume").style(design::button_style).padding([6,9]).on_press_maybe((self.ready && !self.rejoin_pending && !self.stopped).then_some(Message::RejoinObservations)));}
+        if let Some(ticket)=self.pending.ticket() {
+            let pending=self.pending.get(&ticket.generation).expect("owned submission");
+            let unknown=self.pending.uncertain();
+            inner=inner.push(label(if unknown {"Submission unresolved · original retained; current draft is separate. No resend."} else {"Awaiting admission · original request is frozen."},if unknown {DANGER} else {MUTED}).size(11))
+                .push(row![button("Check submission").style(design::button_style).padding([6,9]).on_press_maybe((unknown && !self.pending.checking() && self.ready && !self.stopped).then_some(Message::CheckSubmission(ticket.clone()))),button(if self.pending.expanded {"Hide original"} else {"Review original"}).style(design::button_style).padding([6,9]).on_press(Message::ReviewSubmission(ticket.clone()))].spacing(6));
+            if self.selected.as_ref()!=Some(&ticket.session) || self.generation!=ticket.generation {inner=inner.push(button("Stop original session").style(design::button_style).padding([6,9]).on_press_maybe((self.ready && !self.cancel_pending && !self.stopped).then_some(Message::StopSubmission(ticket.clone()))));}
+            if let Some(file)=&pending.file {inner=inner.push(label(format!("Original file: {} · {} bytes · receipt is never replayed",file.name,file.bytes),MUTED).size(11));}
+            if self.pending.expanded {inner=inner.push(scrollable(label(pending.text.clone(),TEXT).size(12)).height(100));}
+        }
         if self.files.editor_open()
             || self.files.ticket().is_some()
             || self.files.notice().is_some()
             || self.files.pending()
             || self.files.prompt_pending()
+            || self.local_files.busy()
         {
             inner = inner.push(self.file_controls());
         }
-        inner = inner.push(models);
-        // A separate reasoning row cannot push Send/Stop outside a small viewport.
-        if let Some(model) = &self.chosen_model {
-            if !model.efforts.is_empty() {
-                inner = inner.push(
-                    container(
-                        row![
-                            label("Reasoning", MUTED).size(11),
-                            pick_list(
-                                model.efforts.as_slice(),
-                                self.chosen_effort.as_ref(),
-                                Message::Effort
-                            )
-                            .placeholder("Default")
-                            .width(Length::Fill)
-                            .padding(6)
-                            .text_size(12)
-                            .style(design::picker_style)
-                        ]
-                        .spacing(8)
-                        .align_y(iced::Alignment::Center),
-                    )
-                    .id("native-reasoning-control")
-                    .width(Length::Fill),
-                );
-            }
-        }
+        let usage = chat_usage::describe(&self.projections,
+            self.follow_ready && self.transcript.safe_to_send() && !self.model_pending && !self.observations_lost
+                && self.transcript.cursor() == self.transcript.opening_cursor(), self.transcript.records());
+        inner = inner.push(row![label(usage,MUTED).size(10).width(Length::Fill),self.model_control()].align_y(iced::Alignment::Center));
         inner = inner.push(
             row![
                 label(
                     if self.options.smoke.is_some() {
                         "Keyless smoke · sending disabled"
                     } else if self.compact() {
-                        "Ctrl+Enter · send"
+                        "Enter · send"
                     } else {
-                        "Ctrl+Enter to send · Enter for a new line"
+                        "Enter to send · Shift+Enter for a new line"
                     },
                     MUTED
                 )
                 .size(10)
                 .width(Length::Fill),
                 container(
-                    button(label("+ File path", MUTED).size(11))
+                    button(label("+ Attach", MUTED).size(11))
                         .on_press_maybe(
                             (self.file_context().allowed
                                 && !self.files.editor_open()
                                 && self.files.ticket().is_none()
                                 && !self.files.pending()
-                                && !self.files.prompt_pending())
-                            .then_some(Message::FileOpen)
+                                && !self.files.prompt_pending()
+                                && !self.local_files.busy())
+                            .then_some(Message::FileChoose)
                         )
                         .style(design::button_style)
                         .padding([6, 9])
@@ -2680,39 +2984,34 @@ impl App {
         });
         value.map_or_else(|| title(session), |(_, value)| projected_title(session, Some(value)))
     }
-    fn navigation_sessions(&self) -> Vec<&SessionSummary> {
-        let filter = self.filter.to_lowercase();
-        let ids = self
-            .workspace
-            .as_ref()
+    fn navigation_workspace_ids(&self) -> Option<&[SessionId]> {
+        self.workspace.as_ref()
             .and_then(|id| self.workspaces.iter().find(|w| &w.workspace_id == id))
-            .map(|w| &w.session_ids);
-        let mut sessions: Vec<_> = self
-            .sessions
-            .values()
-            .filter(|s| {
+            .map(|w| w.session_ids.as_slice())
+    }
+    fn navigation_candidates(&self) -> impl Iterator<Item = &SessionSummary> {
+        self.navigation_candidates_for(self.navigation_workspace_ids())
+    }
+    fn navigation_candidates_for<'a>(&'a self, ids: Option<&'a [SessionId]>) -> impl Iterator<Item = &'a SessionSummary> {
+        let filter = self.filter.to_lowercase();
+        let mut membership = workspace_membership::Membership::new(ids);
+        self.sessions.values().filter(move |s| {
                 self.management.registry.archived(&s.session_id) == self.show_archived
-                    && ids.is_none_or(|ids| ids.contains(&s.session_id))
+                    && membership.contains(&s.session_id)
                     && (filter.is_empty()
                         || s.session_id.as_str().to_lowercase().contains(&filter)
                         || self.session_title(s).to_lowercase().contains(&filter))
             })
-            .collect();
-        sessions.sort_by(|a, b| {
-            self.management
-                .registry
-                .pin_rank(&a.session_id)
-                .unwrap_or(usize::MAX)
-                .cmp(
-                    &self
-                        .management
-                        .registry
-                        .pin_rank(&b.session_id)
-                        .unwrap_or(usize::MAX),
-                )
-                .then(b.updated_at.cmp(&a.updated_at))
-                .then(a.session_id.cmp(&b.session_id))
-        });
+    }
+    fn navigation_sessions(&self) -> Vec<&SessionSummary> {
+        let ids = self.navigation_workspace_ids();
+        if ids.is_some_and(|ids| ids.is_empty()) { return Vec::new(); }
+        let capacity = if self.filter.is_empty() {
+            ids.map_or(self.sessions.len(), |ids| ids.len().min(self.sessions.len()))
+        } else { 0 };
+        let mut sessions = Vec::with_capacity(capacity);
+        sessions.extend(self.navigation_candidates_for(ids));
+        sessions.sort_by(|a, b| self.navigation_order(a, b));
         sessions
     }
     fn session_navigation(&self) -> Element<'_, Message> {
@@ -2721,25 +3020,27 @@ impl App {
         let mut list = Column::new().spacing(3);
         for session in sessions.into_iter().take(200) {
             let active = self.selected.as_ref() == Some(&session.session_id);
-            let marker = if session.running {
-                "●"
-            } else if self.management.registry.pinned(&session.session_id) {
-                "•"
-            } else {
-                ""
-            };
+            let mut identity = column![label(
+                short(&self.session_title(session), 28),
+                if active || session.running { TEXT } else { MUTED },
+            ).size(13)].spacing(3).width(Length::Fill);
+            if !session.agent_available {identity=identity.push(label("Resume · queued input may run",MUTED).size(11));}
+            if let Some(status) = self.working_label(session) {
+                identity = identity.push(label(status,
+                    if self.running_status_live() { design::FOAM } else { MUTED }).size(11));
+            }
+            let mut content = row![].spacing(8).align_y(iced::Alignment::Center);
+            if session.running && self.running_status_live() {
+                content = content.push(working_indicator::view(self.working_phase));
+            }
+            content = content.push(identity);
+            if self.management.registry.pinned(&session.session_id) {
+                content = content.push(label("•", design::FOAM).size(10));
+            }
             list = list.push(
-                button(row![
-                    label(
-                        short(&self.session_title(session), 28),
-                        if active { TEXT } else { MUTED }
-                    )
-                    .size(13)
-                    .width(Length::Fill),
-                    label(marker, design::FOAM).size(10)
-                ])
+                button(content)
                 .on_press_maybe(
-                    self.ready
+                    (self.ready && !self.observations_lost && self.pending.is_empty())
                         .then_some(Message::Select(session.session_id.clone())),
                 )
                 .style(move |theme, status| design::navigation(theme, status, active))
@@ -2946,6 +3247,91 @@ impl App {
         .height(Length::Fill)
         .into()
     }
+    fn reply_parts(&self, key: u64) -> Option<std::rc::Rc<conversation_content::Prepared>> {
+        if let Some(prepared) = self.reply_content.get(self.generation,key) { return Some(prepared); }
+        let parts = if key == u64::MAX { self.transcript.partial_parts() } else { self.transcript.assistant_parts(key) }?;
+        Some(self.reply_content.prepare(self.generation, key, parts.reasoning, parts.answer))
+    }
+    fn row_copy_source(&self, key: u64) -> Option<String> {
+        if key == u64::MAX { return None; } // Only a frozen durable source is copied.
+        let row = self.transcript.display_rows(self.records_expanded).find(|row| row.key == key)?;
+        if let Some(parts) = self.transcript.assistant_parts(key) { return (!parts.answer.is_empty()).then_some(parts.answer); }
+        ((row.role == "You" || self.transcript.assistant_record(key)) && !row.text.is_empty()).then(|| row.text.clone())
+    }
+    fn edit_message_allowed(&self, generation: u64, key: u64) -> bool {
+        generation == self.generation && self.composer_visible() && self.layout_controls_enabled()
+            && self.pending.is_empty() && !self.observations_lost && self.files.ticket().is_none()
+            && self.draft_serial != u64::MAX && self.transcript.editable_text(key).is_some()
+    }
+    fn populate_message_draft(&mut self, key: u64) {
+        if let Some(text) = self.transcript.editable_text(key) {
+            self.draft_serial = self.draft_serial.saturating_add(1);
+            self.editor = text_editor::Content::with_text(&text);
+            self.touch_draft();
+            self.edit_review = None;
+            self.status = "Copied into the composer. Edit, then Send explicitly; existing conversation is unchanged.".into();
+        }
+    }
+    fn active_search(&self) -> &str { if self.search_open { &self.search_query } else { "" } }
+    fn search_hits(&self) -> Vec<u64> {
+        let query=self.active_search();
+        if query.is_empty() {return Vec::new();}
+        let mut hits:Vec<_>=self.transcript.display_rows(self.records_expanded).filter(|row| {
+            if let Some(reply)=self.reply_parts(row.key) {reply.matches(query)}
+            else if row.role=="You" {conversation_search::contains(&row.text,query)}
+            else {false}
+        }).map(|row|row.key).collect();
+        if self.transcript.partial().is_some() && self.reply_parts(u64::MAX).is_some_and(|reply|reply.matches(query)) { hits.push(u64::MAX); }
+        hits
+    }
+    fn search_expands_user(&self,row:&DisplayRow)->bool {
+        row.role=="You" && !self.active_search().is_empty() && self.search_cursor==Some(row.key)
+    }
+    fn jump_search(&mut self, backwards:bool, first:bool) -> Task<Message> {
+        let hits=self.search_hits();
+        if hits.is_empty() {self.search_cursor=None;return self.reflow_transcript(None);}
+        let current=self.search_cursor.and_then(|key|hits.iter().position(|candidate|*candidate==key));
+        let index=if first {0}else if backwards {current.map_or(hits.len()-1,|index|(index+hits.len()-1)%hits.len())}else{current.map_or(0,|index|(index+1)%hits.len())};
+        let key=hits[index]; self.search_cursor=Some(key);
+        if self.reply_parts(key).is_some_and(|reply|conversation_search::contains(&reply.reasoning,self.active_search())) {self.thoughts_expanded.insert(key);}
+        let partial=self.transcript.partial().map(|text|DisplayRow {key:u64::MAX,role:"Assistant · live".into(),text,time:0,surface:false});
+        let rows:Vec<_>=self.transcript.display_rows(self.records_expanded).chain(partial.as_ref()).collect();
+        let geometries=self.row_geometries(&rows);
+        if let Some(index)=rows.iter().position(|row|row.key==key) {
+            let width=(geometries[index].width-28.0).max(1.0);
+            let inside=if let Some(reply)=self.reply_parts(key) {reply.first_match_offset(width,self.thoughts_expanded.contains(&key),self.active_search())}
+                else {conversation_content::plain_first_match_offset(&rows[index].text,width,15.0,self.active_search())};
+            self.offset=(geometries[..index].iter().map(|geometry|geometry.height).sum::<f32>()+49.0+inside-12.0).max(0.0);
+            self.follow_bottom=false;
+        }
+        self.invalidate_scroll(); self.position_transcript()
+    }
+    fn search_bar(&self)->Element<'_,Message> {
+        let generation=self.generation; let serial=self.search_serial;
+        let hits=self.search_hits();
+        let current=self.search_cursor.and_then(|key|hits.iter().position(|candidate|*candidate==key)).map_or(0,|index|index+1);
+        container(row![text_input("Find in loaded messages…",&self.search_query).id("native-chat-search")
+            .on_input(move |query|Message::SearchInput {generation,serial,query}).style(design::input_style).size(13).width(Length::Fill),
+            label(format!("{current}/{} messages",hits.len()),MUTED).size(11),
+            button(label("↑",MUTED)).on_press_maybe((!hits.is_empty()).then_some(Message::SearchNext {generation,serial,backwards:true})).style(design::button_style),
+            button(label("↓",MUTED)).on_press_maybe((!hits.is_empty()).then_some(Message::SearchNext {generation,serial,backwards:false})).style(design::button_style),
+            button(label("Close",MUTED).size(11)).on_press(Message::SearchClose {generation,serial}).style(design::button_style)]
+            .spacing(6).align_y(iced::Alignment::Center)).padding([4,20]).into()
+    }
+    fn row_geometry(&self, row: &DisplayRow, lane: f32) -> chat_geometry::Geometry {
+        if let Some(reply) = self.reply_parts(row.key) {
+            let width = (lane - 8.0).clamp(37.0, 800.0);
+            let body_height = reply.body_height(width - 28.0, self.thoughts_expanded.contains(&row.key));
+            return chat_geometry::Geometry { width, body_height, height: 67.0 + body_height + 22.0 };
+        }
+        let mut geometry = self.chat_geometry.geometry(row.key, &row.role, &excerpt(&row.text), lane);
+        if self.search_expands_user(row) {
+            geometry.body_height=conversation_content::plain_height(&row.text,geometry.width-28.0,15.0,FONT,false).max(20.0);
+            geometry.height=67.0+geometry.body_height;
+        }
+        if row.role == "You" || row.role.starts_with("Assistant") || row.role == "Interrupted assistant attempt" { geometry.height += 22.0; }
+        geometry
+    }
     fn row_geometries(&self, rows: &[&DisplayRow]) -> Vec<chat_geometry::Geometry> {
         // Match the real sidebar animation and centered padded scroll lane.
         let lane =
@@ -2957,9 +3343,8 @@ impl App {
                 .map(|row| row.key)
                 .chain(std::iter::once(u64::MAX)),
         );
-        rows.iter()
-            .map(|row| cache.geometry(row.key, &row.role, &excerpt(&row.text), lane))
-            .collect()
+        self.reply_content.retain(rows.iter().map(|row| row.key).chain(std::iter::once(u64::MAX)));
+        rows.iter().map(|row| self.row_geometry(row, lane)).collect()
     }
     fn scroll_projection(&self) -> (Vec<u64>, Vec<f32>, f32) {
         let rows: Vec<_> = self
@@ -2974,9 +3359,7 @@ impl App {
         let lane =
             (self.layout_size().width - self.sidebar_motion.value() - 40.0).min(design::CHAT);
         let trailing = self.transcript.partial().map_or(0.0, |text| {
-            self.chat_geometry
-                .geometry(u64::MAX, "Assistant · live", &excerpt(&text), lane)
-                .height
+            self.row_geometry(&DisplayRow { key:u64::MAX, role:"Assistant · live".into(), text, time:0, surface:false },lane).height
         });
         (rows.iter().map(|r| r.key).collect(), heights, trailing)
     }
@@ -3113,7 +3496,7 @@ impl App {
             .collect();
         if rendered.is_empty() {
             self.chat_geometry.retain_keys(std::iter::empty());
-            return self.welcome(len);
+            return if self.search_open {column![self.search_bar(),self.welcome(len)].height(Length::Fill).into()}else{self.welcome(len)};
         }
         let geometries = self.row_geometries(&rendered);
         let heights: Vec<_> = geometries.iter().map(|g| g.height).collect();
@@ -3191,7 +3574,7 @@ impl App {
                 let geometry = geometries[index];
                 let header = row![
                     label(
-                        record.role.clone(),
+                        if self.transcript.submitted_input(record.key) { "You · sent".into() } else { record.role.clone() },
                         if assistant { design::FOAM } else { ACCENT }
                     )
                     .size(12)
@@ -3213,17 +3596,21 @@ impl App {
                     .padding([2, 4])
                 ]
                 .align_y(iced::Alignment::Center);
-                let card = column![
-                    container(header).height(24).clip(true),
-                    container(
-                        label(excerpt(&record.text), TEXT)
-                            .size(15)
-                            .width(geometry.width - 28.0)
-                    )
-                    .height(geometry.body_height)
-                    .clip(true)
-                ]
-                .spacing(7);
+                let body: Element<'_,Message> = if let Some(reply) = self.reply_parts(record.key) {
+                    reply.view_search(geometry.width - 28.0,self.thoughts_expanded.contains(&record.key),self.active_search())
+                } else {
+                    let source=if self.search_expands_user(record) {record.text.clone()}else{excerpt(&record.text)};
+                    conversation_content::plain_view(&source,self.active_search(),15,TEXT)
+                };
+                let mut footer = row![button(label("Copy",MUTED).size(10))
+                    .on_press_maybe(self.row_copy_source(record.key).is_some().then_some(Message::CopyMessage {generation:self.generation,key:record.key}))
+                    .style(design::button_style).padding([1,2])].spacing(6).height(18);
+                if human && self.transcript.editable_text(record.key).is_some() {
+                    footer=footer.push(button(label("Edit",MUTED).size(10)).on_press_maybe(self.edit_message_allowed(self.generation,record.key)
+                        .then_some(Message::EditMessage {generation:self.generation,key:record.key})).style(design::button_style).padding([1,2]));
+                }
+                let card = column![container(header).height(24).clip(true),Space::new().height(7),
+                    container(body).height(geometry.body_height).clip(true),Space::new().height(4),footer];
                 container(card)
                     .padding([10, 14])
                     .width(geometry.width)
@@ -3243,7 +3630,7 @@ impl App {
                         } else {
                             record.role.clone()
                         },
-                        if self.transcript.inbox_canceled(record.key) {
+                        if self.transcript.inbox_canceled(record.key) || self.transcript.turn_notice(record.key) {
                             DANGER
                         } else if assistant {
                             design::FOAM
@@ -3252,7 +3639,7 @@ impl App {
                         }
                     )
                     .size(12),
-                    container(label(excerpt(&record.text), TEXT).size(15))
+                    container(label(excerpt(&record.text), if self.transcript.turn_notice(record.key) { DANGER } else { TEXT }).size(15))
                         .height(75)
                         .clip(true),
                     button(label("Read more ▸", MUTED).size(10))
@@ -3330,6 +3717,7 @@ impl App {
             )
             .on_press(Message::ToggleRecords)
             .style(design::button_style),
+            button(label("Find",MUTED).size(11)).on_press(Message::SearchOpen).style(design::button_style),
             Space::new().width(Length::Fill),
             button(
                 label(
@@ -3352,17 +3740,16 @@ impl App {
         let lane = container(contents)
             .max_width(design::CHAT)
             .width(Length::Fill);
-        column![
-            container(controls).padding([2, 20]),
-            scrollable(container(lane).center_x(Length::Fill).padding([0, 20]))
+        let mut chat=column![container(controls).padding([2,20])];
+        if self.search_open {chat=chat.push(self.search_bar());}
+        chat.push(scrollable(container(lane).center_x(Length::Fill).padding([0, 20]))
                 .id(self.scroll_id())
                 .on_scroll(move |viewport| Message::Scrolled {
                     generation,
                     revision,
                     viewport
                 })
-                .height(Length::Fill)
-        ]
+                .height(Length::Fill))
         .height(Length::Fill)
         .into()
     }
@@ -3391,6 +3778,15 @@ impl App {
         ]
         .spacing(18)
         .align_x(iced::Alignment::Center);
+        if selected && self.transcript.has_more() {
+            hero = hero.push(row![
+                button(label(if self.page_pending { "Loading older messages…" } else { "Older messages" }, MUTED).size(12))
+                    .on_press_maybe((self.ready && self.follow_ready && !self.page_pending).then_some(Message::Older))
+                    .style(design::button_style),
+                button(label("Reload", MUTED).size(12))
+                    .on_press_maybe(self.ready.then_some(Message::Reload)).style(design::button_style),
+            ].spacing(8));
+        }
         if records > 0 {
             hero = hero.push(
                 button(label(format!("Show {records} session records"), MUTED).size(12))
@@ -3500,7 +3896,7 @@ impl App {
     }
     fn close_view(&self) -> Element<'_, Message> {
         let mut content = column![label("Close native Harness", ACCENT)].spacing(16);
-        match &self.close {Close::Inspecting=>content=content.push(label("Inspecting owned Core outside the GUI thread…",TEXT)),Close::Confirm(reason)=>content=content.push(label(reason,TEXT)).push(row![button("Stay").on_press(Message::Stay),button("Close and stop own backend").on_press(Message::ConfirmClose)].spacing(12)),Close::Stopping=>content=content.push(label("Closing native subscriptions and transport; waiting for owned Core exit, containment and any admitted filesystem save (not cancellable; partial files may remain)…",TEXT)),Close::Failed(reason)=>content=content.push(label(reason,DANGER)).push(row![button("Stay").on_press(Message::Stay),button("Exit anyway (result uncertain)").on_press_maybe(self.stopped.then_some(Message::ExitAnyway))].spacing(12)),Close::None=>{}}
+        match &self.close {Close::Inspecting=>content=content.push(label("Inspecting owned Core outside the GUI thread…",TEXT)),Close::Confirm(reason)=>content=content.push(label(reason,TEXT)).push(row![button("Stay").on_press(Message::Stay),button("Close and stop own backend").on_press(Message::ConfirmClose)].spacing(12)),Close::Stopping=>content=content.push(label("Closing native subscriptions and transport; waiting for owned Core exit, containment and any admitted filesystem save (not cancellable; partial files may remain)…",TEXT)),Close::Failed(reason)=>content=content.push(label(reason,DANGER)).push(row![button("Stay").on_press(Message::Stay),button("Exit anyway (result uncertain)").on_press_maybe((self.stopped && !self.draft_state.busy() && !self.local_files.busy()).then_some(Message::ExitAnyway))].spacing(12)),Close::None=>{}}
         container(
             container(content)
                 .padding(28)
@@ -3548,6 +3944,7 @@ pub(crate) fn label<'a>(
 fn layout_shortcut(key: &keyboard::Key, modifiers: keyboard::Modifiers) -> Option<Message> {
     if modifiers.control() && !modifiers.alt() && !modifiers.logo() && !modifiers.shift() {
         if let keyboard::Key::Character(value) = key {
+            if value.eq_ignore_ascii_case("f") { return Some(Message::SearchOpen); }
             if value.eq_ignore_ascii_case("b") {
                 return Some(Message::ToggleSidebar);
             }
@@ -3583,14 +3980,10 @@ fn short(value: &str, count: usize) -> String {
         result
     }
 }
+#[path = "text_excerpt.rs"]
+mod text_excerpt;
 fn excerpt(value: &str) -> String {
-    let mut lines = value.lines();
-    let first = lines.by_ref().take(4).collect::<Vec<_>>().join("\n");
-    let mut result = short(&first, 240);
-    if lines.next().is_some() && !result.ends_with('…') {
-        result.push('…');
-    }
-    result
+    text_excerpt::excerpt(value)
 }
 fn brand<'a>() -> Element<'a, Message> {
     container(label("H", ACCENT).size(19))
@@ -3646,6 +4039,11 @@ fn background_message(message: &Message) -> bool {
     matches!(
         message,
         Message::FileOpen
+            | Message::FileChoose
+            | Message::FilePicker(_)
+            | Message::FileDropped(..)
+            | Message::FileDropCancelled(..)
+            | Message::FilePreview(_)
             | Message::FilePath(..)
             | Message::FileUpload(_)
             | Message::FileCancel(_)
@@ -3656,6 +4054,8 @@ fn background_message(message: &Message) -> bool {
             | Message::ToggleRecords
             | Message::Editor(_)
             | Message::Send
+            | Message::KeyboardSend
+            | Message::ModelControls(_)
             | Message::Stop
             | Message::Select(_)
             | Message::Workspace(_)
@@ -3675,6 +4075,18 @@ fn background_message(message: &Message) -> bool {
             | Message::Details(_)
             | Message::DetailMode(..)
             | Message::CopyDetailSource(_)
+            | Message::ToggleThoughts(_)
+            | Message::CopyCode(..)
+            | Message::CopyMessage {..}
+            | Message::EditMessage {..}
+            | Message::ConfirmEdit {..}
+            | Message::CancelEdit
+            | Message::DraftReload
+            | Message::ReviewRecovered {..}
+            | Message::SearchOpen
+            | Message::SearchInput {..}
+            | Message::SearchNext {..}
+            | Message::SearchClose {..}
             | Message::HideDetails(_)
             | Message::Capabilities
             | Message::Interaction(_)
@@ -3999,13 +4411,12 @@ fn composer_binding(
     send_enabled: bool,
 ) -> Option<text_editor::Binding<Message>> {
     if matches!(event.status, text_editor::Status::Focused { .. }) {
-        if event.modifiers.control()
-            && !event.modifiers.alt()
+        if !event.modifiers.alt()
             && !event.modifiers.logo()
             && !event.modifiers.shift()
             && matches!(event.key, keyboard::Key::Named(keyboard::key::Named::Enter))
         {
-            return send_enabled.then_some(text_editor::Binding::Custom(Message::Send));
+            return send_enabled.then_some(text_editor::Binding::Custom(Message::KeyboardSend));
         }
         if let Some(message) = layout_shortcut(&event.key, event.modifiers) {
             return Some(text_editor::Binding::Custom(message));
@@ -4131,6 +4542,9 @@ mod scroll_operation;
 #[cfg(test)]
 #[path = "scroll_ui_tests.rs"]
 mod scroll_ui_tests;
+#[cfg(test)]
+#[path = "navigation_efficiency_tests.rs"]
+mod navigation_efficiency_tests;
 #[cfg(test)]
 #[path = "transcript_layout_tests.rs"]
 mod transcript_layout_tests;
@@ -4271,6 +4685,11 @@ mod tests {
         app.offset = 40.0;
         app.viewport = 20.0;
         app.follow_bottom = false;
+        let before_rows: Vec<_> = app.transcript.display_rows(false).collect();
+        let before_geometry = app.row_geometries(&before_rows);
+        assert_eq!(before_rows[0].key, 4);
+        assert!(app.offset + app.viewport < before_geometry[0].height);
+        let within = app.offset;
         let mut records: Vec<_> = ["permission/preset", "sandbox/mode", "approval/policy"]
             .iter()
             .enumerate()
@@ -4289,7 +4708,13 @@ mod tests {
         });
         assert_eq!(app.transcript.rows().len(), 5);
         assert_eq!(chat_row_count(app.transcript.rows()), 2);
-        assert_eq!(app.offset, 127.0); // Same tail key/intra40 after one visible87px user row; diagnostics stay retained.
+        let after_rows: Vec<_> = app.transcript.display_rows(false).collect();
+        assert_eq!(after_rows.iter().map(|row| row.key).collect::<Vec<_>>(), [3, 4]);
+        let after_geometry = app.row_geometries(&after_rows);
+        let anchor_index = after_rows.iter().position(|row| row.key == 4).unwrap();
+        let prefix = after_geometry[..anchor_index].iter().map(|row| row.height).sum::<f32>();
+        assert_eq!(app.offset - prefix, within);
+        assert!(app.offset + app.viewport < after_geometry.iter().map(|row| row.height).sum::<f32>());
     }
     #[test]
     fn workspace_controls_toggle_is_view_only() {
@@ -4375,16 +4800,17 @@ mod tests {
         }
     }
     #[test]
-    fn bare_enter_is_newline_and_ctrl_enter_requires_send_permission() {
-        assert!(matches!(
-            composer_binding(enter(keyboard::Modifiers::empty()), true),
-            Some(text_editor::Binding::Enter)
-        ));
-        assert!(composer_binding(enter(keyboard::Modifiers::CTRL), false).is_none());
-        assert!(matches!(
-            composer_binding(enter(keyboard::Modifiers::CTRL), true),
-            Some(text_editor::Binding::Custom(Message::Send))
-        ));
+    fn enter_and_ctrl_enter_require_nonempty_send_permission_shift_enter_is_newline() {
+        for modifiers in [keyboard::Modifiers::empty(), keyboard::Modifiers::CTRL] {
+            assert!(composer_binding(enter(modifiers), false).is_none());
+            assert!(matches!(composer_binding(enter(modifiers), true), Some(text_editor::Binding::Custom(Message::KeyboardSend))));
+        }
+        for allowed in [false,true] {
+            assert!(matches!(composer_binding(enter(keyboard::Modifiers::SHIFT), allowed), Some(text_editor::Binding::Enter)));
+        }
+        let mut unfocused = enter(keyboard::Modifiers::empty());
+        unfocused.status = text_editor::Status::Active;
+        assert!(!matches!(composer_binding(unfocused,true),Some(text_editor::Binding::Custom(Message::KeyboardSend))));
     }
     #[test]
     fn modal_and_nonconversation_panels_cannot_submit_stale_editor() {
@@ -4664,6 +5090,7 @@ mod tests {
         assert!(receiver.try_recv().is_err());
     }
     include!("export_ui_tests.rs");
+    include!("catalog_ui_tests.rs");
     fn app() -> (App, tokio::sync::mpsc::Receiver<Command>) {
         let (handle, feed, receiver, _events, _closing) = worker::test_channels();
         let options = crate::config::parse(
@@ -4692,9 +5119,11 @@ mod tests {
         let (mut window, mut receiver) = app();
         assert_eq!(window.account, "Account metadata not loaded");
         let _ = window.receive(Event::Ready("0.2.1-alpha.1".into()));
+        assert!(matches!(receiver.try_recv(), Ok(Command::Catalog(_))));
         let _ = window.view();
         assert!(window.ready);
         assert_eq!(window.account, "Account metadata not loaded");
+        // The startup catalog is the only automatic read; rendering never requests account data.
         assert!(receiver.try_recv().is_err());
     }
     #[test]
@@ -4734,6 +5163,8 @@ mod tests {
     fn optional_account_loss_does_not_disconnect_or_request_recovery() {
         let (mut window, mut receiver) = app();
         let _ = window.receive(Event::Ready("0.2.1-alpha.1".into()));
+        assert!(matches!(receiver.try_recv(), Ok(Command::Catalog(_))));
+        assert!(receiver.try_recv().is_err());
         let account = PublicEvent::Account(dsh_native_core::AccountMetadata {
             status: dsh_native_core::AccountStatus::CredentialStored,
             phase: Some(dsh_native_core::AttemptPhase::Succeeded),
@@ -4771,6 +5202,7 @@ mod tests {
         )));
         assert!(receiver.try_recv().is_err());
         let _ = app.receive(Event::Ready("0.2.1-alpha.1".into()));
+        assert!(matches!(receiver.try_recv(), Ok(Command::Catalog(_))));
         assert!(receiver.try_recv().is_err());
         let ticket = app.settings.plugin_read_ticket();
         let _ = app.update(Message::Settings(Action::Plugins(
@@ -4794,7 +5226,7 @@ mod tests {
             crate::plugins::Action::Refresh(ticket),
         )));
         assert!(receiver.try_recv().is_err());
-        assert!(!app.smoke_evidence.catalog_requested);
+        assert!(app.smoke_evidence.catalog_requested); // Only the drained startup catalog.
         assert_eq!(app.smoke_evidence.model_prompts, 0);
     }
     #[test]
@@ -4804,6 +5236,8 @@ mod tests {
         let _ = app.update(Message::Settings(Action::Open));
         let _ = app.update(Message::Settings(Action::SelectPage(Page::Plugins)));
         let _ = app.receive(Event::Ready("0.2.1-alpha.1".into()));
+        assert!(matches!(receiver.try_recv(), Ok(Command::Catalog(_))));
+        assert!(receiver.try_recv().is_err());
         for _ in 0..32 {
             assert!(app.handle.send(Command::Inspect).is_ok());
         }
@@ -4829,9 +5263,11 @@ mod tests {
         assert_eq!(app.settings.input_ticket().epoch, 0);
         assert!(receiver.try_recv().is_err());
         let _ = app.receive(Event::Ready("0.2.1-alpha.1".into()));
+        assert!(matches!(receiver.try_recv(), Ok(Command::Catalog(_))));
         assert!(app.settings.is_open());
         assert_eq!(app.settings.input_ticket().epoch, worker::TRANSPORT_EPOCH);
         assert!(app.settings_enabled());
+        // Startup catalog loading must not cause Settings/key/plugin reads.
         assert!(receiver.try_recv().is_err());
     }
     #[test]
@@ -4861,8 +5297,9 @@ mod tests {
         assert!(matches!(app.close, Close::Confirm(_)));
     }
     #[test]
-    fn send_is_typed_and_failed_acceptance_preserves_draft() {
+    fn send_is_typed_and_failed_acceptance_preserves_draft_and_identity() {
         let (mut app, mut receiver) = app();
+        app.transport_epoch=worker::TRANSPORT_EPOCH;
         app.ready = true;
         app.root_ready = true;
         app.follow_ready = true;
@@ -4873,12 +5310,15 @@ mod tests {
         assert!(
             matches!(receiver.try_recv(),Ok(Command::Prompt{request,..}) if request.client_time_zone.as_deref()==Some("UTC") && matches!(&request.content[0],PromptContentPart::Text{text} if text=="hello 世界"))
         );
+        let request_id=app.pending.ticket().unwrap().request_id;
         let _ = app.receive(Event::Prompt {
             generation: 0,
+            request_id,
             result: Err("session/model-unavailable".into()),
         });
         assert_eq!(app.editor.text(), "hello 世界");
-        assert!(app.pending.is_empty());
+        assert!(!app.pending.is_empty());
+        assert!(!app.send_allowed());
     }
     #[test]
     fn smoke_fences_user_generation_and_catalog_clicks() {

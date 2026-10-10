@@ -61,6 +61,16 @@ impl SelectedFile {
     /// Cancellation is cooperative, not kernel-I/O cancellation, confinement or an atomic snapshot.
     /// NOFOLLOW rejects the final symlink only; parent symlinks and ordinary path traversal remain.
     pub fn read(self, canceled: impl Fn() -> bool) -> Result<FileUpload, Failure> {
+        let (name, bytes) = self.read_local(canceled)?;
+        FileUpload::new(bytes, Some(name)).map_err(|_| Failure::InvalidSelection)
+    }
+
+    /// Bounded local preview snapshot, never an upload body or receipt. Worker-only.
+    pub fn read_preview(self, canceled: impl Fn() -> bool) -> Result<Vec<u8>, Failure> {
+        self.read_local(canceled).map(|(_, bytes)| bytes)
+    }
+
+    fn read_local(self, canceled: impl Fn() -> bool) -> Result<(String, Vec<u8>), Failure> {
         if canceled() {
             return Err(Failure::Canceled);
         }
@@ -79,7 +89,7 @@ impl SelectedFile {
             return Err(Failure::NotRegular);
         }
         let size = u64::try_from(stat.st_size).map_err(|_| Failure::Unavailable)?;
-        read_upload(File::from(fd), size, name, canceled)
+        read_bytes(File::from(fd), size, canceled).map(|bytes| (name, bytes))
     }
 }
 
@@ -95,12 +105,22 @@ fn leaf(path: &Path) -> Result<&str, Failure> {
     .map_err(|_| Failure::InvalidSelection)
 }
 
+#[cfg(test)]
 fn read_upload(
-    mut reader: impl Read,
+    reader: impl Read,
     initial_size: u64,
     name: String,
     canceled: impl Fn() -> bool,
 ) -> Result<FileUpload, Failure> {
+    FileUpload::new(read_bytes(reader, initial_size, canceled)?, Some(name))
+        .map_err(|_| Failure::InvalidSelection)
+}
+
+fn read_bytes(
+    mut reader: impl Read,
+    initial_size: u64,
+    canceled: impl Fn() -> bool,
+) -> Result<Vec<u8>, Failure> {
     if canceled() {
         return Err(Failure::Canceled);
     }
@@ -134,7 +154,7 @@ fn read_upload(
     if canceled() {
         return Err(Failure::Canceled);
     }
-    FileUpload::new(bytes, Some(name)).map_err(|_| Failure::InvalidSelection)
+    Ok(bytes)
 }
 
 #[cfg(test)]

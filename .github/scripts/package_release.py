@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Package one tested Git checkout as an external-runtime Linux development build."""
 import argparse
+from datetime import date
 import hashlib
 import importlib.util
 import json
@@ -15,16 +16,19 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def release_identity(manifest, commit, run_number):
-    """Return a unique development tag from the app version, Git SHA and CI run."""
+    """Legacy versions use CI run tags; calendar releases are published explicitly."""
     version = tomllib.loads(manifest)['package']['version']
-    if not re.fullmatch(r'(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)', version):
-        raise ValueError('App version must be a plain semantic version')
+    calendar = re.fullmatch(r'([1-9]\d{3})\.([1-9]\d?)\.([1-9]\d?)-r[1-9]\d*', version)
+    if calendar:
+        date(*(int(part) for part in calendar.groups()))
+    elif not re.fullmatch(r'(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)', version):
+        raise ValueError('App version must be plain semantic or calendar year.month.day-rN')
     if not re.fullmatch(r'[0-9a-f]{40}', commit):
         raise ValueError('Expected a full Git commit SHA')
     if not re.fullmatch(r'[1-9]\d*', run_number):
         raise ValueError('Expected a positive GitHub run number')
-    return {'packageVersion': version, 'releaseTag': f'v{version}-dev.{run_number}',
-            'commit': commit, 'runNumber': run_number}
+    return {'packageVersion': version, 'releaseTag': f'v{version}' if calendar else f'v{version}-dev.{run_number}',
+            'commit': commit, 'runNumber': run_number, 'automaticRelease': not bool(calendar)}
 
 
 def command(*args):
@@ -53,6 +57,10 @@ def main():
     if commit != os.environ['GITHUB_SHA']:
         raise ValueError('Checkout differs from the triggering commit')
     identity = release_identity((ROOT / 'app/Cargo.toml').read_text(), commit, os.environ['GITHUB_RUN_NUMBER'])
+    if not identity['automaticRelease']:
+        # No tag output: CI must not race an explicitly verified calendar release's assets.
+        print(json.dumps({**identity, 'status': 'checks-only-explicit-calendar-publication'}))
+        return
     binary = args.binary.resolve(strict=True)
     if not binary.is_file() or binary.is_symlink() or not os.access(binary, os.X_OK):
         raise ValueError('Expected a built executable')

@@ -68,6 +68,37 @@ class PackageQualificationGuards(unittest.TestCase):
             changed = valid(); changed[field] = value
             self.assertFalse(Q.valid_app(changed, 12, 1.0))
 
+    def test_warm_cpu_uses_the_full_stable_window_and_reports_resolution(self):
+        samples = [dict(at=3.0, ticks={'12:1': 100, '13:2': 10}),
+                   dict(at=3.2, ticks={'12:1': 100, '13:2': 10}),
+                   dict(at=6.5, ticks={'12:1': 105, '13:2': 10})]
+        with patch.object(Q.REG.NATIVE.METRICS, 'HZ', 100):
+            result = Q.warm_cpu_window(samples)
+        self.assertTrue(result['identitiesStable'])
+        self.assertEqual(result['seconds'], 3.5)
+        self.assertAlmostEqual(result['cpuPercentOneCore'], 5 / 3.5)
+        self.assertAlmostEqual(result['oneTickPercentOneCore'], 1 / 3.5)
+
+    def test_warm_cpu_does_not_call_identity_churn_between_matching_endpoints_zero(self):
+        samples = [dict(at=3.0, ticks={'12:1': 100, '13:2': 10}),
+                   dict(at=4.0, ticks={'12:1': 100}),
+                   dict(at=6.5, ticks={'12:1': 100, '13:2': 10})]
+        result = Q.warm_cpu_window(samples)
+        self.assertFalse(result['identitiesStable'])
+        self.assertIsNone(result['cpuPercentOneCore'])
+
+    def test_warm_cpu_requires_bounded_positive_time_monotonic_counters_and_identities(self):
+        valid_samples = [dict(at=3.0, ticks={'12:1': 100}), dict(at=6.5, ticks={'12:1': 100})]
+        with patch.object(Q.REG.NATIVE.METRICS, 'HZ', 100):
+            self.assertEqual(Q.warm_cpu_window(valid_samples)['cpuPercentOneCore'], 0)
+        for samples in ([], valid_samples[:1], valid_samples * (Q.MAX_RESOURCE_SAMPLES + 1),
+                        [dict(at=3.0, ticks={}), dict(at=4.0, ticks={})],
+                        [valid_samples[0], dict(at=3.0, ticks={'12:1': 100})],
+                        [valid_samples[0], dict(at=2.0, ticks={'12:1': 100})],
+                        [valid_samples[0], dict(at=4.0, ticks={'12:1': 99})]):
+            with self.subTest(samples=samples[:2]):
+                self.assertIsNone(Q.warm_cpu_window(samples)['cpuPercentOneCore'])
+
     def test_no_model_and_clean_owned_stop_are_required(self):
         for field, value in (('modelPrompts', 1), ('modelCatalogRequested', True), ('deadlineReached', False), ('stopError', True)):
             changed = valid(); changed[field] = value

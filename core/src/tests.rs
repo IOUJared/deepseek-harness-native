@@ -6,6 +6,9 @@ use std::{fs, os::unix::fs::PermissionsExt};
 mod agent_discovery_tests;
 #[path = "secret_tests.rs"]
 mod secret_tests;
+#[cfg(feature = "transport")]
+#[path = "owned_host_probe_tests.rs"]
+mod owned_host_probe_tests;
 
 #[cfg(feature = "transport")]
 const HTTP_FIXTURE: &str = r#"
@@ -487,6 +490,42 @@ fn busy_writer_returns_immediately_without_poisoning() {
         assert!(!backend.inner.poisoned.load(Ordering::Acquire));
     }
     assert!(backend.stop().unwrap().graceful);
+}
+
+#[test]
+fn close_retries_a_busy_control_writer_before_the_grace_deadline() {
+    let fixture = Fixture::new();
+    let (backend, _) = fixture.spawn(NORMAL);
+    backend.wait_ready().unwrap();
+    let guard = backend.inner.input.lock().unwrap();
+    let stop = backend.stop_async();
+    assert!(matches!(
+        stop.recv_timeout(Duration::from_millis(60)),
+        Err(mpsc::RecvTimeoutError::Timeout)
+    ));
+    drop(guard);
+    let result = stop.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert!(result.exited);
+    assert!(result.graceful);
+    assert!(!result.containment_unknown);
+    assert_eq!(result.observed_descendants_remaining, 0);
+}
+
+#[test]
+fn close_with_a_permanently_busy_writer_keeps_bounded_owned_escalation() {
+    let fixture = Fixture::new();
+    let (backend, _) = fixture.spawn(NORMAL);
+    backend.wait_ready().unwrap();
+    let guard = backend.inner.input.lock().unwrap();
+    let result = backend
+        .stop_async()
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap();
+    assert!(result.exited);
+    assert!(!result.graceful);
+    assert!(result.containment_unknown);
+    assert_eq!(result.observed_descendants_remaining, 0);
+    drop(guard);
 }
 
 #[test]

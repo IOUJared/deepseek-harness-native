@@ -68,8 +68,18 @@ class VerifyEndToEnd(unittest.TestCase):
         self.base = Path(self.temp.name).resolve()
         self.assertEqual(self.base.parent, Path(tempfile.gettempdir()).resolve())
         self.addCleanup(self.temp.cleanup)
-        for directory in ['app/evidence', 'app/target/release', 'app/src', 'core', 'scripts']:
+        for directory in ['app/evidence', 'app/target/release', 'scripts']:
             (self.base / directory).mkdir(parents=True, exist_ok=True)
+        # The unchanged-default builder validates all three native modules.
+        for module in ('app', 'core', 'transport'):
+            root = self.base / module
+            (root / 'src').mkdir(parents=True, exist_ok=True)
+            (root / 'Cargo.toml').write_text(
+                '[package]\nname = "PUBLIC-fixture-' + module + '"\n'
+                'version = "0.0.0"\nedition = "2024"\nlicense = "MIT"\n')
+            (root / 'Cargo.lock').write_text('# PUBLIC fixture; no Cargo execution\nversion = 4\n')
+            if module != 'app':
+                (root / 'src/lib.rs').write_bytes(b'// PUBLIC fixture source; never compiled\n')
         (self.base / 'app/target/release/dsh-native-app').write_bytes(b'PUBLIC fixture binary, never executed\n')
         (self.base / 'app/src/ui.rs').write_bytes(b'PUBLIC source one\n')
         (self.base / 'app/src/other.rs').write_bytes(b'PUBLIC source two\n')
@@ -121,6 +131,26 @@ class VerifyEndToEnd(unittest.TestCase):
     def inventory_case(self, inventory):
         self.inventory_path.write_text(json.dumps(inventory))
         return self.repack()
+
+    def test_fixture_matches_default_native_inputs_without_a_fake_ui_certificate(self):
+        selected_root, binary = B.native_inputs()
+        self.assertEqual(selected_root, self.base)
+        self.assertEqual(binary, self.base / 'app/target/release/dsh-native-app')
+        expected = {'source/native/' + module + '/' + name
+                    for module in ('app', 'core', 'transport')
+                    for name in ('Cargo.toml', 'Cargo.lock')}
+        expected.update({'source/native/app/src/ui.rs', 'source/native/app/src/other.rs',
+                         'source/native/core/src/lib.rs', 'source/native/transport/src/lib.rs',
+                         'source/native/core/LICENSE'})
+        self.assertEqual({entry['path'] for entry in self.inventory['files']}, expected)
+        self.assertEqual(self.inventory['fileCount'], len(expected))
+        manifest = json.loads((self.payload / 'development-manifest.json').read_text())
+        self.assertEqual(manifest['runtimeVersion'], B.L.VERSION)
+        self.assertFalse(manifest['nativeUiQualificationIncluded'])
+        status = json.loads((self.payload / 'evidence/native-ui-qualification-status.json').read_text())
+        self.assertEqual(status['status'], 'unqualified')
+        self.assertFalse(status['relocatedStartupQualified'])
+        self.assertFalse((self.payload / 'evidence/native-ui-qualification.json').exists())
 
     def test_builder_archive_passes_preserving_report_fields_and_actual_modes(self):
         destination = self.destination()

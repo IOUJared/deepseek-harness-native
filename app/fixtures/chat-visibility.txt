@@ -1,0 +1,18 @@
+You
+PUBLIC canonical input
+---
+You
+PUBLIC claimed input awaiting canonical
+File · PUBLIC-note.txt · 12 bytes [preview unavailable]
+---
+Assistant
+PUBLIC backend-supplied reasoning
+PUBLIC assistant output
+---
+Tool call
+read
+{"file_path":"PUBLIC-note.txt"}
+---
+Tool result
+PUBLIC tool result
+---

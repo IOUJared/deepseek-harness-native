@@ -4,12 +4,13 @@
 
 1. Restart the rebuilt app; open **Settings → Codex → Connect ChatGPT**.
 2. Complete OpenAI's browser sign-in, MFA and approval. The provider handles PKCE, callback/state verification, exchange and storage; these steps cannot be bypassed.
-3. Close Settings, explicitly **Load models**, select an available Codex/GPT model, then **Send**.
+3. Close Settings, open the model selector, choose an available Codex/GPT model, then **Send**.
 
 - Connect reads local status, opens the official page once and enables a missing `openai-codex` route after matching authorization. Existing configuration/session model stays unchanged.
-- Navigation/connection never automatically loads models or prompts. Entitlement, limits and availability remain OpenAI-owned; not every API model is unlocked.
+- Sign-in never selects a model or sends prompts. Opening the selector fetches available models. Entitlement and limits remain OpenAI-owned; not every API model is unlocked.
 - **Advanced:** explicit status, browser reopening, masked Review/Submit callback fallback and separately reviewed route controls.
-- Unsupported: device login, sign-out, account switching, token/URL viewer and Codex CLI credential import. Stored credentials are not fresh account-validity proof.
+- Current [managed accounts](<NATIVE-MANAGED-CODEX.md>) add switching and **local** sign-out; this earlier walkthrough/qualification covers single-account Connect. [Runtime/image-input configuration](<NATIVE-CODEX-RUNTIME.md>) has separate native save/restart evidence.
+- Unsupported: device login, token/URL viewer and Codex CLI credential import. Stored credentials are not fresh account-validity proof.
 
 ## Ownership and privacy
 

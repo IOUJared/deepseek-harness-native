@@ -125,15 +125,32 @@ pub enum Page {
     ApiLogin,
     Codex,
     Plugins,
+    AgentPresets,
 }
 impl Page {
-    const ALL: [Self; 4] = [Self::General, Self::ApiLogin, Self::Codex, Self::Plugins];
+    const ALL: [Self; 5] = [
+        Self::General,
+        Self::ApiLogin,
+        Self::Plugins,
+        Self::Codex,
+        Self::AgentPresets,
+    ];
     fn title(self) -> &'static str {
         match self {
             Self::General => "General",
-            Self::ApiLogin => "API login",
+            Self::ApiLogin => "Models",
             Self::Codex => "Codex",
-            Self::Plugins => "Plugins",
+            Self::Plugins => "Built-in plugins",
+            Self::AgentPresets => "Agent presets",
+        }
+    }
+    fn glyph(self) -> &'static str {
+        match self {
+            Self::General => "⚙",
+            Self::ApiLogin => "◇",
+            Self::Plugins => "☷",
+            Self::Codex => "✧",
+            Self::AgentPresets => "⌘",
         }
     }
 }
@@ -235,6 +252,11 @@ impl Default for Settings {
     }
 }
 impl Settings {
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn layout_codex_tab(&mut self, tab: crate::codex::Tab) {
+        let context = self.codex_context(false);
+        assert!(self.codex.handle(crate::codex::Action::SelectTab { ticket: self.codex.ticket(), tab }, context).is_none());
+    }
     pub fn is_open(&self) -> bool {
         self.open
     }
@@ -286,7 +308,7 @@ impl Settings {
         ticket: crate::codex::Ticket,
         outcome: crate::codex::Outcome,
     ) {
-        self.codex.completed(ticket, outcome);
+        self.codex.completed_native(ticket, outcome);
     }
     pub(crate) fn codex_observed(&mut self, metadata: dsh_native_core::CodexMetadata) {
         self.codex.observed(metadata);
@@ -495,6 +517,11 @@ impl Settings {
             return None;
         }
         if let Action::Codex(action) = action {
+            if let crate::codex::Action::Usage { action, .. } = &action {
+                if !self.codex.usage_surface_action_allowed(action) {
+                    return None; // No editable placeholder or enabling save for an unwired feature.
+                }
+            }
             let mut context = self.codex_context(enabled);
             context.epoch = epoch;
             return self.codex.handle(action, context).map(Effect::Codex);
@@ -641,13 +668,22 @@ impl Settings {
             .into_iter()
             .fold(column![].spacing(6), |nav, page| {
                 nav.push(
-                    button(page.title())
-                        .padding([12, 14])
-                        .width(Length::Fill)
-                        .style(move |theme, status| {
-                            design::navigation(theme, status, self.page == page)
-                        })
-                        .on_press(Action::SelectPage(page)),
+                    button(
+                        row![
+                            label(page.glyph(), MUTED).size(16).width(22),
+                            label(page.title(), TEXT).size(13)
+                        ]
+                        .spacing(8)
+                        .align_y(iced::Alignment::Center),
+                    )
+                    .padding([11, 12])
+                    .width(Length::Fill)
+                    .style(move |theme, status| {
+                        let mut style = design::navigation(theme, status, self.page == page);
+                        style.text_color = TEXT;
+                        style
+                    })
+                    .on_press(Action::SelectPage(page)),
                 )
             });
         let body: Element<'_, Action> = match self.page {
@@ -663,6 +699,10 @@ impl Settings {
                 .plugins
                 .view(self.plugin_context(enabled))
                 .map(Action::Plugins),
+            Page::AgentPresets => column![
+                label("Agent presets", TEXT).size(17),
+                label("Presets define the tools and behavior of an agent. They are configured by the Harness profile; opening this section does not activate an agent or change a conversation.", MUTED).size(13),
+            ].spacing(14).into(),
         };
         // Reserve a gutter so the overlaid scrollbar cannot cover privacy/confirmation text.
         let body = container(body)
@@ -676,15 +716,20 @@ impl Settings {
                 .id("native-settings-body")
                 .height(Length::Fill),
         )
-        .padding(24)
+        .padding(iced::Padding {
+            top: 12.0,
+            right: 18.0,
+            bottom: 16.0,
+            left: 22.0,
+        })
         .width(Length::Fill)
         .height(Length::Fill);
         let sidebar = container(navigation)
-            .padding(12)
-            .width(180)
+            .padding(8)
+            .width(176)
             .height(Length::Fill)
             .style(|_| container::Style {
-                background: Some(design::BASE.into()),
+                background: Some(SURFACE.into()),
                 ..Default::default()
             });
         let sections: Element<'_, Action> = if width >= 650.0 {
@@ -711,24 +756,31 @@ impl Settings {
         } else if self.plugins.pending() {
             "Plugin setting write submitted; closing or switching pages cannot undo it. Awaiting acknowledgment."
         } else if self.codex.pending() {
-            "Codex sign-in or configuration pending; return to Codex to cancel. Closing clears drafts but does not undo admitted credential writes."
+            "Codex operation pending; return to Codex for status. Closing does not undo admitted writes."
         } else {
-            "Closing or switching sections clears unsaved drafts."
+            "Closing does not undo submitted changes. Usage drafts are retained."
         };
+        let mut footer = column![label(footer, MUTED).size(11)].spacing(4);
+        if let Some((status, attention)) = self.codex.runtime_footer() {
+            footer = footer.push(label(status, if attention { DANGER } else { MUTED }).size(11));
+        }
+        if let Some((status, attention)) = self.codex.usage_footer() {
+            footer = footer.push(label(status, if attention { DANGER } else { MUTED }).size(11));
+        }
         container(column![
             container(
                 row![
-                    label("Settings", TEXT).size(26).width(Length::Fill),
-                    button("Close  ×")
-                        .padding([9, 12])
+                    label("Settings", TEXT).size(16).width(Length::Fill),
+                    button(label("×", MUTED).size(20))
+                        .padding([4, 10])
                         .style(design::button_style)
                         .on_press(Action::Close)
                 ]
                 .align_y(iced::Alignment::Center)
             )
-            .padding([16, 20]),
+            .padding([12, 16]),
             sections,
-            container(label(footer, MUTED).size(11)).padding([12, 20])
+            container(footer).padding([10, 16])
         ])
         .width(width.max(1.0))
         .height(height.max(1.0))
@@ -738,7 +790,7 @@ impl Settings {
     }
     fn general_view(&self) -> Element<'_, Action> {
         let mut body = column![
-            label("General", TEXT).size(24),
+            label("General", TEXT).size(17),
             label("Appearance", ACCENT).size(16),
             label("Dark Rosé Pine · DejaVu Sans 14 · read-only", TEXT),
             self.info_button(Info::Details, "Details", self.details_open),
@@ -751,7 +803,7 @@ impl Settings {
         }
         body = body.push(self.info_button(Info::Shortcuts, "Shortcuts", self.shortcuts_open));
         if self.shortcuts_open {
-            body = body.push(label("Ctrl+B · navigation\nCtrl+Enter · send in the focused composer\nEnter · new line\nEscape · close settings and clear unsaved drafts", TEXT));
+            body = body.push(label("Ctrl+B · navigation\nEnter · send non-empty text in the focused composer (Ctrl+Enter also works)\nShift+Enter · new line\nEscape · close settings and clear unsaved drafts", TEXT));
         }
         body.into()
     }
@@ -763,7 +815,7 @@ impl Settings {
             && self.uncertain_save.is_none()
             && !matches!(self.save, SavePhase::Confirm(_));
         let mut body = column![
-            label("API login", TEXT).size(24),
+            label("Models", TEXT).size(17),
             label("API key", ACCENT).size(16),
             label(
                 "Saving may replace credentials; no sign-in or key validation.",
@@ -881,6 +933,99 @@ impl Settings {
 
 #[cfg(test)]
 mod disclosure_tests {
+    fn local_usage(state: &mut Settings, action: crate::codex::UsageAction, enabled: bool) -> Option<Effect> {
+        state.handle(Action::Codex(crate::codex::Action::Usage { ticket: state.codex_ticket(), action }), 1, enabled)
+    }
+    fn usage_state(preferences: dsh_native_core::CodexUsagePreferences) -> Settings {
+        let mut state = Settings::default();
+        state.handle(Action::Open, 1, false);
+        state.handle(Action::SelectPage(Page::Codex), 1, true);
+        let Some(Effect::Codex(crate::codex::Effect::UsageRead { ticket })) = local_usage(&mut state, crate::codex::UsageAction::Refresh, true) else { panic!("PUBLIC read") };
+        state.codex_completed(ticket, crate::codex::Outcome::UsageSnapshot(dsh_native_core::CodexUsageSnapshot { version: 1, revision: 9, persisted: true, preferences }));
+        state
+    }
+    #[test]
+    fn native_usage_surface_rejects_unsupported_edits_and_unchanged_saves() {
+        use crate::codex::UsageAction as U;
+        use dsh_native_core::{CodexComposerDisplay as C, CodexUsageAlert as A};
+        let mut state = usage_state(dsh_native_core::CodexUsagePreferences::default());
+        for action in [U::Composer(C::Percent), U::Composer(C::ProgressBar), U::Composer(C::Runway), U::Alert(A::Percent20), U::Alert(A::EarlyWarning), U::Alert(A::Custom), U::Threshold("17.5".into()), U::Retry(true), U::Consent(true)] {
+            assert!(!state.codex.usage_surface_action_allowed(&action));
+            assert!(local_usage(&mut state, action, true).is_none());
+            assert!(local_usage(&mut state, U::Save, true).is_none());
+            assert!(state.codex.usage_footer().is_none());
+        }
+        for action in [U::Composer(C::Off), U::Alert(A::Off), U::Retry(false), U::Consent(false)] {
+            assert!(local_usage(&mut state, action, true).is_none());
+        }
+        assert!(local_usage(&mut state, U::Save, true).is_none()); // No-op writes are not a feature.
+        assert!(!state.codex.effective_consent());
+        let _: Element<'_, Action> = state.view(true);
+    }
+    #[test]
+    fn native_usage_optout_is_functional_captured_and_requires_matching_ack() {
+        use crate::codex::UsageAction as U;
+        use dsh_native_core::{CodexComposerDisplay as C, CodexUsageAlert as A};
+        let original = dsh_native_core::CodexUsagePreferences { composer_display: C::ProgressBar, usage_alert: A::Custom, retry_after_reset: true, experimental_quota: true, ..dsh_native_core::CodexUsagePreferences::default() };
+        let mut state = usage_state(original);
+        assert!(local_usage(&mut state, U::Save, true).is_none());
+        assert!(local_usage(&mut state, U::Consent(false), false).is_none()); // Immediate even read-only.
+        assert!(!state.codex.effective_consent());
+        for action in [U::Composer(C::Off), U::Alert(A::Off), U::Retry(false)] { assert!(local_usage(&mut state, action, true).is_none()); }
+        let Some(Effect::Codex(crate::codex::Effect::UsageSave { ticket, expected_revision, preferences })) = local_usage(&mut state, U::Save, true) else { panic!("explicit opt-out save") };
+        assert_eq!(expected_revision, 9);
+        assert_eq!(preferences.composer_display, C::Off);
+        assert_eq!(preferences.usage_alert, A::Off);
+        assert!(!preferences.retry_after_reset && !preferences.experimental_quota);
+        assert_eq!(preferences.custom_remaining_percent, original.custom_remaining_percent);
+        assert!(state.codex.usage_footer().unwrap().0.contains("not yet acknowledged"));
+        assert!(local_usage(&mut state, U::Save, true).is_none());
+        state.codex_completed(ticket, crate::codex::Outcome::UsageSnapshot(dsh_native_core::CodexUsageSnapshot { version: 1, revision: 10, persisted: true, preferences }));
+        assert!(state.codex.usage_footer().is_none());
+        assert!(local_usage(&mut state, U::Save, true).is_none());
+        assert!(!state.codex.effective_consent());
+    }
+    #[test]
+    fn usage_warning_and_pending_footer_survive_every_settings_category_without_effects() {
+        let mut state = Settings::default();
+        state.handle(Action::Open, 1, true);
+        state.handle(Action::SelectPage(Page::Codex), 1, true);
+        let request = state.handle(Action::Codex(crate::codex::Action::Usage {
+            ticket: state.codex_ticket(), action: crate::codex::UsageAction::Refresh,
+        }), 1, true);
+        let Some(Effect::Codex(crate::codex::Effect::UsageRead { ticket })) = request else { panic!("PUBLIC read, not dispatched") };
+        let mut snapshot = dsh_native_core::CodexUsageSnapshot::default();
+        snapshot.persisted = true;
+        snapshot.revision = 4;
+        snapshot.preferences.retry_after_reset = true; // Prior saved choice, never an active executor.
+        state.codex_completed(ticket, crate::codex::Outcome::UsageSnapshot(snapshot));
+        assert!(state.handle(Action::Codex(crate::codex::Action::Usage {
+            ticket: state.codex_ticket(), action: crate::codex::UsageAction::Retry(false),
+        }), 1, true).is_none());
+        let request = state.handle(Action::Codex(crate::codex::Action::Usage {
+            ticket: state.codex_ticket(), action: crate::codex::UsageAction::Save,
+        }), 1, true);
+        let Some(Effect::Codex(crate::codex::Effect::UsageSave { ticket, .. })) = request else { panic!("PUBLIC save, not dispatched") };
+        let pending = state.codex.usage_footer().unwrap();
+        assert!(pending.0.contains("not yet acknowledged") && !pending.1);
+        for page in Page::ALL {
+            assert!(state.handle(Action::SelectPage(page), 1, true).is_none());
+            assert_eq!(state.codex.usage_footer(), Some(pending));
+            let _: Element<'_, Action> = state.view_sized(true, 960.0, 700.0);
+        }
+        state.codex_completed(ticket, crate::codex::Outcome::Indeterminate);
+        let warning = state.codex.usage_footer().unwrap();
+        assert!(warning.0.contains("unknown") && warning.1);
+        for page in Page::ALL {
+            assert!(state.handle(Action::SelectPage(page), 1, false).is_none());
+            assert_eq!(state.codex.usage_footer(), Some(warning));
+            let _: Element<'_, Action> = state.view_sized(false, 960.0, 700.0);
+        }
+        state.close();
+        state.handle(Action::Open, 1, false);
+        assert_eq!(state.codex.usage_footer(), Some(warning));
+    }
+
     use super::*;
 
     fn toggle(state: &mut Settings, info: Info, epoch: u64) {

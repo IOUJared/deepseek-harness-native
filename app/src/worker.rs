@@ -18,6 +18,8 @@ use tokio::{
 
 pub const TRANSPORT_EPOCH: u64 = 1;
 const MAX_OPERATIONS: usize = 8;
+#[path = "catalog_read.rs"]
+pub(crate) mod catalog_read;
 #[path = "codex_worker.rs"]
 mod codex_worker;
 #[cfg(test)]
@@ -27,6 +29,10 @@ mod export_worker_tests;
 #[path = "plugin_worker_tests.rs"]
 mod plugin_worker_tests;
 use codex_worker::{CodexCoordinator, codex_ticket, execute_codex};
+#[path = "prompt_worker.rs"]
+mod prompt_worker;
+#[path = "prompt_recovery.rs"]
+pub(crate) mod prompt_recovery;
 #[path = "attachments.rs"]
 pub(crate) mod attachments;
 #[path = "decision_worker.rs"]
@@ -66,7 +72,7 @@ pub enum Command {
         cwd: Option<String>,
     },
     OpenWorkspace(String),
-    Catalog,
+    Catalog(catalog_read::Ticket),
     SelectModel {
         generation: u64,
         request: SelectModelRequest,
@@ -75,6 +81,8 @@ pub enum Command {
         generation: u64,
         request: SessionPromptRequest,
     },
+    CheckSubmission(crate::worker::prompt_recovery::CheckTicket),
+    RejoinObservations { epoch:u64 },
     Cancel {
         generation: u64,
         session: SessionId,
@@ -143,15 +151,21 @@ pub enum Event {
     },
     Created(Result<SessionCreateValue, String>),
     WorkspaceOpened(Result<WorkspaceCreateValue, String>),
-    Catalog(Result<ModelCatalog, String>),
+    Catalog {
+        ticket: catalog_read::Ticket,
+        result: Result<ModelCatalog, String>,
+    },
     Model {
         generation: u64,
         result: Result<SelectModelValue, String>,
     },
     Prompt {
         generation: u64,
+        request_id: SessionRequestId,
         result: Result<Accepted, String>,
     },
+    PromptNotSent { ticket: crate::worker::prompt_recovery::Ticket },
+    SubmissionChecked { ticket: crate::worker::prompt_recovery::CheckTicket, value: Option<dsh_native_transport::prompt_admission::PromptAdmission> },
     Cancel {
         generation: u64,
         result: Result<Accepted, String>,
@@ -168,6 +182,8 @@ pub enum Event {
     Fault(String),
     Stopped(Result<StopResult, String>),
     NoBackendStarted,
+    ObservationsLost,
+    ObservationsRejoined { epoch:u64, result:Result<(),String> },
 }
 impl std::fmt::Debug for Event {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -177,6 +193,7 @@ impl std::fmt::Debug for Event {
 #[derive(Clone)]
 pub struct Handle {
     commands: mpsc::Sender<Command>,
+    priority: mpsc::Sender<Command>,
     shutdown: watch::Sender<bool>,
 }
 impl std::fmt::Debug for Handle {
@@ -190,7 +207,8 @@ impl Handle {
             self.shutdown.send_replace(true);
             return Ok(());
         }
-        self.commands.try_send(command).map_err(|e| e.into_inner())
+        let lane=if prompt_worker::priority(&command) { &self.priority } else { &self.commands };
+        lane.try_send(command).map_err(|e| e.into_inner())
     }
 }
 #[derive(Clone)]
@@ -246,6 +264,7 @@ impl Drop for Owner {
 }
 pub fn start(options: RustBackendOptions, smoke: bool) -> Result<(Handle, Feed, Owner), String> {
     let (commands, receiver) = mpsc::channel(32);
+    let (priority, priority_receiver) = mpsc::channel(2);
     let (events, feed) = mpsc::channel(32);
     let (shutdown, closing) = watch::channel(false);
     let thread = thread::Builder::new()
@@ -264,12 +283,13 @@ pub fn start(options: RustBackendOptions, smoke: bool) -> Result<(Handle, Feed, 
                     return;
                 }
             };
-            runtime.block_on(run(options, receiver, events, closing, smoke));
+            runtime.block_on(run(options, receiver, priority_receiver, events, closing, smoke));
         })
         .map_err(|_| "Native worker thread unavailable".to_owned())?;
     Ok((
         Handle {
             commands,
+            priority,
             shutdown: shutdown.clone(),
         },
         Feed {
@@ -313,6 +333,9 @@ fn forward_core(
         }
     }
 }
+async fn next_root(root:&mut Option<NativeStream<RemoteEventFrame>>)->Option<dsh_native_transport::Result<dsh_native_transport::OwnedRemoteEvent>> {match root {Some(root)=>root.next_event().await,None=>std::future::pending().await}}
+async fn next_workspaces(workspaces:&mut Option<NativeStream<WorkspaceFollowFrame>>)->Option<dsh_native_transport::Result<WorkspaceFollowFrame>> {match workspaces {Some(workspaces)=>workspaces.next().await,None=>std::future::pending().await}}
+async fn drop_observations(root:&mut Option<NativeStream<RemoteEventFrame>>,workspaces:&mut Option<NativeStream<WorkspaceFollowFrame>>,selected:&mut Option<NativeStream<SessionFollowFrame>>,mux:&mut Option<dsh_native_transport::Mux>) {if let Some(mut stream)=root.take(){stream.cancel().await;}if let Some(mut stream)=workspaces.take(){stream.cancel().await;}if let Some(mut stream)=selected.take(){stream.cancel().await;}if let Some(mux)=mux.take(){mux.close().await;}}
 async fn next_selected(
     stream: &mut Option<NativeStream<SessionFollowFrame>>,
 ) -> Option<dsh_native_transport::Result<SessionFollowFrame>> {
@@ -378,15 +401,17 @@ fn rejected(command: Command) -> Event {
         },
         Command::Create { .. } => Event::Created(Err(error)),
         Command::OpenWorkspace(_) => Event::WorkspaceOpened(Err(error)),
-        Command::Catalog => Event::Catalog(Err(error)),
+        Command::Catalog(ticket) => Event::Catalog {
+            ticket,
+            result: Err(error),
+        },
         Command::SelectModel { generation, .. } => Event::Model {
             generation,
             result: Err(error),
         },
-        Command::Prompt { generation, .. } => Event::Prompt {
-            generation,
-            result: Err(error),
-        },
+        Command::Prompt { generation, request } => Event::PromptNotSent { ticket: prompt_worker::ticket(generation,&request) },
+        Command::CheckSubmission(ticket) => Event::SubmissionChecked { ticket, value: None },
+        Command::RejoinObservations{epoch}=>Event::ObservationsRejoined{epoch,result:Err("Observation rejoin not admitted".into())},
         Command::Cancel { generation, .. } => Event::Cancel {
             generation,
             result: Err(error),
@@ -399,6 +424,26 @@ fn rejected(command: Command) -> Event {
         Command::Select { generation, .. } => Event::FollowError { generation, error },
         Command::Shutdown => Event::Fault(error),
     }
+}
+async fn catalog_read_outcome<F, R, S>(
+    ticket: catalog_read::Ticket,
+    smoke: bool,
+    stopping: S,
+    rpc: F,
+) -> Event
+where
+    F: FnOnce() -> R,
+    R: Future<Output = Result<ModelCatalog, String>>,
+    S: FnOnce() -> bool,
+{
+    // Recheck live shutdown/delivery when first polled, not at task construction.
+    // This boundary check cannot un-send a read that has already started.
+    let result = if ticket.epoch() != TRANSPORT_EPOCH || smoke || stopping() {
+        Err("Model catalog read not admitted: stale transport or disabled read; no request sent".into())
+    } else {
+        rpc().await
+    };
+    Event::Catalog { ticket, result }
 }
 fn file_receiver(header: &SessionWireHeader, selected: Option<&SessionId>) -> Option<SessionId> {
     // Header lineage is not Agent ownership. This is a supported ordinary-header scope, not a live lease.
@@ -790,6 +835,7 @@ fn save_export(
 async fn run(
     options: RustBackendOptions,
     mut commands: mpsc::Receiver<Command>,
+    mut priority: mpsc::Receiver<Command>,
     events: mpsc::Sender<Event>,
     mut closing: watch::Receiver<bool>,
     smoke: bool,
@@ -843,7 +889,7 @@ async fn run(
         max_json_items: 100_000,
         timeout: Duration::from_secs(15),
     };
-    let client = match operation(&mut closing, &events, backend.connect_transport(limits)).await {
+    let mut client = match operation(&mut closing, &events, backend.connect_transport(limits)).await {
         Some(Ok(client)) => client,
         Some(Err(e)) => {
             finish_core(backend, &events, Some(format!("Core transport: {e}"))).await;
@@ -869,7 +915,7 @@ async fn run(
     };
     let root = operation(&mut closing, &events, mux.events()).await;
     let workspaces = operation(&mut closing, &events, mux.workspace_follow()).await;
-    let (mut root, mut workspaces) = match (root, workspaces) {
+    let (root, workspaces) = match (root, workspaces) {
         (Some(Ok(root)), Some(Ok(workspaces))) => (root, workspaces),
         _ => {
             mux.close().await;
@@ -880,9 +926,17 @@ async fn run(
             return;
         }
     };
+    let mut mux=Some(mux);
+    let mut root=Some(root);
+    let mut workspaces=Some(workspaces);
+    let mut observations_live=true;
+    let mut live_decisions=Vec::new();
     let (core_tx, mut core_rx) = mpsc::channel(32);
     let forwarder = thread::spawn(move || forward_core(core_events, core_tx));
     let mut tasks = JoinSet::new();
+    let mut stop_tasks = JoinSet::new();
+    let mut rejoin_jobs = JoinSet::new();
+    let mut submissions = prompt_worker::Coordinator::default();
     let roster = client.clone();
     tasks.spawn(async move {
         Event::Roster(
@@ -895,6 +949,7 @@ async fn run(
     let _ = publish(&events, Event::Ready(ready.version));
     let mut selected: Option<NativeStream<SessionFollowFrame>> = None;
     let mut selected_target: Option<SessionId> = None;
+    let mut cancel_target: Option<SessionId> = None;
     // File intake needs a correlated, supported ordinary header, not just a Session address.
     let mut selected_file_target: Option<SessionId> = None;
     let mut generation = 0;
@@ -917,21 +972,46 @@ async fn run(
             biased;
             _=closing.changed()=>break None,
             _=events.closed()=>break None,
-            command=commands.recv()=>{
+            command=async {tokio::select! {biased; command=priority.recv()=>command,command=commands.recv()=>command}}=>{
                 let Some(command)=command else {break None;};if matches!(command,Command::Shutdown){break None;}
+                if let Command::RejoinObservations{epoch}=command {
+                    if epoch!=TRANSPORT_EPOCH || observations_live || smoke || !rejoin_jobs.is_empty() || operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some())>=MAX_OPERATIONS {
+                        if !publish(&events,Event::ObservationsRejoined{epoch,result:Err("Rejoin not admitted: only one same-owned read within the normal operation budget is allowed".into())}){break Some("Native UI delivery queue overflow".into());}continue;
+                    }
+                    let backend=backend.clone();
+                    // An owned normal-budget read must never park priority Stop behind HTTP permits.
+                    rejoin_jobs.spawn(async move {let result=async {
+                        let verified=backend.probe_owned_host(Duration::from_secs(5)).await.map_err(|_|"Original Host identity could not be verified; no restart or Agent follow".to_owned())?;
+                        let fresh=verified.connect_mux().await.map_err(|_|"Same-owned observation connection unavailable".to_owned())?;
+                        let root=fresh.events().await.map_err(|_|"Root rejoin unavailable".to_owned())?;
+                        let workspace=fresh.workspace_follow().await.map_err(|_|"Workspace rejoin unavailable".to_owned())?;
+                        let roster=verified.session_list().await.map_err(|_|"Cold roster read unavailable; no Agent resumed".to_owned());
+                        Ok::<_,String>((verified,fresh,root,workspace,roster))
+                    }.await;(epoch,result)});
+                    continue;
+                }
                 if let Command::Select{generation:next,address}=command {
+                    if !observations_live || submissions.busy() {if !publish(&events,Event::FollowError{generation:next,error:"Original submission unresolved; no Agent follow dispatched".into()}){break Some("Native UI delivery queue overflow".into());}continue;}
                     files.invalidate(); selected_file_target=None;
                     if let Some(stream)=selected.as_mut(){stream.cancel().await;}selected=None;selected_target=None;generation=next;
-                    let target=selected_export_target(&address);
-                    match operation(&mut closing,&events,mux.session_follow(SessionFollowRequest{address,max_messages:Some(50),turn_window:None,assistant_stream:Some(true)})).await {
+                    let target=selected_export_target(&address);cancel_target=target.clone();
+                    match operation(&mut closing,&events,mux.as_ref().expect("live observation mux").session_follow(SessionFollowRequest{address,max_messages:Some(50),turn_window:None,assistant_stream:Some(true)})).await {
                         Some(Ok(stream))=>{selected=Some(stream);selected_target=target;},Some(Err(e))=>if !publish(&events,Event::FollowError{generation,error:format!("Session follow: {e}")}){break Some("Native UI delivery queue overflow".into());},None=>break None,
                     }
                     continue;
                 }
+                if submissions.duplicate(&command) {continue;}
                 let command = match command {
+                    Command::Cancel{generation:stop_generation,session}=>{
+                        if submissions.stop(stop_generation,&session,generation,cancel_target.as_ref(),!smoke && !*closing.borrow() && !events.is_closed()) {
+                            let client=client.clone();stop_tasks.spawn(async move {Event::Cancel{generation:stop_generation,result:client.session_cancel(&session).await.map_err(|e|format!("Stop: {e}; ACK is not idle"))}});
+                        } else if !publish(&events,Event::Cancel{generation:stop_generation,result:Err("Stop not admitted: stale target or another Stop is pending; no cancellation sent".into())}){break Some("Native UI delivery queue overflow".into());}
+                        continue;
+                    },
+                    command if (!observations_live || submissions.busy()) && matches!(&command,Command::Prompt{..}|Command::PromptFile{..}|Command::StageFile(_)|Command::SaveKey{..}|Command::PluginSave{..}|Command::Export(_)|Command::Manage(_)|Command::SelectModel{..}|Command::Create{..}|Command::OpenWorkspace(_)|Command::Codex(crate::codex::Effect::RuntimeSave{..}|crate::codex::Effect::UsageSave{..}|crate::codex::Effect::StartLogin{..}|crate::codex::Effect::AddAccount{..}|crate::codex::Effect::SelectAccount{..}|crate::codex::Effect::SignOutAccount{..}|crate::codex::Effect::SignOutAll{..}|crate::codex::Effect::EnableModels{..}|crate::codex::Effect::SubmitCallback{..}))=>{if !publish(&events,rejected(command)){break Some("Native UI delivery queue overflow".into());}continue;},
                     Command::DiscardFile(ticket) => { files.discard(&ticket); continue; },
                     Command::StageFile(submission) => {
-                        let enabled = !smoke && !*closing.borrow() && !events.is_closed() && operation_count(tasks.len()+file_jobs.len(),export_active.is_some()) < MAX_OPERATIONS;
+                        let enabled = !smoke && !*closing.borrow() && !events.is_closed() && operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()) < MAX_OPERATIONS;
                         if let Some(cancellation) = files.admit(&submission.ticket,TRANSPORT_EPOCH,generation,selected_file_target.as_ref(),enabled) {
                             let client = client.clone(); let runtime = tokio::runtime::Handle::current();
                             let file_closing=closing.clone(); let file_events=events.clone();
@@ -942,25 +1022,42 @@ async fn run(
                     command => command,
                 };
                 if matches!(&command,Command::Decision(submission) if decisions.is_active(submission)){continue;}
-                if operation_count(tasks.len()+file_jobs.len(),export_active.is_some())>=MAX_OPERATIONS {if !publish(&events,rejected(command)){break Some("Native UI delivery queue overflow".into());}continue;}
+                if prompt_worker::normal_capacity_rejects(&command,operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some())) {if !publish(&events,rejected(command)){break Some("Native UI delivery queue overflow".into());}continue;}
                 let command=match command {
                     Command::PromptFile{ticket,request}=>{
                         let request_id=request.request_id.clone();
                         let enabled=!smoke && !*closing.borrow() && !events.is_closed();
+                        let owner=prompt_worker::ticket(ticket.generation,&request);
+                        if !submissions.admit(owner.clone(),generation,selected_file_target.as_ref(),enabled) {if !publish(&events,Event::FilePrompt{ticket,request_id,outcome:attachments::PromptOutcome::NotSent}){break Some("Native UI delivery queue overflow".into());}continue;}
                         match files.prepare_prompt(&ticket,request,TRANSPORT_EPOCH,generation,selected_file_target.as_ref(),enabled) {
                             Ok(request)=>{
+                                if !submissions.freeze(&owner,&request) {break Some("Original file prompt ownership lost before dispatch".into());}
                                 let client=client.clone();let mut prompt_closing=closing.clone();let prompt_events=events.clone();
                                 tasks.spawn(async move {
                                     let outcome=file_prompt_outcome(&mut prompt_closing,&prompt_events,client.session_prompt(request)).await;
                                     Event::FilePrompt{ticket,request_id,outcome}
                                 });
                             },
-                            Err(())=>if !publish(&events,Event::FilePrompt{ticket,request_id,outcome:attachments::PromptOutcome::NotSent}) {break Some("Native UI delivery queue overflow".into());},
+                            Err(())=>{submissions.settle(&Event::PromptNotSent{ticket:owner});if !publish(&events,Event::FilePrompt{ticket,request_id,outcome:attachments::PromptOutcome::NotSent}) {break Some("Native UI delivery queue overflow".into());}},
                         }
                         continue;
                     },
                     Command::Prompt{generation,request} if smoke || request.content.iter().any(|part|matches!(part,PromptContentPart::File{..}))=>{
-                        if !publish(&events,Event::Prompt{generation,result:Err("File receipts require exact private worker draft authority; prompt not sent".into())}) {break Some("Native UI delivery queue overflow".into());}
+                        if !publish(&events,Event::PromptNotSent{ticket:prompt_worker::ticket(generation,&request)}) {break Some("Native UI delivery queue overflow".into());}
+                        continue;
+                    },
+                    Command::Prompt{generation:prompt_generation,request}=>{
+                        let owner=prompt_worker::ticket(prompt_generation,&request);
+                        if submissions.admit(owner.clone(),generation,selected_target.as_ref(),observations_live && selected.is_some() && !smoke && !*closing.borrow() && !events.is_closed()) {
+                            if !submissions.freeze(&owner,&request) {break Some("Original prompt ownership lost before dispatch".into());}
+                            let client=client.clone();let request_id=request.request_id.clone();tasks.spawn(async move {Event::Prompt{generation:prompt_generation,request_id,result:client.session_prompt(request).await.map_err(|e|format!("Send outcome unknown: {e}; do not resend"))}});
+                        } else if !publish(&events,Event::PromptNotSent{ticket:owner}){break Some("Native UI delivery queue overflow".into());}
+                        continue;
+                    },
+                    Command::CheckSubmission(ticket)=>{
+                        if submissions.check(&ticket) {
+                            let backend=backend.clone();tasks.spawn(async move {let request=dsh_native_transport::prompt_admission::PromptAdmissionRequest{session_id:ticket.submission.session.clone(),request_id:ticket.submission.request_id.clone()};let value=match backend.probe_owned_host(Duration::from_secs(5)).await {Ok(client)=>client.session_prompt_admission(request).await.ok(),Err(_)=>None};Event::SubmissionChecked{ticket,value}});
+                        } else if !publish(&events,Event::SubmissionChecked{ticket,value:None}){break Some("Native UI delivery queue overflow".into());}
                         continue;
                     },
                     Command::Decision(submission)=>{
@@ -984,7 +1081,7 @@ async fn run(
                     },
                     Command::Codex(effect)=>{
                         let ticket=codex_ticket(&effect);
-                        if codex.admit(&effect,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len(),export_active.is_some()),key_saving.is_some()||plugins_active.is_some()||export_active.is_some()) {
+                        if codex.admit(&effect,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),key_saving.is_some()||plugins_active.is_some()||export_active.is_some()) {
                             let backend=backend.clone();
                             tasks.spawn_blocking(move||Event::CodexCompleted{ticket,outcome:execute_codex(&backend,effect)});
                         } else {
@@ -1008,23 +1105,32 @@ async fn run(
                         continue;
                     },
                     Command::PluginsRead(ticket)=>{
-                        if admit_plugin(&mut plugins_active,PluginOperation::Read(ticket),smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len(),export_active.is_some()),key_saving.is_some()||export_active.is_some()||codex.busy()) {
+                        if admit_plugin(&mut plugins_active,PluginOperation::Read(ticket),smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),key_saving.is_some()||export_active.is_some()||codex.busy()) {
                             tasks.spawn(read_plugins(client.clone(),ticket));
                         } else if !publish(&events,Event::PluginsLoaded{ticket,result:Err(crate::plugins::ReadFailure::Unavailable)}) {break Some("Native UI delivery queue overflow".into());}
                         continue;
                     },
                     Command::PluginSave{ticket,namespace,field,value}=>{
-                        if admit_plugin(&mut plugins_active,PluginOperation::Save(ticket),smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len(),export_active.is_some()),key_saving.is_some()||export_active.is_some()||codex.busy()) {
+                        if admit_plugin(&mut plugins_active,PluginOperation::Save(ticket),smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),key_saving.is_some()||export_active.is_some()||codex.busy()) {
                             tasks.spawn(save_plugin(client.clone(),ticket,namespace,field,value));
                         } else if !publish(&events,Event::PluginSaved{ticket,result:crate::plugins::SaveOutcome::NotSent}) {break Some("Native UI delivery queue overflow".into());}
                         continue;
                     },
                     Command::Manage(submission)=>{
-                        if admit_management_without_export(&mut management_active,&submission,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len(),export_active.is_some()),export_active.is_some()) {
+                        if admit_management_without_export(&mut management_active,&submission,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),export_active.is_some()) {
                             tasks.spawn(manage(client.clone(),submission));
                         } else if !publish(&events,Event::Managed{submission,result:Err(())}) {
                             break Some("Native UI delivery queue overflow".into());
                         }
+                        continue;
+                    },
+                    Command::Catalog(ticket)=>{
+                        let client=client.clone();
+                        let closing_at_poll=closing.clone();
+                        let events_at_poll=events.clone();
+                        tasks.spawn(catalog_read_outcome(ticket,smoke,move||*closing_at_poll.borrow() || closing_at_poll.has_changed().is_err() || events_at_poll.is_closed(),move||async move {
+                            client.model_catalog().await.map_err(|e|format!("Model catalog: {e}"))
+                        }));
                         continue;
                     },
                     Command::KeyMetadata(ticket)=>{let backend=backend.clone();tasks.spawn_blocking(move||Event::KeyMetadata{ticket,result:if key_guard(ticket,smoke){key_metadata(&backend)}else{Err(())}});continue;},
@@ -1035,32 +1141,32 @@ async fn run(
                 let client=client.clone();tasks.spawn(async move {match command {
                     Command::Create{workspace,cwd}=>Event::Created(client.session_create(SessionCreateRequest{workspace_id:workspace,cwd,..Default::default()}).await.map_err(|e|format!("New session: {e}"))),
                     Command::OpenWorkspace(path)=>Event::WorkspaceOpened(client.workspace_create(path).await.map_err(|e|format!("Open workspace: {e}"))),
-                    Command::Catalog=>Event::Catalog(client.model_catalog().await.map_err(|e|format!("Model catalog: {e}"))),
+                    Command::Catalog(ticket)=>rejected(Command::Catalog(ticket)),
                     Command::Decision(_)=>Event::Fault("Decision bypassed worker admission".into()),
                     Command::SelectModel{generation,request}=>Event::Model{generation,result:client.select_model(request).await.map_err(|e|format!("Select model: {e}"))},
-                    Command::Prompt{generation,request}=>Event::Prompt{generation,result:client.session_prompt(request).await.map_err(|e|format!("Send: {e}"))},
-                    Command::Cancel{generation,session}=>Event::Cancel{generation,result:client.session_cancel(&session).await.map_err(|e|format!("Stop: {e}"))},
+                    Command::Prompt{..}|Command::CheckSubmission(_)|Command::RejoinObservations{..}=>Event::Fault("Prompt bypassed worker ownership".into()),
+                    Command::Cancel{..}=>Event::Fault("Cancellation bypassed priority dispatch".into()),
                     Command::Page{generation,request}=>Event::Page{generation,result:client.session_page(request).await.map_err(|e|format!("History page: {e}"))},
                     Command::PromptFile{..}|Command::StageFile(_)|Command::DiscardFile(_)|Command::Codex(_)|Command::Export(_)|Command::PluginsRead(_)|Command::PluginSave{..}|Command::Manage(_)|Command::KeyMetadata(_)|Command::SaveKey{..}|Command::Inspect|Command::Shutdown|Command::Select{..}=>Event::Fault("Invalid native command state".into()),
                 }});
             }
-            event=root.next_event()=>match event {
+            event=next_root(&mut root),if root.is_some()=>match event {
                 Some(Ok(owned))=>{
                     let decision_key=match &owned.frame {
                         RemoteEventFrame::Waterfall{..}=>{
                             let Some(delivery)=owned.delivery else {break Some("Live decision delivery owner missing".into());};
                             match decisions.observe(TRANSPORT_EPOCH,&owned.frame,Arc::new(delivery)) {
-                                Ok(key)=>Some(key),Err(error)=>break Some(error.into()),
+                                Ok(key)=>{live_decisions.push(key.clone());Some(key)},Err(error)=>break Some(error.into()),
                             }
                         },
-                        RemoteEventFrame::Cancel{event_id}=>{decisions.cancel(event_id);None},
+                        RemoteEventFrame::Cancel{event_id}=>{decisions.cancel(event_id);live_decisions.retain(|key|&key.event_id!=event_id);None},
                         _=>None,
                     };
                     if !publish(&events,Event::Root{frame:owned.frame,decision_key}){break Some("Native UI delivery queue overflow".into());}
                 },
-                Some(Err(e))=>break Some(format!("Root event stream: {e}")),None=>break Some("Root event stream closed; pending decisions invalid".into()),
+                Some(Err(_))|None=>{drop_observations(&mut root,&mut workspaces,&mut selected,&mut mux).await;observations_live=false;files.invalidate();selected_file_target=None;selected_target=None;for key in live_decisions.drain(..){decisions.cancel(&key.event_id);}if !publish(&events,Event::ObservationsLost){break Some("Native UI delivery queue overflow".into());}},
             },
-            event=workspaces.next()=>match event {Some(Ok(event))=>if !publish(&events,Event::Workspace(event)){break Some("Native UI delivery queue overflow".into());},Some(Err(e))=>break Some(format!("Workspace stream: {e}")),None=>break Some("Workspace stream closed".into())},
+            event=next_workspaces(&mut workspaces),if workspaces.is_some()=>match event {Some(Ok(event))=>if !publish(&events,Event::Workspace(event)){break Some("Native UI delivery queue overflow".into());},Some(Err(_))|None=>{drop_observations(&mut root,&mut workspaces,&mut selected,&mut mux).await;observations_live=false;files.invalidate();selected_file_target=None;selected_target=None;for key in live_decisions.drain(..){decisions.cancel(&key.event_id);}if !publish(&events,Event::ObservationsLost){break Some("Native UI delivery queue overflow".into());}}},
             event=next_selected(&mut selected)=>match event {Some(Ok(frame))=>{if let SessionFollowFrame::Snapshot{header,..}=&frame {selected_file_target=file_receiver(header,selected_target.as_ref());if selected_file_target.is_none(){files.invalidate();}}if !publish(&events,Event::Selected{generation,frame}){break Some("Native UI delivery queue overflow".into());}},Some(Err(e))=>{files.invalidate();selected_file_target=None;selected=None;selected_target=None;if !publish(&events,Event::FollowError{generation,error:format!("Session stream: {e}")}){break Some("Native UI delivery queue overflow".into());}},None=>{files.invalidate();selected_file_target=None;selected=None;selected_target=None;if !publish(&events,Event::FollowError{generation,error:"Session stream closed; reload session".into()}){break Some("Native UI delivery queue overflow".into());}}},
             event=core_rx.recv()=>match event {Some(event)=>{if let PublicEvent::Codex(metadata)=&event {codex.observe(*metadata);}let exited=matches!(&event,PublicEvent::Exited(_));if !publish(&events,Event::Core(event)){break Some("Native UI delivery queue overflow".into());}if exited {break Some("Owned Core exited".into());}},None=>break Some("Core event stream closed".into())},
             download=next_download(&mut export_download),if export_download.is_some()=>{
@@ -1101,7 +1207,18 @@ async fn run(
                 settle_export(&mut export_active,&event);
                 if !publish(&events,event) {break Some("Native UI delivery queue overflow".into());}
             },
-            task=tasks.join_next(),if !tasks.is_empty()=>if let Some(task)=task {match task {Ok(event)=>{if let Event::FilePrompt{ticket,request_id,..}=&event {if !files.settle_prompt(ticket,request_id) {break Some("Native file prompt ownership lost".into());}}if let Event::DecisionResult{submission,result}=&event{decisions.settle(submission,result.is_ok());}if let Event::CodexCompleted{ticket,outcome}=&event{codex.settle(*ticket,*outcome);}settle_plugin(&mut plugins_active,&event);settle_management(&mut management_active,&event);if let Event::KeySaved{ticket,..}=&event{if key_saving==Some(*ticket){key_saving=None;}}if !publish(&events,event){break Some("Native UI delivery queue overflow".into());}},Err(_)=>break Some("Native operation worker failed".into())}},
+            rejoined=rejoin_jobs.join_next(),if !rejoin_jobs.is_empty()=>if let Some(result)=rejoined {
+                match result {
+                    Ok((epoch,Ok((verified,fresh,root_stream,workspace_stream,roster))))=>{
+                        client=verified;mux=Some(fresh);root=Some(root_stream);workspaces=Some(workspace_stream);observations_live=true;
+                        if !publish(&events,Event::Roster(roster)) || !publish(&events,Event::ObservationsRejoined{epoch,result:Ok(())}){break Some("Native UI delivery queue overflow".into());}
+                    },
+                    Ok((epoch,Err(error)))=>if !publish(&events,Event::ObservationsRejoined{epoch,result:Err(error)}){break Some("Native UI delivery queue overflow".into());},
+                    Err(_)=>if !publish(&events,Event::ObservationsRejoined{epoch:TRANSPORT_EPOCH,result:Err("Owned observation read failed; no automatic restart or Agent resume".into())}){break Some("Native UI delivery queue overflow".into());},
+                }
+            },
+            stopped=stop_tasks.join_next(),if !stop_tasks.is_empty()=>if let Some(result)=stopped {match result {Ok(event)=>{submissions.settle(&event);if !publish(&events,event){break Some("Native UI delivery queue overflow".into());}},Err(_)=>break Some("Reserved Stop worker failed".into())}},
+            task=tasks.join_next(),if !tasks.is_empty()=>if let Some(task)=task {match task {Ok(event)=>{submissions.settle(&event);if let Event::FilePrompt{ticket,request_id,..}=&event {if !files.settle_prompt(ticket,request_id) {break Some("Native file prompt ownership lost".into());}}if let Event::DecisionResult{submission,result}=&event{decisions.settle(submission,result.is_ok());if result.is_ok(){live_decisions.retain(|key|key!=&submission.key);}}if let Event::CodexCompleted{ticket,outcome}=&event{codex.settle(*ticket,outcome.clone());}settle_plugin(&mut plugins_active,&event);settle_management(&mut management_active,&event);if let Event::KeySaved{ticket,..}=&event{if key_saving==Some(*ticket){key_saving=None;}}if !publish(&events,event){break Some("Native UI delivery queue overflow".into());}},Err(_)=>break Some("Native operation worker failed".into())}},
         }
     };
     // Revoke private control authority and request owned stop before awaiting
@@ -1111,13 +1228,17 @@ async fn run(
     client.invalidate();
     // The only abortable export carrier owns no filesystem task or admitted file handle.
     cancel_download(&mut export_download).await;
+    rejoin_jobs.abort_all();
+    while rejoin_jobs.join_next().await.is_some() {}
+    stop_tasks.abort_all();
+    while stop_tasks.join_next().await.is_some() {}
     tasks.abort_all();
     if let Some(stream) = selected.as_mut() {
         stream.cancel().await;
     }
-    root.cancel().await;
-    workspaces.cancel().await;
-    mux.close().await;
+    if let Some(root)=root.as_mut(){root.cancel().await;}
+    if let Some(workspaces)=workspaces.as_mut(){workspaces.cancel().await;}
+    if let Some(mux)=mux.take(){mux.close().await;}
     client.close().await;
     let result = backend.stop().map_err(|e| format!("Core stop: {e}"));
     // Stop wakes blocking Core reads/writes before joining their non-abortable tasks.
@@ -1152,7 +1273,7 @@ pub fn test_channels() -> (
     let (events, feed) = mpsc::channel(32);
     let (shutdown, closing) = watch::channel(false);
     (
-        Handle { commands, shutdown },
+        Handle { priority: commands.clone(), commands, shutdown },
         Feed {
             receiver: Arc::new(Mutex::new(Some(feed))),
         },
@@ -1164,6 +1285,76 @@ pub fn test_channels() -> (
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn catalog_rejection_echoes_the_exact_read_ticket() {
+        let mut reads = catalog_read::State::default();
+        let ticket = reads.begin(TRANSPORT_EPOCH).unwrap();
+        let Event::Catalog { ticket: received, result } = rejected(Command::Catalog(ticket)) else {
+            panic!("catalog rejection lost its receipt kind")
+        };
+        assert_eq!(received, ticket);
+        assert!(result.is_err());
+    }
+    #[tokio::test]
+    async fn catalog_wrong_epoch_smoke_and_shutdown_never_construct_the_read() {
+        for (epoch, smoke, stopping) in [
+            (TRANSPORT_EPOCH + 1, false, false),
+            (TRANSPORT_EPOCH, true, false),
+            (TRANSPORT_EPOCH, false, true),
+        ] {
+            let mut reads = catalog_read::State::default();
+            let ticket = reads.begin(epoch).unwrap();
+            let rpc = || -> std::future::Ready<Result<ModelCatalog, String>> {
+                panic!("catalog read constructed after rejected ownership")
+            };
+            let Event::Catalog { ticket: received, result } =
+                catalog_read_outcome(ticket, smoke, || stopping, rpc).await
+            else {
+                panic!("catalog admission lost its receipt kind")
+            };
+            assert_eq!(received, ticket);
+            assert_eq!(result.err().unwrap(), "Model catalog read not admitted: stale transport or disabled read; no request sent");
+        }
+    }
+    #[tokio::test]
+    async fn catalog_shutdown_or_lost_delivery_between_construction_and_poll_denies_rpc() {
+        for mode in 0..3 {
+            let ticket = catalog_read::State::default().begin(TRANSPORT_EPOCH).unwrap();
+            let (closing_tx, closing_rx) = watch::channel(false);
+            let (events_tx, events_rx) = mpsc::channel::<Event>(8);
+            let future = catalog_read_outcome(ticket, false,
+                move || *closing_rx.borrow() || closing_rx.has_changed().is_err() || events_tx.is_closed(),
+                || -> std::future::Ready<Result<ModelCatalog, String>> {
+                    panic!("catalog RPC constructed after pre-poll loss")
+                });
+            if mode == 1 { drop(events_rx); } else if mode == 2 { drop(closing_tx); } else { closing_tx.send(true).unwrap(); }
+            let Event::Catalog { ticket: received, result } = future.await else {
+                panic!("catalog pre-poll rejection lost its ticket")
+            };
+            assert_eq!(received, ticket);
+            assert!(result.is_err());
+        }
+    }
+    #[tokio::test]
+    async fn admitted_catalog_failure_keeps_its_ticket_without_a_client() {
+        let mut reads = catalog_read::State::default();
+        let ticket = reads.begin(TRANSPORT_EPOCH).unwrap();
+        let constructed = std::cell::Cell::new(false);
+        let Event::Catalog { ticket: received, result } = catalog_read_outcome(
+            ticket,
+            false,
+            || false,
+            || {
+                constructed.set(true);
+                std::future::ready(Err("PUBLIC catalog fixture failure".into()))
+            },
+        ).await else {
+            panic!("catalog completion lost its receipt kind")
+        };
+        assert!(constructed.get());
+        assert_eq!(received, ticket);
+        assert_eq!(result.err().unwrap(), "PUBLIC catalog fixture failure");
+    }
     #[tokio::test]
     async fn file_prompt_global_closing_lost_owner_and_lost_delivery_win_before_rpc_poll() {
         for mode in 0..3 {
