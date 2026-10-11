@@ -56,7 +56,7 @@ cargo build --locked --release -j2 --manifest-path deepseek-harness-native/app/C
 | Iced GPU | 74.48 MiB | 3.92% |
 | Slint GPU | 96.02 MiB | 10.42% |
 
-[Measured workload](<benchmarks/results-comparison-03/MEASUREMENTS.md>); not full-app results or a universal toolkit ranking.
+[Measured workload](<benchmarks/results-comparison-03/MEASUREMENTS.md>); not full-app results or a universal toolkit ranking. Released-binary startup, idle and large-history numbers: [native runtime performance](<docs/NATIVE-PERFORMANCE.md>).
 
 ## Limits
 
