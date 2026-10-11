@@ -50,8 +50,11 @@ Malformed packets, partial writes and early EOF fail closed. Dropped events are 
 - [Codex](<../docs/NATIVE-CODEX.md>): explicit status/start/callback/browser controls; fixed provider and revision-checked route activation. No generic browser or credential-read access.
 - [Managed Codex accounts](<../docs/NATIVE-MANAGED-CODEX.md>): non-Copy `CodexAccountsMetadata`, branded redacted `CodexAccountId`/`CodexAccountLabel`, explicit Add/select/local logout with epoch checks. Add never selects; unknown writes require explicit `CodexAccountsStatus` reconciliation. No email, plan or quota is inferred.
 
+- [Cloudflare](<../docs/NATIVE-CLOUDFLARE.md>): revision-checked configuration, explicit Workers Free attestation and [browser OAuth](<../docs/NATIVE-CLOUDFLARE-OAUTH.md>). Private setup-bound PKCE browser capability; separate reserved Cancel and owned opener permit. Grants stay in the Host; uncertain writes never retry. Explicit credential-mode changes disable features until reviewed.
 - [Codex usage preferences](<../docs/NATIVE-CODEX-USAGE-POLICY.md>): typed local load/save, durable revision checks and explicit conflict/unknown outcomes. No quota, credential, notification or retry access.
 - [Codex runtime settings](<../docs/NATIVE-CODEX-USAGE-POLICY.md#remaining-supported-controls>): typed `CodexRuntimeRead` / `CodexRuntimeSave` expose eight fixed transport/cache/timeout/image-input fields through public Settings CAS. Closed snapshots distinguish effective values, inherited defaults and actual user overrides; no credential, endpoint or arbitrary provider access. Native Models/Images editors retain drafts and require explicit reconciliation after uncertainty.
+
+The lifecycle smoke also accepts exclusive `--cloudflare-oauth-stage initial|restored`: PUBLIC client/scope configuration, explicit saved-token mode selection and restart persistence, with both features off. It never starts OAuth or launches a browser; synthetic callback qualification and live authorization are separate checks.
 
 ## Process ownership
 

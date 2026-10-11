@@ -1,10 +1,11 @@
 //! Parent-owned opt-in smoke. Compile is safe; execution starts the explicitly supplied real fork.
 use dsh_native_core::{
-    AccountMetadata, AccountStatus, AttemptPhase, Backend, CodexCacheRetention,
-    CodexComposerDisplay, CodexIdleMillis, CodexImageBudget, CodexRemainingPercent,
-    CodexRuntimeNatural, CodexRuntimeSnapshot, CodexRuntimeTransport, CodexRuntimeValues,
-    CodexUsageAlert, CodexUsagePreferences, CodexUsageSnapshot, Command, Error, PublicReply,
-    RustBackendOptions, StopPolicy, StopResult,
+    AccountMetadata, AccountStatus, AttemptPhase, Backend, CloudflareAuthMode,
+    CloudflareOauthSetup, CodexCacheRetention, CodexComposerDisplay, CodexIdleMillis,
+    CodexImageBudget, CodexRemainingPercent, CodexRuntimeNatural, CodexRuntimeSnapshot,
+    CodexRuntimeTransport, CodexRuntimeValues, CodexUsageAlert, CodexUsagePreferences,
+    CodexUsageSnapshot, Command, Error, PublicReply, RustBackendOptions, SecretApiKey, StopPolicy,
+    StopResult,
 };
 use serde_json::{Value, json};
 use std::{collections::HashMap, path::PathBuf, thread, time::Duration};
@@ -53,7 +54,26 @@ fn stages(
     ))
 }
 
-fn options() -> Result<(RustBackendOptions, Option<UsageStage>, Option<RuntimeStage>), &'static str> {
+fn cloudflare_stage(
+    usage: Option<UsageStage>,
+    runtime: Option<RuntimeStage>,
+    cloudflare: Option<&str>,
+) -> Result<Option<RuntimeStage>, &'static str> {
+    if cloudflare.is_some() && (usage.is_some() || runtime.is_some()) {
+        return Err("cloudflare-stage-overlap");
+    }
+    cloudflare.map(RuntimeStage::parse).transpose()
+}
+fn options() -> Result<
+    (
+        RustBackendOptions,
+        Option<UsageStage>,
+        Option<RuntimeStage>,
+        Option<RuntimeStage>,
+        Option<RuntimeStage>,
+    ),
+    &'static str,
+> {
     let mut fields = HashMap::new();
     let mut arguments = std::env::args().skip(1);
     while let Some(key) = arguments.next() {
@@ -66,6 +86,8 @@ fn options() -> Result<(RustBackendOptions, Option<UsageStage>, Option<RuntimeSt
             "--node",
             "--usage-stage",
             "--runtime-stage",
+            "--cloudflare-stage",
+            "--cloudflare-oauth-stage",
         ]
         .contains(&key.as_str())
         {
@@ -79,6 +101,20 @@ fn options() -> Result<(RustBackendOptions, Option<UsageStage>, Option<RuntimeSt
     let usage = fields.remove("--usage-stage");
     let runtime = fields.remove("--runtime-stage");
     let (usage, runtime) = stages(usage.as_deref(), runtime.as_deref())?;
+    let cloudflare = cloudflare_stage(
+        usage,
+        runtime,
+        fields.remove("--cloudflare-stage").as_deref(),
+    )?;
+    let cloudflare_oauth = fields.remove("--cloudflare-oauth-stage");
+    if cloudflare_oauth.is_some() && (usage.is_some() || runtime.is_some() || cloudflare.is_some())
+    {
+        return Err("cloudflare-oauth-stage-overlap");
+    }
+    let cloudflare_oauth = cloudflare_oauth
+        .as_deref()
+        .map(RuntimeStage::parse)
+        .transpose()?;
     let mut take = |key: &str| fields.remove(key).ok_or("missing-required-argument");
     let options = RustBackendOptions {
         runtime: PathBuf::from(take("--runtime")?),
@@ -102,7 +138,7 @@ fn options() -> Result<(RustBackendOptions, Option<UsageStage>, Option<RuntimeSt
     {
         return Err("existing-absolute-directories-required");
     }
-    Ok((options, usage, runtime))
+    Ok((options, usage, runtime, cloudflare, cloudflare_oauth))
 }
 
 fn account(value: AccountMetadata) -> Value {
@@ -232,7 +268,11 @@ fn runtime_metadata(snapshot: CodexRuntimeSnapshot) -> Value {
         "overrides":runtime_values_metadata(snapshot.overrides),
     })
 }
-fn runtime_checks(backend: &Backend, stage: RuntimeStage, report: &mut Value) -> Result<(), String> {
+fn runtime_checks(
+    backend: &Backend,
+    stage: RuntimeStage,
+    report: &mut Value,
+) -> Result<(), String> {
     let request = |command| backend.request(command, Duration::from_secs(5));
     let PublicReply::CodexRuntime(loaded) =
         request(Command::CodexRuntimeRead).map_err(|error| error.to_string())?
@@ -251,13 +291,18 @@ fn runtime_checks(backend: &Backend, stage: RuntimeStage, report: &mut Value) ->
         let PublicReply::CodexRuntime(reset) = request(Command::CodexRuntimeSave {
             expected_revision: loaded.revision,
             values: inherited,
-        }).map_err(|error| error.to_string())?
+        })
+        .map_err(|error| error.to_string())?
         else {
             return Err("unexpected-runtime-reset-reply".into());
         };
-        if reset.version != 1 || reset.revision != loaded.revision + 1
-            || !reset.configured || !reset.writable || reset.overrides != inherited
-            || reset.base_values != loaded.base_values || reset.values != reset.base_values
+        if reset.version != 1
+            || reset.revision != loaded.revision + 1
+            || !reset.configured
+            || !reset.writable
+            || reset.overrides != inherited
+            || reset.base_values != loaded.base_values
+            || reset.values != reset.base_values
         {
             return Err("runtime-inheritance-reset-mismatch".into());
         }
@@ -278,20 +323,28 @@ fn runtime_checks(backend: &Backend, stage: RuntimeStage, report: &mut Value) ->
     let PublicReply::CodexRuntime(saved) = request(Command::CodexRuntimeSave {
         expected_revision: loaded.revision,
         values: known,
-    }).map_err(|error| error.to_string())?
+    })
+    .map_err(|error| error.to_string())?
     else {
         return Err("unexpected-runtime-save-reply".into());
     };
-    if saved.version != 1 || saved.revision != loaded.revision + 1
-        || !saved.configured || !saved.writable || saved.values != known
-        || saved.overrides != known || saved.base_values != loaded.base_values
+    if saved.version != 1
+        || saved.revision != loaded.revision + 1
+        || !saved.configured
+        || !saved.writable
+        || saved.values != known
+        || saved.overrides != known
+        || saved.base_values != loaded.base_values
     {
         return Err("runtime-commit-ack-mismatch".into());
     }
-    if !matches!(request(Command::CodexRuntimeSave {
-        expected_revision: loaded.revision,
-        values: inherited,
-    }), Err(Error::CodexRuntimeConflict)) {
+    if !matches!(
+        request(Command::CodexRuntimeSave {
+            expected_revision: loaded.revision,
+            values: inherited,
+        }),
+        Err(Error::CodexRuntimeConflict)
+    ) {
         return Err("stale-runtime-save-not-rejected".into());
     }
     if request(Command::CodexRuntimeRead).map_err(|error| error.to_string())?
@@ -307,11 +360,201 @@ fn runtime_checks(backend: &Backend, stage: RuntimeStage, report: &mut Value) ->
     Ok(())
 }
 
+fn cloudflare_checks(
+    backend: &Backend,
+    stage: RuntimeStage,
+    report: &mut Value,
+) -> Result<(), String> {
+    const ACCOUNT: &str = "0123456789abcdef0123456789abcdef";
+    let read = || match backend.request(Command::CloudflareRead, Duration::from_secs(5)) {
+        Ok(PublicReply::Cloudflare(value)) => Ok(value),
+        _ => Err("cloudflare-read-failed".to_owned()),
+    };
+    let initial = read()?;
+    if !initial.writable || initial.models_enabled || initial.browser_enabled {
+        return Err("cloudflare-private-disabled-fixture-required".into());
+    }
+    if stage == RuntimeStage::Restored {
+        if initial.account_id != ACCOUNT || !initial.token_configured || initial.free_plan_confirmed
+        {
+            return Err("cloudflare-restoration-mismatch".into());
+        }
+        report["cloudflare"] = json!({"stage":"restored", "tokenPresenceRestored":true, "featuresDisabled":true, "modelRequests":0, "browserRequests":0});
+        return Ok(());
+    }
+    if !initial.account_id.is_empty() || initial.token_configured {
+        return Err("cloudflare-new-private-home-required".into());
+    }
+    let secret = SecretApiKey::new("PUBLIC_CLOUDFLARE_PIPE_FIXTURE_NOT_A_REAL_TOKEN".into())
+        .map_err(|error| error.to_string())?;
+    let saved = backend
+        .save_cloudflare(
+            initial.revision,
+            ACCOUNT,
+            false,
+            false,
+            false,
+            Some(secret),
+            Duration::from_secs(5),
+        )
+        .map_err(|error| error.to_string())?;
+    if saved.account_id != ACCOUNT
+        || !saved.token_configured
+        || saved.models_enabled
+        || saved.browser_enabled
+        || saved.free_plan_confirmed
+        || saved.revision != initial.revision + 1
+    {
+        return Err("cloudflare-save-mismatch".into());
+    }
+    if backend
+        .save_cloudflare(
+            initial.revision,
+            ACCOUNT,
+            false,
+            false,
+            false,
+            None,
+            Duration::from_secs(5),
+        )
+        .is_ok()
+    {
+        return Err("cloudflare-stale-save-not-refused".into());
+    }
+    if read()? != saved {
+        return Err("cloudflare-stale-save-changed-metadata".into());
+    }
+    let PublicReply::Cloudflare(disabled) = backend
+        .request(
+            Command::CloudflareDisable {
+                expected_revision: saved.revision,
+            },
+            Duration::from_secs(5),
+        )
+        .map_err(|error| error.to_string())?
+    else {
+        return Err("cloudflare-disable-reply-required".into());
+    };
+    if disabled.models_enabled
+        || disabled.browser_enabled
+        || disabled.account_id != ACCOUNT
+        || !disabled.token_configured
+    {
+        return Err("cloudflare-disable-mismatch".into());
+    }
+    report["cloudflare"] = json!({"stage":"initial", "tokenPersistenceAcknowledged":true, "staleSaveRejected":true, "featuresDisabled":true, "modelRequests":0, "browserRequests":0});
+    Ok(())
+}
+
+fn cloudflare_oauth_checks(
+    backend: &Backend,
+    stage: RuntimeStage,
+    report: &mut Value,
+) -> Result<(), String> {
+    const ACCOUNT: &str = "0123456789abcdef0123456789abcdef";
+    let setup = CloudflareOauthSetup {
+        client_id: "PUBLIC_OWN_DESKTOP_CLIENT".into(),
+        scopes: vec!["PUBLIC.product.read".into(), "offline_access".into()],
+        callback_port: 8977,
+    };
+    let request = |command| match backend.request(command, Duration::from_secs(5)) {
+        Ok(PublicReply::Cloudflare(value)) => Ok(value),
+        _ => Err("cloudflare-oauth-metadata-request-failed".to_owned()),
+    };
+    let initial = request(Command::CloudflareRead)?;
+    if !initial.writable
+        || initial.models_enabled
+        || initial.browser_enabled
+        || initial.free_plan_confirmed
+    {
+        return Err("cloudflare-oauth-disabled-private-fixture-required".into());
+    }
+    let mut configured = if stage == RuntimeStage::Initial {
+        if !initial.account_id.is_empty()
+            || initial.token_configured
+            || !initial.oauth_setup.client_id.is_empty()
+        {
+            return Err("cloudflare-oauth-new-private-home-required".into());
+        }
+        let token = SecretApiKey::new("PUBLIC_CLOUDFLARE_PIPE_FIXTURE_NOT_A_REAL_TOKEN".into())
+            .map_err(|e| e.to_string())?;
+        let saved = backend
+            .save_cloudflare(
+                initial.revision,
+                ACCOUNT,
+                false,
+                false,
+                false,
+                Some(token),
+                Duration::from_secs(5),
+            )
+            .map_err(|e| e.to_string())?;
+        let configured = request(Command::CloudflareSetupSave {
+            expected_revision: saved.revision,
+            setup: setup.clone(),
+        })?;
+        if backend
+            .request(
+                Command::CloudflareAuthModeSave {
+                    expected_revision: initial.revision,
+                    auth_mode: CloudflareAuthMode::ApiToken,
+                },
+                Duration::from_secs(5),
+            )
+            .is_ok()
+        {
+            return Err("cloudflare-oauth-stale-mode-not-refused".into());
+        }
+        configured
+    } else {
+        initial
+    };
+    if configured.account_id != ACCOUNT
+        || configured.oauth_setup != setup
+        || configured.auth_status.auth_mode != CloudflareAuthMode::Oauth
+        || configured.token_configured
+        || !configured.auth_status.setup_configured
+        || configured.models_enabled
+        || configured.browser_enabled
+        || configured.free_plan_confirmed
+    {
+        return Err("cloudflare-oauth-registration-restoration-mismatch".into());
+    }
+    configured = request(Command::CloudflareAuthModeSave {
+        expected_revision: configured.revision,
+        auth_mode: CloudflareAuthMode::ApiToken,
+    })?;
+    if !configured.token_configured
+        || configured.auth_status.auth_mode != CloudflareAuthMode::ApiToken
+        || configured.models_enabled
+        || configured.browser_enabled
+    {
+        return Err("cloudflare-oauth-explicit-saved-api-selection-failed".into());
+    }
+    configured = request(Command::CloudflareAuthModeSave {
+        expected_revision: configured.revision,
+        auth_mode: CloudflareAuthMode::Oauth,
+    })?;
+    if configured.token_configured
+        || configured.auth_status.auth_mode != CloudflareAuthMode::Oauth
+        || configured.models_enabled
+        || configured.browser_enabled
+    {
+        return Err("cloudflare-oauth-no-automatic-api-fallback-failed".into());
+    }
+    report["cloudflareOAuth"] = json!({"stage":if stage == RuntimeStage::Initial {"initial"} else {"restored"},
+        "registrationMetadataChecked":true,"savedApiTokenPreserved":true,"explicitModeSelection":true,
+        "oauthCommandsIssued":false,"modelPromptsIssued":false,"featuresDisabled":true,"liveRegistrationVerified":false});
+    Ok(())
+}
+
 fn checks(
     backend: &Backend,
     workspace: PathBuf,
     usage: Option<UsageStage>,
     runtime: Option<RuntimeStage>,
+    cloudflare: Option<RuntimeStage>,
+    cloudflare_oauth: Option<RuntimeStage>,
     report: &mut Value,
 ) -> Result<(), String> {
     let ready = backend.wait_ready().map_err(|error| error.to_string())?;
@@ -327,6 +570,12 @@ fn checks(
     report["inspection"] = json!({"activeTasks":inspection.active_tasks,"scheduledTasks":inspection.scheduled_tasks,"unknown":inspection.unknown});
     if !inspection.is_known_idle() {
         return Err("inspection-not-known-idle".into());
+    }
+    if let Some(stage) = cloudflare_oauth {
+        return cloudflare_oauth_checks(backend, stage, report);
+    }
+    if let Some(stage) = cloudflare {
+        return cloudflare_checks(backend, stage, report);
     }
     if let Some(stage) = usage {
         // Preference qualification never issues account, login, workspace or model commands.
@@ -362,7 +611,8 @@ fn checks(
 fn main() {
     let mut report = json!({"status":"failed","scope":"parent-owned-real-fork-native-core-smoke"});
     let result = (|| -> Result<(), String> {
-        let (options, usage, runtime) = options().map_err(str::to_owned)?;
+        let (options, usage, runtime, cloudflare, cloudflare_oauth) =
+            options().map_err(str::to_owned)?;
         let workspace = options.working_directory.clone();
         // The startup caller exits while the core's actual spawning/ownership thread remains alive.
         let (backend, _events) = thread::spawn(move || Backend::start(options))
@@ -370,7 +620,15 @@ fn main() {
             .map_err(|_| "startup-worker-failed".to_owned())?
             .map_err(|error| error.to_string())?;
         let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            checks(&backend, workspace, usage, runtime, &mut report)
+            checks(
+                &backend,
+                workspace,
+                usage,
+                runtime,
+                cloudflare,
+                cloudflare_oauth,
+                &mut report,
+            )
         }))
         .map_err(|_| "check-worker-failed".to_owned())
         .and_then(|result| result);
@@ -423,23 +681,53 @@ mod tests {
             assert_eq!(RuntimeStage::parse(value), Err("invalid-runtime-stage"));
         }
         assert_eq!(stages(None, None), Ok((None, None)));
-        assert_eq!(stages(Some("corrupt"), None), Ok((Some(UsageStage::Corrupt), None)));
-        assert_eq!(stages(None, Some("initial")), Ok((None, Some(RuntimeStage::Initial))));
-        assert_eq!(stages(Some("initial"), Some("restored")), Err("usage-and-runtime-stages-overlap"));
-        assert_eq!(stages(Some("invalid"), Some("invalid")), Err("usage-and-runtime-stages-overlap"));
+        assert_eq!(
+            stages(Some("corrupt"), None),
+            Ok((Some(UsageStage::Corrupt), None))
+        );
+        assert_eq!(
+            stages(None, Some("initial")),
+            Ok((None, Some(RuntimeStage::Initial)))
+        );
+        assert_eq!(
+            stages(Some("initial"), Some("restored")),
+            Err("usage-and-runtime-stages-overlap")
+        );
+        assert_eq!(
+            stages(Some("invalid"), Some("invalid")),
+            Err("usage-and-runtime-stages-overlap")
+        );
     }
     #[test]
     fn runtime_qualification_values_pin_exactly_eight_public_fields() {
         let values = runtime_values().unwrap();
-        assert_eq!(runtime_values_metadata(values), json!({
-            "transport":"sse", "cacheRetention":"none", "timeoutMs":17_000,
-            "websocketConnectTimeoutMs":9_000, "streamIdleTimeoutMs":32_000.0,
-            "requestImagePixelBudget":1_048_576, "requestImageMaxBytes":524_288,
-            "maxRequestImageBytes":8_388_608,
-        }));
+        assert_eq!(
+            runtime_values_metadata(values),
+            json!({
+                "transport":"sse", "cacheRetention":"none", "timeoutMs":17_000,
+                "websocketConnectTimeoutMs":9_000, "streamIdleTimeoutMs":32_000.0,
+                "requestImagePixelBudget":1_048_576, "requestImageMaxBytes":524_288,
+                "maxRequestImageBytes":8_388_608,
+            })
+        );
         let inherited = runtime_values_metadata(CodexRuntimeValues::default());
         assert_eq!(inherited.as_object().unwrap().len(), 8);
         assert!(inherited.as_object().unwrap().values().all(Value::is_null));
+    }
+    #[test]
+    fn cloudflare_qualification_is_explicit_and_exclusive() {
+        assert_eq!(
+            cloudflare_stage(None, None, Some("initial")),
+            Ok(Some(RuntimeStage::Initial))
+        );
+        assert_eq!(
+            cloudflare_stage(None, None, Some("restored")),
+            Ok(Some(RuntimeStage::Restored))
+        );
+        assert_eq!(cloudflare_stage(None, None, None), Ok(None));
+        assert!(cloudflare_stage(None, None, Some("corrupt")).is_err());
+        assert!(cloudflare_stage(Some(UsageStage::Initial), None, Some("initial")).is_err());
+        assert!(cloudflare_stage(None, Some(RuntimeStage::Initial), Some("restored")).is_err());
     }
     #[test]
     fn qualification_preferences_preserve_fractions_and_never_consent_to_quota() {

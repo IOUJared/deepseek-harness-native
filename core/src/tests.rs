@@ -6,6 +6,8 @@ use std::{fs, os::unix::fs::PermissionsExt};
 mod agent_discovery_tests;
 #[path = "secret_tests.rs"]
 mod secret_tests;
+#[path = "cloudflare_pipe_tests.rs"]
+mod cloudflare_pipe_tests;
 #[cfg(feature = "transport")]
 #[path = "owned_host_probe_tests.rs"]
 mod owned_host_probe_tests;

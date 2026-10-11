@@ -135,6 +135,35 @@ impl std::fmt::Debug for SecretCodexCallback {
     }
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CloudflareSavePacket<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    request_id: &'a str,
+    expected_revision: u64,
+    account_id: &'a str,
+    models_enabled: bool,
+    browser_enabled: bool,
+    free_plan_confirmed: bool,
+    api_token: Option<&'a str>,
+}
+pub(crate) fn cloudflare_frame(
+    id: &str, revision: u64, account: &str, models: bool, browser: bool, free: bool,
+    token: Option<&SecretApiKey>,
+) -> Result<SecretBytes, Error> {
+    crate::cloudflare::validate_save(revision, account, models, browser, free)?;
+    if id.is_empty() || id.len() > 128 || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
+        return Err(Error::InvalidCommand);
+    }
+    let api_token = token.map(|secret| std::str::from_utf8(&secret.bytes.0).map_err(|_| Error::InvalidCommand)).transpose()?;
+    let packet = CloudflareSavePacket { kind: "cloudflare-save", request_id: id, expected_revision: revision, account_id: account, models_enabled: models, browser_enabled: browser, free_plan_confirmed: free, api_token };
+    let mut frame = SecretBytes(Vec::with_capacity(MAX_LINE));
+    serde_json::to_writer(&mut frame, &packet).map_err(|_| Error::CommandTooLarge)?;
+    std::io::Write::write_all(&mut frame, b"\n").map_err(|_| Error::CommandTooLarge)?;
+    Ok(frame)
+}
+
 // No zeroize crate is available in the required offline shared cache. Keep the fallback local,
 // non-serializable and non-Debug; volatile stores plus a compiler fence prevent dead-store removal.
 pub(crate) struct SecretBytes(Vec<u8>);
@@ -177,6 +206,26 @@ impl Drop for SecretBytes {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cloudflare_secret_frame_is_exact_bounded_and_preserves_absent_token() {
+        let token = SecretApiKey::new("PUBLIC_FAKE_\"TOKEN\\".into()).unwrap();
+        for secret in [None, Some(&token)] {
+            let frame = cloudflare_frame("r_1", 2, "0123456789abcdef0123456789abcdef", true, false, true, secret).unwrap();
+            assert_eq!(frame.as_slice().last(), Some(&b'\n'));
+            let value: serde_json::Value = serde_json::from_slice(frame.as_slice()).unwrap();
+            assert_eq!(value.as_object().unwrap().len(), 8);
+            assert_eq!(value["type"], "cloudflare-save");
+            assert_eq!(value["requestId"], "r_1");
+            assert_eq!(value["expectedRevision"], 2);
+            assert_eq!(value["apiToken"], secret.map(|_| serde_json::json!("PUBLIC_FAKE_\"TOKEN\\")).unwrap_or(serde_json::Value::Null));
+        }
+        assert!(cloudflare_frame("bad id", 2, "", false, false, false, None).is_err());
+        assert!(cloudflare_frame("r", 2, "", true, false, false, Some(&token)).is_err());
+        let maximum = SecretApiKey::new("\"".repeat(16_384)).unwrap();
+        let frame = cloudflare_frame(&"r".repeat(128), 0, "", false, false, false, Some(&maximum)).unwrap();
+        assert!(frame.as_slice().len() <= MAX_LINE);
+        assert!(frame.as_slice().len() > 32_768);
+    }
     #[test]
     fn frame_writer_rejects_overflow_before_reallocation() {
         let mut buffer = SecretBytes(Vec::with_capacity(MAX_LINE));

@@ -2,6 +2,7 @@
 /** Private Linux desktop owner. Only framed inherited pipes carry native commands and credentials. */
 import { createRequire } from 'node:module';
 import { createCodexBridge, validCodexAccountId, validCodexLabel } from './codex.mjs';
+import { createCloudflareBridge, validCloudflareRevision, validCloudflareSave, validCloudflareOAuthCommand } from './cloudflare.mjs';
 import { initializeManagedCodex } from './codex-profile.mjs';
 import { createCodexUsageBridge } from './codex-usage-bridge.mjs';
 import { validateCodexUsagePreferences } from './codex-usage-preferences.mjs';
@@ -16,7 +17,7 @@ import { MAX_COMMAND_BYTES, parseCommand as parseBaselineCommand, lineReceiver, 
 
 export const DESKTOP_BUNDLES = Object.freeze(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']);
 /** Owner overlay remains the last non-telemetry layer even after profile reloads. */
-export const DESKTOP_PATCH = `- id: desktop-product-telemetry\n  disabled: true\n- id: product-analytics\n  disabled: true\n- id: ui-sidebar-browser\n  disabled: true\n`;
+export const DESKTOP_PATCH = `- id: desktop-product-telemetry\n  disabled: true\n- id: product-analytics\n  disabled: true\n- id: ui-sidebar-browser\n  disabled: true\n- id: cloudflare\n  disabled: false\n`;
 export const OPTIONAL_PAYLOADS = Object.freeze({
   office: Object.freeze({ status: 'unavailable', reason: 'not-configured' }),
   browser: Object.freeze({ status: 'disabled', reason: 'linux-carrier-required' }),
@@ -36,6 +37,10 @@ export function parseForkCommand(line) {
   if (!record(value)) throw new Error('Invalid native command');
   if (['shutdown', 'inspect', 'open-workspace'].includes(value.type)) return parseBaselineCommand(line);
   if (!requestIdValid(value.requestId)) throw new Error('Invalid native command');
+  if (value.type === 'cloudflare-read' && exact(value, ['type', 'requestId'])) return value;
+  if (value.type === 'cloudflare-disable' && exact(value, ['type', 'requestId', 'expectedRevision']) && validCloudflareRevision(value.expectedRevision)) return value;
+  if (value.type === 'cloudflare-save' && validCloudflareSave(value)) return value;
+  if (validCloudflareOAuthCommand(value)) return value;
   const serial = number => Number.isSafeInteger(number) && number > 0;
   const epoch = number => Number.isSafeInteger(number) && number >= 0;
   if (value.type === 'codex-add' && exact(value, ['type', 'requestId', 'label', 'expectedEpoch']) && validCodexLabel(value.label) && epoch(value.expectedEpoch)) return value;
@@ -353,6 +358,7 @@ export function startForkSupervisor({ input = process.stdin, send, loadRuntime =
   let runtime;
   let codex;
   let codexUsage;
+  let cloudflare;
   let boot;
   let shutdownPromise;
   const pending = new Set();
@@ -368,6 +374,7 @@ export function startForkSupervisor({ input = process.stdin, send, loadRuntime =
     if (shutdownPromise) return shutdownPromise;
     const accountStopped = accountObserver.dispose();
     const usageStopped = Promise.resolve(codexUsage?.stop()).then(() => true, () => false);
+    const cloudflareStopped = Promise.resolve(cloudflare?.stop()).then(() => true, () => false);
     return shutdownPromise = (async () => {
       try {
         try { await boot; } catch (_error) { /* Boot observer reports startup errors. */ }
@@ -375,7 +382,7 @@ export function startForkSupervisor({ input = process.stdin, send, loadRuntime =
         try { await codex?.stop(); } catch (_error) { disposalFailed = true; }
         try { if (runtime) await runtime.shutdown.shutdown(0); } catch (_error) { disposalFailed = true; }
         await accountStopped;
-        if (!await usageStopped) disposalFailed = true;
+        if (!await usageStopped || !await cloudflareStopped) disposalFailed = true;
         await Promise.allSettled([...pending]);
         send({ type: 'platform-session', session: null });
         await installed?.cleanup?.();
@@ -404,7 +411,7 @@ export function startForkSupervisor({ input = process.stdin, send, loadRuntime =
     }
     // Unsubscribe can revoke a pending subscribe; its owner denies replacement until reads retire.
     const lane = ['codex-usage-load', 'codex-usage-save'].includes(command.type) ? 'codex-usage-preferences'
-      : ['codex-start', 'codex-add', 'codex-select', 'codex-signout', 'codex-signout-all', 'codex-enable-models', 'codex-runtime-save', 'account-start', 'account-signout', 'account-cancel', 'save-api-key'].includes(command.type) ? 'account-mutation' : command.type;
+      : ['codex-start', 'codex-add', 'codex-select', 'codex-signout', 'codex-signout-all', 'codex-enable-models', 'codex-runtime-save', 'account-start', 'account-signout', 'account-cancel', 'save-api-key', 'cloudflare-save', 'cloudflare-disable', 'cloudflare-setup-save', 'cloudflare-auth-mode-save', 'cloudflare-oauth-start', 'cloudflare-oauth-disconnect'].includes(command.type) ? 'account-mutation' : command.type;
     if (busy.has(lane)) {
       if (command.type === 'inspect') unknown(command.requestId);
       else emit({ type: 'request-error', requestId: command.requestId, message: 'Native request already pending' });
@@ -417,6 +424,9 @@ export function startForkSupervisor({ input = process.stdin, send, loadRuntime =
       const account = () => requireService(ctx, 'deepseekAccount');
       let value;
       switch (command.type) {
+        case 'cloudflare-read': case 'cloudflare-save': case 'cloudflare-disable': case 'cloudflare-setup-save': case 'cloudflare-auth-mode-save':
+        case 'cloudflare-oauth-start': case 'cloudflare-oauth-cancel': case 'cloudflare-oauth-disconnect':
+          value = await cloudflare.handle(command); break;
         case 'codex-status': case 'codex-accounts-status': case 'codex-start': case 'codex-add': case 'codex-select': case 'codex-signout': case 'codex-signout-all': case 'codex-cancel': case 'codex-enable-models': case 'codex-callback': case 'codex-runtime-read': case 'codex-runtime-save':
           value = await codex.handle(command); break;
         case 'codex-usage-load': case 'codex-usage-save': value = await codexUsage.handle(command); break;
@@ -438,7 +448,7 @@ export function startForkSupervisor({ input = process.stdin, send, loadRuntime =
     } catch (error) {
       if (command.type === 'inspect') unknown(command.requestId);
       else emit({ type: 'request-error', requestId: command.requestId, message: 'Native request failed',
-        ...['CODEX_EPOCH_CONFLICT', 'CODEX_USAGE_CONFLICT', 'CODEX_USAGE_INDETERMINATE', 'CODEX_USAGE_UNAVAILABLE', 'CODEX_RUNTIME_CONFLICT', 'CODEX_RUNTIME_INDETERMINATE', 'CODEX_RUNTIME_UNAVAILABLE'].includes(error?.code) ? { code: error.code } : {} });
+        ...['CLOUDFLARE_CONFLICT', 'CLOUDFLARE_INDETERMINATE', 'CLOUDFLARE_UNAVAILABLE', 'CODEX_EPOCH_CONFLICT', 'CODEX_USAGE_CONFLICT', 'CODEX_USAGE_INDETERMINATE', 'CODEX_USAGE_UNAVAILABLE', 'CODEX_RUNTIME_CONFLICT', 'CODEX_RUNTIME_INDETERMINATE', 'CODEX_RUNTIME_UNAVAILABLE'].includes(error?.code) ? { code: error.code } : {} });
     } finally { busy.delete(lane); }
   };
   const receiver = lineReceiver(line => {
@@ -464,6 +474,7 @@ export function startForkSupervisor({ input = process.stdin, send, loadRuntime =
     await initializeManagedCodex(runtime.ctx, installed.home);
     if (cancelled) return;
     codex = createCodexBridge({ ctx: runtime.ctx, emit, addSecret });
+    cloudflare = createCloudflareBridge({ ctx: runtime.ctx, credentialRef: installed.credentialRef, addSecret, emit });
     codexUsage = createCodexUsageBridge({ openStorage: () => {
       if (typeof installed.openUsageStorage !== 'function') throw new Error('Preference storage unavailable');
       return installed.openUsageStorage();

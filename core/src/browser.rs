@@ -8,17 +8,22 @@ use std::{
 use url::Url;
 
 /// Attempt-scoped browser capability; no public access, Debug, Clone or serde.
-pub(crate) struct BrowserCapability(SecretBytes);
+pub(crate) struct BrowserCapability { bytes: SecretBytes, cloudflare: Option<crate::CloudflareOauthSetup> }
 impl BrowserCapability {
     pub(crate) fn new(raw: String) -> Result<Self, Error> {
         let bytes = SecretBytes::new(raw.into_bytes());
         let text = std::str::from_utf8(bytes.as_slice()).map_err(|_| Error::Protocol)?;
         validate(text)?;
-        Ok(Self(bytes))
+        Ok(Self { bytes, cloudflare: None })
+    }
+    pub(crate) fn cloudflare(raw: String, setup: crate::CloudflareOauthSetup) -> Result<Self, Error> {
+        let bytes=SecretBytes::new(raw.into_bytes());
+        crate::cloudflare::validate_url(std::str::from_utf8(bytes.as_slice()).map_err(|_|Error::Protocol)?, &setup)?;
+        Ok(Self { bytes, cloudflare: Some(setup) })
     }
     pub(crate) fn spawn(self) -> Result<Child, Error> {
-        let text = std::str::from_utf8(self.0.as_slice()).map_err(|_| Error::Protocol)?;
-        validate(text)?;
+        let text = std::str::from_utf8(self.bytes.as_slice()).map_err(|_| Error::Protocol)?;
+        match &self.cloudflare { Some(setup)=>crate::cloudflare::validate_url(text,setup)?,None=>validate(text)? };
         // Preserve only native desktop identity, not credentials or opener shell overrides.
         Command::new("/usr/bin/xdg-open")
             .env_clear()

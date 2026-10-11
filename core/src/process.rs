@@ -543,6 +543,27 @@ fn handle_event(inner: &Inner, event: Event) {
             drop(state);
             inner.emit(PublicEvent::Codex(metadata));
         }
+        Event::CloudflareAuth(metadata, setup, browser) => {
+            let mut state=inner.state.0.lock().unwrap();
+            if state.root_exited || inner.stopping.load(Ordering::Acquire) || inner.fault.load(Ordering::Acquire) {return;}
+            if let Some(previous)=state.cloudflare_auth.as_ref() {
+                if (metadata.auth_epoch,metadata.sequence)<(previous.auth_epoch,previous.sequence)
+                    || previous.attempt_id==metadata.attempt_id && !previous.phase.active() && previous.phase!=crate::CloudflareAuthPhase::Idle && metadata.phase.active() {return;}
+            }
+            let mut metadata=metadata;
+            if state.cloudflare_revoked || state.cloudflare_opened==metadata.attempt_id && metadata.attempt_id.is_some() {metadata.browser_available=false;state.cloudflare_browser=None;}
+            else if metadata.phase!=crate::CloudflareAuthPhase::WaitingBrowser || metadata.retry_blocked {
+                state.cloudflare_browser=None;metadata.browser_available=false;
+            } else {
+                if state.cloudflare_auth.as_ref().is_none_or(|old|old.attempt_id!=metadata.attempt_id||old.auth_epoch!=metadata.auth_epoch)
+                    || state.cloudflare_setup.as_ref()!=Some(&setup) {state.cloudflare_browser=None;}
+                if browser.is_some() {state.cloudflare_browser=browser;}
+                metadata.browser_available=state.cloudflare_browser.is_some();
+            }
+            state.cloudflare_setup=Some(setup);
+            state.cloudflare_auth=Some(metadata.clone());
+            drop(state);inner.emit(PublicEvent::CloudflareAuth(metadata));
+        }
         Event::Account(account) => inner.emit(PublicEvent::Account(account)),
         Event::Reply { id, command, reply } => {
             // Release request-map lock before taking private state (monitor uses state→map).
@@ -576,9 +597,24 @@ fn handle_event(inner: &Inner, event: Event) {
                                 }
                             }
                             Ok(crate::PublicReply::Codex(metadata))
-                        } else {
-                            Ok(reply)
-                        }
+                        } else if let crate::PublicReply::Cloudflare(mut snapshot)=reply {
+                            let mut state=inner.state.0.lock().unwrap();
+                            let incoming=&snapshot.auth_status;
+                            if state.cloudflare_auth.as_ref().is_none_or(|old| (incoming.auth_epoch,incoming.sequence)>(old.auth_epoch,old.sequence)) {
+                                if incoming.phase!=crate::CloudflareAuthPhase::WaitingBrowser || incoming.retry_blocked
+                                    || state.cloudflare_auth.as_ref().is_none_or(|old|old.attempt_id!=incoming.attempt_id||old.auth_epoch!=incoming.auth_epoch)
+                                    || state.cloudflare_setup.as_ref()!=Some(&snapshot.oauth_setup) {state.cloudflare_browser=None;}
+                                let mut installed=incoming.clone();installed.browser_available=state.cloudflare_browser.is_some()&&!state.cloudflare_revoked;
+                                state.cloudflare_auth=Some(installed);
+                                state.cloudflare_setup=Some(snapshot.oauth_setup.clone());
+                            }
+                            if let Some(current)=state.cloudflare_auth.as_ref() {
+                                if current.auth_epoch==snapshot.auth_status.auth_epoch && current.sequence>=snapshot.auth_status.sequence {
+                                    snapshot.auth_status=current.clone();
+                                }
+                            }
+                            Ok(crate::PublicReply::Cloudflare(snapshot))
+                        } else { Ok(reply) }
                     }
                 });
                 let _ = pending.reply.send(reply);
