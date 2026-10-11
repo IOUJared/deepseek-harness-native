@@ -44,6 +44,8 @@ pub(crate) const ATTACH: NodeId = NodeId(5);
 pub(crate) const SETTINGS: NodeId = NodeId(6);
 pub(crate) const MODEL: NodeId = NodeId(7);
 pub(crate) const STATUS: NodeId = NodeId(8);
+/// The composer's text run: the child that makes the draft readable.
+pub(crate) const COMPOSER_TEXT_RUN: NodeId = NodeId(9);
 
 // The widget ids `ui.rs` tags. Reusing the ids the geometry fixtures already use
 // keeps one name per widget; `native-status-line` and `native-chat-composer` are
@@ -223,7 +225,10 @@ pub(crate) fn intent(request: &ActionRequest) -> Option<Intent> {
         (ATTACH, Action::Click) => Some(Intent::Attach),
         (SETTINGS, Action::Click) => Some(Intent::Settings),
         (MODEL, Action::Click) => Some(Intent::Model),
-        (COMPOSER, Action::Focus) => Some(Intent::FocusComposer),
+        // A click on a text field means "put the caret in it", which is what
+        // clicking this editor does, and AccessKit only advertises the action
+        // interface for a node that offers a click.
+        (COMPOSER, Action::Click | Action::Focus) => Some(Intent::FocusComposer),
         (COMPOSER, Action::SetValue) => match request.data.as_ref() {
             Some(ActionData::Value(value)) => Some(Intent::SetComposer(value.to_string())),
             _ => None,
@@ -254,21 +259,29 @@ pub(crate) struct Snapshot<'a> {
 /// Build the full tree. A control with no measured bounds is left out, so the
 /// tree only ever claims what the frame really contains.
 pub(crate) fn tree(snapshot: &Snapshot<'_>) -> TreeUpdate {
-    let mut nodes = Vec::with_capacity(EXPOSED.len() + 1);
+    let mut nodes = Vec::with_capacity(EXPOSED.len() + 2);
     let mut children = Vec::new();
-    let mut push = |id: NodeId, node: Node| {
-        children.push(id);
-        nodes.push((id, node));
-    };
+    // The composer comes first because its text run is built by hand: a client
+    // reads the draft through that child, not through the field's own value.
     if let (Some(draft), Some(rect)) = (snapshot.composer.as_deref(), bounds(snapshot, COMPOSER)) {
         let mut node = Node::new(Role::MultilineTextInput);
         node.set_label("Message DeepSeek Harness");
         node.set_value(draft);
         node.set_bounds(rect);
+        node.add_action(Action::Click);
         node.add_action(Action::Focus);
         node.add_action(Action::SetValue);
-        push(COMPOSER, node);
+        if let Some(run) = text_run(draft) {
+            node.set_children([COMPOSER_TEXT_RUN]);
+            nodes.push((COMPOSER_TEXT_RUN, run));
+        }
+        children.push(COMPOSER);
+        nodes.push((COMPOSER, node));
     }
+    let mut push = |id: NodeId, node: Node| {
+        children.push(id);
+        nodes.push((id, node));
+    };
     for (id, label, enabled) in [
         (SEND, "Send", snapshot.send),
         (STOP, "Stop", snapshot.stop),
@@ -328,6 +341,30 @@ pub(crate) fn tree(snapshot: &Snapshot<'_>) -> TreeUpdate {
         // node is focused".
         focus: ROOT,
     }
+}
+
+/// The composer's text as the run node a client needs.
+///
+/// AccessKit serves `Text` and `EditableText` only for a text node with a
+/// `Role::TextRun` child, and each entry of `character_lengths` is one
+/// character's length in UTF-8 bytes, summing to the value's byte length. A
+/// draft past the cap publishes no run rather than one entry per character of
+/// an essay: the field keeps its name, its value and its actions, and only the
+/// character-level reads are absent.
+fn text_run(draft: &str) -> Option<Node> {
+    const MAX_CHARACTERS: usize = 4096;
+    if draft.is_empty() || draft.chars().take(MAX_CHARACTERS + 1).count() > MAX_CHARACTERS {
+        return None;
+    }
+    let mut run = Node::new(Role::TextRun);
+    run.set_value(draft);
+    run.set_character_lengths(
+        draft
+            .chars()
+            .map(|c| c.len_utf8() as u8)
+            .collect::<Vec<u8>>(),
+    );
+    Some(run)
 }
 
 fn bounds(snapshot: &Snapshot<'_>, id: NodeId) -> Option<Rect> {
@@ -470,6 +507,11 @@ mod tests {
             intent(&request(COMPOSER, Action::Focus)),
             Some(Intent::FocusComposer)
         );
+        assert_eq!(
+            intent(&request(COMPOSER, Action::Click)),
+            Some(Intent::FocusComposer),
+            "clicking a text field focuses it"
+        );
         let mut set = request(COMPOSER, Action::SetValue);
         set.data = Some(ActionData::Value("PUBLIC draft".into()));
         assert_eq!(
@@ -510,6 +552,8 @@ mod tests {
             roles(&tree),
             vec![
                 (ROOT.0, Role::Window),
+                // The draft's text run is built before the field that owns it.
+                (COMPOSER_TEXT_RUN.0, Role::TextRun),
                 (COMPOSER.0, Role::MultilineTextInput),
                 (SEND.0, Role::Button),
                 (SETTINGS.0, Role::Button),
@@ -524,8 +568,17 @@ mod tests {
         );
         assert_eq!(tree.focus, ROOT);
         assert_eq!(tree.tree_id, TreeId::ROOT);
-        let (_, composer) = &tree.nodes[1];
+        let (_, composer) = tree
+            .nodes
+            .iter()
+            .find(|(id, _)| *id == COMPOSER)
+            .expect("the composer is published");
         assert_eq!(composer.value(), Some("PUBLIC draft"));
+        assert_eq!(
+            composer.children(),
+            vec![COMPOSER_TEXT_RUN],
+            "the field points at its text run"
+        );
     }
 
     #[test]
@@ -551,6 +604,72 @@ mod tests {
         // The composer keeps the empty draft it really has.
         let composer = &tree.nodes.iter().find(|(id, _)| *id == COMPOSER).unwrap().1;
         assert_eq!(composer.value(), Some(""));
+    }
+
+    #[test]
+    fn the_draft_is_readable_through_its_text_run() {
+        let bounds = bounds_map(&[(COMPOSER, 10.0)]);
+        let draft = "Hi é😀"; // five characters, nine bytes
+        let snapshot = Snapshot {
+            composer: Some(draft.to_owned()),
+            send: false,
+            stop: false,
+            attach: false,
+            model: None,
+            status: None,
+            bounds: &bounds,
+        };
+        let tree = tree(&snapshot);
+        let (_, run) = tree
+            .nodes
+            .iter()
+            .find(|(id, _)| *id == COMPOSER_TEXT_RUN)
+            .expect("a non-empty draft publishes a text run");
+        assert_eq!(run.role(), Role::TextRun);
+        assert_eq!(run.value(), Some(draft));
+        assert_eq!(
+            run.character_lengths(),
+            vec![1, 1, 1, 2, 4],
+            "one UTF-8 byte length per character"
+        );
+        assert_eq!(
+            run.character_lengths()
+                .iter()
+                .map(|len| *len as usize)
+                .sum::<usize>(),
+            draft.len(),
+            "the lengths must sum to the value's byte length"
+        );
+    }
+
+    #[test]
+    fn an_empty_or_oversized_draft_publishes_no_text_run() {
+        let bounds = bounds_map(&[(COMPOSER, 10.0)]);
+        for draft in [String::new(), "x".repeat(4097)] {
+            let snapshot = Snapshot {
+                composer: Some(draft.clone()),
+                send: true,
+                stop: false,
+                attach: false,
+                model: None,
+                status: None,
+                bounds: &bounds,
+            };
+            let tree = tree(&snapshot);
+            assert!(
+                !tree.nodes.iter().any(|(id, _)| *id == COMPOSER_TEXT_RUN),
+                "no run for a draft of {} characters",
+                draft.chars().count()
+            );
+            // The field itself is still there, with the value it really has.
+            let (_, composer) = tree
+                .nodes
+                .iter()
+                .find(|(id, _)| *id == COMPOSER)
+                .expect("the composer stays published");
+            assert!(composer.children().is_empty());
+            assert_eq!(composer.value().map(str::len), Some(draft.len()));
+        }
     }
 
     #[test]
