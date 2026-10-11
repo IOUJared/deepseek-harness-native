@@ -87,6 +87,8 @@ mod attachment_ui_tests;
 mod chat_flow_ui_tests;
 #[path = "chat_usage.rs"]
 pub(crate) mod chat_usage;
+#[path = "command_menu.rs"]
+mod command_menu;
 #[cfg(test)]
 #[path = "conversation_actions_ui_tests.rs"]
 mod conversation_actions_ui_tests;
@@ -283,6 +285,12 @@ pub enum Message {
     ToggleContextPolicy,
     /// Enter or leave plan mode through the Host's command surface.
     TogglePlanMode,
+    /// Move the completion highlight by one row, wrapping.
+    CommandMenuMove(i32),
+    /// Accept the highlighted completion into the draft.
+    CommandMenuAccept,
+    /// Close the completion menu without changing the draft.
+    CommandMenuDismiss,
     /// Client-only view of Host-owned terminals. Opening spawns no local shell.
     Terminal(crate::terminal::Action),
     Close,
@@ -381,6 +389,13 @@ pub struct App {
     /// Whether the Host has published the `plan` projection: `None` until the
     /// selected session reports, so an offer is never assumed before it answers.
     plan_published: Option<bool>,
+    /// The Host's advertised commands for the selected session, or `None` until
+    /// the composer asks. Only ever the Host's own list.
+    commands: Option<Vec<command_menu::Candidate>>,
+    /// A completion read is in flight, so the composer asks once, not per key.
+    commands_pending: bool,
+    /// Highlighted completion row.
+    command_selected: usize,
     /// A plan-mode toggle is in flight. Inert until its reply settles.
     plan_toggle_pending: bool,
     /// The read-only More → Work records panel is open.
@@ -522,6 +537,9 @@ impl App {
                 context_policy_open: false,
                 plan_published: None,
                 plan_toggle_pending: false,
+                commands: None,
+                commands_pending: false,
+                command_selected: 0,
                 terminal: crate::terminal::Terminal::default(),
                 info_expanded: 0,
                 settings: Default::default(),
@@ -989,9 +1007,13 @@ impl App {
         self.records_expanded = false;
         self.offset = 0.0;
         self.follow_bottom = true;
-        // A projection belongs to one session, so a new selection has none yet.
+        // A projection or advertisement belongs to one session, so a new
+        // selection has none yet.
         self.plan_published = None;
         self.plan_toggle_pending = false;
+        self.commands = None;
+        self.commands_pending = false;
+        self.command_selected = 0;
         self.model_controls.dismiss();
         self.reconcile_model_selection();
         self.status = "Opening authoritative session snapshot…".into();
@@ -1643,7 +1665,46 @@ impl App {
                 self.editor.perform(action);
                 if changed {
                     self.touch_draft();
+                    // Typing a leading slash is the user asking for completions;
+                    // the read is lazy, once, and never on a frame.
+                    if command_menu::query(&self.editor.text()).is_some() {
+                        self.request_commands();
+                    } else {
+                        // Leaving the command position resets the highlight, so a
+                        // later command line starts from the top.
+                        self.command_selected = 0;
+                    }
                 }
+            }
+            // The menu consumes these keys only while it is open, so nothing
+            // about ordinary composing changes when no command line is typed.
+            Message::CommandMenuMove(delta) if self.completion().is_some() => {
+                let len = self.completion().map_or(0, |menu| menu.matches.len());
+                self.command_selected = command_menu::advance(self.command_selected, len, delta);
+            }
+            Message::CommandMenuAccept if self.completion().is_some() => {
+                if let Some(candidate) = self
+                    .completion()
+                    .and_then(|menu| menu.candidate().map(|c| c.name.clone()))
+                {
+                    let accepted = command_menu::accepted(&self.editor.text(), &candidate);
+                    self.editor = iced::widget::text_editor::Content::with_text(&accepted);
+                    self.command_selected = 0;
+                    self.touch_draft();
+                }
+            }
+            Message::CommandMenuDismiss if self.completion().is_some() => {
+                // Dismissal is not a draft edit: clear the menu by leaving the
+                // command position, and keep every typed character.
+                self.commands = Some(Vec::new());
+                self.command_selected = 0;
+            }
+            // A command line that still has a menu open consumes Enter as
+            // "accept", so the first Enter never sends a half-typed command.
+            Message::KeyboardSend
+                if self.completion().is_some() && !self.editor.text().trim().ends_with(' ') =>
+            {
+                return self.update(Message::CommandMenuAccept);
             }
             Message::KeyboardSend if !self.editor.text().trim().is_empty() => {
                 return self.update(Message::Send);
@@ -2389,6 +2450,29 @@ impl App {
             }
             Event::Managed { submission, result } => {
                 self.management.finish(&submission, result, false);
+            }
+            Event::CommandsListed { session_id, result } => {
+                self.commands_pending = false;
+                // An advertisement belongs to the session that answered; a reply
+                // for a session the user has left changes nothing.
+                if self.selected.as_ref() == Some(&session_id) {
+                    match result {
+                        Ok(commands) => {
+                            self.commands = Some(
+                                commands
+                                    .into_iter()
+                                    .map(|command| command_menu::Candidate {
+                                        name: command.name,
+                                        description: command.description,
+                                    })
+                                    .collect(),
+                            );
+                        }
+                        // A failed read offers nothing and is not remembered as an
+                        // answer, so the next command line asks again.
+                        Err(()) => self.commands = None,
+                    }
+                }
             }
             Event::CommandsExecuted {
                 session_id,
@@ -4294,6 +4378,45 @@ impl App {
             self.status="Original submission was definitely not dispatched; original draft retained. No automatic resend.".into();
         }
     }
+    /// The composer's completion menu, if the draft is a command token and the
+    /// Host has advertised commands. The draft is the only trigger: the menu
+    /// disappears the moment the line stops being a command position.
+    fn completion(&self) -> Option<command_menu::Completion<'_>> {
+        let draft = self.editor.text();
+        let query = command_menu::query(&draft)?;
+        let candidates = self.commands.as_deref().unwrap_or_default();
+        let matches = command_menu::matches(candidates, query);
+        if matches.is_empty() {
+            return None;
+        }
+        Some(command_menu::Completion {
+            matches,
+            selected: self
+                .command_selected
+                .min(matches_len(&draft, candidates) - 1),
+            query: query.to_owned(),
+        })
+    }
+    /// Ask the Host for this session's commands, once per composer session. The
+    /// trigger is a user action -- a leading slash -- so no frame dispatch and no
+    /// selection does this on its own.
+    fn request_commands(&mut self) {
+        if self.commands.is_some()
+            || self.commands_pending
+            || self.options.smoke.is_some()
+            || !self.ready
+            || self.stopped
+            || self.observations_lost
+            || !matches!(self.close, Close::None)
+        {
+            return;
+        }
+        let Some(session_id) = self.selected.clone() else {
+            return;
+        };
+        self.commands_pending = true;
+        self.command(Command::CommandsList(session_id));
+    }
     /// The plan-mode control for the selected session, from the Host's advertised
     /// commands and the Host's own `plan` projection.
     fn plan_control(&self) -> plan_control::Control {
@@ -4306,6 +4429,8 @@ impl App {
     fn composer(&self) -> Element<'_, Message> {
         let allowed = self.send_allowed() && self.composer_visible();
         let keyboard_allowed = allowed && !self.editor.text().trim().is_empty();
+        // The menu claims navigation keys only while it is showing.
+        let menu_open = self.completion().is_some();
         let editor = text_editor(&self.editor)
             .placeholder("Message DeepSeek Harness… or drop a file")
             .on_action(Message::Editor)
@@ -4314,7 +4439,7 @@ impl App {
             .font(FONT)
             .size(15)
             .style(design::editor)
-            .key_binding(move |event| composer_binding(event, keyboard_allowed));
+            .key_binding(move |event| composer_binding(event, keyboard_allowed, menu_open));
         let sending = self
             .pending
             .values()
@@ -4610,6 +4735,49 @@ impl App {
             .push(Space::new().width(Length::Fill))
             .push(label(hint, MUTED).size(10));
         let mut shell = column![];
+        // The completion menu sits directly above the card, so it reads as an
+        // extension of the composer rather than a floating panel.
+        if let Some(menu) = self.completion() {
+            let mut rows = column![].spacing(1);
+            for (index, candidate) in menu.matches.iter().enumerate() {
+                let selected = index == menu.selected;
+                rows = rows.push(
+                    container(
+                        row![
+                            label(
+                                format!("/{}", candidate.name),
+                                if selected { ACCENT } else { MUTED },
+                            )
+                            .size(12)
+                            .width(Length::Shrink),
+                            label(short(&candidate.description, 70), MUTED)
+                                .size(10)
+                                .width(Length::Fill),
+                            // A caret marks the highlighted row even where a
+                            // background is hard to read at 1x.
+                            label(if selected { "▸" } else { "" }, ACCENT).size(10),
+                        ]
+                        .spacing(8)
+                        .align_y(iced::Alignment::Center),
+                    )
+                    .padding([4, 7])
+                    .width(Length::Fill)
+                    .style(move |_| {
+                        if selected {
+                            design::card(OVERLAY, design::RADIUS_SM)
+                        } else {
+                            container::Style::default()
+                        }
+                    }),
+                );
+            }
+            shell = shell.push(
+                container(rows)
+                    .padding(4)
+                    .width(Length::Fill)
+                    .style(|_| design::card(SURFACE, design::RADIUS_SM)),
+            );
+        }
         if self.context_policy_open {
             let mut detail = column![];
             for line in &context.detail {
@@ -7229,11 +7397,38 @@ mod modal_widget_tests {
     }
 }
 
+/// The number of rows the menu would show, so the selection can be clamped
+/// against the same list the view renders.
+fn matches_len(draft: &str, candidates: &[command_menu::Candidate]) -> usize {
+    command_menu::query(draft)
+        .map(|query| command_menu::matches(candidates, query).len())
+        .unwrap_or(0)
+}
 fn composer_binding(
     event: text_editor::KeyPress,
     send_enabled: bool,
+    menu_open: bool,
 ) -> Option<text_editor::Binding<Message>> {
     if matches!(event.status, text_editor::Status::Focused { .. }) {
+        // While the menu is open these keys move the highlight or accept it, so
+        // a half-typed command is never sent and the caret does not jump.
+        if menu_open && event.modifiers.is_empty() {
+            match &event.key {
+                keyboard::Key::Named(keyboard::key::Named::ArrowDown) => {
+                    return Some(text_editor::Binding::Custom(Message::CommandMenuMove(1)));
+                }
+                keyboard::Key::Named(keyboard::key::Named::ArrowUp) => {
+                    return Some(text_editor::Binding::Custom(Message::CommandMenuMove(-1)));
+                }
+                keyboard::Key::Named(keyboard::key::Named::Tab) => {
+                    return Some(text_editor::Binding::Custom(Message::CommandMenuAccept));
+                }
+                keyboard::Key::Named(keyboard::key::Named::Escape) => {
+                    return Some(text_editor::Binding::Custom(Message::CommandMenuDismiss));
+                }
+                _ => {}
+            }
+        }
         if !event.modifiers.alt()
             && !event.modifiers.logo()
             && !event.modifiers.shift()
@@ -7688,6 +7883,73 @@ mod tests {
             assert!(range.start <= range.end && range.end <= 4096);
         }
     }
+    fn named(key: keyboard::key::Named) -> text_editor::KeyPress {
+        text_editor::KeyPress {
+            key: keyboard::Key::Named(key),
+            modified_key: keyboard::Key::Named(key),
+            physical_key: keyboard::key::Physical::Code(keyboard::key::Code::Tab),
+            modifiers: keyboard::Modifiers::default(),
+            text: None,
+            status: text_editor::Status::Focused { is_hovered: false },
+        }
+    }
+    /// While the menu is open the navigation keys must not reach the editor, and
+    /// while it is closed they must behave exactly as they did before.
+    #[test]
+    fn the_completion_menu_claims_navigation_keys_only_while_open() {
+        use keyboard::key::Named;
+        for key in [Named::ArrowDown, Named::ArrowUp, Named::Tab, Named::Escape] {
+            let open = composer_binding(named(key), true, true);
+            let claimed = matches!(
+                open,
+                Some(text_editor::Binding::Custom(
+                    Message::CommandMenuMove(_)
+                        | Message::CommandMenuAccept
+                        | Message::CommandMenuDismiss
+                ))
+            );
+            assert!(claimed, "{key:?} must be claimed while the menu is open");
+            // The exact row movement, so a swapped direction cannot pass.
+            if matches!(key, Named::ArrowDown | Named::ArrowUp) {
+                let step = if matches!(key, Named::ArrowDown) {
+                    1
+                } else {
+                    -1
+                };
+                let actual = composer_binding(named(key), true, true);
+                assert!(
+                    matches!(
+                        actual,
+                        Some(text_editor::Binding::Custom(Message::CommandMenuMove(step)))
+                    ),
+                    "{key:?} must move {step}"
+                );
+            }
+            // Closed: the same keys fall through to the editor's own handling,
+            // except Escape, which the app already binds elsewhere.
+            let closed = composer_binding(named(key), true, false);
+            if !matches!(key, Named::Escape) {
+                assert!(
+                    !matches!(
+                        closed,
+                        Some(text_editor::Binding::Custom(
+                            Message::CommandMenuMove(_)
+                                | Message::CommandMenuAccept
+                                | Message::CommandMenuDismiss
+                        ))
+                    ),
+                    "{key:?} must not be claimed while the menu is closed"
+                );
+            }
+        }
+        // A modified navigation key stays the editor's: Ctrl+Home and friends.
+        let mut modified = named(Named::ArrowDown);
+        modified.modifiers = keyboard::Modifiers::CTRL;
+        assert!(!matches!(
+            composer_binding(modified, true, true),
+            Some(text_editor::Binding::Custom(Message::CommandMenuMove(1)))
+        ));
+    }
     fn enter(modifiers: keyboard::Modifiers) -> text_editor::KeyPress {
         text_editor::KeyPress {
             key: keyboard::Key::Named(keyboard::key::Named::Enter),
@@ -7701,22 +7963,22 @@ mod tests {
     #[test]
     fn enter_and_ctrl_enter_require_nonempty_send_permission_shift_enter_is_newline() {
         for modifiers in [keyboard::Modifiers::empty(), keyboard::Modifiers::CTRL] {
-            assert!(composer_binding(enter(modifiers), false).is_none());
+            assert!(composer_binding(enter(modifiers), false, false).is_none());
             assert!(matches!(
-                composer_binding(enter(modifiers), true),
+                composer_binding(enter(modifiers), true, false),
                 Some(text_editor::Binding::Custom(Message::KeyboardSend))
             ));
         }
         for allowed in [false, true] {
             assert!(matches!(
-                composer_binding(enter(keyboard::Modifiers::SHIFT), allowed),
+                composer_binding(enter(keyboard::Modifiers::SHIFT), allowed, false),
                 Some(text_editor::Binding::Enter)
             ));
         }
         let mut unfocused = enter(keyboard::Modifiers::empty());
         unfocused.status = text_editor::Status::Active;
         assert!(!matches!(
-            composer_binding(unfocused, true),
+            composer_binding(unfocused, true, false),
             Some(text_editor::Binding::Custom(Message::KeyboardSend))
         ));
     }

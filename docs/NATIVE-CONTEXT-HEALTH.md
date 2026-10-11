@@ -109,6 +109,29 @@ inert, and a reply for a different session or a different line is ignored as sta
 rather than clearing that state.
 
 
+## Slash-command completion
+
+Typing a leading `/` opens a completion menu above the composer, listing the
+commands the **Host** advertises — names and descriptions are its own, so a command
+this Host does not offer can never be completed.
+
+| Key | Action |
+|---|---|
+| type `/` | open the menu, ask the Host once per session |
+| type more | filter by name, prefixes ranked before substring matches |
+| `↑` `↓` | move the highlight, wrapping |
+| `Tab` or `Enter` | accept the highlighted command into the draft |
+| `Esc` | close the menu, keeping every typed character |
+
+Accepting only rewrites the draft; it never executes. The menu closes as soon as
+the line stops being a command position — after a space, or on a second line — so
+`/` inside prose does not open it, and a half-typed command cannot be sent by a
+single `Enter`. With the menu closed, `Enter` sends exactly as before.
+
+The advertisement is read lazily on the first leading slash, not on selection or on
+a frame, and a failed read offers nothing and is retried by the next command line
+rather than remembered as an answer.
+
 ## Chat stays clean
 
 Compaction, the loop guard and the plan chip are harness bookkeeping. Chat

@@ -63,6 +63,9 @@ pub enum Command {
     },
     Manage(crate::management::Submission),
     Rename(crate::rename::Submission),
+    /// Read the Host's advertised commands for one session. Read-only, and the
+    /// composer asks for it lazily rather than on every selection.
+    CommandsList(SessionId),
     /// Invoke one Host command without a model turn. Paired with
     /// [`Event::CommandsExecuted`] by session, since no submission id exists.
     CommandsExecute {
@@ -152,6 +155,11 @@ pub enum Event {
     Renamed {
         submission: crate::rename::Submission,
         result: Result<SessionRenameValue, ()>,
+    },
+    /// The session's advertised commands, or a failure that offers nothing.
+    CommandsListed {
+        session_id: SessionId,
+        result: Result<Vec<CommandDescriptor>, ()>,
     },
     /// One command's Host-owned outcome. `Option` is meaningful: the Host may
     /// settle a command with no execution record, which is not a success. The
@@ -699,6 +707,10 @@ fn rejected(command: Command) -> Event {
             submission,
             result: Err(()),
         },
+        Command::CommandsList(session_id) => Event::CommandsListed {
+            session_id,
+            result: Err(()),
+        },
         Command::CommandsExecute { session_id, line } => Event::CommandsExecuted {
             session_id,
             line,
@@ -1073,6 +1085,12 @@ fn admit_rename(
     }
     *active = Some(submission.clone());
     true
+}
+/// Read the Host's advertised commands. Descriptions travel too: the composer
+/// menu shows them, and they are the Host's own words rather than ours.
+async fn commands_list(client: dsh_native_transport::NativeClient, session_id: SessionId) -> Event {
+    let result = client.commands_list(&session_id).await.map_err(|_| ());
+    Event::CommandsListed { session_id, result }
 }
 /// Invoke one command through the Host. The outcome of the command is the Host's
 /// own; this worker neither interprets it nor retries it.
@@ -1773,6 +1791,11 @@ async fn run(
                         }
                         continue;
                     },
+                    Command::CommandsList(session_id)=>{
+                        // Read-only: it advertises commands and reserves nothing.
+                        tasks.spawn(commands_list(client.clone(),session_id));
+                        continue;
+                    },
                     Command::CommandsExecute{session_id,line}=>{
                         // A Host mutation with no model turn, so it is refused while
                         // observations are down and never retried after an
@@ -1879,6 +1902,7 @@ async fn run(
                     Command::Prompt{..}|Command::CheckSubmission(_)|Command::RejoinObservations{..}=>Event::Fault("Prompt bypassed worker ownership".into()),
                     Command::Cancel{..}=>Event::Fault("Cancellation bypassed priority dispatch".into()),
                     Command::Page{generation,request}=>Event::Page{generation,result:client.session_page(request).await.map_err(|e|format!("History page: {e}"))},
+                    Command::CommandsList(session_id)=>Event::CommandsListed{session_id:session_id.clone(),result:client.commands_list(&session_id).await.map_err(|_|())},
                     Command::CommandsExecute{session_id,line}=>Event::CommandsExecuted{session_id:session_id.clone(),line:line.clone(),result:client.commands_execute(&CommandExecuteRequest{session_id:session_id.clone(),line,submitted_attachments:Vec::new()}).await.map_err(|_|())},
                     Command::Cloudflare(_)|Command::PromptFile{..}|Command::StageFile(_)|Command::DiscardFile(_)|Command::Codex(_)|Command::Export(_)|Command::PluginsRead(_)|Command::PluginSave{..}|Command::Manage(_)|Command::Rename(_)|Command::Fork(_)|Command::TerminalRead(_)|Command::TerminalFollow(_)|Command::TerminalCreate(_)|Command::TerminalClose(_)|Command::TerminalWrite(_)|Command::KeyMetadata(_)|Command::SaveKey{..}|Command::Inspect|Command::Shutdown|Command::Select{..}=>Event::Fault("Invalid native command state".into()),
                 }});

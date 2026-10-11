@@ -99,6 +99,7 @@ pub const PRESETS: &[&str] = &[
     "context-management",
     "context-management-chat",
     "plan-chip",
+    "command-menu",
     "plan-mode",
     "plan-mode-applying",
     "plan-mode-leaving",
@@ -227,6 +228,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "context-management"
         | "context-management-chat"
         | "plan-chip"
+        | "command-menu"
         | "plan-mode"
         | "plan-mode-applying"
         | "plan-mode-leaving"
@@ -273,6 +275,14 @@ fn public_context_pressure_records(preset: &str) -> Option<Vec<Value>> {
             json!({"type":"event","event":{"type":"user/message","seq":7,"time":1007,
                 "data":{"content":[{"type":"text","text":"PUBLIC synthetic loop-guard reminder."}],
                     "source":{"kind":"repeat-tool-reminder","form":"notice","summary":"bash × 8"}}}}),
+        ]);
+    }
+    if preset == "command-menu" {
+        return Some(vec![
+            json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
+                "data":{"source":{"kind":"user","rpcId":"PUBLIC-menu-rpc","promptFingerprint":"PUBLIC-opaque"},
+                    "content":[{"type":"text","text":"PUBLIC question for the command-menu preset."}]},
+                "surfaceOp":"append"}}),
         ]);
     }
     if preset.starts_with("plan-mode") {
@@ -1113,6 +1123,30 @@ pub fn build(
             };
             assert_eq!(mode, expected);
         }
+        "command-menu" => {
+            // The composer asked for the advertisement when the slash was typed;
+            // this stands in for the Host's own reply, which is the only source.
+            app.commands = Some(vec![
+                super::command_menu::Candidate {
+                    name: "plan".into(),
+                    description: "Explore and design before executing".into(),
+                },
+                super::command_menu::Candidate {
+                    name: "compact".into(),
+                    description: "Condense older history into a summary".into(),
+                },
+                super::command_menu::Candidate {
+                    name: "help".into(),
+                    description: "Show the available commands".into(),
+                },
+            ]);
+            app.editor = iced::widget::text_editor::Content::with_text("/");
+            assert!(
+                app.completion().is_some(),
+                "a slash draft with an advertisement must open the menu"
+            );
+            assert_eq!(app.completion().unwrap().matches.len(), 3);
+        }
         "plan-chip" => {
             assert_eq!(
                 app.transcript.work().plan(),
@@ -1511,6 +1545,9 @@ pub fn metadata(app: &App, preset: &str) -> Value {
         "planModeLabel":super::plan_mode::mode(app.transcript.projections()).map(super::plan_mode::Mode::label),
         "planControlPressable":app.plan_control().visible(),
         "planControlPress":app.plan_control().press(),
+        "commandMenuOpen":app.completion().is_some(),
+        "commandMenuRows":app.completion().map_or(0,|menu|menu.matches.len()),
+        "commandMenuSelected":app.completion().map_or(0,|menu|menu.selected),
         "contextDisclosureOpen":context_warning,
         "workPanelReadOnlyTotal":app.transcript.work().total(),
         "workPanelGoalsOmitted":app.transcript.work().dropped(crate::work_panel::Section::Goals)
