@@ -19,6 +19,8 @@ mod interactions;
 mod known;
 #[path = "../src/management.rs"]
 mod management;
+#[path = "../src/mcp.rs"]
+mod mcp;
 #[path = "../src/plugins.rs"]
 mod plugins;
 #[path = "../src/reducer.rs"]

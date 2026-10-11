@@ -18,6 +18,8 @@ mod interactions;
 mod known;
 #[path = "../src/management.rs"]
 mod management;
+#[path = "../src/mcp.rs"]
+mod mcp;
 #[path = "../../core/examples/support/options.rs"]
 mod options;
 #[path = "../src/plugins.rs"]
