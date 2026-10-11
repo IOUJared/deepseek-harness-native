@@ -61,6 +61,7 @@ pub enum Command {
     },
     Manage(crate::management::Submission),
     Rename(crate::rename::Submission),
+    Fork(crate::fork::Submission),
     KeyMetadata(crate::settings::Ticket),
     SaveKey {
         ticket: crate::settings::Ticket,
@@ -133,6 +134,10 @@ pub enum Event {
     Renamed {
         submission: crate::rename::Submission,
         result: Result<SessionRenameValue, ()>,
+    },
+    Forked {
+        submission: crate::fork::Submission,
+        result: Result<SessionForkValue, crate::fork::Failure>,
     },
     KeyMetadata {
         ticket: crate::settings::Ticket,
@@ -443,6 +448,10 @@ fn rejected(command: Command) -> Event {
             submission,
             result: Err(()),
         },
+        Command::Fork(submission) => Event::Forked {
+            submission,
+            result: Err(crate::fork::Failure::Unknown),
+        },
         Command::KeyMetadata(ticket) => Event::KeyMetadata {
             ticket,
             result: Err(()),
@@ -735,7 +744,7 @@ fn settle_management(active: &mut Option<crate::management::Submission>, event: 
     }
 }
 /// Reserve one title rename without activating an Agent. Exactly one session-management
-/// write (registry mutation, rename or export) may be in flight.
+/// write (registry mutation, rename, fork or export) may be in flight.
 fn admit_rename(
     active: &mut Option<crate::rename::Submission>,
     submission: &crate::rename::Submission,
@@ -743,6 +752,7 @@ fn admit_rename(
     stopping: bool,
     operations: usize,
     management_active: bool,
+    fork_active: bool,
     export_active: bool,
 ) -> bool {
     if smoke
@@ -750,6 +760,7 @@ fn admit_rename(
         || submission.receipt.ticket.epoch != TRANSPORT_EPOCH
         || active.is_some()
         || management_active
+        || fork_active
         || export_active
         || operations >= MAX_OPERATIONS
     {
@@ -777,6 +788,57 @@ async fn rename(
     };
     let result = client.session_rename(&request).await.map_err(|_| ());
     Event::Renamed { submission, result }
+}
+/// Reserve one Session fork without activating an Agent. A fork creates a Session, so it
+/// shares the same single management/rename/export flight.
+fn admit_fork(
+    active: &mut Option<crate::fork::Submission>,
+    submission: &crate::fork::Submission,
+    smoke: bool,
+    stopping: bool,
+    operations: usize,
+    management_active: bool,
+    rename_active: bool,
+    export_active: bool,
+) -> bool {
+    if smoke
+        || stopping
+        || submission.receipt.ticket.epoch != TRANSPORT_EPOCH
+        || active.is_some()
+        || management_active
+        || rename_active
+        || export_active
+        || operations >= MAX_OPERATIONS
+    {
+        return false;
+    }
+    *active = Some(submission.clone());
+    true
+}
+fn settle_fork(active: &mut Option<crate::fork::Submission>, event: &Event) {
+    if let Event::Forked { submission, .. } = event {
+        if active.as_ref() == Some(submission) {
+            *active = None;
+        }
+    }
+}
+async fn fork(
+    client: dsh_native_transport::NativeClient,
+    submission: crate::fork::Submission,
+) -> Event {
+    use dsh_native_transport::Error;
+    // The request carries only the reviewed source and omits atSeq, which selects the
+    // latest completed-turn prefix. Only the ACK child id may become visible state.
+    let request = SessionForkRequest {
+        session_id: submission.receipt.ticket.target.clone(),
+        at_seq: None,
+    };
+    let result = client.session_fork(&request).await.map_err(|error| match error {
+        Error::ForkUnavailable => crate::fork::Failure::Unavailable,
+        Error::ForkAttachFailed => crate::fork::Failure::Unattached,
+        _ => crate::fork::Failure::Unknown,
+    });
+    Event::Forked { submission, result }
 }
 async fn manage(
     client: dsh_native_transport::NativeClient,
@@ -817,6 +879,7 @@ struct ExportAdmission<'a> {
     plugins_active: bool,
     management_active: bool,
     rename_active: bool,
+    fork_active: bool,
 }
 fn operation_count(tasks: usize, export_active: bool) -> usize {
     tasks.saturating_add(usize::from(export_active))
@@ -844,6 +907,7 @@ fn admit_export(
         || context.plugins_active
         || context.management_active
         || context.rename_active
+        || context.fork_active
     {
         return false;
     }
@@ -1064,6 +1128,7 @@ async fn run(
     let mut codex = CodexCoordinator::default();
     let mut management_active: Option<crate::management::Submission> = None;
     let mut rename_active: Option<crate::rename::Submission> = None;
+    let mut fork_active: Option<crate::fork::Submission> = None;
     let mut export_active: Option<crate::exporter::Receipt> = None;
     let mut export_download: Option<ExportDownload> = None;
     // Separate ownership: aborting the async download must never detach an admitted save.
@@ -1115,7 +1180,7 @@ async fn run(
                         } else if !publish(&events,Event::Cancel{generation:stop_generation,result:Err("Stop not admitted: stale target or another Stop is pending; no cancellation sent".into())}){break Some("Native UI delivery queue overflow".into());}
                         continue;
                     },
-                    command if (!observations_live || submissions.busy()) && matches!(&command,Command::Prompt{..}|Command::PromptFile{..}|Command::StageFile(_)|Command::SaveKey{..}|Command::Cloudflare(crate::settings::cloudflare::Effect::Save{..}|crate::settings::cloudflare::Effect::Disable{..}|crate::settings::cloudflare::Effect::AuthMode{..}|crate::settings::cloudflare::Effect::Setup{..}|crate::settings::cloudflare::Effect::Start{..}|crate::settings::cloudflare::Effect::Disconnect{..})|Command::PluginSave{..}|Command::Export(_)|Command::Manage(_)|Command::Rename(_)|Command::SelectModel{..}|Command::Create{..}|Command::OpenWorkspace(_)|Command::Codex(crate::codex::Effect::RuntimeSave{..}|crate::codex::Effect::UsageSave{..}|crate::codex::Effect::StartLogin{..}|crate::codex::Effect::AddAccount{..}|crate::codex::Effect::SelectAccount{..}|crate::codex::Effect::SignOutAccount{..}|crate::codex::Effect::SignOutAll{..}|crate::codex::Effect::EnableModels{..}|crate::codex::Effect::SubmitCallback{..}))=>{if !publish(&events,rejected(command)){break Some("Native UI delivery queue overflow".into());}continue;},
+                    command if (!observations_live || submissions.busy()) && matches!(&command,Command::Prompt{..}|Command::PromptFile{..}|Command::StageFile(_)|Command::SaveKey{..}|Command::Cloudflare(crate::settings::cloudflare::Effect::Save{..}|crate::settings::cloudflare::Effect::Disable{..}|crate::settings::cloudflare::Effect::AuthMode{..}|crate::settings::cloudflare::Effect::Setup{..}|crate::settings::cloudflare::Effect::Start{..}|crate::settings::cloudflare::Effect::Disconnect{..})|Command::PluginSave{..}|Command::Export(_)|Command::Manage(_)|Command::Rename(_)|Command::Fork(_)|Command::SelectModel{..}|Command::Create{..}|Command::OpenWorkspace(_)|Command::Codex(crate::codex::Effect::RuntimeSave{..}|crate::codex::Effect::UsageSave{..}|crate::codex::Effect::StartLogin{..}|crate::codex::Effect::AddAccount{..}|crate::codex::Effect::SelectAccount{..}|crate::codex::Effect::SignOutAccount{..}|crate::codex::Effect::SignOutAll{..}|crate::codex::Effect::EnableModels{..}|crate::codex::Effect::SubmitCallback{..}))=>{if !publish(&events,rejected(command)){break Some("Native UI delivery queue overflow".into());}continue;},
                     Command::DiscardFile(ticket) => { files.discard(&ticket); continue; },
                     Command::StageFile(submission) => {
                         let enabled = !smoke && !*closing.borrow() && !events.is_closed() && operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()) < MAX_OPERATIONS;
@@ -1205,7 +1270,7 @@ async fn run(
                         if admit_export(&mut export_active,&receipt,ExportAdmission {
                             smoke,stopping:*closing.borrow() || events.is_closed(),
                             operations:tasks.len(),generation,target:selected_target.as_ref(),
-                            key_saving:key_saving.is_some()||cloudflare.busy()||codex.busy(),plugins_active:plugins_active.is_some(),management_active:management_active.is_some(),rename_active:rename_active.is_some(),
+                            key_saving:key_saving.is_some()||cloudflare.busy()||codex.busy(),plugins_active:plugins_active.is_some(),management_active:management_active.is_some(),rename_active:rename_active.is_some(),fork_active:fork_active.is_some(),
                         }) {
                             export_download=Some(tokio::spawn(download_export(client.clone(),destination,receipt.ticket.target.clone())));
                         } else {
@@ -1227,7 +1292,7 @@ async fn run(
                         continue;
                     },
                     Command::Manage(submission)=>{
-                        if rename_active.is_none() && admit_management_without_export(&mut management_active,&submission,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),export_active.is_some()) {
+                        if rename_active.is_none() && fork_active.is_none() && admit_management_without_export(&mut management_active,&submission,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),export_active.is_some()) {
                             tasks.spawn(manage(client.clone(),submission));
                         } else if !publish(&events,Event::Managed{submission,result:Err(())}) {
                             break Some("Native UI delivery queue overflow".into());
@@ -1235,9 +1300,17 @@ async fn run(
                         continue;
                     },
                     Command::Rename(submission)=>{
-                        if admit_rename(&mut rename_active,&submission,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),management_active.is_some(),export_active.is_some()) {
+                        if admit_rename(&mut rename_active,&submission,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),management_active.is_some(),fork_active.is_some(),export_active.is_some()) {
                             tasks.spawn(rename(client.clone(),submission));
                         } else if !publish(&events,Event::Renamed{submission,result:Err(())}) {
+                            break Some("Native UI delivery queue overflow".into());
+                        }
+                        continue;
+                    },
+                    Command::Fork(submission)=>{
+                        if admit_fork(&mut fork_active,&submission,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),management_active.is_some(),rename_active.is_some(),export_active.is_some()) {
+                            tasks.spawn(fork(client.clone(),submission));
+                        } else if !publish(&events,Event::Forked{submission,result:Err(crate::fork::Failure::Unknown)}) {
                             break Some("Native UI delivery queue overflow".into());
                         }
                         continue;
@@ -1283,7 +1356,7 @@ async fn run(
                     Command::Prompt{..}|Command::CheckSubmission(_)|Command::RejoinObservations{..}=>Event::Fault("Prompt bypassed worker ownership".into()),
                     Command::Cancel{..}=>Event::Fault("Cancellation bypassed priority dispatch".into()),
                     Command::Page{generation,request}=>Event::Page{generation,result:client.session_page(request).await.map_err(|e|format!("History page: {e}"))},
-                    Command::Cloudflare(_)|Command::PromptFile{..}|Command::StageFile(_)|Command::DiscardFile(_)|Command::Codex(_)|Command::Export(_)|Command::PluginsRead(_)|Command::PluginSave{..}|Command::Manage(_)|Command::Rename(_)|Command::KeyMetadata(_)|Command::SaveKey{..}|Command::Inspect|Command::Shutdown|Command::Select{..}=>Event::Fault("Invalid native command state".into()),
+                    Command::Cloudflare(_)|Command::PromptFile{..}|Command::StageFile(_)|Command::DiscardFile(_)|Command::Codex(_)|Command::Export(_)|Command::PluginsRead(_)|Command::PluginSave{..}|Command::Manage(_)|Command::Rename(_)|Command::Fork(_)|Command::KeyMetadata(_)|Command::SaveKey{..}|Command::Inspect|Command::Shutdown|Command::Select{..}=>Event::Fault("Invalid native command state".into()),
                 }});
             }
             event=next_root(&mut root),if root.is_some()=>match event {
@@ -1354,7 +1427,7 @@ async fn run(
                 }
             },
             stopped=stop_tasks.join_next(),if !stop_tasks.is_empty()=>if let Some(result)=stopped {match result {Ok(event)=>{submissions.settle(&event);if !publish(&events,event){break Some("Native UI delivery queue overflow".into());}},Err(_)=>break Some("Reserved Stop worker failed".into())}},
-            task=tasks.join_next(),if !tasks.is_empty()=>if let Some(task)=task {match task {Ok(event)=>{submissions.settle(&event);if let Event::FilePrompt{tickets,request_id,..}=&event {if !tickets.iter().any(|ticket| files.settle_prompt(ticket,request_id)) {break Some("Native file prompt ownership lost".into());}}if let Event::DecisionResult{submission,result}=&event{decisions.settle(submission,result.is_ok());if result.is_ok(){live_decisions.retain(|key|key!=&submission.key);}}if let Event::CodexCompleted{ticket,outcome}=&event{codex.settle(*ticket,outcome.clone());}if let Event::CloudflareCompleted{ticket,outcome}=&event{cloudflare.settle(*ticket,outcome);cloudflare_worker::dispatch_cancel(&mut cloudflare,&backend,&mut tasks);}settle_plugin(&mut plugins_active,&event);settle_management(&mut management_active,&event);settle_rename(&mut rename_active,&event);if let Event::KeySaved{ticket,..}=&event{if key_saving==Some(*ticket){key_saving=None;}}if !publish(&events,event){break Some("Native UI delivery queue overflow".into());}},Err(_)=>break Some("Native operation worker failed".into())}},
+            task=tasks.join_next(),if !tasks.is_empty()=>if let Some(task)=task {match task {Ok(event)=>{submissions.settle(&event);if let Event::FilePrompt{tickets,request_id,..}=&event {if !tickets.iter().any(|ticket| files.settle_prompt(ticket,request_id)) {break Some("Native file prompt ownership lost".into());}}if let Event::DecisionResult{submission,result}=&event{decisions.settle(submission,result.is_ok());if result.is_ok(){live_decisions.retain(|key|key!=&submission.key);}}if let Event::CodexCompleted{ticket,outcome}=&event{codex.settle(*ticket,outcome.clone());}if let Event::CloudflareCompleted{ticket,outcome}=&event{cloudflare.settle(*ticket,outcome);cloudflare_worker::dispatch_cancel(&mut cloudflare,&backend,&mut tasks);}settle_plugin(&mut plugins_active,&event);settle_management(&mut management_active,&event);settle_rename(&mut rename_active,&event);settle_fork(&mut fork_active,&event);if let Event::KeySaved{ticket,..}=&event{if key_saving==Some(*ticket){key_saving=None;}}if !publish(&events,event){break Some("Native UI delivery queue overflow".into());}},Err(_)=>break Some("Native operation worker failed".into())}},
         }
     };
     // Revoke private control authority and request owned stop before awaiting
@@ -1862,13 +1935,14 @@ mod tests {
     #[test]
     fn rename_epoch_smoke_stopping_and_cross_flight_guards_do_not_reserve() {
         let submission = rename_submission();
-        for (epoch, smoke, stopping, management, export, operations) in [
-            (0, false, false, false, false, 0),
-            (TRANSPORT_EPOCH, true, false, false, false, 0),
-            (TRANSPORT_EPOCH, false, true, false, false, 0),
-            (TRANSPORT_EPOCH, false, false, true, false, 0),
-            (TRANSPORT_EPOCH, false, false, false, true, 0),
-            (TRANSPORT_EPOCH, false, false, false, false, MAX_OPERATIONS),
+        for (epoch, smoke, stopping, management, fork, export, operations) in [
+            (0, false, false, false, false, false, 0),
+            (TRANSPORT_EPOCH, true, false, false, false, false, 0),
+            (TRANSPORT_EPOCH, false, true, false, false, false, 0),
+            (TRANSPORT_EPOCH, false, false, true, false, false, 0),
+            (TRANSPORT_EPOCH, false, false, false, true, false, 0),
+            (TRANSPORT_EPOCH, false, false, false, false, true, 0),
+            (TRANSPORT_EPOCH, false, false, false, false, false, MAX_OPERATIONS),
         ] {
             let mut candidate = submission.clone();
             candidate.receipt.ticket.epoch = epoch;
@@ -1880,6 +1954,7 @@ mod tests {
                 stopping,
                 operations,
                 management,
+                fork,
                 export
             ));
             assert!(active.is_none());
@@ -1891,6 +1966,7 @@ mod tests {
             false,
             false,
             0,
+            false,
             false,
             false
         ));
@@ -1905,6 +1981,7 @@ mod tests {
             false,
             false,
             0,
+            false,
             false,
             false
         ));
@@ -1953,7 +2030,7 @@ mod tests {
             assert!(active.is_none());
             let mut next = first.clone();
             next.receipt.attempt += 1;
-            assert!(admit_rename(&mut active, &next, false, false, 0, false, false));
+            assert!(admit_rename(&mut active, &next, false, false, 0, false, false, false));
             settle_rename(
                 &mut active,
                 &Event::Renamed {
@@ -1984,6 +2061,158 @@ mod tests {
         drop(receiver);
         assert!(
             matches!(handle.send(Command::Rename(submission.clone())), Err(Command::Rename(returned)) if returned == submission)
+        );
+    }
+    fn fork_submission() -> crate::fork::Submission {
+        use crate::fork::{Action, Context, Fork};
+        let view = crate::management::View {
+            epoch: TRANSPORT_EPOCH,
+            generation: 3,
+            target: SessionId::new("session-worker-fork").unwrap(),
+        };
+        let context = Context {
+            view: Some(view.clone()),
+            allowed: true,
+        };
+        let mut fork = Fork::default();
+        fork.apply(Action::Open { view }, &context);
+        let ticket = fork.ticket().unwrap();
+        fork.apply(Action::Review(ticket), &context);
+        let review = fork.review().unwrap().clone();
+        fork.apply(Action::Confirm(review), &context)
+            .expect("reviewed public fork")
+    }
+    #[test]
+    fn fork_epoch_smoke_stopping_and_cross_flight_guards_do_not_reserve() {
+        let submission = fork_submission();
+        for (epoch, smoke, stopping, management, rename, export, operations) in [
+            (0, false, false, false, false, false, 0),
+            (TRANSPORT_EPOCH, true, false, false, false, false, 0),
+            (TRANSPORT_EPOCH, false, true, false, false, false, 0),
+            (TRANSPORT_EPOCH, false, false, true, false, false, 0),
+            (TRANSPORT_EPOCH, false, false, false, true, false, 0),
+            (TRANSPORT_EPOCH, false, false, false, false, true, 0),
+            (TRANSPORT_EPOCH, false, false, false, false, false, MAX_OPERATIONS),
+        ] {
+            let mut candidate = submission.clone();
+            candidate.receipt.ticket.epoch = epoch;
+            let mut active = None;
+            assert!(!admit_fork(
+                &mut active,
+                &candidate,
+                smoke,
+                stopping,
+                operations,
+                management,
+                rename,
+                export
+            ));
+            assert!(active.is_none());
+        }
+        let mut active = None;
+        assert!(admit_fork(
+            &mut active,
+            &submission,
+            false,
+            false,
+            0,
+            false,
+            false,
+            false
+        ));
+        assert_eq!(active.as_ref(), Some(&submission));
+        // One fork flight across sources: a fresh serial on another target still refuses.
+        let mut other = submission.clone();
+        other.receipt.ticket.target = SessionId::new("session-worker-other").unwrap();
+        other.receipt.ticket.serial += 1;
+        assert!(!admit_fork(
+            &mut active,
+            &other,
+            false,
+            false,
+            0,
+            false,
+            false,
+            false
+        ));
+        assert_eq!(active.as_ref(), Some(&submission));
+    }
+    #[test]
+    fn fork_only_its_exact_receipt_releases_the_slot() {
+        let first = fork_submission();
+        for result in [
+            Ok(SessionForkValue {
+                session_id: SessionId::new("session-worker-child").unwrap(),
+            }),
+            Err(crate::fork::Failure::Unavailable),
+        ] {
+            let mut active = Some(first.clone());
+            settle_fork(&mut active, &Event::Ready("public-fixture".into()));
+            assert_eq!(active.as_ref(), Some(&first));
+            for stale in [
+                {
+                    let mut stale = first.clone();
+                    stale.receipt.attempt += 1;
+                    stale
+                },
+                {
+                    let mut stale = first.clone();
+                    stale.receipt.ticket.target = SessionId::new("session-worker-other").unwrap();
+                    stale
+                },
+            ] {
+                settle_fork(
+                    &mut active,
+                    &Event::Forked {
+                        submission: stale,
+                        result: result.clone(),
+                    },
+                );
+                assert_eq!(active.as_ref(), Some(&first));
+            }
+            settle_fork(
+                &mut active,
+                &Event::Forked {
+                    submission: first.clone(),
+                    result,
+                },
+            );
+            assert!(active.is_none());
+            let mut next = first.clone();
+            next.receipt.attempt += 1;
+            assert!(admit_fork(
+                &mut active, &next, false, false, 0, false, false, false
+            ));
+            settle_fork(
+                &mut active,
+                &Event::Forked {
+                    submission: first.clone(),
+                    result: Err(crate::fork::Failure::Unknown),
+                },
+            );
+            assert_eq!(active.as_ref(), Some(&next));
+        }
+    }
+    #[test]
+    fn fork_queue_rejection_is_redacted_and_returns_the_full_submission() {
+        let submission = fork_submission();
+        let event = rejected(Command::Fork(submission.clone()));
+        assert_eq!(format!("{event:?}"), "NativeWorkerEvent(redacted)");
+        assert!(
+            matches!(event, Event::Forked { submission: returned, result: Err(crate::fork::Failure::Unknown) } if returned == submission)
+        );
+        let (handle, _, receiver, _events, closing) = test_channels();
+        for _ in 0..32 {
+            assert!(handle.send(Command::Inspect).is_ok());
+        }
+        assert!(
+            matches!(handle.send(Command::Fork(submission.clone())), Err(Command::Fork(returned)) if returned == submission)
+        );
+        assert!(handle.send(Command::Shutdown).is_ok());
+        assert!(*closing.borrow());
+        drop(receiver);
+        assert!(
+            matches!(handle.send(Command::Fork(submission.clone())), Err(Command::Fork(returned)) if returned == submission)
         );
     }
     #[test]

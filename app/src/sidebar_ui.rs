@@ -30,6 +30,7 @@ pub enum Action {
     Step(Stamp, bool),
     Registry(Stamp, crate::management::Operation),
     Rename(Stamp),
+    Fork(Stamp),
     Export(Stamp),
     Reload,
     TrashView,
@@ -64,6 +65,8 @@ impl App {
             && !self.management.pending()
             && !self.rename.is_open()
             && self.rename.pending().is_none()
+            && !self.fork.is_open()
+            && self.fork.pending().is_none()
             && !self.exporter.is_open()
             && self.exporter.pending().is_none()
             && matches!(self.close, Close::None)
@@ -163,6 +166,21 @@ impl App {
                     self.sidebar_organization.dismiss();
                     self.rename
                         .apply(crate::rename::Action::Open { view, title }, &context);
+                }
+            }
+            Action::Fork(stamp)
+                if self.sidebar_stamp_allowed(&stamp) && !self.sidebar_organization.busy() =>
+            {
+                let view = crate::management::View {
+                    epoch: stamp.epoch,
+                    generation: stamp.generation,
+                    target: stamp.target,
+                };
+                let context = self.fork_context_for(Some(&view.target));
+                if context.allowed {
+                    self.sidebar_organization.dismiss();
+                    self.fork
+                        .apply(crate::fork::Action::Open { view }, &context);
                 }
             }
             Action::Reload
@@ -376,6 +394,9 @@ impl App {
                     ),
                     button("Rename…").style(design::ghost).on_press_maybe(
                         registry_enabled.then_some(Message::Sidebar(Action::Rename(stamp.clone())))
+                    ),
+                    button("Fork…").style(design::ghost).on_press_maybe(
+                        registry_enabled.then_some(Message::Sidebar(Action::Fork(stamp.clone())))
                     ),
                 ]
                 .spacing(8),

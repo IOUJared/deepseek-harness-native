@@ -517,6 +517,178 @@ async fn rename_timeout_and_retired_clone_never_retry() {
     fixture.stop().await;
 }
 
+fn fork_request() -> SessionForkRequest {
+    SessionForkRequest {
+        session_id: SessionId::new("session / fork opaque:%").unwrap(),
+        at_seq: None,
+    }
+}
+
+#[test]
+fn fork_dtos_use_exact_object_fields_and_reject_extra_authority() {
+    use serde_json::{Value, json};
+    let request = fork_request();
+    let wire = json!({"sessionId":"session / fork opaque:%"});
+    assert_eq!(serde_json::to_value(&request).unwrap(), wire);
+    // An omitted atSeq must not serialize at all; an explicit cut must.
+    assert_eq!(
+        serde_json::to_value(SessionForkRequest {
+            at_seq: Some(4),
+            ..fork_request()
+        })
+        .unwrap(),
+        json!({"sessionId":"session / fork opaque:%","atSeq":4})
+    );
+    assert_eq!(
+        serde_json::from_value::<SessionForkRequest>(wire.clone())
+            .unwrap()
+            .at_seq,
+        None
+    );
+    for field in ["agent", "agentId", "stopActivity", "sourceSeq"] {
+        let mut extra = wire.clone();
+        extra[field] = json!(false);
+        assert!(serde_json::from_value::<SessionForkRequest>(extra).is_err());
+    }
+    let value = json!({"sessionId":"session-fork-child"});
+    let parsed: SessionForkValue = serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(parsed.session_id, SessionId::new("session-fork-child").unwrap());
+    assert_eq!(serde_json::to_value(parsed).unwrap(), value);
+    for malformed in [
+        Value::Null,
+        json!({}),
+        json!({"sessionId":""}),
+        json!({"sessionId":5}),
+        json!({"sessionId":"x","agentId":"agent-fixture"}),
+    ] {
+        assert!(serde_json::from_value::<SessionForkValue>(malformed).is_err());
+    }
+}
+
+#[tokio::test]
+async fn fork_uses_exact_authenticated_wire_and_returns_the_child_id() {
+    // The fixture 400s unless the full envelope is exactly
+    // {"type":"client-request", rpcId, method:"session/fork",
+    //  payload:{args:{request:{sessionId}}}}; the omitted atSeq is part of that check.
+    let mut fixture = NodeHostFixture::start("normal").await;
+    let client = fixture.connect(Limits::default()).await.unwrap();
+    let value = client.session_fork(&fork_request()).await.unwrap();
+    assert_eq!(
+        value.session_id,
+        SessionId::new("session-fork-child").unwrap()
+    );
+    client.close().await;
+    fixture.stop().await;
+}
+
+#[tokio::test]
+async fn fork_at_seq_carries_exactly_the_requested_inclusive_boundary() {
+    let mut fixture = NodeHostFixture::start("fork-at").await;
+    let client = fixture.connect(Limits::default()).await.unwrap();
+    let value = client
+        .session_fork(&SessionForkRequest {
+            at_seq: Some(4),
+            ..fork_request()
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        value.session_id,
+        SessionId::new("session-fork-child").unwrap()
+    );
+    // A negative or unsafe boundary can never name a source event; refuse before sending.
+    for at_seq in [-1, 9_007_199_254_740_992] {
+        assert_eq!(
+            client
+                .session_fork(&SessionForkRequest {
+                    at_seq: Some(at_seq),
+                    ..fork_request()
+                })
+                .await
+                .unwrap_err(),
+            Error::InvalidDto
+        );
+    }
+    client.close().await;
+    fixture.stop().await;
+}
+
+#[tokio::test]
+async fn fork_malformed_or_impossible_ack_fails_closed_before_any_child_claim() {
+    for mode in [
+        "fork-missing",
+        "fork-empty",
+        "fork-wrong-type",
+        "fork-same",
+        "fork-extra",
+    ] {
+        let mut fixture = NodeHostFixture::start(mode).await;
+        let client = fixture.connect(Limits::default()).await.unwrap();
+        assert_eq!(
+            client.session_fork(&fork_request()).await.unwrap_err(),
+            Error::InvalidDto
+        );
+        client.close().await;
+        fixture.stop().await;
+    }
+}
+
+#[tokio::test]
+async fn fork_unavailable_and_attach_failure_keep_their_distinct_outcomes() {
+    for (mode, expected) in [
+        ("fork-unavailable", Error::ForkUnavailable),
+        ("fork-attach-failed", Error::ForkAttachFailed),
+    ] {
+        let mut fixture = NodeHostFixture::start(mode).await;
+        let client = fixture.connect(Limits::default()).await.unwrap();
+        let error = client.session_fork(&fork_request()).await.unwrap_err();
+        assert_eq!(error, expected);
+        assert!(!format!("{error:?} {error}").contains("PRIVATE_FORK_SENTINEL"));
+        client.close().await;
+        fixture.stop().await;
+    }
+}
+
+#[tokio::test]
+async fn fork_remote_refusal_and_correlation_errors_remain_redacted() {
+    for (mode, expected) in [
+        ("failure", Error::RemoteFailure),
+        ("wrong-rpc", Error::Correlation),
+    ] {
+        let mut fixture = NodeHostFixture::start(mode).await;
+        let client = fixture.connect(Limits::default()).await.unwrap();
+        let error = client.session_fork(&fork_request()).await.unwrap_err();
+        assert_eq!(error, expected);
+        assert!(!format!("{error:?} {error}").contains("SECRET_SENTINEL"));
+        client.close().await;
+        fixture.stop().await;
+    }
+}
+
+#[tokio::test]
+async fn fork_timeout_and_retired_clone_never_retry() {
+    let mut fixture = NodeHostFixture::start("slow").await;
+    let client = fixture
+        .connect(Limits {
+            timeout: Duration::from_millis(100),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        client.session_fork(&fork_request()).await.unwrap_err(),
+        Error::Timeout
+    );
+    let copy = client.clone();
+    client.invalidate();
+    assert_eq!(
+        copy.session_fork(&fork_request()).await.unwrap_err(),
+        Error::Closed
+    );
+    client.close().await;
+    fixture.stop().await;
+}
+
 #[tokio::test]
 async fn self_reply_ack_retires_only_our_delivery_without_host_cancel() {
     let mut fixture = NodeHostFixture::start("self-reply-series").await;

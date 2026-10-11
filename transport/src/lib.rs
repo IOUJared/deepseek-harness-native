@@ -33,6 +33,11 @@ pub enum Error {
     RemoteFailure,
     SettingsConflict,
     SettingsRejected,
+    /// The Host refused a fork before creating a child: no completed turn (or no such `atSeq`).
+    ForkUnavailable,
+    /// The Host created the child but could not attach it to its workspace. The child id is
+    /// not carried by this redacted error, so the caller must treat the outcome as uncertain.
+    ForkAttachFailed,
     InvalidFrame,
     Sequence,
     QueueFull,
@@ -63,6 +68,8 @@ impl Error {
             Self::RemoteFailure => "remote-failure",
             Self::SettingsConflict => "settings-conflict",
             Self::SettingsRejected => "settings-rejected",
+            Self::ForkUnavailable => "fork-unavailable",
+            Self::ForkAttachFailed => "fork-attach-failed",
             Self::InvalidFrame => "invalid-frame",
             Self::Sequence => "sequence",
             Self::QueueFull => "queue-full",

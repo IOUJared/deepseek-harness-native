@@ -12,6 +12,8 @@ mod design;
 mod export_file;
 #[path = "../src/exporter.rs"]
 mod exporter;
+#[path = "../src/fork.rs"]
+mod fork;
 #[path = "../src/interactions.rs"]
 mod interactions;
 #[path = "../src/known.rs"]
@@ -408,6 +410,7 @@ impl Fixture {
                 worker::Command::PluginSave { .. } => "PluginSave",
                 worker::Command::Manage(_) => "Manage",
                 worker::Command::Rename(_) => "Rename",
+                worker::Command::Fork(_) => "Fork",
                 worker::Command::KeyMetadata(_) => "KeyMetadata",
                 worker::Command::SaveKey { .. } => "SaveKey",
                 worker::Command::Decision(_) => "Decision",

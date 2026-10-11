@@ -3,6 +3,7 @@ mod config;
 mod design;
 mod export_file;
 mod exporter;
+mod fork;
 mod interactions;
 mod known;
 mod management;

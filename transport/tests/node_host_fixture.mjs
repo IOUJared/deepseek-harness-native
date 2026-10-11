@@ -64,6 +64,24 @@ const server = http.createServer(async (request, response) => {
       if (mode === 'rename-negative-seq') value.seq = -1;
       break;
     }
+    case 'session/fork': {
+      // Omission of atSeq is itself part of the contract: the envelope must carry
+      // exactly {sessionId} unless the caller asked for an explicit inclusive cut.
+      const expected = mode === 'fork-at'
+        ? { request: { sessionId: 'session / fork opaque:%', atSeq: 4 } }
+        : { request: { sessionId: 'session / fork opaque:%' } };
+      if (request.method !== 'POST' || request.headers['content-type'] !== 'application/json'
+          || !isDeepStrictEqual(envelope, { type: 'client-request', rpcId: envelope.rpcId, method: 'session/fork', payload: { args: expected } })) {
+        response.writeHead(400); response.end(); return;
+      }
+      value = { sessionId: 'session-fork-child' };
+      if (mode === 'fork-missing') value = {};
+      if (mode === 'fork-empty') value = { sessionId: '' };
+      if (mode === 'fork-wrong-type') value = { sessionId: 5 };
+      if (mode === 'fork-same') value = { sessionId: 'session / fork opaque:%' };
+      if (mode === 'fork-extra') value.agentId = 'agent-fixture';
+      break;
+    }
     case 'session/page': value = { records: [], hasMore: false }; break;
     case 'session/projections': value = null; break;
     case 'workspace/pinSession': case 'workspace/unpinSession':
@@ -123,6 +141,8 @@ const server = http.createServer(async (request, response) => {
   const output = { type: 'server-response', rpcId: mode === 'wrong-rpc' ? 'wrong' : envelope.rpcId, result: { ok: true, ...(value === undefined ? {} : { value }) } };
   if (mode === 'missing-available') delete output.result.value.items[0].agentAvailable;
   if (envelope.method === 'settings/mutate' && ['plugin-conflict', 'plugin-rejected', 'plugin-postcommit'].includes(mode)) output.result = { ok: false, error: { code: mode === 'plugin-conflict' ? 'settings/conflict' : mode === 'plugin-rejected' ? 'settings/rejected' : 'gateway/internal', message: 'PRIVATE_PLUGIN_SENTINEL', details: {} } };
+  if (mode === 'fork-unavailable') output.result = { ok: false, error: { code: 'session/fork-unavailable', message: 'PRIVATE_FORK_SENTINEL', details: {} } };
+  if (mode === 'fork-attach-failed') output.result = { ok: false, error: { code: 'session/workspace-attach-failed', message: 'PRIVATE_FORK_SENTINEL', details: {} } };
   if (mode === 'failure') output.result = { ok: false, error: { code: 'fixture/rejected', message: 'SECRET_SENTINEL_opaque_url_cookie', details: {} } };
   if (mode === 'oversize-length') { response.writeHead(200, { 'content-type': 'application/json', 'content-length': '2000000' }); response.end('x'); return; }
   response.writeHead(200, { 'content-type': mode === 'bad-media' ? 'text/html' : 'application/json' });

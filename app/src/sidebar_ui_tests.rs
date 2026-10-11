@@ -660,3 +660,222 @@ fn rename_unknown_outcome_is_surfaced_without_retry_or_a_title_guess() {
     assert_eq!(title_of(&app, "b"), "PUBLIC row title");
     assert!(queue.try_recv().is_err());
 }
+
+fn open_fork(app: &mut App, target: &str) -> crate::management::Ticket {
+    let message = app.sidebar_open_message(&id(target));
+    let _ = app.update(message);
+    let stamp = app.sidebar_organization.stamp().unwrap();
+    let _ = app.update(Message::Sidebar(Action::Fork(stamp)));
+    assert!(!app.sidebar_organization.is_open());
+    assert!(app.fork.is_open());
+    app.fork.ticket().unwrap()
+}
+fn confirm_fork(app: &mut App, queue: &mut tokio::sync::mpsc::Receiver<Command>) -> Command {
+    let ticket = app.fork.ticket().unwrap();
+    let _ = app.update(Message::Fork(crate::fork::Action::Review(ticket)));
+    let review = app.fork.review().expect("reviewed fork").clone();
+    let _ = app.update(Message::Fork(crate::fork::Action::Confirm(review)));
+    queue.try_recv().expect("explicit fork command")
+}
+fn fork_ack(submission: crate::fork::Submission, child: &str) -> Event {
+    Event::Forked {
+        submission,
+        result: Ok(SessionForkValue {
+            session_id: id(child),
+        }),
+    }
+}
+
+#[test]
+fn fork_row_action_requires_review_and_cancel_changes_nothing() {
+    let (mut app, mut queue) = app();
+    let ticket = open_fork(&mut app, "b");
+    assert_eq!(ticket.target, id("b"));
+    assert_eq!(app.selected, Some(id("a")));
+    assert_eq!(app.fork.notice(), &crate::fork::Notice::None);
+    // Consent: Confirm is refused until this exact panel recorded a review.
+    let forged = crate::fork::Review {
+        ticket: ticket.clone(),
+    };
+    let _ = app.update(Message::Fork(crate::fork::Action::Confirm(forged)));
+    assert!(app.fork.review().is_none());
+    assert!(app.fork.pending().is_none());
+    assert!(queue.try_recv().is_err());
+    // Cancel closes the panel and writes nothing.
+    let _ = app.update(Message::Fork(crate::fork::Action::Close(ticket)));
+    assert!(!app.fork.is_open());
+    assert_eq!(app.selected, Some(id("a")));
+    assert!(!app.sessions.contains_key(&id("PUBLIC-fork-child")));
+    assert!(queue.try_recv().is_err());
+}
+
+#[test]
+fn fork_ack_reveals_only_the_acknowledged_child_and_never_fabricates_a_roster_entry() {
+    let (mut app, mut queue) = app();
+    let before_rows = app.transcript.rows().len();
+    let _ = open_fork(&mut app, "b");
+    let Command::Fork(submission) = confirm_fork(&mut app, &mut queue) else {
+        panic!("only an explicit fork command expected")
+    };
+    assert_eq!(submission.receipt.ticket.target, id("b"));
+    assert_eq!(submission.source(), &id("b"));
+    assert_eq!(app.fork.notice(), &crate::fork::Notice::Pending);
+    // No optimistic child: the ACK id is not known before it arrives.
+    assert!(!app.sessions.contains_key(&id("PUBLIC-fork-child")));
+    assert!(queue.try_recv().is_err());
+    let _ = app.receive(fork_ack(submission, "PUBLIC-fork-child"));
+    // The exact acknowledged id is reported, but no roster row and no selection are invented.
+    assert_eq!(
+        app.fork.notice(),
+        &crate::fork::Notice::Forked {
+            child: id("PUBLIC-fork-child"),
+            selected: false
+        }
+    );
+    assert!(!app.sessions.contains_key(&id("PUBLIC-fork-child")));
+    assert_eq!(app.selected, Some(id("a")));
+    assert_eq!(app.transcript.rows().len(), before_rows);
+    assert!(
+        !app.transcript
+            .display_rows(true)
+            .any(|row| row.text.contains("PUBLIC-fork-child"))
+    );
+    assert!(queue.try_recv().is_err());
+}
+
+#[test]
+fn fork_ack_selects_a_child_only_when_the_app_frames_already_contain_it() {
+    let (mut app, mut queue) = app();
+    app.sessions.insert(
+        id("PUBLIC-fork-child"),
+        SessionSummary {
+            agent_available: true,
+            session_id: id("PUBLIC-fork-child"),
+            updated_at: 400,
+            running: false,
+            blank: true,
+            parent_session_id: None,
+            origin: None,
+            cwd: None,
+            projections: None,
+        },
+    );
+    let _ = open_fork(&mut app, "b");
+    let Command::Fork(submission) = confirm_fork(&mut app, &mut queue) else {
+        panic!("only an explicit fork command expected")
+    };
+    let _ = app.receive(fork_ack(submission, "PUBLIC-fork-child"));
+    assert_eq!(app.selected, Some(id("PUBLIC-fork-child")));
+    assert_eq!(
+        app.fork.notice(),
+        &crate::fork::Notice::Forked {
+            child: id("PUBLIC-fork-child"),
+            selected: true
+        }
+    );
+}
+
+#[test]
+fn fork_stale_target_epoch_generation_or_foreign_receipt_cannot_reveal_a_child() {
+    let (mut app, mut queue) = app();
+    let ticket = open_fork(&mut app, "b");
+    app.generation += 1;
+    let _ = app.update(Message::Fork(crate::fork::Action::Review(ticket.clone())));
+    assert!(app.fork.review().is_none());
+    app.generation -= 1;
+    app.transport_epoch += 1;
+    let _ = app.update(Message::Fork(crate::fork::Action::Review(ticket)));
+    assert!(app.fork.review().is_none());
+    app.transport_epoch -= 1;
+    let Command::Fork(submission) = confirm_fork(&mut app, &mut queue) else {
+        panic!("only an explicit fork command expected")
+    };
+    // A foreign receipt (wrong attempt) cannot reveal a child or retire the flight.
+    let mut foreign = submission.clone();
+    foreign.receipt.attempt += 1;
+    let _ = app.receive(fork_ack(foreign, "PUBLIC-foreign-child"));
+    assert_eq!(app.selected, Some(id("a")));
+    assert!(!app.sessions.contains_key(&id("PUBLIC-foreign-child")));
+    assert_eq!(app.fork.notice(), &crate::fork::Notice::Pending);
+    let _ = app.receive(fork_ack(submission, "PUBLIC-fork-child"));
+    assert_eq!(app.selected, Some(id("a")));
+    assert!(!app.sessions.contains_key(&id("PUBLIC-fork-child")));
+    assert!(queue.try_recv().is_err());
+}
+
+#[test]
+fn fork_unavailable_is_definite_but_unknown_and_unattached_stay_indeterminate() {
+    for (failure, expected) in [
+        (
+            crate::fork::Failure::Unavailable,
+            crate::fork::Notice::Unavailable,
+        ),
+        (
+            crate::fork::Failure::Unattached,
+            crate::fork::Notice::Unattached,
+        ),
+        (
+            crate::fork::Failure::Unknown,
+            crate::fork::Notice::Indeterminate,
+        ),
+    ] {
+        let (mut app, mut queue) = app();
+        let _ = open_fork(&mut app, "b");
+        let Command::Fork(submission) = confirm_fork(&mut app, &mut queue) else {
+            panic!("only an explicit fork command expected")
+        };
+        let _ = app.receive(Event::Forked {
+            submission: submission.clone(),
+            result: Err(failure),
+        });
+        assert_eq!(app.fork.notice(), &expected);
+        assert!(app.fork.pending().is_none());
+        assert_eq!(app.selected, Some(id("a")));
+        assert!(!app.sessions.contains_key(&id("PUBLIC-fork-child")));
+        // No automatic retry, and a late possessive ACK stays fenced.
+        assert!(queue.try_recv().is_err());
+        let _ = app.receive(fork_ack(submission, "PUBLIC-late-child"));
+        assert_eq!(app.selected, Some(id("a")));
+        assert!(!app.sessions.contains_key(&id("PUBLIC-late-child")));
+    }
+}
+
+#[test]
+fn fork_in_flight_shares_the_single_management_rename_and_export_flight() {
+    let (mut app, mut queue) = app();
+    let _ = open_fork(&mut app, "b");
+    let Command::Fork(_) = confirm_fork(&mut app, &mut queue) else {
+        panic!("only an explicit fork command expected")
+    };
+    assert!(app.fork.pending().is_some());
+    // A second mutation for any row is refused while the fork flight is unresolved.
+    assert!(!app.sidebar_target_allowed(&id("b")));
+    assert!(!app.sidebar_target_allowed(&id("a")));
+    assert!(!app.management_context_for(Some(&id("b"))).allowed);
+    assert!(!app.rename_context_for(Some(&id("b"))).allowed);
+    assert!(!app.export_context_for(Some(&id("b"))).allowed);
+    // The fork panel's own state machine refuses a second admission while pending.
+    assert!(app.fork.pending().is_some());
+    let ticket = app.fork.ticket().unwrap();
+    let context = app.fork_context();
+    assert!(
+        app.fork
+            .apply(crate::fork::Action::Review(ticket), &context)
+            .is_none()
+    );
+    assert!(app.fork.pending().is_some());
+    app.sidebar_organization
+        .open(app.transport_epoch, app.generation, id("a"));
+    let stamp = app.sidebar_organization.stamp().unwrap();
+    let _ = app.update(Message::Sidebar(Action::Rename(stamp.clone())));
+    let _ = app.update(Message::Sidebar(Action::Fork(stamp.clone())));
+    let _ = app.update(Message::Sidebar(Action::Export(stamp.clone())));
+    let _ = app.update(Message::Sidebar(Action::Registry(
+        stamp,
+        crate::management::Operation::Archive,
+    )));
+    assert!(app.management.ticket().is_none());
+    assert!(!app.rename.is_open());
+    assert!(app.exporter.ticket().is_none());
+    assert!(queue.try_recv().is_err());
+}

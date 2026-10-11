@@ -167,6 +167,7 @@ enum Endpoint {
     ModelCatalog,
     SelectModel,
     RenameSession,
+    ForkSession,
     Cancel,
     Page,
     AccountState,
@@ -192,6 +193,7 @@ impl Endpoint {
             Self::ModelCatalog => "session/modelCatalog",
             Self::SelectModel => "session/selectModel",
             Self::RenameSession => "session/rename",
+            Self::ForkSession => "session/fork",
             Self::Cancel => "session/cancel",
             Self::Page => "session/page",
             Self::AccountState => "account/getState",
@@ -427,6 +429,14 @@ impl NativeClient {
                             Endpoint::PluginSettings | Endpoint::PluginMutate,
                             Some("settings/rejected"),
                         ) => Error::SettingsRejected,
+                        // A fork refusal before child creation is deterministic; the attach
+                        // failure happens after creation and is therefore uncertain.
+                        (Endpoint::ForkSession, Some("session/fork-unavailable")) => {
+                            Error::ForkUnavailable
+                        }
+                        (Endpoint::ForkSession, Some("session/workspace-attach-failed")) => {
+                            Error::ForkAttachFailed
+                        }
                         _ => Error::RemoteFailure,
                     },
                 )
@@ -493,6 +503,26 @@ impl NativeClient {
         // A durable event position cannot be negative and an accepted title is
         // never blank; reject a malformed ACK rather than publishing it.
         if value.seq < 0 || value.title.trim().is_empty() {
+            return Err(Error::InvalidDto);
+        }
+        Ok(value)
+    }
+    /// Create one child Session from an exact inclusive source cut (or the latest
+    /// completed-turn prefix when `atSeq` is omitted). The returned child id is the only
+    /// acknowledged identity; an admitted failure is not proof that no child exists.
+    pub async fn session_fork(&self, request: &SessionForkRequest) -> Result<SessionForkValue> {
+        if request
+            .at_seq
+            .is_some_and(|seq| !(0..=MAX_SAFE_INTEGER as i64).contains(&seq))
+        {
+            return Err(Error::InvalidDto);
+        }
+        let value: SessionForkValue = self
+            .invoke(Endpoint::ForkSession, request_args(request)?)
+            .await?;
+        // `SessionId` already refuses an empty or oversized value on deserialization; a
+        // child equal to its own source is also impossible and must never be published.
+        if value.session_id == request.session_id {
             return Err(Error::InvalidDto);
         }
         Ok(value)

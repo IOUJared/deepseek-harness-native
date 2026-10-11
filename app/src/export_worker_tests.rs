@@ -27,6 +27,7 @@ fn admission(target: &SessionId) -> ExportAdmission<'_> {
         plugins_active: false,
         management_active: false,
         rename_active: false,
+        fork_active: false,
     }
 }
 fn submission() -> crate::exporter::Submission {

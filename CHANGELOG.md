@@ -6,6 +6,8 @@
 
 - [Session rename](<docs/NATIVE-REGISTRY-CONTROLS.md>): the per-row options gain **Rename…**, a compact editor pre-filled with the visible title. Local validation refuses blank, over-1024-UTF-8-byte and control-character titles while keeping the typed text; Review → Confirm sends one `session/rename` (`{sessionId,title}` → `{title,seq}`), the sidebar applies only the Host-normalized ACK, and a stale/foreign receipt or unknown outcome changes nothing and never retries. Unit-, fixture- and App-tested; no live Host rename was executed, so real normalization and the durable `seq` are unqualified.
 
+- [Session fork](<docs/NATIVE-REGISTRY-CONTROLS.md>): the per-row options gain **Fork…**, an explicit Review → Confirm that sends one `session/fork` (`{sessionId,atSeq?}` → `{sessionId}`) for the latest completed-turn prefix. The child id is authoritative only from the ACK; the child is selected only when the App's own roster or follow frames already contain it, an unseen child is reported with its id and left unselected (no invented row), a fork in flight shares the single management/rename/export flight, and `fork-unavailable`, created-but-unattached and unknown outcomes stay distinct, indeterminate where needed, and never retried. Unit-, fixture- and App-tested; no live Host fork was executed, so real seeding/attachment and the durable child id are unqualified.
+
 ## 2026.10.10-r2 — Native Linux development release
 
 October 10, 2026, America/Chicago. Second calendar release of the day; collects the Cloudflare, sidebar, chat-polish, clipboard and quality-gate work landed after `2026.10.10-r1`. [Release checks and limits](<RELEASES/2026.10.10-r2.md>).

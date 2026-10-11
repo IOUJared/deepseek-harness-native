@@ -124,6 +124,22 @@ pub struct SessionRenameValue {
     pub title: String,
     pub seq: i64,
 }
+/// One operator-requested Session fork, serialized as exactly `{sessionId, atSeq?}`.
+/// `atSeq` is the inclusive source event cut; omitting it selects the latest
+/// completed-turn prefix. Extra authority is rejected, not ignored.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionForkRequest {
+    pub session_id: SessionId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub at_seq: Option<i64>,
+}
+/// The new child Session identity, and the only authoritative source of that id.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionForkValue {
+    pub session_id: SessionId,
+}
 /// One operator-requested registry mutation. No Agent authority or activity-stop option.
 ///
 /// JSON must be an object containing only `sessionId`; positional arrays and extra

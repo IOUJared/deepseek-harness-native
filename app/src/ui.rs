@@ -157,6 +157,7 @@ pub enum Message {
     Settings(crate::settings::Action),
     Management(crate::management::Action),
     Rename(crate::rename::Action),
+    Fork(crate::fork::Action),
     ExportSession(crate::management::Ticket),
     Export(crate::exporter::Action),
     ArchivedView,
@@ -273,6 +274,7 @@ pub struct App {
     workspace: Option<WorkspaceId>,
     management: crate::management::Management,
     rename: crate::rename::Rename,
+    fork: crate::fork::Fork,
     exporter: crate::exporter::Exporter,
     files: attachment_draft::Attachments,
     local_files: attachment_ui::LocalFiles,
@@ -391,6 +393,7 @@ impl App {
                 workspace: None,
                 management: crate::management::Management::default(),
                 rename: crate::rename::Rename::default(),
+                fork: crate::fork::Fork::default(),
                 exporter: crate::exporter::Exporter::default(),
                 files: attachment_draft::Attachments::default(),
                 local_files: Default::default(),
@@ -716,6 +719,10 @@ impl App {
                     self.rename
                         .finish(&submission.receipt, crate::rename::Outcome::NotSent);
                 }
+                Command::Fork(submission) => {
+                    self.fork
+                        .finish(&submission.receipt, crate::fork::Outcome::NotSent);
+                }
                 Command::Export(submission) => {
                     self.exporter
                         .finish(&submission.receipt, crate::exporter::Outcome::NotSent);
@@ -905,6 +912,7 @@ impl App {
         self.management.disconnect();self.sidebar_organization.dismiss();
         self.exporter.disconnect();
         self.rename.disconnect();
+        self.fork.disconnect();
         self.settings.disconnect();
         self.settings.close();
         self.close = Close::Stopping;
@@ -968,6 +976,13 @@ impl App {
         {
             return Task::none();
         }
+        if self.fork.is_open()
+            && !self.settings.is_open()
+            && ((background_message(&message) && !matches!(&message, Message::Fork(_)))
+                || matches!(&message, Message::Settings(_)))
+        {
+            return Task::none();
+        }
         if self.sidebar_organization.is_open()
             && ((background_message(&message) && !matches!(&message,Message::Sidebar(_)))
                 || matches!(&message,Message::Settings(_))) {return Task::none();}
@@ -991,6 +1006,7 @@ impl App {
             Message::Settings(_)
                 | Message::Management(_)
                 | Message::Rename(_)
+                | Message::Fork(_)
                 | Message::ExportSession(_)
                 | Message::Export(_)
                 | Message::Capabilities
@@ -1086,6 +1102,9 @@ impl App {
             Message::DismissPanel if self.rename.is_open() && !self.settings_modal_visible() => {
                 self.rename.dismiss();
             }
+            Message::DismissPanel if self.fork.is_open() && !self.settings_modal_visible() => {
+                self.fork.dismiss();
+            }
             Message::ExportSession(ticket) => {
                 let context = self.management_context();
                 if context.allowed
@@ -1122,6 +1141,12 @@ impl App {
                 let context = self.rename_context();
                 if let Some(submission) = self.rename.apply(action, &context) {
                     self.command(Command::Rename(submission));
+                }
+            }
+            Message::Fork(action) => {
+                let context = self.fork_context();
+                if let Some(submission) = self.fork.apply(action, &context) {
+                    self.command(Command::Fork(submission));
                 }
             }
             #[cfg(test)]
@@ -1674,6 +1699,7 @@ impl App {
                 self.settings.close();
                 self.exporter.dismiss();
                 self.rename.dismiss();
+                self.fork.dismiss();
                 if self.stopped {
                     if self.last_stop.as_ref().is_some_and(|r|matches!(r,Ok(s) if s.exited&&!s.containment_unknown&&s.observed_descendants_remaining==0)){self.capture_draft();self.draft_exit_requested=true;self.close=Close::Stopping;return self.finish_draft_exit();}
                     self.close = Close::Failed(
@@ -1800,6 +1826,7 @@ impl App {
                 self.management.disconnect();self.sidebar_organization.dismiss();
                 self.exporter.disconnect();
                 self.rename.disconnect();
+                self.fork.disconnect();
                 self.settings.disconnect();
                 self.account = "Account metadata unavailable (disconnected)".into();
                 self.catalog_read.retire(); self.ready = false;
@@ -1860,6 +1887,25 @@ impl App {
                         applied.seq,
                         serde_json::Value::String(applied.title),
                     );
+                }
+            }
+            Event::Forked { submission, result } => {
+                let outcome = match result {
+                    Ok(value) => crate::fork::Outcome::Forked {
+                        child: value.session_id,
+                    },
+                    Err(crate::fork::Failure::Unavailable) => crate::fork::Outcome::Unavailable,
+                    Err(crate::fork::Failure::Unattached) => crate::fork::Outcome::Unattached,
+                    Err(crate::fork::Failure::Unknown) => crate::fork::Outcome::Unknown,
+                };
+                // The acknowledged child id becomes visible state only through this App's
+                // own roster or follow frames; an ACK alone never creates a roster entry.
+                if let Some(applied) = self.fork.finish(&submission.receipt, outcome) {
+                    let visible = self.fork_child_visible(&applied.child);
+                    if visible {
+                        self.choose(applied.child);
+                    }
+                    self.fork.reveal(visible);
                 }
             }
             Event::Roster(result) => {
@@ -2241,6 +2287,7 @@ impl App {
                 self.management.disconnect();self.sidebar_organization.dismiss();
                 self.exporter.disconnect();
                 self.rename.disconnect();
+                self.fork.disconnect();
                 self.settings.disconnect();
                 self.account = "Account metadata unavailable (disconnected)".into();
                 self.catalog_read.retire(); self.ready = false;
@@ -2253,6 +2300,7 @@ impl App {
                 self.management.disconnect();self.sidebar_organization.dismiss();
                 self.exporter.disconnect();
                 self.rename.disconnect();
+                self.fork.disconnect();
                 self.settings.disconnect();
                 self.account = "Account metadata unavailable (disconnected)".into();
                 self.catalog_read.retire(); self.ready = false;
@@ -2268,6 +2316,7 @@ impl App {
                 self.management.disconnect();self.sidebar_organization.dismiss();
                 self.exporter.disconnect();
                 self.rename.disconnect();
+                self.fork.disconnect();
                 self.settings.disconnect();
                 self.account = "Account metadata unavailable (disconnected)".into();
                 self.transport_epoch += 1;
@@ -2450,7 +2499,8 @@ impl App {
         let mut context = self.operator_context_for(target);
         context.allowed =
             context.allowed && !self.exporter.is_open() && self.exporter.pending().is_none()
-                && !self.rename.is_open() && self.rename.pending().is_none();
+                && !self.rename.is_open() && self.rename.pending().is_none()
+                && !self.fork.is_open() && self.fork.pending().is_none();
         context
     }
     fn rename_context(&self) -> crate::rename::Context {
@@ -2469,6 +2519,39 @@ impl App {
                 && !self.management.is_open()
                 && !self.management.pending()
                 && !self.exporter.is_open()
+                && self.exporter.pending().is_none()
+                && !self.fork.is_open()
+                && self.fork.pending().is_none(),
+        }
+    }
+    fn fork_context(&self) -> crate::fork::Context {
+        let ticket = self.fork.ticket();
+        let target = ticket
+            .as_ref()
+            .map(|ticket| &ticket.target)
+            .or(self.selected.as_ref());
+        self.fork_context_for(target)
+    }
+    /// A forked child may be revealed only when this App already holds it in its own
+    /// authoritative roster or a workspace follow frame. An ACK id alone proves the
+    /// child exists on the Host, not that this App has a row for it.
+    fn fork_child_visible(&self, child: &SessionId) -> bool {
+        self.sessions.contains_key(child)
+            || self
+                .workspaces
+                .iter()
+                .any(|workspace| workspace.session_ids.contains(child))
+    }
+    fn fork_context_for(&self, target:Option<&SessionId>) -> crate::fork::Context {
+        let context = self.operator_context_for(target);
+        crate::fork::Context {
+            view: context.view,
+            allowed: context.allowed
+                && !self.management.is_open()
+                && !self.management.pending()
+                && !self.rename.is_open()
+                && self.rename.pending().is_none()
+                && !self.exporter.is_open()
                 && self.exporter.pending().is_none(),
         }
     }
@@ -2481,7 +2564,8 @@ impl App {
         crate::exporter::Context {
             view: context.view,
             allowed: context.allowed && !self.management.is_open() && !self.management.pending()
-                && !self.rename.is_open() && self.rename.pending().is_none(),
+                && !self.rename.is_open() && self.rename.pending().is_none()
+                && !self.fork.is_open() && self.fork.pending().is_none(),
         }
     }
     fn operator_context(&self) -> crate::management::Context {
@@ -2590,6 +2674,13 @@ impl App {
                 self.presentation_shell(false),
                 self.rename_view(),
                 Message::Rename(crate::rename::Action::Close(ticket)),
+            );
+        }
+        if let Some(ticket) = self.fork.ticket() {
+            return settings_overlay(
+                self.presentation_shell(false),
+                self.fork_view(),
+                Message::Fork(crate::fork::Action::Close(ticket)),
             );
         }
         if let Some(ticket) = self.management.ticket() {
@@ -2790,6 +2881,122 @@ impl App {
             .size(11),
             Notice::Indeterminate => label(
                 "Rename not confirmed: Host refusal, failure or uncertain write. The displayed title still comes only from the Host; reconcile explicitly and never retry automatically.",
+                DANGER,
+            )
+            .size(11),
+        });
+        let size = settings_modal_size(self.layout_size());
+        container(scrollable(body).height(Length::Fill))
+            .width(size.width.min(560.0))
+            .height(size.height.min(360.0))
+            .style(|_| panel(SURFACE))
+            .into()
+    }
+    fn fork_view(&self) -> Element<'_, Message> {
+        use crate::fork::{Action, Notice};
+        let ticket = self.fork.ticket().expect("visible fork review");
+        let source = self
+            .sessions
+            .get(&ticket.target)
+            .map(|session| self.session_title(session))
+            .unwrap_or_else(|| "Unavailable conversation".into());
+        // Actions stay enabled only while the panel's fence still matches the current
+        // App state; a successful reveal advances the generation and retires them.
+        let context = self.fork_context();
+        let enabled = self.fork.pending().is_none()
+            && context.allowed
+            && context.view.as_ref().is_some_and(|view| {
+                view.epoch == ticket.epoch
+                    && view.generation == ticket.generation
+                    && view.target == ticket.target
+            });
+        let mut body = column![
+            row![
+                label("Fork conversation", TEXT).size(22).width(Length::Fill),
+                button("Close")
+                    .style(design::ghost)
+                    .on_press(Message::Fork(Action::Close(ticket.clone())))
+            ]
+            .spacing(10),
+            label(format!("From: {}", short(&source, 60)), MUTED).size(11),
+            label(
+                "Creates a new child session from the latest completed turn. It never sends a chat message, renames the source, stops work or deletes history.",
+                MUTED
+            )
+            .size(11),
+        ]
+        .spacing(10);
+        if let Some(review) = self.fork.review() {
+            body = body
+                .push(label("Confirm this fork", TEXT).size(13))
+                .push(label(format!("Source: {}", short(&source, 80)), ACCENT).size(14))
+                .push(
+                    row![
+                        button("Back")
+                            .style(design::ghost)
+                            .on_press_maybe(
+                                enabled.then_some(Message::Fork(Action::Back(ticket.clone())))
+                            ),
+                        button("Confirm fork")
+                            .style(design::primary)
+                            .on_press_maybe(
+                                enabled.then_some(Message::Fork(Action::Confirm(review.clone())))
+                            ),
+                    ]
+                    .spacing(8),
+                );
+        } else {
+            body = body.push(
+                button("Review fork")
+                    .style(design::primary)
+                    .on_press_maybe(
+                        enabled.then_some(Message::Fork(Action::Review(ticket.clone())))
+                    ),
+            );
+        }
+        body = body.push(match self.fork.notice() {
+            Notice::None => label(
+                "Review before the single write. Nothing is sent until Confirm.",
+                MUTED,
+            )
+            .size(11),
+            Notice::Pending => label(
+                "Fork admitted. Closing does not cancel or undo it; the child id comes only from the Host acknowledgment.",
+                ACCENT,
+            )
+            .size(11),
+            Notice::Forked { child, selected } => label(
+                if *selected {
+                    format!(
+                        "Host created child {}. It was already in this App's frames and was selected.",
+                        short(child.as_str(), 80)
+                    )
+                } else {
+                    format!(
+                        "Host created child {}. It is not in this App's roster yet, so no sidebar row was invented and nothing was selected; it appears only after an authoritative roster or follow update.",
+                        short(child.as_str(), 80)
+                    )
+                },
+                ACCENT,
+            )
+            .size(11),
+            Notice::Unavailable => label(
+                "The Host refused the fork before creating a child: the source has no completed turn to fork from. Nothing was created and there is no automatic retry.",
+                DANGER,
+            )
+            .size(11),
+            Notice::Unattached => label(
+                "The Host created a child but could not attach it to its workspace. The outcome is indeterminate and no child id was acknowledged; do not retry automatically and do not assume a rollback.",
+                DANGER,
+            )
+            .size(11),
+            Notice::NotSent => label(
+                "Worker queue rejected the fork: not sent. No automatic retry.",
+                DANGER,
+            )
+            .size(11),
+            Notice::Indeterminate => label(
+                "Fork not confirmed: refusal, failure, timeout or uncertain write. A child may exist; reconcile explicitly and never retry automatically.",
                 DANGER,
             )
             .size(11),
@@ -4717,6 +4924,7 @@ fn background_message(message: &Message) -> bool {
             | Message::Interaction(_)
             | Message::Management(_)
             | Message::Rename(_)
+            | Message::Fork(_)
             | Message::ExportSession(_)
             | Message::Export(_)
             | Message::ArchivedView

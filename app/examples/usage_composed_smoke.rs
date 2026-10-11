@@ -17,6 +17,8 @@ mod design;
 mod export_file;
 #[path = "../src/exporter.rs"]
 mod exporter;
+#[path = "../src/fork.rs"]
+mod fork;
 #[path = "../src/interactions.rs"]
 mod interactions;
 #[path = "../src/known.rs"]
