@@ -63,6 +63,12 @@ pub enum Command {
     },
     Manage(crate::management::Submission),
     Rename(crate::rename::Submission),
+    /// Invoke one Host command without a model turn. Paired with
+    /// [`Event::CommandsExecuted`] by session, since no submission id exists.
+    CommandsExecute {
+        session_id: SessionId,
+        line: String,
+    },
     Fork(crate::fork::Submission),
     TerminalRead(crate::terminal::ReadTicket),
     TerminalFollow(crate::terminal::FollowTicket),
@@ -146,6 +152,15 @@ pub enum Event {
     Renamed {
         submission: crate::rename::Submission,
         result: Result<SessionRenameValue, ()>,
+    },
+    /// One command's Host-owned outcome. `Option` is meaningful: the Host may
+    /// settle a command with no execution record, which is not a success. The
+    /// line travels back so a reply for a command the app is no longer waiting
+    /// on cannot be reported as the current one.
+    CommandsExecuted {
+        session_id: SessionId,
+        line: String,
+        result: Result<Option<CommandExecution>, ()>,
     },
     Forked {
         submission: crate::fork::Submission,
@@ -684,6 +699,11 @@ fn rejected(command: Command) -> Event {
             submission,
             result: Err(()),
         },
+        Command::CommandsExecute { session_id, line } => Event::CommandsExecuted {
+            session_id,
+            line,
+            result: Err(()),
+        },
         Command::Fork(submission) => Event::Forked {
             submission,
             result: Err(crate::fork::Failure::Unknown),
@@ -1053,6 +1073,25 @@ fn admit_rename(
     }
     *active = Some(submission.clone());
     true
+}
+/// Invoke one command through the Host. The outcome of the command is the Host's
+/// own; this worker neither interprets it nor retries it.
+async fn commands_execute(
+    client: dsh_native_transport::NativeClient,
+    session_id: SessionId,
+    line: String,
+) -> Event {
+    let request = dsh_native_transport::dto::CommandExecuteRequest {
+        session_id: session_id.clone(),
+        line: line.clone(),
+        submitted_attachments: Vec::new(),
+    };
+    let result = client.commands_execute(&request).await.map_err(|_| ());
+    Event::CommandsExecuted {
+        session_id,
+        line,
+        result,
+    }
 }
 fn settle_rename(active: &mut Option<crate::rename::Submission>, event: &Event) {
     if let Event::Renamed { submission, .. } = event
@@ -1734,6 +1773,17 @@ async fn run(
                         }
                         continue;
                     },
+                    Command::CommandsExecute{session_id,line}=>{
+                        // A Host mutation with no model turn, so it is refused while
+                        // observations are down and never retried after an
+                        // indeterminate reply: the dispatch itself is the request.
+                        if observations_live && !submissions.busy() {
+                            tasks.spawn(commands_execute(client.clone(),session_id,line));
+                        } else if !publish(&events,Event::CommandsExecuted{session_id,line,result:Err(())}) {
+                            break Some("Native UI delivery queue overflow".into());
+                        }
+                        continue;
+                    },
                     Command::TerminalRead(ticket)=>{
                         // Read-only: it does not reserve the management flight or spawn a shell.
                         tasks.spawn(terminal_read(client.clone(),ticket));
@@ -1829,6 +1879,7 @@ async fn run(
                     Command::Prompt{..}|Command::CheckSubmission(_)|Command::RejoinObservations{..}=>Event::Fault("Prompt bypassed worker ownership".into()),
                     Command::Cancel{..}=>Event::Fault("Cancellation bypassed priority dispatch".into()),
                     Command::Page{generation,request}=>Event::Page{generation,result:client.session_page(request).await.map_err(|e|format!("History page: {e}"))},
+                    Command::CommandsExecute{session_id,line}=>Event::CommandsExecuted{session_id:session_id.clone(),line:line.clone(),result:client.commands_execute(&CommandExecuteRequest{session_id:session_id.clone(),line,submitted_attachments:Vec::new()}).await.map_err(|_|())},
                     Command::Cloudflare(_)|Command::PromptFile{..}|Command::StageFile(_)|Command::DiscardFile(_)|Command::Codex(_)|Command::Export(_)|Command::PluginsRead(_)|Command::PluginSave{..}|Command::Manage(_)|Command::Rename(_)|Command::Fork(_)|Command::TerminalRead(_)|Command::TerminalFollow(_)|Command::TerminalCreate(_)|Command::TerminalClose(_)|Command::TerminalWrite(_)|Command::KeyMetadata(_)|Command::SaveKey{..}|Command::Inspect|Command::Shutdown|Command::Select{..}=>Event::Fault("Invalid native command state".into()),
                 }});
             }

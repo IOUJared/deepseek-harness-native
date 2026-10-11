@@ -460,6 +460,7 @@ impl Fixture {
                 worker::Command::Manage(_) => "Manage",
                 worker::Command::Rename(_) => "Rename",
                 worker::Command::Fork(_) => "Fork",
+                worker::Command::CommandsExecute { .. } => "CommandsExecute",
                 worker::Command::TerminalRead(_) => "TerminalRead",
                 worker::Command::TerminalFollow(_) => "TerminalFollow",
                 worker::Command::TerminalCreate(_) => "TerminalCreate",

@@ -95,10 +95,19 @@ section while it is active. The Host publishes it to clients as exactly
 | inactive, settled | no chip |
 
 The distinction matters: a selection is only appended at the next accepted in-turn
-pre-step, so guidance stays in force — or is not yet in force — until then. The chip
-is **read-only**. It sends no command, and the native app exposes no control that
-enters or leaves plan mode; a deployment without the plan-mode plugin publishes no
-projection and gets no chip, which reads as "not reported" rather than "off".
+pre-step, so guidance stays in force — or is not yet in force — until then.
+
+The chip is **actionable where the Host supports it**, and read-only otherwise. Its
+offer comes from whether the Host published the `plan` projection at all: a
+deployment without the plan-mode plugin publishes no key, one that mounts it
+publishes the key even while inactive. Pressing it asks for the *opposite of the
+committed state*, so `Applying` requests `/plan` and `Active` or `Leaving` request
+`/plan off`; `Leaving` is still active and must not be asked to enter. The mode you
+see afterwards is the Host's projection, never the request that was sent, so an
+accepted command that changed nothing reads as unchanged. A press in flight is
+inert, and a reply for a different session or a different line is ignored as stale
+rather than clearing that state.
+
 
 ## Chat stays clean
 
@@ -155,11 +164,11 @@ beside the replacement `tool/result`). It shares `shadowedRange`, `shadowedSeqs`
 and `shadowedTokenCount` with the summary event, which is why one parser reads both.
 
 Plan mode is not entered through a prompt: `/plan` as prompt text would be ordinary
-conversation. The Host executes commands through its own surface, so the app now
-speaks it directly — `commands/list` to learn that `plan` exists for the session,
-and `commands/execute` to select it, with the observed `plan` projection as the only
-authority on the result. Both are StrictWireChat methods closed to plugin
-expansion: a command invokes Host behaviour without a model turn.
+conversation. The Host executes commands through its own surface, so the app invokes
+`commands/execute`, which the transport also validates. Follow delivery stays
+passive — the offer is read from the projection a frame already carries, so knowing
+whether this Host mounts plan mode costs no round trip, and the app dispatches
+nothing while appending history.
 
 ## Not qualified
 

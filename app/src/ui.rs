@@ -116,6 +116,8 @@ mod model_controls;
 #[cfg(test)]
 #[path = "model_metadata_ui_tests.rs"]
 mod model_metadata_ui_tests;
+#[path = "plan_control.rs"]
+mod plan_control;
 #[path = "plan_mode.rs"]
 mod plan_mode;
 #[cfg(test)]
@@ -279,6 +281,8 @@ pub enum Message {
     Work(work_panel_ui::Action),
     /// Expand or collapse the composer's context-management explanation.
     ToggleContextPolicy,
+    /// Enter or leave plan mode through the Host's command surface.
+    TogglePlanMode,
     /// Client-only view of Host-owned terminals. Opening spawns no local shell.
     Terminal(crate::terminal::Action),
     Close,
@@ -374,6 +378,11 @@ pub struct App {
     /// The composer's context-management disclosure is expanded. Presentation
     /// only: it explains the harness's staged policy and starts no request.
     context_policy_open: bool,
+    /// Whether the Host has published the `plan` projection: `None` until the
+    /// selected session reports, so an offer is never assumed before it answers.
+    plan_published: Option<bool>,
+    /// A plan-mode toggle is in flight. Inert until its reply settles.
+    plan_toggle_pending: bool,
     /// The read-only More → Work records panel is open.
     work_open: bool,
     /// The More → Terminal panel is open. The Host owns every shell; the app is a client.
@@ -382,7 +391,7 @@ pub struct App {
     settings: crate::settings::Settings,
     decisions: crate::interactions::Decisions,
     transport_epoch: u64,
-    projections: BTreeMap<String, serde_json::Value>,
+
     title_updates: BTreeMap<SessionId, (i64, serde_json::Value)>,
     close: Close,
     last_stop: Option<Result<StopResult, String>>,
@@ -511,12 +520,14 @@ impl App {
                 conversation_menu: false,
                 work_open: false,
                 context_policy_open: false,
+                plan_published: None,
+                plan_toggle_pending: false,
                 terminal: crate::terminal::Terminal::default(),
                 info_expanded: 0,
                 settings: Default::default(),
                 decisions: Default::default(),
                 transport_epoch: 0,
-                projections: BTreeMap::new(),
+
                 title_updates: BTreeMap::new(),
                 close: Close::None,
                 last_stop: None,
@@ -978,7 +989,9 @@ impl App {
         self.records_expanded = false;
         self.offset = 0.0;
         self.follow_bottom = true;
-        self.projections.clear();
+        // A projection belongs to one session, so a new selection has none yet.
+        self.plan_published = None;
+        self.plan_toggle_pending = false;
         self.model_controls.dismiss();
         self.reconcile_model_selection();
         self.status = "Opening authoritative session snapshot…".into();
@@ -2131,6 +2144,20 @@ impl App {
             Message::ToggleContextPolicy => {
                 self.context_policy_open = false;
             }
+            // The control is built from the same state the chip renders, so a
+            // press cannot disagree with what the user just read. `press` refuses
+            // an unavailable command, and the pending flag makes it inert.
+            Message::TogglePlanMode => {
+                if let Some(line) = self.plan_control().press()
+                    && let Some(session_id) = self.selected.clone()
+                {
+                    self.plan_toggle_pending = true;
+                    self.command(Command::CommandsExecute {
+                        session_id,
+                        line: line.into(),
+                    });
+                }
+            }
             Message::Close => {
                 self.local_files.invalidate();
                 self.settings.close();
@@ -2362,6 +2389,41 @@ impl App {
             }
             Event::Managed { submission, result } => {
                 self.management.finish(&submission, result, false);
+            }
+            Event::CommandsExecuted {
+                session_id,
+                line,
+                result,
+            } => {
+                // Only this session's reply for the command still in flight may
+                // clear the pending state; anything else is stale or foreign.
+                let expected = self
+                    .plan_control()
+                    .mode
+                    .map(plan_control::toggle_line)
+                    .is_some_and(|expected| expected == line);
+                if self.selected.as_ref() == Some(&session_id) && expected {
+                    self.plan_toggle_pending = false;
+                    // The command's own outcome is reported, never interpreted: the
+                    // mode the user sees still comes from the `plan` projection, so
+                    // an accepted command that changed nothing reads as unchanged.
+                    match result {
+                        Ok(Some(executed)) => match executed.result {
+                            CommandResult::Success { text } => {
+                                self.status = text
+                                    .filter(|text| !text.trim().is_empty())
+                                    .unwrap_or_else(|| "Command accepted".into());
+                            }
+                            CommandResult::Error { text } => self.status = text,
+                        },
+                        Ok(None) => self.status = "Command settled without a result".into(),
+                        Err(()) => {
+                            self.status =
+                                "Command outcome unknown; the mode shown is the last one the Host reported."
+                                    .into();
+                        }
+                    }
+                }
             }
             Event::Renamed { submission, result } => {
                 let outcome = match result {
@@ -2611,6 +2673,11 @@ impl App {
                         if snapshot {
                             self.smoke_evidence.snapshot_valid = true;
                         }
+                        // Follow delivery dispatches nothing. The offer is read from
+                        // the projection the frame carries, so no round trip is needed
+                        // to know whether this Host mounts plan mode.
+                        self.plan_published =
+                            Some(plan_mode::published(self.transcript.projections()));
                     }
                     Err(error) => {
                         self.files.invalidate();
@@ -4227,6 +4294,15 @@ impl App {
             self.status="Original submission was definitely not dispatched; original draft retained. No automatic resend.".into();
         }
     }
+    /// The plan-mode control for the selected session, from the Host's advertised
+    /// commands and the Host's own `plan` projection.
+    fn plan_control(&self) -> plan_control::Control {
+        plan_control::Control {
+            offer: plan_control::Offer::from_published(self.plan_published),
+            mode: plan_mode::mode(self.transcript.projections()),
+            pending: self.plan_toggle_pending,
+        }
+    }
     fn composer(&self) -> Element<'_, Message> {
         let allowed = self.send_allowed() && self.composer_visible();
         let keyboard_allowed = allowed && !self.editor.text().trim().is_empty();
@@ -4481,10 +4557,29 @@ impl App {
                 None => format!("Plan · {done}/{total}"),
             });
         let mut metadata = row![];
-        // Plan mode is harness state published to clients as { active, pending }.
-        // Read-only here: this chip can neither enter nor leave the mode.
-        if let Some(mode) = plan_mode::mode(self.transcript.projections()) {
-            metadata = metadata.push(label(mode.label(), ACCENT).size(10));
+        // Plan mode comes from the Host's { active, pending } projection. It is
+        // actionable only where the Host also advertises the `plan` command; the
+        // display follows the projection, never the request that was sent.
+        let control = self.plan_control();
+        if let Some(mode) = control.mode {
+            let text = if control.pending {
+                format!("{} · sending", mode.label())
+            } else {
+                mode.label().to_owned()
+            };
+            if control.visible() {
+                metadata = metadata.push(
+                    button(label(text, ACCENT).size(10))
+                        .padding([2, 4])
+                        .style(design::button_style)
+                        .on_press_maybe(
+                            (!control.pending && self.composer_visible())
+                                .then_some(Message::TogglePlanMode),
+                        ),
+                );
+            } else {
+                metadata = metadata.push(label(text, ACCENT).size(10));
+            }
         }
         if let Some(plan) = plan {
             metadata = metadata.push(label(short(&plan, 60), MUTED).size(10));

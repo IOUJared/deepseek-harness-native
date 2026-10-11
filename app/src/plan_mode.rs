@@ -32,6 +32,18 @@ impl Mode {
     }
 }
 
+/// Whether the Host published the `plan` projection at all.
+///
+/// Presence is the discovery signal: a deployment without the plan-mode plugin
+/// publishes no `plan` key, and one that mounts it publishes the key even while
+/// the mode is inactive (`active: false, pending: false`), where [`mode`] returns
+/// `None` because there is no mode to show.
+pub fn published(projections: &std::collections::BTreeMap<String, Value>) -> bool {
+    projections
+        .get("plan")
+        .is_some_and(|value| value.is_object())
+}
+
 fn flag(object: &Map<String, Value>, key: &str) -> Option<bool> {
     object.get(key).map(Value::as_bool).and_then(|value| value)
 }

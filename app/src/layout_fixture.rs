@@ -1509,6 +1509,8 @@ pub fn metadata(app: &App, preset: &str) -> Value {
         "planChipProjected":plan_projected,
         "planModeSimulated":preset.starts_with("plan-mode"),
         "planModeLabel":super::plan_mode::mode(app.transcript.projections()).map(super::plan_mode::Mode::label),
+        "planControlPressable":app.plan_control().visible(),
+        "planControlPress":app.plan_control().press(),
         "contextDisclosureOpen":context_warning,
         "workPanelReadOnlyTotal":app.transcript.work().total(),
         "workPanelGoalsOmitted":app.transcript.work().dropped(crate::work_panel::Section::Goals)
