@@ -356,10 +356,11 @@ impl Directory {
         if !private_regular(&stamp, self.uid) || stamp.st_size != 0 {
             return Err(Failure::Unavailable);
         }
-        let lock = Lock {
+        let mut lock = Lock {
             name: self.namespace.lock(),
             file,
             stamp,
+            locked: false,
         };
         lock.guard(self)?;
         flock(
@@ -371,6 +372,7 @@ impl Directory {
             },
         )
         .map_err(|_| Failure::Busy)?;
+        lock.locked = true;
         lock.guard(self)?;
         Ok(Some(lock))
     }
@@ -433,10 +435,27 @@ fn bounded_read(file: &mut File) -> io::Result<Vec<u8>> {
     }
     Ok(bytes)
 }
+
 struct Lock {
     name: &'static str,
     file: File,
     stamp: Stat,
+    locked: bool,
+}
+impl Drop for Lock {
+    fn drop(&mut self) {
+        if !self.locked {
+            return;
+        }
+        // An flock lock belongs to the open file description, so closing this descriptor
+        // releases it only once every duplicate is closed too. fork(2) duplicates it into a
+        // child, where O_CLOEXEC closes the copy at execve: until then the inherited
+        // duplicate keeps this critical section alive after the operation already finished,
+        // and a cooperating writer observes a spurious Failure::Busy. Unlock explicitly so
+        // the lock ends exactly with the operation rather than with the last inherited
+        // descriptor. An unlock failure is ignored: closing the descriptor still releases it.
+        let _ = flock(&self.file, FlockOperation::Unlock);
+    }
 }
 impl Lock {
     fn guard(&self, directory: &Directory) -> Result<(), Failure> {

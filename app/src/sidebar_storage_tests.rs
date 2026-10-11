@@ -289,6 +289,36 @@ fn checked_save_retains_intra_operation_bytes_guard() {
     assert_eq!(std::fs::read(fixture.document()).unwrap(), changed);
 }
 
+// Regression for the intermittent Failure::Busy in this module. An flock lock belongs to the
+// open file description, so it survives closing the descriptor that took it while any
+// duplicate remains. This process forks this same test binary in
+// `cross_process_sidebar_writer_invalidates_loaded_expected_snapshot`; the child inherits
+// every open lock descriptor until O_CLOEXEC closes the copies at execve, which is exactly
+// what dup(2) reproduces here without racing a real fork (std's fork path returns from
+// `Command::spawn` only once the child has exec'd, so no deterministic pre-exec window is
+// observable from the parent). The duplicate below must not extend the lock past the
+// operation that took it.
+#[test]
+fn completed_operation_releases_exclusive_lock_while_a_duplicate_descriptor_remains() {
+    let fixture = Fixture::new();
+    let mut store = fixture.store();
+    store.save(&entries("PUBLIC seeded")).unwrap();
+    let directory = Directory::open(&fixture.path, Namespace::Sidebar)
+        .unwrap()
+        .unwrap();
+    let held = directory.lock(true).unwrap().unwrap();
+    // Same open file description as `held`, hence the same exclusive lock.
+    let inherited = held.file.try_clone().unwrap();
+    drop(held);
+    let observed = store.load();
+    drop(inherited);
+    assert!(
+        observed.is_ok(),
+        "a completed operation must release its exclusive lock: {observed:?}"
+    );
+    assert!(store.load().is_ok());
+}
+
 #[test]
 fn sidebar_after_rename_fault_is_indeterminate_and_restart_reconciles() {
     let fixture = Fixture::new();
