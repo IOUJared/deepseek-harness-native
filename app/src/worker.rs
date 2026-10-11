@@ -1033,30 +1033,13 @@ fn save_key(
 fn admit_management(
     active: &mut Option<crate::management::Submission>,
     submission: &crate::management::Submission,
-    smoke: bool,
-    stopping: bool,
-    operations: usize,
+    admission: &Admission,
 ) -> bool {
-    if smoke
-        || stopping
-        || submission.ticket.epoch != TRANSPORT_EPOCH
-        || active.is_some()
-        || operations >= MAX_OPERATIONS
-    {
+    if admission.refused() || active.is_some() || submission.ticket.epoch != TRANSPORT_EPOCH {
         return false;
     }
     *active = Some(submission.clone());
     true
-}
-fn admit_management_without_export(
-    active: &mut Option<crate::management::Submission>,
-    submission: &crate::management::Submission,
-    smoke: bool,
-    stopping: bool,
-    operations: usize,
-    export_active: bool,
-) -> bool {
-    !export_active && admit_management(active, submission, smoke, stopping, operations)
 }
 fn settle_management(active: &mut Option<crate::management::Submission>, event: &Event) {
     if let Event::Managed { submission, .. } = event
@@ -1068,32 +1051,67 @@ fn settle_management(active: &mut Option<crate::management::Submission>, event: 
 /// Reserve one title rename without activating an Agent. Exactly one session-management
 /// write (registry mutation, rename, fork, terminal, MCP composition or export)
 /// may be in flight.
-/// The one single-flight gate the management, rename, fork, terminal, MCP and
-/// export operations share. Grouping it states that each operation excludes the
-/// others and that all obey the same smoke, shutdown and in-flight limits.
+/// Which of the six single-flight commands the worker currently holds. Exactly one
+/// registry mutation, rename, fork, terminal create/close, MCP composition write or
+/// export may be in flight: each refuses while *any* flight is held, including its
+/// own slot, so no call site has to restate the peers it must not run beside.
+#[derive(Clone, Copy, Default)]
+struct Flights {
+    management: bool,
+    rename: bool,
+    fork: bool,
+    export: bool,
+    terminal: bool,
+    mcp: bool,
+}
+
+impl Flights {
+    const NONE: Self = Self {
+        management: false,
+        rename: false,
+        fork: false,
+        export: false,
+        terminal: false,
+        mcp: false,
+    };
+    /// True when any flight is held.
+    fn any(self) -> bool {
+        self.management || self.rename || self.fork || self.export || self.terminal || self.mcp
+    }
+}
+
+/// One admission question for that flight: the worker's own lifecycle fences, the
+/// flights already held, and any extra gate the command adds. A refusal answers the
+/// caller with that command's own `NotSent` outcome and reserves nothing.
 struct Admission {
     smoke: bool,
     stopping: bool,
     operations: usize,
-    management_active: bool,
-    /// The peers this operation must not run beside, by their own active state.
-    peer_rename: bool,
-    peer_fork: bool,
-    peer_export: bool,
-    peer_mcp: bool,
+    flights: Flights,
+    extra: bool,
 }
 
 impl Admission {
-    /// True when this operation must not be admitted.
-    fn refused(&self, other_active: bool) -> bool {
+    fn new(smoke: bool, stopping: bool, operations: usize, flights: Flights) -> Self {
+        Self {
+            smoke,
+            stopping,
+            operations,
+            flights,
+            extra: false,
+        }
+    }
+    /// A gate this command has beyond the shared flight, such as a key save or a
+    /// plugin write already in progress.
+    fn with_extra(self, extra: bool) -> Self {
+        Self { extra, ..self }
+    }
+    /// True when this command must not be admitted.
+    fn refused(&self) -> bool {
         self.smoke
             || self.stopping
-            || other_active
-            || self.management_active
-            || self.peer_rename
-            || self.peer_fork
-            || self.peer_export
-            || self.peer_mcp
+            || self.extra
+            || self.flights.any()
             || self.operations >= MAX_OPERATIONS
     }
 }
@@ -1103,7 +1121,8 @@ fn admit_rename(
     submission: &crate::rename::Submission,
     admission: &Admission,
 ) -> bool {
-    if admission.refused(active.is_some()) || submission.receipt.ticket.epoch != TRANSPORT_EPOCH {
+    if admission.refused() || active.is_some() || submission.receipt.ticket.epoch != TRANSPORT_EPOCH
+    {
         return false;
     }
     *active = Some(submission.clone());
@@ -1236,7 +1255,8 @@ fn admit_fork(
     submission: &crate::fork::Submission,
     admission: &Admission,
 ) -> bool {
-    if admission.refused(active.is_some()) || submission.receipt.ticket.epoch != TRANSPORT_EPOCH {
+    if admission.refused() || active.is_some() || submission.receipt.ticket.epoch != TRANSPORT_EPOCH
+    {
         return false;
     }
     *active = Some(submission.clone());
@@ -1373,12 +1393,9 @@ enum TerminalFlight {
 fn admit_terminal(
     active: &mut Option<TerminalFlight>,
     flight: &TerminalFlight,
-    smoke: bool,
-    stopping: bool,
-    operations: usize,
-    other_active: bool,
+    admission: &Admission,
 ) -> bool {
-    if smoke || stopping || other_active || active.is_some() || operations >= MAX_OPERATIONS {
+    if admission.refused() || active.is_some() {
         return false;
     }
     *active = Some(flight.clone());
@@ -1408,18 +1425,9 @@ fn settle_terminal_write(active: &mut Option<crate::terminal::WriteReceipt>, eve
 fn admit_mcp(
     active: &mut Option<crate::mcp::WriteTicket>,
     ticket: &crate::mcp::WriteTicket,
-    smoke: bool,
-    stopping: bool,
-    operations: usize,
-    other_active: bool,
+    admission: &Admission,
 ) -> bool {
-    if smoke
-        || stopping
-        || other_active
-        || active.is_some()
-        || operations >= MAX_OPERATIONS
-        || ticket.epoch != TRANSPORT_EPOCH
-    {
+    if admission.refused() || active.is_some() || ticket.epoch != TRANSPORT_EPOCH {
         return false;
     }
     *active = Some(*ticket);
@@ -1493,20 +1501,6 @@ type ExportDownload = JoinHandle<
     >,
 >;
 
-struct ExportAdmission<'a> {
-    smoke: bool,
-    stopping: bool,
-    operations: usize,
-    generation: u64,
-    target: Option<&'a SessionId>,
-    key_saving: bool,
-    plugins_active: bool,
-    management_active: bool,
-    rename_active: bool,
-    fork_active: bool,
-    terminal_active: bool,
-    mcp_active: bool,
-}
 fn operation_count(tasks: usize, export_active: bool) -> usize {
     tasks.saturating_add(usize::from(export_active))
 }
@@ -1520,22 +1514,15 @@ fn selected_export_target(address: &SessionAddress) -> Option<SessionId> {
 fn admit_export(
     active: &mut Option<crate::exporter::Receipt>,
     receipt: &crate::exporter::Receipt,
-    context: ExportAdmission<'_>,
+    admission: &Admission,
+    generation: u64,
+    target: Option<&SessionId>,
 ) -> bool {
-    if active.is_some()
-        || context.smoke
-        || context.stopping
-        || context.operations >= MAX_OPERATIONS
+    if admission.refused()
+        || active.is_some()
         || receipt.ticket.epoch != TRANSPORT_EPOCH
-        || receipt.ticket.generation != context.generation
-        || context.target != Some(&receipt.ticket.target)
-        || context.key_saving
-        || context.plugins_active
-        || context.management_active
-        || context.rename_active
-        || context.fork_active
-        || context.terminal_active
-        || context.mcp_active
+        || receipt.ticket.generation != generation
+        || target != Some(&receipt.ticket.target)
     {
         return false;
     }
@@ -1837,7 +1824,18 @@ async fn run(
                     command => command,
                 };
                 if matches!(&command,Command::Decision(submission) if decisions.is_active(submission)){continue;}
-                if prompt_worker::normal_capacity_rejects(&command,operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some())) {if !publish(&events,rejected(command)){break Some("Native UI delivery queue overflow".into());}continue;}
+                // One reading of the single management flight per command, so no arm restates
+                // the peers it must not run beside.
+                let flights = Flights {
+                    management: management_active.is_some(),
+                    rename: rename_active.is_some(),
+                    fork: fork_active.is_some(),
+                    export: export_active.is_some(),
+                    terminal: terminal_active.is_some(),
+                    mcp: mcp_active.is_some(),
+                };
+                let operations = operation_count(tasks.len() + file_jobs.len() + rejoin_jobs.len(), export_active.is_some());
+                if prompt_worker::normal_capacity_rejects(&command,operations) {if !publish(&events,rejected(command)){break Some("Native UI delivery queue overflow".into());}continue;}
                 let command=match command {
                     Command::PromptFile{tickets,request}=>{
                         let request_id=request.request_id.clone();
@@ -1910,11 +1908,9 @@ async fn run(
                     },
                     Command::Export(submission)=>{
                         let (receipt,destination)=submission.into_parts();
-                        if admit_export(&mut export_active,&receipt,ExportAdmission {
-                            smoke,stopping:*closing.borrow() || events.is_closed(),
-                            operations:tasks.len(),generation,target:selected_target.as_ref(),
-                            key_saving:key_saving.is_some()||cloudflare.busy()||codex.busy(),plugins_active:plugins_active.is_some(),management_active:management_active.is_some(),rename_active:rename_active.is_some(),fork_active:fork_active.is_some(),terminal_active:terminal_active.is_some(),mcp_active:mcp_active.is_some(),
-                        }) {
+                        // A key save, Codex operation or plugin write is not a flight, so
+                        // it rides the extra gate rather than the flight table.
+                        if admit_export(&mut export_active,&receipt,&Admission::new(smoke,*closing.borrow() || events.is_closed(),tasks.len(),flights).with_extra(key_saving.is_some()||cloudflare.busy()||codex.busy()||plugins_active.is_some()),generation,selected_target.as_ref()) {
                             export_download=Some(tokio::spawn(download_export(client.clone(),destination,receipt.ticket.target.clone())));
                         } else {
                             drop(destination);
@@ -1935,7 +1931,7 @@ async fn run(
                         continue;
                     },
                     Command::Manage(submission)=>{
-                        if terminal_active.is_none() && rename_active.is_none() && fork_active.is_none() && mcp_active.is_none() && admit_management_without_export(&mut management_active,&submission,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),export_active.is_some()) {
+                        if admit_management(&mut management_active,&submission,&Admission::new(smoke,*closing.borrow(),operations,flights)) {
                             tasks.spawn(manage(client.clone(),submission));
                         } else if !publish(&events,Event::Managed{submission,result:Err(())}) {
                             break Some("Native UI delivery queue overflow".into());
@@ -1943,7 +1939,7 @@ async fn run(
                         continue;
                     },
                     Command::Rename(submission)=>{
-                        if terminal_active.is_none() && mcp_active.is_none() && admit_rename(&mut rename_active,&submission,&Admission{smoke,stopping:*closing.borrow(),operations:operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),management_active:management_active.is_some(),peer_rename:false,peer_fork:fork_active.is_some(),peer_export:export_active.is_some(),peer_mcp:false}) {
+                        if admit_rename(&mut rename_active,&submission,&Admission::new(smoke,*closing.borrow(),operations,flights)) {
                             tasks.spawn(rename(client.clone(),submission));
                         } else if !publish(&events,Event::Renamed{submission,result:Err(())}) {
                             break Some("Native UI delivery queue overflow".into());
@@ -1951,7 +1947,7 @@ async fn run(
                         continue;
                     },
                     Command::Fork(submission)=>{
-                        if terminal_active.is_none() && mcp_active.is_none() && admit_fork(&mut fork_active,&submission,&Admission{smoke,stopping:*closing.borrow(),operations:operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),management_active:management_active.is_some(),peer_rename:rename_active.is_some(),peer_fork:false,peer_export:export_active.is_some(),peer_mcp:false}) {
+                        if admit_fork(&mut fork_active,&submission,&Admission::new(smoke,*closing.borrow(),operations,flights)) {
                             tasks.spawn(fork(client.clone(),submission));
                         } else if !publish(&events,Event::Forked{submission,result:Err(crate::fork::Failure::Unknown)}) {
                             break Some("Native UI delivery queue overflow".into());
@@ -1995,8 +1991,7 @@ async fn run(
                     },
                     Command::TerminalCreate(submission)=>{
                         let flight=TerminalFlight::Create(submission.clone());
-                        let other_active=management_active.is_some()||rename_active.is_some()||fork_active.is_some()||export_active.is_some()||mcp_active.is_some();
-                        if submission.receipt.ticket.epoch==TRANSPORT_EPOCH && admit_terminal(&mut terminal_active,&flight,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),other_active) {
+                        if submission.receipt.ticket.epoch==TRANSPORT_EPOCH && admit_terminal(&mut terminal_active,&flight,&Admission::new(smoke,*closing.borrow(),operations,flights)) {
                             tasks.spawn(terminal_create(client.clone(),submission));
                         } else if !publish(&events,Event::TerminalCreated{submission,result:Err(crate::terminal::CreateFailure::NotSent)}) {
                             break Some("Native UI delivery queue overflow".into());
@@ -2005,8 +2000,7 @@ async fn run(
                     },
                     Command::TerminalClose(submission)=>{
                         let flight=TerminalFlight::Close(submission.clone());
-                        let other_active=management_active.is_some()||rename_active.is_some()||fork_active.is_some()||export_active.is_some()||mcp_active.is_some();
-                        if submission.receipt.ticket.epoch==TRANSPORT_EPOCH && admit_terminal(&mut terminal_active,&flight,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),other_active) {
+                        if submission.receipt.ticket.epoch==TRANSPORT_EPOCH && admit_terminal(&mut terminal_active,&flight,&Admission::new(smoke,*closing.borrow(),operations,flights)) {
                             tasks.spawn(terminal_close(client.clone(),submission));
                         } else if !publish(&events,Event::TerminalClosed{submission,result:Err(crate::terminal::CloseFailure::NotSent)}) {
                             break Some("Native UI delivery queue overflow".into());
@@ -2036,8 +2030,7 @@ async fn run(
                         continue;
                     },
                     Command::McpWrite(submission)=>{
-                        let other_active=terminal_active.is_some()||management_active.is_some()||rename_active.is_some()||fork_active.is_some()||export_active.is_some();
-                        if admit_mcp(&mut mcp_active,&submission.ticket,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),other_active) {
+                        if admit_mcp(&mut mcp_active,&submission.ticket,&Admission::new(smoke,*closing.borrow(),operations,flights)) {
                             tasks.spawn(write_mcp(mcp_home.clone(),submission));
                         } else if !publish(&events,Event::McpWritten{submission,outcome:crate::mcp::WriteOutcome::NotSent}) {
                             break Some("Native UI delivery queue overflow".into());
@@ -2236,6 +2229,56 @@ pub fn test_channels() -> (
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// A clean single-flight question: no lifecycle fence, no flight held and no
+    /// extra gate, so a test adds exactly the one condition it pins.
+    fn admission(smoke: bool, stopping: bool, operations: usize, flights: Flights) -> Admission {
+        Admission::new(smoke, stopping, operations, flights)
+    }
+    #[test]
+    fn every_flight_excludes_every_other_flight() {
+        // One row per command: while any flight is held, none may be taken.
+        for held in [
+            Flights {
+                management: true,
+                ..Flights::NONE
+            },
+            Flights {
+                rename: true,
+                ..Flights::NONE
+            },
+            Flights {
+                fork: true,
+                ..Flights::NONE
+            },
+            Flights {
+                export: true,
+                ..Flights::NONE
+            },
+            Flights {
+                terminal: true,
+                ..Flights::NONE
+            },
+            Flights {
+                mcp: true,
+                ..Flights::NONE
+            },
+        ] {
+            assert!(held.any());
+            assert!(admission(false, false, 0, held).refused());
+        }
+        assert!(!admission(false, false, 0, Flights::NONE).refused());
+        // The lifecycle fences, the capacity bound and a command's own extra gate
+        // each refuse on their own, with no flight involved.
+        assert!(admission(true, false, 0, Flights::NONE).refused());
+        assert!(admission(false, true, 0, Flights::NONE).refused());
+        assert!(admission(false, false, MAX_OPERATIONS, Flights::NONE).refused());
+        assert!(!admission(false, false, MAX_OPERATIONS - 1, Flights::NONE).refused());
+        assert!(
+            Admission::new(false, false, 0, Flights::NONE)
+                .with_extra(true)
+                .refused()
+        );
+    }
     #[test]
     fn catalog_rejection_echoes_the_exact_read_ticket() {
         let mut reads = catalog_read::State::default();
@@ -2537,15 +2580,17 @@ mod tests {
                 assert!(!admit_management(
                     &mut active,
                     &submission,
-                    smoke,
-                    stopping,
-                    0
+                    &admission(smoke, stopping, 0, Flights::NONE)
                 ));
                 assert!(active.is_none());
             }
             let submission = management_submission(operation);
             let mut active = None;
-            assert!(admit_management(&mut active, &submission, false, false, 0));
+            assert!(admit_management(
+                &mut active,
+                &submission,
+                &admission(false, false, 0, Flights::NONE)
+            ));
             assert_eq!(active, Some(submission));
         }
     }
@@ -2557,9 +2602,7 @@ mod tests {
             assert!(!admit_management(
                 &mut active,
                 &submission,
-                false,
-                false,
-                operations
+                &admission(false, false, operations, Flights::NONE)
             ));
             assert!(active.is_none());
         }
@@ -2567,9 +2610,7 @@ mod tests {
         assert!(admit_management(
             &mut active,
             &submission,
-            false,
-            false,
-            MAX_OPERATIONS - 1
+            &admission(false, false, MAX_OPERATIONS - 1, Flights::NONE)
         ));
         assert_eq!(active, Some(submission));
     }
@@ -2580,9 +2621,31 @@ mod tests {
         second.ticket.target = SessionId::new("session-worker-other").unwrap();
         second.ticket.serial += 1;
         let mut active = None;
-        assert!(admit_management(&mut active, &first, false, false, 0));
-        assert!(!admit_management(&mut active, &first, false, false, 1));
-        assert!(!admit_management(&mut active, &second, false, false, 1));
+        assert!(admit_management(
+            &mut active,
+            &first,
+            &admission(false, false, 0, Flights::NONE)
+        ));
+        // The occupied slot refuses a second management write even at a live
+        // generation, and so does any other held flight.
+        assert!(!admit_management(
+            &mut active,
+            &first,
+            &admission(false, false, 0, Flights::NONE)
+        ));
+        assert!(!admit_management(
+            &mut active,
+            &second,
+            &admission(
+                false,
+                false,
+                0,
+                Flights {
+                    export: true,
+                    ..Flights::NONE
+                }
+            )
+        ));
         assert_eq!(active, Some(first.clone()));
         settle_management(
             &mut active,
@@ -2592,7 +2655,11 @@ mod tests {
             },
         );
         assert!(active.is_none());
-        assert!(admit_management(&mut active, &second, false, false, 0));
+        assert!(admit_management(
+            &mut active,
+            &second,
+            &admission(false, false, 0, Flights::NONE)
+        ));
         assert_eq!(active, Some(second));
     }
     #[test]
@@ -2662,7 +2729,11 @@ mod tests {
             assert!(active.is_none());
             let mut next = first.clone();
             next.ticket.serial += 1;
-            assert!(admit_management(&mut active, &next, false, false, 0));
+            assert!(admit_management(
+                &mut active,
+                &next,
+                &admission(false, false, 0, Flights::NONE)
+            ));
             settle_management(
                 &mut active,
                 &Event::Managed {
@@ -2710,56 +2781,86 @@ mod tests {
     #[test]
     fn rename_epoch_smoke_stopping_and_cross_flight_guards_do_not_reserve() {
         let submission = rename_submission();
-        for (epoch, smoke, stopping, management, fork, export, operations) in [
-            (0, false, false, false, false, false, 0),
-            (TRANSPORT_EPOCH, true, false, false, false, false, 0),
-            (TRANSPORT_EPOCH, false, true, false, false, false, 0),
-            (TRANSPORT_EPOCH, false, false, true, false, false, 0),
-            (TRANSPORT_EPOCH, false, false, false, true, false, 0),
-            (TRANSPORT_EPOCH, false, false, false, false, true, 0),
+        for (epoch, context) in [
+            (0, admission(false, false, 0, Flights::NONE)),
+            (TRANSPORT_EPOCH, admission(true, false, 0, Flights::NONE)),
+            (TRANSPORT_EPOCH, admission(false, true, 0, Flights::NONE)),
             (
                 TRANSPORT_EPOCH,
-                false,
-                false,
-                false,
-                false,
-                false,
-                MAX_OPERATIONS,
+                admission(
+                    false,
+                    false,
+                    0,
+                    Flights {
+                        management: true,
+                        ..Flights::NONE
+                    },
+                ),
+            ),
+            (
+                TRANSPORT_EPOCH,
+                admission(
+                    false,
+                    false,
+                    0,
+                    Flights {
+                        fork: true,
+                        ..Flights::NONE
+                    },
+                ),
+            ),
+            (
+                TRANSPORT_EPOCH,
+                admission(
+                    false,
+                    false,
+                    0,
+                    Flights {
+                        export: true,
+                        ..Flights::NONE
+                    },
+                ),
+            ),
+            (
+                TRANSPORT_EPOCH,
+                admission(
+                    false,
+                    false,
+                    0,
+                    Flights {
+                        terminal: true,
+                        ..Flights::NONE
+                    },
+                ),
+            ),
+            (
+                TRANSPORT_EPOCH,
+                admission(
+                    false,
+                    false,
+                    0,
+                    Flights {
+                        mcp: true,
+                        ..Flights::NONE
+                    },
+                ),
+            ),
+            (
+                TRANSPORT_EPOCH,
+                admission(false, false, MAX_OPERATIONS, Flights::NONE),
             ),
         ] {
             let mut candidate = submission.clone();
             candidate.receipt.ticket.epoch = epoch;
             let mut active = None;
-            assert!(!admit_rename(
-                &mut active,
-                &candidate,
-                &Admission {
-                    smoke: smoke,
-                    stopping: stopping,
-                    operations: operations,
-                    management_active: management,
-                    peer_rename: false,
-                    peer_fork: fork,
-                    peer_export: export,
-                    peer_mcp: false
-                }
-            ));
+            assert!(!admit_rename(&mut active, &candidate, &context));
             assert!(active.is_none());
         }
         let mut active = None;
         assert!(admit_rename(
             &mut active,
             &submission,
-            &Admission {
-                smoke: false,
-                stopping: false,
-                operations: 0,
-                management_active: false,
-                peer_rename: false,
-                peer_fork: false,
-                peer_export: false,
-                peer_mcp: false
-            }
+            &admission(false, false, 0, Flights::NONE)
         ));
         assert_eq!(active.as_ref(), Some(&submission));
         // One rename flight across sessions: a fresh serial on another target still refuses.
@@ -2769,16 +2870,7 @@ mod tests {
         assert!(!admit_rename(
             &mut active,
             &other,
-            &Admission {
-                smoke: false,
-                stopping: false,
-                operations: 0,
-                management_active: false,
-                peer_rename: false,
-                peer_fork: false,
-                peer_export: false,
-                peer_mcp: false
-            }
+            &admission(false, false, 0, Flights::NONE)
         ));
         assert_eq!(active.as_ref(), Some(&submission));
     }
@@ -2834,16 +2926,7 @@ mod tests {
             assert!(admit_rename(
                 &mut active,
                 &next,
-                &Admission {
-                    smoke: false,
-                    stopping: false,
-                    operations: 0,
-                    management_active: false,
-                    peer_rename: false,
-                    peer_fork: false,
-                    peer_export: false,
-                    peer_mcp: false
-                }
+                &admission(false, false, 0, Flights::NONE)
             ));
             settle_rename(
                 &mut active,
@@ -2899,56 +2982,86 @@ mod tests {
     #[test]
     fn fork_epoch_smoke_stopping_and_cross_flight_guards_do_not_reserve() {
         let submission = fork_submission();
-        for (epoch, smoke, stopping, management, rename, export, operations) in [
-            (0, false, false, false, false, false, 0),
-            (TRANSPORT_EPOCH, true, false, false, false, false, 0),
-            (TRANSPORT_EPOCH, false, true, false, false, false, 0),
-            (TRANSPORT_EPOCH, false, false, true, false, false, 0),
-            (TRANSPORT_EPOCH, false, false, false, true, false, 0),
-            (TRANSPORT_EPOCH, false, false, false, false, true, 0),
+        for (epoch, context) in [
+            (0, admission(false, false, 0, Flights::NONE)),
+            (TRANSPORT_EPOCH, admission(true, false, 0, Flights::NONE)),
+            (TRANSPORT_EPOCH, admission(false, true, 0, Flights::NONE)),
             (
                 TRANSPORT_EPOCH,
-                false,
-                false,
-                false,
-                false,
-                false,
-                MAX_OPERATIONS,
+                admission(
+                    false,
+                    false,
+                    0,
+                    Flights {
+                        management: true,
+                        ..Flights::NONE
+                    },
+                ),
+            ),
+            (
+                TRANSPORT_EPOCH,
+                admission(
+                    false,
+                    false,
+                    0,
+                    Flights {
+                        rename: true,
+                        ..Flights::NONE
+                    },
+                ),
+            ),
+            (
+                TRANSPORT_EPOCH,
+                admission(
+                    false,
+                    false,
+                    0,
+                    Flights {
+                        export: true,
+                        ..Flights::NONE
+                    },
+                ),
+            ),
+            (
+                TRANSPORT_EPOCH,
+                admission(
+                    false,
+                    false,
+                    0,
+                    Flights {
+                        terminal: true,
+                        ..Flights::NONE
+                    },
+                ),
+            ),
+            (
+                TRANSPORT_EPOCH,
+                admission(
+                    false,
+                    false,
+                    0,
+                    Flights {
+                        mcp: true,
+                        ..Flights::NONE
+                    },
+                ),
+            ),
+            (
+                TRANSPORT_EPOCH,
+                admission(false, false, MAX_OPERATIONS, Flights::NONE),
             ),
         ] {
             let mut candidate = submission.clone();
             candidate.receipt.ticket.epoch = epoch;
             let mut active = None;
-            assert!(!admit_fork(
-                &mut active,
-                &candidate,
-                &Admission {
-                    smoke: smoke,
-                    stopping: stopping,
-                    operations: operations,
-                    management_active: management,
-                    peer_rename: rename,
-                    peer_fork: false,
-                    peer_export: export,
-                    peer_mcp: false
-                }
-            ));
+            assert!(!admit_fork(&mut active, &candidate, &context));
             assert!(active.is_none());
         }
         let mut active = None;
         assert!(admit_fork(
             &mut active,
             &submission,
-            &Admission {
-                smoke: false,
-                stopping: false,
-                operations: 0,
-                management_active: false,
-                peer_rename: false,
-                peer_fork: false,
-                peer_export: false,
-                peer_mcp: false
-            }
+            &admission(false, false, 0, Flights::NONE)
         ));
         assert_eq!(active.as_ref(), Some(&submission));
         // One fork flight across sources: a fresh serial on another target still refuses.
@@ -2958,16 +3071,7 @@ mod tests {
         assert!(!admit_fork(
             &mut active,
             &other,
-            &Admission {
-                smoke: false,
-                stopping: false,
-                operations: 0,
-                management_active: false,
-                peer_rename: false,
-                peer_fork: false,
-                peer_export: false,
-                peer_mcp: false
-            }
+            &admission(false, false, 0, Flights::NONE)
         ));
         assert_eq!(active.as_ref(), Some(&submission));
     }
@@ -3017,16 +3121,7 @@ mod tests {
             assert!(admit_fork(
                 &mut active,
                 &next,
-                &Admission {
-                    smoke: false,
-                    stopping: false,
-                    operations: 0,
-                    management_active: false,
-                    peer_rename: false,
-                    peer_fork: false,
-                    peer_export: false,
-                    peer_mcp: false
-                }
+                &admission(false, false, 0, Flights::NONE)
             ));
             settle_fork(
                 &mut active,

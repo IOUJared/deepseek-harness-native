@@ -20,16 +20,15 @@ fn submission(serial: u64) -> Submission {
     }
 }
 
-fn admission(peer_mcp: bool) -> Admission {
-    Admission {
-        smoke: false,
-        stopping: false,
-        operations: 0,
-        management_active: false,
-        peer_rename: false,
-        peer_fork: false,
-        peer_export: false,
-        peer_mcp,
+/// A clean MCP question, optionally with other flights already held.
+fn admission(other: Flights) -> Admission {
+    Admission::new(false, false, 0, other)
+}
+/// The flights a live MCP write holds, for the reverse assertions.
+fn holding_mcp() -> Flights {
+    Flights {
+        mcp: true,
+        ..Flights::NONE
     }
 }
 
@@ -37,55 +36,85 @@ fn admission(peer_mcp: bool) -> Admission {
 fn mcp_write_admission_is_epoch_smoke_shutdown_capacity_and_single_flight_fenced() {
     let mut active = None;
     let flight = ticket(1);
-    for (candidate, smoke, stopping, operations, other, expected) in [
-        (ticket(1), false, false, 0, false, true),
-        (ticket(1), true, false, 0, false, false),
-        (ticket(1), false, true, 0, false, false),
-        (ticket(1), false, false, MAX_OPERATIONS, false, false),
-        (ticket(1), false, false, 0, true, false),
+    for (candidate, context, expected) in [
+        (ticket(1), admission(Flights::NONE), true),
+        (
+            ticket(1),
+            Admission::new(true, false, 0, Flights::NONE),
+            false,
+        ),
+        (
+            ticket(1),
+            Admission::new(false, true, 0, Flights::NONE),
+            false,
+        ),
+        (
+            ticket(1),
+            Admission::new(false, false, MAX_OPERATIONS, Flights::NONE),
+            false,
+        ),
+        (
+            ticket(1),
+            admission(Flights {
+                rename: true,
+                ..Flights::NONE
+            }),
+            false,
+        ),
     ] {
         active = None;
         assert_eq!(
-            admit_mcp(&mut active, &candidate, smoke, stopping, operations, other),
+            admit_mcp(&mut active, &candidate, &context),
             expected,
-            "{candidate:?} {smoke} {stopping} {operations} {other}"
+            "{candidate:?} must answer {expected}"
         );
         assert_eq!(active.is_some(), expected);
     }
     // A stale transport generation never reserves the flight.
     let mut stale = ticket(1);
     stale.epoch = TRANSPORT_EPOCH + 1;
-    assert!(!admit_mcp(&mut active, &stale, false, false, 0, false));
+    assert!(!admit_mcp(&mut active, &stale, &admission(Flights::NONE)));
     // One MCP write at a time, even for a different target revision.
-    assert!(admit_mcp(&mut active, &flight, false, false, 0, false));
-    assert!(!admit_mcp(&mut active, &ticket(2), false, false, 0, false));
+    assert!(admit_mcp(&mut active, &flight, &admission(Flights::NONE)));
+    assert!(!admit_mcp(
+        &mut active,
+        &ticket(2),
+        &admission(Flights::NONE)
+    ));
 }
 
 #[test]
 fn mcp_write_excludes_every_other_management_flight() {
-    // The MCP ticket reserves nothing beside a live rename, fork or export.
-    assert!(!admit_mcp(&mut None, &ticket(1), false, false, 0, true));
-
-    // And every peer refuses beside a live MCP write.
-    assert!(admission(true).refused(false));
-    assert!(!admission(false).refused(false));
-
-    // Export's own admission carries the MCP peer.
-    let context = ExportAdmission {
-        smoke: false,
-        stopping: false,
-        operations: 0,
-        generation: 3,
-        target: None,
-        key_saving: false,
-        plugins_active: false,
-        management_active: false,
-        rename_active: false,
-        fork_active: false,
-        terminal_active: false,
-        mcp_active: true,
-    };
-    assert!(context.mcp_active);
+    // The MCP ticket reserves nothing beside any other live flight.
+    for peer in [
+        Flights {
+            management: true,
+            ..Flights::NONE
+        },
+        Flights {
+            rename: true,
+            ..Flights::NONE
+        },
+        Flights {
+            fork: true,
+            ..Flights::NONE
+        },
+        Flights {
+            export: true,
+            ..Flights::NONE
+        },
+        Flights {
+            terminal: true,
+            ..Flights::NONE
+        },
+    ] {
+        assert!(!admit_mcp(&mut None, &ticket(1), &admission(peer)));
+    }
+    // And the reverse: a live MCP write blocks every admission, including
+    // another MCP write, through the same table.
+    assert!(admission(holding_mcp()).refused());
+    assert!(!admit_mcp(&mut None, &ticket(1), &admission(holding_mcp())));
+    assert!(!admission(Flights::NONE).refused());
 }
 
 #[test]

@@ -16,21 +16,13 @@ fn receipt() -> Receipt {
         attempt: 9,
     }
 }
-fn admission(target: &SessionId) -> ExportAdmission<'_> {
-    ExportAdmission {
-        smoke: false,
-        stopping: false,
-        operations: 0,
-        generation: 3,
-        target: Some(target),
-        key_saving: false,
-        plugins_active: false,
-        management_active: false,
-        rename_active: false,
-        fork_active: false,
-        terminal_active: false,
-        mcp_active: false,
-    }
+/// A clean export question: no lifecycle fence, no flight held, no extra gate.
+fn admission() -> Admission {
+    Admission::new(false, false, 0, Flights::NONE)
+}
+/// Every export in these tests belongs to the same generation and target.
+fn admit(active: &mut Option<Receipt>, receipt: &Receipt, admission: &Admission) -> bool {
+    admit_export(active, receipt, admission, 3, Some(&receipt.ticket.target))
 }
 fn submission() -> crate::exporter::Submission {
     use crate::exporter::{Action, Context, Exporter, View};
@@ -70,32 +62,54 @@ fn export_requires_fresh_ordinary_selected_target_epoch_generation_and_idle_sens
     let wrong_target = SessionId::new("PUBLIC-other-target").unwrap();
     for case in 0..11 {
         let mut candidate = baseline.clone();
-        let mut context = admission(&baseline.ticket.target);
+        let mut context = admission();
+        let mut target = Some(&baseline.ticket.target);
         match case {
-            0 => context.smoke = true,
-            1 => context.stopping = true,
-            2 => context.operations = MAX_OPERATIONS,
+            0 => context = Admission::new(true, false, 0, Flights::NONE),
+            1 => context = Admission::new(false, true, 0, Flights::NONE),
+            2 => context = Admission::new(false, false, MAX_OPERATIONS, Flights::NONE),
             3 => candidate.ticket.epoch = 0,
             4 => candidate.ticket.epoch = TRANSPORT_EPOCH + 1,
             5 => candidate.ticket.generation += 1,
-            6 => context.target = Some(&wrong_target),
-            7 => context.target = None,
-            8 => context.key_saving = true,
-            9 => context.plugins_active = true,
-            10 => context.management_active = true,
+            6 => target = Some(&wrong_target),
+            7 => target = None,
+            // A key save, Codex operation or plugin write is not a flight; the
+            // caller folds all of them into the one extra gate.
+            8 => context = admission().with_extra(true),
+            9 => {
+                context = Admission::new(
+                    false,
+                    false,
+                    0,
+                    Flights {
+                        management: true,
+                        ..Flights::NONE
+                    },
+                )
+            }
+            10 => {
+                context = Admission::new(
+                    false,
+                    false,
+                    0,
+                    Flights {
+                        mcp: true,
+                        ..Flights::NONE
+                    },
+                )
+            }
             _ => unreachable!(),
         }
         let mut active = None;
         assert!(
-            !admit_export(&mut active, &candidate, context),
+            !admit_export(&mut active, &candidate, &context, 3, target),
             "rejected admission case"
         );
         assert!(active.is_none(), "rejection reserves no export slot");
     }
     let mut active = None;
-    let mut context = admission(&baseline.ticket.target);
-    context.operations = MAX_OPERATIONS - 1;
-    assert!(admit_export(&mut active, &baseline, context));
+    let nearly_full = Admission::new(false, false, MAX_OPERATIONS - 1, Flights::NONE);
+    assert!(admit(&mut active, &baseline, &nearly_full));
     assert_eq!(active, Some(baseline));
 }
 
@@ -128,26 +142,14 @@ fn one_global_export_slot_counts_once_in_both_download_and_blocking_save_phases(
     // Phase transition keeps the same receipt; separate carrier/save sets add no second slot.
     let mut active = None;
     let first = receipt();
-    assert!(admit_export(
-        &mut active,
-        &first,
-        admission(&first.ticket.target)
-    ));
+    assert!(admit(&mut active, &first, &admission()));
     let mut other = first.clone();
     other.attempt += 1;
     other.ticket.target = SessionId::new("PUBLIC-other-target").unwrap();
-    assert!(!admit_export(
-        &mut active,
-        &other,
-        admission(&other.ticket.target)
-    ));
+    assert!(!admit(&mut active, &other, &admission()));
     assert_eq!(active, Some(first.clone()));
     assert_eq!(operation_count(7, active.is_some()), 8);
-    assert!(!admit_export(
-        &mut active,
-        &first,
-        admission(&first.ticket.target)
-    ));
+    assert!(!admit(&mut active, &first, &admission()));
     assert_eq!(active, Some(first));
 }
 
@@ -193,11 +195,7 @@ fn exact_completion_only_releases_its_owned_slot_and_stale_rejection_cannot_clea
         assert!(active.is_none());
         let mut next = first.clone();
         next.attempt += 1;
-        assert!(admit_export(
-            &mut active,
-            &next,
-            admission(&next.ticket.target)
-        ));
+        assert!(admit(&mut active, &next, &admission()));
         settle_export(
             &mut active,
             &Event::Exported {
@@ -245,22 +243,24 @@ fn active_export_reverse_fences_key_plugin_and_registry_writes() {
             operation,
         };
         let mut active = None;
-        assert!(!admit_management_without_export(
+        assert!(!admit_management(
             &mut active,
             &submission,
-            false,
-            false,
-            1,
-            true
+            &Admission::new(
+                false,
+                false,
+                1,
+                Flights {
+                    export: true,
+                    ..Flights::NONE
+                }
+            )
         ));
         assert!(active.is_none());
-        assert!(admit_management_without_export(
+        assert!(admit_management(
             &mut active,
             &submission,
-            false,
-            false,
-            0,
-            false
+            &Admission::new(false, false, 0, Flights::NONE)
         ));
     }
 }
