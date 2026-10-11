@@ -38,6 +38,7 @@ id!(SessionId);
 // Registered Agent authority, not an inferred session identifier.
 id!(AgentId);
 id!(WorkspaceId);
+id!(CommandId);
 id!(SessionRequestId);
 id!(ToolCallId);
 id!(FileUploadReceiptId);
@@ -110,6 +111,45 @@ pub struct SessionCreateValue {
 }
 /// One operator-proposed Session title, serialized as exactly `{sessionId, title}`.
 /// Extra authority (`agent`, `agentId`, `stopActivity`, `seq`) is rejected, not ignored.
+/// One command invocation. The native app sends no attachments, and the Host
+/// rejects an invocation whose command cannot accept them.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CommandExecuteRequest {
+    pub session_id: SessionId,
+    pub line: String,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub submitted_attachments: Vec<Value>,
+}
+/// Host-advertised command metadata. `name` is lowercase and carries no slash.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CommandDescriptor {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub definition_id: Option<String>,
+    pub name: String,
+    pub description: String,
+}
+/// One handler's normalized outcome. `success` may omit its text; `error` must
+/// carry one, because the app shows that text rather than inventing a reason.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
+pub enum CommandResult {
+    Success {
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        text: Option<String>,
+    },
+    Error {
+        text: String,
+    },
+}
+/// A settled command execution: the pairing identity plus the outcome.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CommandExecution {
+    pub command_id: CommandId,
+    pub result: CommandResult,
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionRenameRequest {

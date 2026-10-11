@@ -189,6 +189,8 @@ enum Endpoint {
     TerminalWrite,
     TerminalResize,
     TerminalClose,
+    CommandsList,
+    CommandsExecute,
 }
 impl Endpoint {
     fn name(self) -> &'static str {
@@ -222,6 +224,8 @@ impl Endpoint {
             Self::TerminalWrite => "terminal/write",
             Self::TerminalResize => "terminal/resize",
             Self::TerminalClose => "terminal/close",
+            Self::CommandsList => "commands/list",
+            Self::CommandsExecute => "commands/execute",
         }
     }
 }
@@ -520,6 +524,50 @@ impl NativeClient {
     pub async fn select_model(&self, request: SelectModelRequest) -> Result<SelectModelValue> {
         self.invoke(Endpoint::SelectModel, request_args(request)?)
             .await
+    }
+    /// Read the commands the Host advertises for one session. A descriptor whose
+    /// name is blank or carries a slash is not a command this app can address, so
+    /// it is rejected rather than shown as invokable.
+    pub async fn commands_list(&self, session_id: &SessionId) -> Result<Vec<CommandDescriptor>> {
+        let value: Vec<CommandDescriptor> = self
+            .invoke(
+                Endpoint::CommandsList,
+                request_args(serde_json::json!({ "sessionId": session_id }))?,
+            )
+            .await?;
+        if value.len() > MAX_COMMANDS
+            || value.iter().any(|command| {
+                command.name.is_empty()
+                    || command.name.len() > 128
+                    || command.name.starts_with('/')
+                    || command.name.chars().any(char::is_whitespace)
+            })
+        {
+            return Err(Error::InvalidDto);
+        }
+        Ok(value)
+    }
+    /// Invoke one command without sending it to the model. The returned execution
+    /// carries the handler's own outcome; a command the Host does not know settles
+    /// as an error result, never as a silent success.
+    pub async fn commands_execute(
+        &self,
+        request: &CommandExecuteRequest,
+    ) -> Result<Option<CommandExecution>> {
+        if request.line.trim().is_empty() || request.line.len() > MAX_COMMAND_LINE {
+            return Err(Error::InvalidDto);
+        }
+        let value: Option<CommandExecution> = self
+            .invoke(Endpoint::CommandsExecute, request_args(request)?)
+            .await?;
+        if let Some(execution) = &value
+            && let CommandResult::Error { text } = &execution.result
+            && text.trim().is_empty()
+        {
+            // An error with no text would render as an empty failure.
+            return Err(Error::InvalidDto);
+        }
+        Ok(value)
     }
     /// Append one operator-owned Session title and return the Host-normalized value.
     /// An admitted failure or timeout is not proof of no write; never retry automatically.
@@ -921,6 +969,10 @@ pub(crate) fn request_args(value: impl Serialize) -> Result<Value> {
 }
 // Alpha history.ts uses Number.isSafeInteger for every page/window coordinate.
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+/// A session's advertised command list is small; a large one is a malformed reply.
+const MAX_COMMANDS: usize = 512;
+/// One invocation line, matching the prompt ceiling the app already enforces.
+const MAX_COMMAND_LINE: usize = 32 * 1024;
 pub(crate) fn validate_history(max: Option<u64>, window: Option<&TurnWindow>) -> Result<()> {
     if max.is_some_and(|n| n == 0 || n > MAX_SAFE_INTEGER)
         || window.is_some_and(|w| {

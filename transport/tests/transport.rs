@@ -1839,3 +1839,183 @@ async fn queue_bound_and_shutdown_quiescence() {
     assert!(matches!(task.await.unwrap(), Err(Error::Closed)));
     fixture.stop().await;
 }
+
+#[test]
+fn command_dtos_use_exact_object_fields_and_reject_extra_authority() {
+    use serde_json::{Value, json};
+    // Outbound: the app sends no attachments, so the field is omitted entirely
+    // rather than sent as an empty array the Host would have to interpret.
+    let request = CommandExecuteRequest {
+        session_id: SessionId::new("session / plan opaque:%").unwrap(),
+        line: "/plan".into(),
+        submitted_attachments: Vec::new(),
+    };
+    let wire = json!({"sessionId":"session / plan opaque:%","line":"/plan"});
+    assert_eq!(serde_json::to_value(&request).unwrap(), wire);
+    for field in ["agent", "agentId", "mode", "args", "text"] {
+        let mut extra = wire.clone();
+        extra[field] = json!(false);
+        assert!(
+            serde_json::from_value::<CommandExecuteRequest>(extra).is_err(),
+            "{field} must not be accepted"
+        );
+    }
+    // Inbound descriptors: `name` is slash-free by contract, so a slash-bearing
+    // one is not invokable and the client rejects the whole list.
+    let descriptors = json!([
+        {"name":"plan","description":"Explore and design before executing"},
+        {"definitionId":"PUBLIC-def","name":"compact","description":"Condense history"}
+    ]);
+    let parsed: Vec<CommandDescriptor> = serde_json::from_value(descriptors.clone()).unwrap();
+    assert_eq!(parsed[0].name, "plan");
+    assert!(parsed[0].definition_id.is_none());
+    assert_eq!(parsed[1].definition_id.as_deref(), Some("PUBLIC-def"));
+    for field in ["handler", "run", "input", "authority"] {
+        let mut extra = descriptors.clone();
+        extra[0][field] = json!("PUBLIC");
+        assert!(
+            serde_json::from_value::<Vec<CommandDescriptor>>(extra).is_err(),
+            "{field} must not be accepted"
+        );
+    }
+    // A success may omit its text; an error must carry one, because the app shows
+    // that text rather than inventing a reason of its own.
+    let execution = json!({"commandId":"PUBLIC-command","result":{"kind":"success"}});
+    let parsed: CommandExecution = serde_json::from_value(execution.clone()).unwrap();
+    assert_eq!(parsed.command_id.as_str(), "PUBLIC-command");
+    assert!(matches!(
+        parsed.result,
+        CommandResult::Success { text: None }
+    ));
+    assert_eq!(serde_json::to_value(parsed).unwrap(), execution);
+    let with_text =
+        json!({"commandId":"PUBLIC-command","result":{"kind":"success","text":"Plan mode on"}});
+    assert!(matches!(
+        serde_json::from_value::<CommandExecution>(with_text)
+            .unwrap()
+            .result,
+        CommandResult::Success { text: Some(_) }
+    ));
+    let failure =
+        json!({"commandId":"PUBLIC-command","result":{"kind":"error","text":"unknown command"}});
+    assert!(matches!(
+        serde_json::from_value::<CommandExecution>(failure)
+            .unwrap()
+            .result,
+        CommandResult::Error { .. }
+    ));
+    for malformed in [
+        Value::Null,
+        json!({}),
+        json!({"commandId":"PUBLIC-command"}),
+        json!({"commandId":"PUBLIC-command","result":{"kind":"unknown"}}),
+        json!({"commandId":"PUBLIC-command","result":{"kind":"error"}}),
+        json!({"commandId":"PUBLIC-command","result":{"kind":"success"},"extra":1}),
+        json!({"commandId":"","result":{"kind":"success"}}),
+    ] {
+        assert!(
+            serde_json::from_value::<CommandExecution>(malformed.clone()).is_err(),
+            "{malformed} must be refused"
+        );
+    }
+}
+
+#[tokio::test]
+async fn commands_list_and_execute_over_the_fixed_wire() {
+    let mut fixture = NodeHostFixture::start("normal").await;
+    let client = fixture.connect(Limits::default()).await.unwrap();
+    let session_id = SessionId::new("session / opaque:%").unwrap();
+
+    let listed = client.commands_list(&session_id).await.unwrap();
+    assert_eq!(listed.len(), 2);
+    assert_eq!(listed[0].name, "plan");
+    assert_eq!(listed[0].description, "Explore and design before executing");
+    assert!(listed[0].definition_id.is_none());
+    assert_eq!(listed[1].definition_id.as_deref(), Some("PUBLIC-def"));
+
+    // The Host's own outcome is what the app reports, success or failure.
+    let executed = client
+        .commands_execute(&CommandExecuteRequest {
+            session_id: session_id.clone(),
+            line: "/plan".into(),
+            submitted_attachments: Vec::new(),
+        })
+        .await
+        .unwrap()
+        .expect("a settled execution");
+    assert_eq!(executed.command_id.as_str(), "PUBLIC-command");
+    assert!(matches!(
+        executed.result,
+        CommandResult::Success { text: Some(ref text) } if text == "Plan mode on"
+    ));
+}
+
+#[tokio::test]
+async fn commands_execute_reports_the_hosts_own_failure_and_refuses_a_blank_one() {
+    let mut fixture = NodeHostFixture::start("command-error").await;
+    let client = fixture.connect(Limits::default()).await.unwrap();
+    let session_id = SessionId::new("session / opaque:%").unwrap();
+    let executed = client
+        .commands_execute(&CommandExecuteRequest {
+            session_id: session_id.clone(),
+            line: "/plan".into(),
+            submitted_attachments: Vec::new(),
+        })
+        .await
+        .unwrap()
+        .expect("a settled execution");
+    assert!(matches!(
+        executed.result,
+        CommandResult::Error { ref text } if text == "unknown command"
+    ));
+
+    // A failure with no text would render as an empty failure, so it is refused.
+    let mut blank = NodeHostFixture::start("command-blank-error").await;
+    let client = blank.connect(Limits::default()).await.unwrap();
+    assert!(matches!(
+        client
+            .commands_execute(&CommandExecuteRequest {
+                session_id: session_id.clone(),
+                line: "/plan".into(),
+                submitted_attachments: Vec::new(),
+            })
+            .await,
+        Err(Error::InvalidDto)
+    ));
+}
+
+#[tokio::test]
+async fn commands_list_refuses_a_descriptor_this_app_cannot_address() {
+    for mode in ["commands-slash-name", "commands-blank-name"] {
+        let mut fixture = NodeHostFixture::start(mode).await;
+        let client = fixture.connect(Limits::default()).await.unwrap();
+        assert!(
+            matches!(
+                client
+                    .commands_list(&SessionId::new("session / opaque:%").unwrap())
+                    .await,
+                Err(Error::InvalidDto)
+            ),
+            "{mode} must be refused"
+        );
+    }
+}
+
+#[tokio::test]
+async fn commands_execute_refuses_a_blank_or_oversized_line_before_any_write() {
+    let mut fixture = NodeHostFixture::start("normal").await;
+    let client = fixture.connect(Limits::default()).await.unwrap();
+    let session_id = SessionId::new("session / opaque:%").unwrap();
+    for line in ["", "   ", "\n\t "] {
+        assert!(matches!(
+            client
+                .commands_execute(&CommandExecuteRequest {
+                    session_id: session_id.clone(),
+                    line: line.into(),
+                    submitted_attachments: Vec::new(),
+                })
+                .await,
+            Err(Error::InvalidDto)
+        ));
+    }
+}

@@ -50,6 +50,33 @@ const server = http.createServer(async (request, response) => {
     case 'session/prompt': case 'session/cancel':
       if (mode.startsWith('claim-') && envelope.method === 'session/cancel') endClaims(); // Fixture-only explicit end barrier, not claim behavior.
       value = { accepted: true }; break;
+    case 'commands/list': {
+      const expected = { request: { sessionId: 'session / opaque:%' } };
+      // Full envelope equality: a list carries no authority beyond the session.
+      if (request.method !== 'POST'
+          || !isDeepStrictEqual(envelope, { type: 'client-request', rpcId: envelope.rpcId, method: 'commands/list', payload: { args: expected } })) {
+        response.writeHead(400); response.end(); return;
+      }
+      value = [
+        { name: 'plan', description: 'Explore and design before executing' },
+        { definitionId: 'PUBLIC-def', name: 'compact', description: 'Condense history' },
+      ];
+      if (mode === 'commands-slash-name') value[0].name = '/plan';
+      if (mode === 'commands-blank-name') value[0].name = '';
+      break;
+    }
+    case 'commands/execute': {
+      const expected = { request: { sessionId: 'session / opaque:%', line: '/plan' } };
+      if (request.method !== 'POST'
+          || !isDeepStrictEqual(envelope, { type: 'client-request', rpcId: envelope.rpcId, method: 'commands/execute', payload: { args: expected } })) {
+        response.writeHead(400); response.end(); return;
+      }
+      value = { commandId: 'PUBLIC-command', result: { kind: 'success', text: 'Plan mode on' } };
+      if (mode === 'command-error') value = { commandId: 'PUBLIC-command', result: { kind: 'error', text: 'unknown command' } };
+      if (mode === 'command-blank-error') value = { commandId: 'PUBLIC-command', result: { kind: 'error', text: '  ' } };
+      if (mode === 'command-null') value = undefined;
+      break;
+    }
     case 'session/modelCatalog': value = { default: { provider: 'example', model: 'model' }, routableProviders: [], groups: [], failures: [] }; break;
     case 'session/selectModel': value = { selected: { provider: args.request.provider, model: args.request.model } }; break;
     case 'session/rename': {

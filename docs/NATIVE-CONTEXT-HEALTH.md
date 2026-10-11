@@ -154,12 +154,12 @@ the producer instead (`compaction-tool-result-pruner/src/index.ts`, the append
 beside the replacement `tool/result`). It shares `shadowedRange`, `shadowedSeqs`
 and `shadowedTokenCount` with the summary event, which is why one parser reads both.
 
-**Plan mode cannot be entered from this app at all.** The native transport exposes
-no `commands/*` method, and commands execute through a dedicated surface
-(`remote.commands.execute`), not through a prompt: sending `/plan` as prompt text
-would be ordinary conversation. The indicator therefore only ever shows state a
-*host* set — the Web GUI or CLI on the same profile. Making it settable here is a
-transport addition, not a UI control.
+Plan mode is not entered through a prompt: `/plan` as prompt text would be ordinary
+conversation. The Host executes commands through its own surface, so the app now
+speaks it directly — `commands/list` to learn that `plan` exists for the session,
+and `commands/execute` to select it, with the observed `plan` projection as the only
+authority on the result. Both are StrictWireChat methods closed to plugin
+expansion: a command invokes Host behaviour without a model turn.
 
 ## Not qualified
 
