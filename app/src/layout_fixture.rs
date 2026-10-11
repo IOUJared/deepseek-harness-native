@@ -10,14 +10,14 @@ use dsh_native_transport::dto::{
 };
 use iced::Size;
 use serde_json::{Value, json};
-#[path = "managed_accounts_fixture.rs"]
-mod managed_accounts;
-#[path = "usage_preferences_fixture.rs"]
-mod usage_preferences;
-#[path = "runtime_preferences_fixture.rs"]
-mod runtime_preferences;
 #[path = "cloudflare_fixture.rs"]
 mod cloudflare;
+#[path = "managed_accounts_fixture.rs"]
+mod managed_accounts;
+#[path = "runtime_preferences_fixture.rs"]
+mod runtime_preferences;
+#[path = "usage_preferences_fixture.rs"]
+mod usage_preferences;
 
 pub const PRESETS: &[&str] = &[
     "wide-welcome",
@@ -26,17 +26,43 @@ pub const PRESETS: &[&str] = &[
     "menu",
     "navigation",
     "long-model",
-    "model-popup", "model-popup-tiny", "model-popup-empty", "model-popup-long",
-    "model-submenu", "effort-submenu", "speed-submenu", "output-submenu",
-    "model-submenu-tiny", "effort-submenu-tiny", "model-submenu-empty",
+    "model-popup",
+    "model-popup-tiny",
+    "model-popup-empty",
+    "model-popup-long",
+    "model-submenu",
+    "effort-submenu",
+    "speed-submenu",
+    "output-submenu",
+    "model-submenu-tiny",
+    "effort-submenu-tiny",
+    "model-submenu-empty",
     "warnings",
     "conversation",
-    "sidebar-options", "sidebar-options-tiny", "sidebar-trash-review", "sidebar-trash", "sidebar-moved",
-    "title-controls", "title-controls-expanded",
-    "model-metadata", "model-metadata-expanded",
-    "working-conversation", "working-phase-6", "working-narrow",
-    "chat-submitted", "chat-preparation-error", "chat-stream-live", "chat-context-rewrite", "chat-transcript",
-    "chat-markdown", "chat-thoughts", "chat-edit-review", "chat-search", "chat-recovered", "chat-edited", "chat-search-narrow",
+    "sidebar-options",
+    "sidebar-options-tiny",
+    "sidebar-trash-review",
+    "sidebar-trash",
+    "sidebar-moved",
+    "title-controls",
+    "title-controls-expanded",
+    "model-metadata",
+    "model-metadata-expanded",
+    "working-conversation",
+    "working-phase-6",
+    "working-narrow",
+    "chat-submitted",
+    "chat-preparation-error",
+    "chat-stream-live",
+    "chat-context-rewrite",
+    "chat-transcript",
+    "chat-markdown",
+    "chat-thoughts",
+    "chat-edit-review",
+    "chat-search",
+    "chat-recovered",
+    "chat-edited",
+    "chat-search-narrow",
     "collapsed-wide",
     "tiny-long-model",
     "navigation-tiny",
@@ -67,6 +93,15 @@ pub const PRESETS: &[&str] = &[
     "settings-presets",
     "information",
     "information-expanded",
+    "work-panel",
+    "context-pressure",
+    "context-pressure-risk",
+    "context-management",
+    "context-management-chat",
+    "plan-chip",
+    "plan-mode",
+    "plan-mode-applying",
+    "plan-mode-leaving",
     "tool-activity",
     "tool-activity-narrow",
     "tool-activity-tiny",
@@ -76,12 +111,22 @@ pub const PRESETS: &[&str] = &[
     "assistant-tool-call",
     "assistant-tool-call-expanded",
     "context-injects-trajectory",
-    "assistant-details-source", "assistant-details-formatted", "assistant-details-narrow", "assistant-details-fallback",
+    "assistant-details-source",
+    "assistant-details-formatted",
+    "assistant-details-narrow",
+    "assistant-details-fallback",
     "chat-density",
-    "file-path-review", "file-path-tiny", "file-ready", "file-ready-two", "file-unknown", "inbox-canceled",
-    "file-picker", "file-preview", "file-preview-narrow",
+    "file-path-review",
+    "file-path-tiny",
+    "file-ready",
+    "file-ready-two",
+    "file-unknown",
+    "inbox-canceled",
+    "file-picker",
+    "file-preview",
+    "file-preview-narrow",
 ];
-pub const PUBLIC_ASSISTANT_DETAILS:&str="# PUBLIC native response\n\nThis is **bold**, *italic*, and `inline code` in a frozen PUBLIC display snapshot. No model or tool ran.\n\n## Readable steps\n\n1. Preserve the source.\n\n   PUBLIC continuation stays inside the first list item.\n\n2. Keep all controls local.\n   - No remote images.\n   - No code execution.\n\n```rust\n// PUBLIC example only; not executed.\nfn public_preview() {\n    let note = \"PUBLIC intentionally long code line demonstrates horizontal scrolling without wrapping or changing the preserved display source\";\n    println!(\"{note}\");\n}\n```\n\nPUBLIC content beyond the collapsed four-line chat preview remains visible here.\n\n> This is a read-only native presentation, not an approval or execution acknowledgement.\n\n[PUBLIC reference](https://example.invalid/PUBLIC) is inert text, not an opener.\n";
+pub const PUBLIC_ASSISTANT_DETAILS: &str = "# PUBLIC native response\n\nThis is **bold**, *italic*, and `inline code` in a frozen PUBLIC display snapshot. No model or tool ran.\n\n## Readable steps\n\n1. Preserve the source.\n\n   PUBLIC continuation stays inside the first list item.\n\n2. Keep all controls local.\n   - No remote images.\n   - No code execution.\n\n```rust\n// PUBLIC example only; not executed.\nfn public_preview() {\n    let note = \"PUBLIC intentionally long code line demonstrates horizontal scrolling without wrapping or changing the preserved display source\";\n    println!(\"{note}\");\n}\n```\n\nPUBLIC content beyond the collapsed four-line chat preview remains visible here.\n\n> This is a read-only native presentation, not an approval or execution acknowledgement.\n\n[PUBLIC reference](https://example.invalid/PUBLIC) is inert text, not an opener.\n";
 pub const PUBLIC_PROVIDER_ID: &str = "PUBLIC-layout-provider-NOT-A-ROUTE";
 pub const PUBLIC_MODEL_ID: &str = "PUBLIC-layout-model-exact-id-世界-é-α";
 pub const PUBLIC_EFFORT_ID: &str = "PUBLIC-layout-effort-exact-id-世界-é-α";
@@ -89,27 +134,85 @@ pub const PUBLIC_EFFORT_ID: &str = "PUBLIC-layout-effort-exact-id-世界-é-α";
 /// Requested App frame, not an independently measured compositor or pixel viewport.
 pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
     match preset {
-        "sidebar-options" | "sidebar-trash-review" | "sidebar-trash" | "sidebar-moved" => Some((Size::new(1040.0,900.0),1.0)),
-        "sidebar-options-tiny" => Some((Size::new(608.0,448.0),1.25)),
-        "file-picker" | "file-preview" => Some((Size::new(1040.0,900.0),1.0)),
-        "file-preview-narrow" => Some((Size::new(760.0,560.0),1.0)),
-        "settings-cloudflare-oauth-setup" | "settings-cloudflare-oauth-waiting" | "settings-cloudflare-oauth-connected" | "settings-cloudflare-oauth-indeterminate" | "settings-cloudflare-review" | "settings-cloudflare-unknown" | "settings-general-cloudflare-pending" | "settings-general-cloudflare-unknown" | "settings-models" | "settings-codex" | "settings-codex-managed" | "settings-codex-usage" | "settings-codex-usage-unknown" | "settings-general-usage-unknown" | "settings-general-usage-pending" | "settings-codex-runtime-models" | "settings-codex-runtime-images" | "settings-codex-runtime-unknown" | "settings-codex-review" | "settings-codex-unknown" | "settings-codex-models" | "settings-codex-images" | "settings-codex-maintenance" | "settings-presets" => Some((Size::new(1024.0, 900.0), 1.0)),
-        "assistant-details-source" | "assistant-details-formatted" | "assistant-details-fallback" => Some((Size::new(1040.0,900.0),1.0)),
-        "assistant-details-narrow" => Some((Size::new(760.0,840.0),1.0)),
-        "chat-search-narrow" => Some((Size::new(760.0,840.0),1.5)),
+        "sidebar-options" | "sidebar-trash-review" | "sidebar-trash" | "sidebar-moved" => {
+            Some((Size::new(1040.0, 900.0), 1.0))
+        }
+        "sidebar-options-tiny" => Some((Size::new(608.0, 448.0), 1.25)),
+        "file-picker" | "file-preview" => Some((Size::new(1040.0, 900.0), 1.0)),
+        "file-preview-narrow" => Some((Size::new(760.0, 560.0), 1.0)),
+        "settings-cloudflare-oauth-setup"
+        | "settings-cloudflare-oauth-waiting"
+        | "settings-cloudflare-oauth-connected"
+        | "settings-cloudflare-oauth-indeterminate"
+        | "settings-cloudflare-review"
+        | "settings-cloudflare-unknown"
+        | "settings-general-cloudflare-pending"
+        | "settings-general-cloudflare-unknown"
+        | "settings-models"
+        | "settings-codex"
+        | "settings-codex-managed"
+        | "settings-codex-usage"
+        | "settings-codex-usage-unknown"
+        | "settings-general-usage-unknown"
+        | "settings-general-usage-pending"
+        | "settings-codex-runtime-models"
+        | "settings-codex-runtime-images"
+        | "settings-codex-runtime-unknown"
+        | "settings-codex-review"
+        | "settings-codex-unknown"
+        | "settings-codex-models"
+        | "settings-codex-images"
+        | "settings-codex-maintenance"
+        | "settings-presets" => Some((Size::new(1024.0, 900.0), 1.0)),
+        "assistant-details-source"
+        | "assistant-details-formatted"
+        | "assistant-details-fallback" => Some((Size::new(1040.0, 900.0), 1.0)),
+        "assistant-details-narrow" => Some((Size::new(760.0, 840.0), 1.0)),
+        "chat-search-narrow" => Some((Size::new(760.0, 840.0), 1.5)),
         "tool-activity" | "tool-activity-expanded" => Some((Size::new(1040.0, 1040.0), 1.0)),
         "context-injects" | "context-injects-trajectory" => Some((Size::new(1040.0, 900.0), 1.0)),
-        "assistant-tool-call" | "assistant-tool-call-expanded" => Some((Size::new(1040.0, 760.0), 1.0)),
+        "assistant-tool-call" | "assistant-tool-call-expanded" => {
+            Some((Size::new(1040.0, 760.0), 1.0))
+        }
         "chat-density" => Some((Size::new(1040.0, 1000.0), 1.0)),
         "tool-activity-narrow" => Some((Size::new(760.0, 840.0), 1.0)),
         "tool-activity-tiny" => Some((Size::new(608.0, 448.0), 1.25)),
-        "wide-welcome" | "conversation" | "collapsed-wide" | "title-controls" | "title-controls-expanded" | "model-metadata" | "model-metadata-expanded" | "working-conversation" | "working-phase-6" => Some((Size::new(1040.0, 700.0), 1.0)),
+        "wide-welcome"
+        | "conversation"
+        | "collapsed-wide"
+        | "title-controls"
+        | "title-controls-expanded"
+        | "model-metadata"
+        | "model-metadata-expanded"
+        | "working-conversation"
+        | "working-phase-6" => Some((Size::new(1040.0, 700.0), 1.0)),
         "working-narrow" => Some((Size::new(760.0, 560.0), 1.0)),
-        "chat-submitted" | "chat-preparation-error" | "chat-stream-live" | "chat-context-rewrite" | "chat-transcript" | "chat-markdown" | "chat-thoughts" | "chat-edit-review" | "chat-search" | "chat-recovered" | "chat-edited" => Some((Size::new(1040.0, 900.0), 1.0)),
-        "model-popup" | "model-popup-empty" | "model-popup-long" | "model-submenu" | "effort-submenu" | "speed-submenu" | "output-submenu" | "model-submenu-empty" => Some((Size::new(1040.0,700.0),1.0)),
-        "tiny-welcome" | "tiny-long-model" | "navigation-tiny" | "file-path-tiny" | "model-popup-tiny" | "model-submenu-tiny" | "effort-submenu-tiny" => {
-            Some((Size::new(608.0, 448.0), 1.25))
-        }
+        "chat-submitted"
+        | "chat-preparation-error"
+        | "chat-stream-live"
+        | "chat-context-rewrite"
+        | "chat-transcript"
+        | "chat-markdown"
+        | "chat-thoughts"
+        | "chat-edit-review"
+        | "chat-search"
+        | "chat-recovered"
+        | "chat-edited" => Some((Size::new(1040.0, 900.0), 1.0)),
+        "model-popup"
+        | "model-popup-empty"
+        | "model-popup-long"
+        | "model-submenu"
+        | "effort-submenu"
+        | "speed-submenu"
+        | "output-submenu"
+        | "model-submenu-empty" => Some((Size::new(1040.0, 700.0), 1.0)),
+        "tiny-welcome"
+        | "tiny-long-model"
+        | "navigation-tiny"
+        | "file-path-tiny"
+        | "model-popup-tiny"
+        | "model-submenu-tiny"
+        | "effort-submenu-tiny" => Some((Size::new(608.0, 448.0), 1.25)),
         "narrow-welcome"
         | "menu"
         | "navigation"
@@ -118,23 +221,169 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "settings-general"
         | "information"
         | "information-expanded"
-        | "tool-activity-details" | "file-path-review" | "file-ready" | "file-ready-two" | "file-unknown" | "inbox-canceled" => Some((Size::new(760.0, 560.0), 1.0)),
+        | "work-panel"
+        | "context-pressure"
+        | "context-pressure-risk"
+        | "context-management"
+        | "context-management-chat"
+        | "plan-chip"
+        | "plan-mode"
+        | "plan-mode-applying"
+        | "plan-mode-leaving"
+        | "tool-activity-details"
+        | "file-path-review"
+        | "file-ready"
+        | "file-ready-two"
+        | "file-unknown"
+        | "inbox-canceled" => Some((Size::new(760.0, 560.0), 1.0)),
         _ => None,
     }
 }
 
+/// Synthetic records for the paper-informed context presets: a real window with
+/// real occupancy, the harness's own context-management events, the loop guard's
+/// reminder inject, and one standing plan. No Host, model or tool ran.
+fn public_context_pressure_records(preset: &str) -> Option<Vec<Value>> {
+    if preset.starts_with("context-management") {
+        return Some(vec![
+            json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
+                "data":{"source":{"kind":"user","rpcId":"PUBLIC-context-rpc","promptFingerprint":"PUBLIC-opaque"},
+                    "content":[{"type":"text","text":"PUBLIC question for the context-management preset."}]},
+                "surfaceOp":"append"}}),
+            json!({"type":"event","event":{"type":"tool/call","seq":1,"time":1001,
+                "data":{"callId":"PUBLIC-call","turn":1,"step":1,"name":"bash",
+                    "arguments":"{\"command\":\"PUBLIC synthetic command\"}"}}}),
+            json!({"type":"event","event":{"type":"tool/result","seq":2,"time":1002,
+                "data":{"turn":1,"step":1,"message":{"role":"tool","toolCallId":"PUBLIC-call",
+                    "source":{"kind":"tool","callId":"PUBLIC-call"},"isError":false,
+                    "content":[{"type":"text","text":"PUBLIC synthetic tool output."}]}}}}),
+            // Staged management: elision first, summarization second, both logged.
+            json!({"type":"event","event":{"type":"compaction/prune","seq":3,"time":1003,
+                "data":{"shadowedRange":{"start":1,"end":2},"shadowedSeqs":[1,2],"shadowedTokenCount":42000}}}),
+            json!({"type":"event","event":{"type":"compaction/start","seq":4,"time":1004,
+                "data":{"compactionId":"PUBLIC-compaction","turn":1}}}),
+            json!({"type":"event","event":{"type":"compaction/summary","seq":5,"time":1005,
+                "data":{"compactionId":"PUBLIC-compaction",
+                    "summary":[{"type":"text","text":"PUBLIC synthetic summary body."}],
+                    "shadowedRange":{"start":3,"end":4},"shadowedSeqs":[3,4],"shadowedTokenCount":96000,
+                    "provider":"PUBLIC","model":"PUBLIC"}}}),
+            json!({"type":"event","event":{"type":"compaction/end","seq":6,"time":1006,
+                "data":{"compactionId":"PUBLIC-compaction","turn":1}}}),
+            // The loop guard's own reminder, marked by its producer source.
+            json!({"type":"event","event":{"type":"user/message","seq":7,"time":1007,
+                "data":{"content":[{"type":"text","text":"PUBLIC synthetic loop-guard reminder."}],
+                    "source":{"kind":"repeat-tool-reminder","form":"notice","summary":"bash × 8"}}}}),
+        ]);
+    }
+    if preset.starts_with("plan-mode") {
+        // The same retained log for all three states; only the Host's published
+        // projection differs, because that is what the indicator reads.
+        return Some(vec![
+            json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
+                "data":{"source":{"kind":"user","rpcId":"PUBLIC-plan-mode-rpc","promptFingerprint":"PUBLIC-opaque"},
+                    "content":[{"type":"text","text":"PUBLIC question for the plan-mode preset."}]},
+                "surfaceOp":"append"}}),
+            json!({"type":"event","event":{"type":"plan/mode","seq":1,"time":1001,
+                "data":{"active":!preset.ends_with("leaving")}}}),
+            json!({"type":"event","event":{"type":"todo/write","seq":2,"time":1002,
+            "data":{"todos":[
+                {"content":"PUBLIC explore the repository","status":"completed"},
+                {"content":"PUBLIC write the plan","status":"in_progress"}
+            ]}}}),
+        ]);
+    }
+    if preset == "plan-chip" {
+        return Some(vec![
+            json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
+                "data":{"source":{"kind":"user","rpcId":"PUBLIC-plan-rpc","promptFingerprint":"PUBLIC-opaque"},
+                    "content":[{"type":"text","text":"PUBLIC question for the plan preset."}]},
+                "surfaceOp":"append"}}),
+            json!({"type":"event","event":{"type":"todo/write","seq":1,"time":1001,
+            "data":{"todos":[
+                {"content":"PUBLIC read the reducer","status":"completed"},
+                {"content":"PUBLIC fix the fold","status":"in_progress"},
+                {"content":"PUBLIC run the suite","status":"pending"},
+                {"content":"PUBLIC write the note","status":"pending"}
+            ]}}}),
+        ]);
+    }
+    let (used, _capacity) = match preset {
+        "context-pressure" => (108_000, 128_000),
+        "context-pressure-risk" => (131_072, 128_000),
+        _ => return None,
+    };
+    Some(vec![
+        json!({"type":"event","event":{"type":"request/context","seq":0,"time":1000,
+            "data":{"provider":"PUBLIC","model":"PUBLIC"}}}),
+        json!({"type":"event","event":{"type":"assistant/message","seq":1,"time":1001,
+            "data":{"turn":1,"step":1,
+                "message":{"id":"PUBLIC-context","role":"assistant","source":{"kind":"model","provider":"PUBLIC","model":"PUBLIC"},
+                    "content":[{"type":"text","text":"PUBLIC synthetic assistant text for the context preset."}]},
+                "usage":{"inputTokens":used,"outputTokens":12,"cacheReadTokens":0,"cacheWriteTokens":0,"totalTokens":used+12},
+                "stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],
+                    "texts":["PUBLIC synthetic assistant text for the context preset."]}]},
+            "surfaceOp":"append"}}),
+    ])
+}
+
 fn public_chat_records(preset: &str) -> Vec<Value> {
-    if matches!(preset,"chat-markdown"|"chat-thoughts"|"chat-edit-review"|"chat-search"|"chat-recovered"|"chat-edited"|"chat-search-narrow") {
+    if let Some(records) = public_context_pressure_records(preset) {
+        return records;
+    }
+    if preset == "work-panel" {
+        // Synthetic read-only work records: 15 goals and 12 schedules plus the
+        // todo/subagent facts stay under both caps, so one capture shows every
+        // section. The per-section overflow text is unit-tested separately.
+        let mut records = Vec::new();
+        for index in 0..15u64 {
+            let phase = if index % 3 == 0 {
+                "active"
+            } else if index % 3 == 1 {
+                "paused"
+            } else {
+                "complete"
+            };
+            records.push(json!({"type":"event","event":{"type":"goal/change","seq":index,"time":1000+index,"data":{
+                "kind":"goal/change","version":1,"operation":"create",
+                "goal":{"id":format!("PUBLIC-goal-{index}"),"revision":1,"objective":format!("PUBLIC synthetic goal {index}"),"phase":phase,"maxGoalRounds":4},
+                "roundsStarted":index,"createdAt":1000,"updatedAt":1000}}}));
+        }
+        records.push(json!({"type":"event","event":{"type":"todo/write","seq":15,"time":1100,"data":{"todos":[
+            {"content":"PUBLIC synthetic todo pending","status":"pending"},
+            {"content":"PUBLIC synthetic todo in progress","status":"in_progress"},
+            {"content":"PUBLIC synthetic todo completed","status":"completed"}]}}}));
+        records.push(json!({"type":"event","event":{"type":"subagent/catalog","seq":16,"time":1101,"data":{"version":1,"childId":"PUBLIC-child","childCreatedAt":1000,"mode":"continuable","label":"PUBLIC synthetic child"}}}));
+        records.push(json!({"type":"event","event":{"type":"subagent/descriptor","seq":17,"time":1102,"data":{"version":3,"provider":"PUBLIC-provider","mode":"continuable","label":"PUBLIC synthetic child","agentProvider":"PUBLIC-agent-provider","agentModel":"PUBLIC-agent-model"}}}));
+        for index in 0..12u64 {
+            let seq = 18 + index;
+            records.push(json!({"type":"event","event":{"type":"schedule/change","seq":seq,"time":1200+index,"data":{
+                "version":1,"operation":"create","schedule":{
+                    "id":format!("PUBLIC-schedule-{index}"),"kind":"every","prompt":format!("PUBLIC synthetic schedule {index}"),
+                    "everySeconds":300,"scheduledAt":"2026-08-31T00:00:00.000Z"}}}}));
+        }
+        return records;
+    }
+    if matches!(
+        preset,
+        "chat-markdown"
+            | "chat-thoughts"
+            | "chat-edit-review"
+            | "chat-search"
+            | "chat-recovered"
+            | "chat-edited"
+            | "chat-search-narrow"
+    ) {
         return vec![
             json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,"surfaceOp":"append","data":{"id":"PUBLIC-user","role":"user","source":{"kind":"user"},"content":[{"type":"text","text":"PUBLIC show a native formatted response."}]}}}),
             json!({"type":"event","event":{"type":"assistant/message","seq":1,"time":1001,"surfaceOp":"append","data":{"turn":1,"step":1,"usage":{"inputTokens":100,"cacheReadTokens":40,"cacheWriteTokens":10,"outputTokens":20,"reasoningTokens":8,"totalTokens":170},"stream":[
                 {"type":"reasoning-chunks","time0":1001,"index":0,"dt":[],"texts":["PUBLIC backend-supplied thoughts. This disclosure is separate from the final response. No model ran."]},
                 {"type":"text-chunks","time0":1001,"index":1,"dt":[],"texts":["## Native Markdown\n\n**Bold**, *italic*, and `inline code`.\n\n- PUBLIC native text\n- No webview or code execution\n\n```rust\n// PUBLIC example; not executed.\nfn main() {\n    let answer = 42;\n    println!(\"{answer}\");\n}\n```"]}
-            ]}}})
+            ]}}}),
         ];
     }
     if matches!(preset, "chat-transcript" | "chat-context-rewrite") {
-        let value: Value = serde_json::from_str(include_str!("../fixtures/chat-visibility.json")).unwrap();
+        let value: Value =
+            serde_json::from_str(include_str!("../fixtures/chat-visibility.json")).unwrap();
         let mut records = value["records"].as_array().unwrap().clone();
         if preset == "chat-context-rewrite" {
             records.push(json!({"type":"event","event":{"type":"user/message","seq":15,"time":1015,"surfaceOp":{"op":"replace","startSeq":8,"endSeq":13},"sourceEventSeqs":[8,11,13],"data":{"content":[{"type":"text","text":"PUBLIC model-only context summary: not a chat replacement"}]}}}));
@@ -205,27 +454,62 @@ fn public_context_records() -> Vec<Value> {
         }})
     };
     let injected = |seq: u64, kind: &str, form: &str, text: &str| {
-        event(seq, "user/message", json!({
-            "role":"user",
-            "source":{"kind":kind, "form":form},
-            "content":[{"type":"text","text":text}]
-        }))
+        event(
+            seq,
+            "user/message",
+            json!({
+                "role":"user",
+                "source":{"kind":kind, "form":form},
+                "content":[{"type":"text","text":text}]
+            }),
+        )
     };
     vec![
-        event(0, "system/message", json!({"message":{"role":"system","content":[{"type":"text","text":"PUBLIC system prompt · You are an AI agent powered by DeepSeek Harness."}]}})),
-        injected(1, "runtime-context", "snapshot", "Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nPUBLIC file policy line."),
-        injected(2, "time-context", "snapshot", "Time sampled while preparing turn 1, step 1: PUBLIC timestamp[UTC]"),
-        injected(3, "skill-catalog", "catalog", "<system-reminder>\nA skill is a reusable set of task-specific instructions.\n</system-reminder>"),
-        event(4, "user/message", json!({
-            "role":"user",
-            "source":{"kind":"user","rpcId":"PUBLIC-rpc","promptFingerprint":"PUBLIC-fingerprint"},
-            "content":[{"type":"text","text":"PUBLIC real question · only this stays in Chat with the answer."}]
-        })),
-        event(5, "session-log-deepseek/delivery-accepted", json!({"sessionFormatVersion":4,"sessionId":"PUBLIC-session","throughSeq":15})),
-        event(6, "assistant/message", json!({"turn":1,"step":1,
-            "stream":[{"type":"text-chunks","time0":1006,"index":0,"dt":[],
-                "texts":["PUBLIC assistant answer · the conversation this app actually shows."]}]
-        })),
+        event(
+            0,
+            "system/message",
+            json!({"message":{"role":"system","content":[{"type":"text","text":"PUBLIC system prompt · You are an AI agent powered by DeepSeek Harness."}]}}),
+        ),
+        injected(
+            1,
+            "runtime-context",
+            "snapshot",
+            "Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nPUBLIC file policy line.",
+        ),
+        injected(
+            2,
+            "time-context",
+            "snapshot",
+            "Time sampled while preparing turn 1, step 1: PUBLIC timestamp[UTC]",
+        ),
+        injected(
+            3,
+            "skill-catalog",
+            "catalog",
+            "<system-reminder>\nA skill is a reusable set of task-specific instructions.\n</system-reminder>",
+        ),
+        event(
+            4,
+            "user/message",
+            json!({
+                "role":"user",
+                "source":{"kind":"user","rpcId":"PUBLIC-rpc","promptFingerprint":"PUBLIC-fingerprint"},
+                "content":[{"type":"text","text":"PUBLIC real question · only this stays in Chat with the answer."}]
+            }),
+        ),
+        event(
+            5,
+            "session-log-deepseek/delivery-accepted",
+            json!({"sessionFormatVersion":4,"sessionId":"PUBLIC-session","throughSeq":15}),
+        ),
+        event(
+            6,
+            "assistant/message",
+            json!({"turn":1,"step":1,
+                "stream":[{"type":"text-chunks","time0":1006,"index":0,"dt":[],
+                    "texts":["PUBLIC assistant answer · the conversation this app actually shows."]}]
+            }),
+        ),
     ]
 }
 
@@ -318,8 +602,14 @@ pub fn build(
     app.workspaces = vec![workspace];
     assert!(app.management.baseline(vec![], vec![selected_id.clone()]));
     let records = if preset.starts_with("assistant-details") {
-        let source=if preset=="assistant-details-fallback" {"# PUBLIC unsupported source\n\n![PUBLIC no image loaded](file:///PUBLIC/no-image.png)\n\n<p>PUBLIC HTML shown literally; never interpreted.</p>"}else{PUBLIC_ASSISTANT_DETAILS};
-        vec![json!({"type":"event","event":{"type":"assistant/message","seq":0,"time":1001,"surfaceOp":"append","data":{"turn":1,"step":1,"stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],"texts":[source]}]}}})]
+        let source = if preset == "assistant-details-fallback" {
+            "# PUBLIC unsupported source\n\n![PUBLIC no image loaded](file:///PUBLIC/no-image.png)\n\n<p>PUBLIC HTML shown literally; never interpreted.</p>"
+        } else {
+            PUBLIC_ASSISTANT_DETAILS
+        };
+        vec![
+            json!({"type":"event","event":{"type":"assistant/message","seq":0,"time":1001,"surfaceOp":"append","data":{"turn":1,"step":1,"stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],"texts":[source]}]}}}),
+        ]
     } else if preset.starts_with("tool-activity") || preset.starts_with("title-controls") {
         public_tool_records()
     } else if preset.starts_with("assistant-tool-call") {
@@ -332,7 +622,25 @@ pub fn build(
             records.push(json!({"type":"event","event":{"type":"model/selection","seq":seq,"time":1000+seq,"data":{"provider":PUBLIC_PROVIDER_ID,"model":PUBLIC_MODEL_ID,"reasoningEffort":PUBLIC_EFFORT_ID}}}));
         }
         records
-    } else if matches!(preset, "chat-submitted" | "chat-preparation-error" | "chat-stream-live" | "chat-context-rewrite" | "chat-transcript" | "chat-markdown" | "chat-thoughts" | "chat-edit-review" | "chat-search" | "chat-recovered" | "chat-edited" | "chat-search-narrow") {
+    } else if matches!(
+        preset,
+        "chat-submitted"
+            | "chat-preparation-error"
+            | "chat-stream-live"
+            | "chat-context-rewrite"
+            | "chat-transcript"
+            | "chat-markdown"
+            | "chat-thoughts"
+            | "chat-edit-review"
+            | "chat-search"
+            | "chat-recovered"
+            | "chat-edited"
+            | "chat-search-narrow"
+            | "work-panel"
+    ) || preset.starts_with("context-")
+        || preset.starts_with("plan-mode")
+        || preset == "plan-chip"
+    {
         public_chat_records(preset)
     } else if preset == "inbox-canceled" {
         vec![
@@ -365,10 +673,22 @@ pub fn build(
         vec![]
     };
     let cursor = records.len() as i64 - 1;
+    // The context presets carry a real window and occupancy, because the
+    // composer's tier reads only Host-reported projections.
+    let projection_values = match preset {
+        "context-pressure" => json!({"contextPressure":{"pressureTokens":108000,
+            "projectedTokens":108000,"contextWindow":128000}}),
+        "context-pressure-risk" => json!({"contextPressure":{"pressureTokens":131072,
+            "projectedTokens":131072,"contextWindow":128000}}),
+        "plan-mode" => json!({"plan":{"active":true,"pending":false}}),
+        "plan-mode-applying" => json!({"plan":{"active":true,"pending":true}}),
+        "plan-mode-leaving" => json!({"plan":{"active":false,"pending":true}}),
+        _ => json!({}),
+    };
     let snapshot: SessionFollowFrame = serde_json::from_value(json!({
         "type":"snapshot", "records":records, "cursor":cursor, "hasMore":false,
         "header":{"version":4, "id":"PUBLIC-layout-conversation", "createdAt":1000, "isSeeded":false},
-        "projections":{"asOfSeq":cursor, "values":{}}, "assistantStream":{"revision":0}
+        "projections":{"asOfSeq":cursor, "values":projection_values}, "assistantStream":{"revision":0}
     })).expect("fixed PUBLIC valid follow snapshot");
     drop(app.update(Message::Worker(Event::Selected {
         generation: app.generation,
@@ -381,33 +701,64 @@ pub fn build(
         assert!(app.thoughts_expanded.contains(&7));
     }
     if preset == "chat-thoughts" {
-        let ticket=app.reply_parts(1).unwrap().ticket.unwrap();
+        let ticket = app.reply_parts(1).unwrap().ticket.unwrap();
         drop(app.update(Message::ToggleThoughts(ticket)));
         assert!(app.thoughts_expanded.contains(&1));
     }
     if preset == "chat-edit-review" {
-        app.editor=iced::widget::text_editor::Content::with_text("PUBLIC unsent draft preserved until explicit replacement.");
-        drop(app.update(Message::EditMessage {generation:app.generation,key:0}));
+        app.editor = iced::widget::text_editor::Content::with_text(
+            "PUBLIC unsent draft preserved until explicit replacement.",
+        );
+        drop(app.update(Message::EditMessage {
+            generation: app.generation,
+            key: 0,
+        }));
         assert!(app.edit_review.is_some());
     }
-    if matches!(preset,"chat-search"|"chat-search-narrow") {
+    if matches!(preset, "chat-search" | "chat-search-narrow") {
         drop(app.update(Message::SearchOpen));
-        drop(app.update(Message::SearchInput {generation:app.generation,serial:app.search_serial,query:"native".into()}));
-        assert_eq!(app.search_hits(),vec![0,1]);
+        drop(app.update(Message::SearchInput {
+            generation: app.generation,
+            serial: app.search_serial,
+            query: "native".into(),
+        }));
+        assert_eq!(app.search_hits(), vec![0, 1]);
     }
-    if preset=="chat-recovered" {
+    if preset == "chat-recovered" {
         // PUBLIC callback projection only: actual private Store IO is separately unit-tested.
-        let ticket=app.draft_state.start_load().unwrap();
-        let session=app.selected.clone().unwrap();
-        drop(app.update(Message::DraftOutcome(super::draft_recovery::Outcome::Loaded {ticket,result:Ok([(session,"PUBLIC recovered unsent text — never automatically sent.".into())].into())})));
+        let ticket = app.draft_state.start_load().unwrap();
+        let session = app.selected.clone().unwrap();
+        drop(
+            app.update(Message::DraftOutcome(
+                super::draft_recovery::Outcome::Loaded {
+                    ticket,
+                    result: Ok([(
+                        session,
+                        "PUBLIC recovered unsent text — never automatically sent.".into(),
+                    )]
+                    .into()),
+                },
+            )),
+        );
         assert!(app.editor.text().contains("recovered unsent"));
     }
-    if preset=="chat-edited" {
-        app.editor=iced::widget::text_editor::Content::with_text("PUBLIC replace only after consent.");
-        drop(app.update(Message::EditMessage {generation:app.generation,key:0}));
-        let (generation,key,draft_serial)=app.edit_review.unwrap();
-        drop(app.update(Message::ConfirmEdit {generation,key,draft_serial}));
-        assert_eq!(app.editor.text(),"PUBLIC show a native formatted response.");
+    if preset == "chat-edited" {
+        app.editor =
+            iced::widget::text_editor::Content::with_text("PUBLIC replace only after consent.");
+        drop(app.update(Message::EditMessage {
+            generation: app.generation,
+            key: 0,
+        }));
+        let (generation, key, draft_serial) = app.edit_review.unwrap();
+        drop(app.update(Message::ConfirmEdit {
+            generation,
+            key,
+            draft_serial,
+        }));
+        assert_eq!(
+            app.editor.text(),
+            "PUBLIC show a native formatted response."
+        );
     }
     if preset == "chat-stream-live" {
         for value in [
@@ -416,22 +767,42 @@ pub fn build(
             json!({"type":"assistant-stream","frame":{"type":"chunk","revision":3,"attemptId":"PUBLIC-live","index":1,"time":1004,"chunk":{"type":"text-delta","index":1,"text":"PUBLIC streamed assistant output appears here as it arrives. This is synthetic fixture data, not a live model response."}}}),
         ] {
             let frame = serde_json::from_value(value).unwrap();
-            drop(app.update(Message::Worker(Event::Selected { generation: app.generation, frame })));
+            drop(app.update(Message::Worker(Event::Selected {
+                generation: app.generation,
+                frame,
+            })));
         }
         assert!(app.transcript.partial().is_some());
     }
     if preset.starts_with("title-controls") {
-        for (seq,kind,data) in [
-            (8,"session/title",json!({"title":"PUBLIC earlier title"})),
-            (9,"session/title-llm-request",json!({"messages":[{"content":[{"type":"text","text":"PUBLIC opaque title prompt"}]}]})),
-            (10,"session/title",json!({"title":"PUBLIC updated chat title"})),
+        for (seq, kind, data) in [
+            (8, "session/title", json!({"title":"PUBLIC earlier title"})),
+            (
+                9,
+                "session/title-llm-request",
+                json!({"messages":[{"content":[{"type":"text","text":"PUBLIC opaque title prompt"}]}]}),
+            ),
+            (
+                10,
+                "session/title",
+                json!({"title":"PUBLIC updated chat title"}),
+            ),
         ] {
-            let frame=serde_json::from_value(json!({"type":"event","event":{"type":kind,"seq":seq,"time":1000+seq,"data":data}})).unwrap();
-            drop(app.update(Message::Worker(Event::Selected{generation:app.generation,frame})));
+            let frame = serde_json::from_value(
+                json!({"type":"event","event":{"type":kind,"seq":seq,"time":1000+seq,"data":data}}),
+            )
+            .unwrap();
+            drop(app.update(Message::Worker(Event::Selected {
+                generation: app.generation,
+                frame,
+            })));
         }
-        app.records_expanded=preset=="title-controls-expanded";
-        assert_eq!(app.transcript.display_rows(app.records_expanded).count(),8);
-        assert_eq!(app.session_title(app.sessions.get(&selected_id).unwrap()),"PUBLIC updated chat title");
+        app.records_expanded = preset == "title-controls-expanded";
+        assert_eq!(app.transcript.display_rows(app.records_expanded).count(), 8);
+        assert_eq!(
+            app.session_title(app.sessions.get(&selected_id).unwrap()),
+            "PUBLIC updated chat title"
+        );
     }
     if preset == "collapsed-wide" {
         app.sidebar_expanded = false;
@@ -439,27 +810,98 @@ pub fn build(
     drop(app.update(Message::Resized(size)));
 
     match preset {
-        "file-picker" | "file-preview" | "file-preview-narrow" => app.public_attachment_fixture(preset=="file-picker"),
-        "file-path-review" | "file-path-tiny" | "file-ready" | "file-ready-two" | "file-unknown" => {
+        "file-picker" | "file-preview" | "file-preview-narrow" => {
+            app.public_attachment_fixture(preset == "file-picker")
+        }
+        "file-path-review" | "file-path-tiny" | "file-ready" | "file-ready-two"
+        | "file-unknown" => {
             // Pure local render metadata only: never execute StageFile/PromptFile or read the path.
-            let context=app.file_context();assert!(app.files.open(&context));let stamp=app.files.editor().unwrap().0;
-            assert!(app.files.edit(stamp,"/PUBLIC-layout-fixture/PUBLIC review file.bin".into(),&context));
-            if matches!(preset,"file-ready"|"file-ready-two"|"file-unknown") {
-                let stamp=app.files.editor().unwrap().0;let submission=app.files.stage(stamp,&context).unwrap();let ticket=submission.ticket.clone();drop(submission);
-                app.files.complete(&ticket,worker::attachments::Outcome::Staged(worker::attachments::Metadata{name:"PUBLIC review file.bin".into(),bytes:5003}),&context);
-                if preset=="file-ready-two" {
+            let context = app.file_context();
+            assert!(app.files.open(&context));
+            let stamp = app.files.editor().unwrap().0;
+            assert!(app.files.edit(
+                stamp,
+                "/PUBLIC-layout-fixture/PUBLIC review file.bin".into(),
+                &context
+            ));
+            if matches!(preset, "file-ready" | "file-ready-two" | "file-unknown") {
+                let stamp = app.files.editor().unwrap().0;
+                let submission = app.files.stage(stamp, &context).unwrap();
+                let ticket = submission.ticket.clone();
+                drop(submission);
+                app.files.complete(
+                    &ticket,
+                    worker::attachments::Outcome::Staged(worker::attachments::Metadata {
+                        name: "PUBLIC review file.bin".into(),
+                        bytes: 5003,
+                    }),
+                    &context,
+                );
+                if preset == "file-ready-two" {
                     // Second attachment proves the bounded set renders and stages independently.
-                    let context=app.file_context();assert!(app.files.open(&context));let stamp=app.files.editor().unwrap().0;
-                    assert!(app.files.edit(stamp,"/PUBLIC-layout-fixture/PUBLIC second file.txt".into(),&context));
-                    let stamp=app.files.editor().unwrap().0;let submission=app.files.stage(stamp,&context).unwrap();let ticket=submission.ticket.clone();drop(submission);
-                    app.files.complete(&ticket,worker::attachments::Outcome::Staged(worker::attachments::Metadata{name:"PUBLIC second file.txt".into(),bytes:2048}),&context);
+                    let context = app.file_context();
+                    assert!(app.files.open(&context));
+                    let stamp = app.files.editor().unwrap().0;
+                    assert!(app.files.edit(
+                        stamp,
+                        "/PUBLIC-layout-fixture/PUBLIC second file.txt".into(),
+                        &context
+                    ));
+                    let stamp = app.files.editor().unwrap().0;
+                    let submission = app.files.stage(stamp, &context).unwrap();
+                    let ticket = submission.ticket.clone();
+                    drop(submission);
+                    app.files.complete(
+                        &ticket,
+                        worker::attachments::Outcome::Staged(worker::attachments::Metadata {
+                            name: "PUBLIC second file.txt".into(),
+                            bytes: 2048,
+                        }),
+                        &context,
+                    );
                 }
-                if preset=="file-unknown" {let request=dsh_native_transport::dto::SessionRequestId::new("PUBLIC-render-only-not-transmitted").unwrap();assert!(app.files.begin_prompt(&context,request.clone()).is_some());app.files.prompt_complete(&ticket,&request,worker::attachments::PromptOutcome::Unknown,&context);}
+                if preset == "file-unknown" {
+                    let request = dsh_native_transport::dto::SessionRequestId::new(
+                        "PUBLIC-render-only-not-transmitted",
+                    )
+                    .unwrap();
+                    assert!(app.files.begin_prompt(&context, request.clone()).is_some());
+                    app.files.prompt_complete(
+                        &ticket,
+                        &request,
+                        worker::attachments::PromptOutcome::Unknown,
+                        &context,
+                    );
+                }
             }
         }
         "menu" => app.conversation_menu = true,
         "navigation" | "navigation-tiny" => app.sidebar_sheet = true,
-        "settings-cloudflare-oauth-setup" | "settings-cloudflare-oauth-waiting" | "settings-cloudflare-oauth-connected" | "settings-cloudflare-oauth-indeterminate" | "settings-cloudflare-review" | "settings-cloudflare-unknown" | "settings-general-cloudflare-pending" | "settings-general-cloudflare-unknown" | "settings-general" | "settings-models" | "settings-codex" | "settings-codex-managed" | "settings-codex-usage" | "settings-codex-usage-unknown" | "settings-general-usage-unknown" | "settings-general-usage-pending" | "settings-codex-runtime-models" | "settings-codex-runtime-images" | "settings-codex-runtime-unknown" | "settings-codex-review" | "settings-codex-unknown" | "settings-codex-models" | "settings-codex-images" | "settings-codex-maintenance" | "settings-presets" => {
+        "settings-cloudflare-oauth-setup"
+        | "settings-cloudflare-oauth-waiting"
+        | "settings-cloudflare-oauth-connected"
+        | "settings-cloudflare-oauth-indeterminate"
+        | "settings-cloudflare-review"
+        | "settings-cloudflare-unknown"
+        | "settings-general-cloudflare-pending"
+        | "settings-general-cloudflare-unknown"
+        | "settings-general"
+        | "settings-models"
+        | "settings-codex"
+        | "settings-codex-managed"
+        | "settings-codex-usage"
+        | "settings-codex-usage-unknown"
+        | "settings-general-usage-unknown"
+        | "settings-general-usage-pending"
+        | "settings-codex-runtime-models"
+        | "settings-codex-runtime-images"
+        | "settings-codex-runtime-unknown"
+        | "settings-codex-review"
+        | "settings-codex-unknown"
+        | "settings-codex-models"
+        | "settings-codex-images"
+        | "settings-codex-maintenance"
+        | "settings-presets" => {
             use crate::settings::{Action, Page};
             // Default ApiLogin would read metadata. Seed General locally with disabled effects,
             // then exercise actual App Open/navigation. No production defaults/guards change.
@@ -479,9 +921,13 @@ pub fn build(
             );
             app.settings.close();
             drop(app.update(Message::Settings(Action::Open)));
-            let page = if preset.starts_with("settings-cloudflare") || preset.starts_with("settings-general-cloudflare") {
+            let page = if preset.starts_with("settings-cloudflare")
+                || preset.starts_with("settings-general-cloudflare")
+            {
                 Page::Cloudflare
-            } else if preset.starts_with("settings-codex") || preset.starts_with("settings-general-usage") {
+            } else if preset.starts_with("settings-codex")
+                || preset.starts_with("settings-general-usage")
+            {
                 Page::Codex
             } else if preset == "settings-presets" {
                 Page::AgentPresets
@@ -564,33 +1010,55 @@ pub fn build(
                     }),
                 );
             }
-            if preset.starts_with("settings-codex") || preset.starts_with("settings-general-usage") {
+            if preset.starts_with("settings-codex") || preset.starts_with("settings-general-usage")
+            {
                 use crate::codex::Tab;
                 let tab = match preset {
-                    "settings-codex-models" | "settings-codex-runtime-models" | "settings-codex-runtime-unknown" => Tab::Models,
+                    "settings-codex-models"
+                    | "settings-codex-runtime-models"
+                    | "settings-codex-runtime-unknown" => Tab::Models,
                     "settings-codex-images" | "settings-codex-runtime-images" => Tab::Images,
                     "settings-codex-maintenance" => Tab::Maintenance,
                     _ => Tab::Account,
                 };
                 app.settings.layout_codex_tab(tab);
-                if matches!(preset, "settings-codex-managed" | "settings-codex-review" | "settings-codex-unknown") {
+                if matches!(
+                    preset,
+                    "settings-codex-managed" | "settings-codex-review" | "settings-codex-unknown"
+                ) {
                     managed_accounts::seed(&mut app, preset);
                 }
-                if matches!(preset, "settings-codex-usage" | "settings-codex-usage-unknown" | "settings-general-usage-unknown" | "settings-general-usage-pending") {
+                if matches!(
+                    preset,
+                    "settings-codex-usage"
+                        | "settings-codex-usage-unknown"
+                        | "settings-general-usage-unknown"
+                        | "settings-general-usage-pending"
+                ) {
                     managed_accounts::seed(&mut app, "settings-codex-managed");
                     usage_preferences::seed(&mut app);
                     if preset != "settings-codex-usage" {
-                        usage_preferences::save(&mut app, preset != "settings-general-usage-pending");
+                        usage_preferences::save(
+                            &mut app,
+                            preset != "settings-general-usage-pending",
+                        );
                     }
                 }
-                if matches!(preset, "settings-codex-runtime-models" | "settings-codex-runtime-images" | "settings-codex-runtime-unknown") {
+                if matches!(
+                    preset,
+                    "settings-codex-runtime-models"
+                        | "settings-codex-runtime-images"
+                        | "settings-codex-runtime-unknown"
+                ) {
                     runtime_preferences::seed(&mut app);
                     if preset == "settings-codex-runtime-unknown" {
                         runtime_preferences::fail_save(&mut app);
                     }
                 }
             }
-            if preset.starts_with("settings-cloudflare") || preset.starts_with("settings-general-cloudflare") {
+            if preset.starts_with("settings-cloudflare")
+                || preset.starts_with("settings-general-cloudflare")
+            {
                 cloudflare::seed(&mut app, preset);
                 if preset.starts_with("settings-general-cloudflare") {
                     drop(app.update(Message::Settings(Action::SelectPage(Page::General))));
@@ -617,12 +1085,65 @@ pub fn build(
                 }
             );
         }
-        "assistant-details-source" | "assistant-details-formatted" | "assistant-details-narrow" | "assistant-details-fallback" => {
+        // Chat is the default clean view; the trajectory variant shows the log,
+        // exactly as the existing context-inject presets do.
+        "context-management" => {
+            app.records_expanded = true;
+        }
+        "context-management-chat" => {
+            app.records_expanded = false;
+        }
+        "context-pressure" => {
+            assert_eq!(app.transcript.work().plan(), None);
+        }
+        "context-pressure-risk" => {
+            // Reaching the window is stated as well as tinted.
+            drop(app.update(Message::ToggleContextPolicy));
+            assert!(app.context_policy_open);
+        }
+        // Plan mode is reported only by the Host's projection; no control here
+        // can change it, so the fixture asserts the presented label alone.
+        "plan-mode" | "plan-mode-applying" | "plan-mode-leaving" => {
+            let mode = super::plan_mode::mode(&app.projections).expect("PUBLIC plan projection");
+            let expected = match preset {
+                "plan-mode" => super::plan_mode::Mode::Active,
+                "plan-mode-applying" => super::plan_mode::Mode::Applying,
+                _ => super::plan_mode::Mode::Leaving,
+            };
+            assert_eq!(mode, expected);
+        }
+        "plan-chip" => {
+            assert_eq!(
+                app.transcript.work().plan(),
+                Some((1, 4, Some("PUBLIC fix the fold")))
+            );
+        }
+        "work-panel" => {
+            // Reached through the existing More menu, exactly as a user would.
+            drop(app.update(Message::ToggleConversationMenu));
+            drop(app.update(Message::Work(super::work_panel_ui::Action::Open)));
+            assert!(app.work_open && !app.conversation_menu);
+            assert!(app.transcript.work().total() > 0);
+            assert_eq!(app.transcript.work().dropped_total(), 0);
+        }
+        "assistant-details-source"
+        | "assistant-details-formatted"
+        | "assistant-details-narrow"
+        | "assistant-details-fallback" => {
             drop(app.update(app.detail_request(0).unwrap()));
-            if matches!(preset,"assistant-details-formatted"|"assistant-details-narrow") {
-                let stamp=app.detail.as_ref().unwrap().ticket.unwrap();
-                drop(app.update(Message::DetailMode(stamp,super::detail_panel::Mode::Formatted)));
-                assert_eq!(app.detail.as_ref().unwrap().mode,super::detail_panel::Mode::Formatted);
+            if matches!(
+                preset,
+                "assistant-details-formatted" | "assistant-details-narrow"
+            ) {
+                let stamp = app.detail.as_ref().unwrap().ticket.unwrap();
+                drop(app.update(Message::DetailMode(
+                    stamp,
+                    super::detail_panel::Mode::Formatted,
+                )));
+                assert_eq!(
+                    app.detail.as_ref().unwrap().mode,
+                    super::detail_panel::Mode::Formatted
+                );
             }
             assert!(app.detail.is_some() && !app.composer_visible());
         }
@@ -683,27 +1204,104 @@ pub fn build(
         }
         _ => {}
     }
-    let submenu = if preset.starts_with("model-submenu") { Some(super::model_controls::Section::Model) }
-        else if preset.starts_with("effort-submenu") { Some(super::model_controls::Section::Effort) }
-        else if preset == "speed-submenu" { Some(super::model_controls::Section::Speed) }
-        else if preset == "output-submenu" { Some(super::model_controls::Section::OutputDetail) }
-        else { None };
+    let submenu = if preset.starts_with("model-submenu") {
+        Some(super::model_controls::Section::Model)
+    } else if preset.starts_with("effort-submenu") {
+        Some(super::model_controls::Section::Effort)
+    } else if preset == "speed-submenu" {
+        Some(super::model_controls::Section::Speed)
+    } else if preset == "output-submenu" {
+        Some(super::model_controls::Section::OutputDetail)
+    } else {
+        None
+    };
     if (preset.starts_with("model-popup") || submenu.is_some()) && !preset.ends_with("empty") {
-        let effort=Effort{id:PUBLIC_EFFORT_ID.into(),name:"High".into()};
-        let efforts=["Low","Medium","High","Xhigh","Max"].iter().map(|name| if *name=="High" {effort.clone()} else {Effort{id:format!("PUBLIC_{name}"),name:(*name).into()}}).collect();
-        let model=Model{provider:PUBLIC_PROVIDER_ID.into(),id:PUBLIC_MODEL_ID.into(),name:"Demo model".into(),label:"PUBLIC / Demo model".into(),efforts,default_effort:Some(effort.id.clone()),service_tiers:super::model_controls::Choice::from_catalog(["default","priority"].iter().map(|id|dsh_native_transport::dto::RequestControlChoice{id:(*id).into(),name:(*id).into(),description:None}).collect(),super::model_controls::Section::Speed),verbosity_levels:super::model_controls::Choice::from_catalog(["low","medium","high"].iter().map(|id|dsh_native_transport::dto::RequestControlChoice{id:(*id).into(),name:(*id).into(),description:None}).collect(),super::model_controls::Section::OutputDetail)};
-        app.models=vec![model.clone()];app.chosen_model=Some(model.clone());app.chosen_effort=Some(effort.clone());
-        app.model_selections.insert(app.selected.clone().unwrap(),ModelSelection{provider:model.provider.clone(),model:model.id.clone(),reasoning_effort:Some(effort.id),service_tier:Some("priority".into()),text_verbosity:Some("medium".into())});
-        app.chosen_service_tier=Some("priority".into());app.chosen_text_verbosity=Some("medium".into());
-        for index in 0..8 { let mut extra=model.clone();extra.provider=format!("PUBLIC_provider_{}",index/4);extra.id=format!("PUBLIC_model_{index}");extra.name=format!("PUBLIC model {}",index+1);extra.label=format!("PUBLIC provider {} / {}",index/4+1,extra.name);app.models.push(extra); }
+        let effort = Effort {
+            id: PUBLIC_EFFORT_ID.into(),
+            name: "High".into(),
+        };
+        let efforts = ["Low", "Medium", "High", "Xhigh", "Max"]
+            .iter()
+            .map(|name| {
+                if *name == "High" {
+                    effort.clone()
+                } else {
+                    Effort {
+                        id: format!("PUBLIC_{name}"),
+                        name: (*name).into(),
+                    }
+                }
+            })
+            .collect();
+        let model = Model {
+            provider: PUBLIC_PROVIDER_ID.into(),
+            id: PUBLIC_MODEL_ID.into(),
+            name: "Demo model".into(),
+            label: "PUBLIC / Demo model".into(),
+            efforts,
+            default_effort: Some(effort.id.clone()),
+            service_tiers: super::model_controls::Choice::from_catalog(
+                ["default", "priority"]
+                    .iter()
+                    .map(|id| dsh_native_transport::dto::RequestControlChoice {
+                        id: (*id).into(),
+                        name: (*id).into(),
+                        description: None,
+                    })
+                    .collect(),
+                super::model_controls::Section::Speed,
+            ),
+            verbosity_levels: super::model_controls::Choice::from_catalog(
+                ["low", "medium", "high"]
+                    .iter()
+                    .map(|id| dsh_native_transport::dto::RequestControlChoice {
+                        id: (*id).into(),
+                        name: (*id).into(),
+                        description: None,
+                    })
+                    .collect(),
+                super::model_controls::Section::OutputDetail,
+            ),
+        };
+        app.models = vec![model.clone()];
+        app.chosen_model = Some(model.clone());
+        app.chosen_effort = Some(effort.clone());
+        app.model_selections.insert(
+            app.selected.clone().unwrap(),
+            ModelSelection {
+                provider: model.provider.clone(),
+                model: model.id.clone(),
+                reasoning_effort: Some(effort.id),
+                service_tier: Some("priority".into()),
+                text_verbosity: Some("medium".into()),
+            },
+        );
+        app.chosen_service_tier = Some("priority".into());
+        app.chosen_text_verbosity = Some("medium".into());
+        for index in 0..8 {
+            let mut extra = model.clone();
+            extra.provider = format!("PUBLIC_provider_{}", index / 4);
+            extra.id = format!("PUBLIC_model_{index}");
+            extra.name = format!("PUBLIC model {}", index + 1);
+            extra.label = format!("PUBLIC provider {} / {}", index / 4 + 1, extra.name);
+            app.models.push(extra);
+        }
     }
     if preset == "model-popup-long" {
-        let model = app.chosen_model.as_mut().unwrap();model.name="WWWWWWWWWWWWWWWWWWWW世界世界世界 · PUBLIC long name".into();
-        app.chosen_effort.as_mut().unwrap().name="WWWWWWWWWWWWWWWWWWWW世界 · PUBLIC long effort".into();
+        let model = app.chosen_model.as_mut().unwrap();
+        model.name = "WWWWWWWWWWWWWWWWWWWW世界世界世界 · PUBLIC long name".into();
+        app.chosen_effort.as_mut().unwrap().name =
+            "WWWWWWWWWWWWWWWWWWWW世界 · PUBLIC long effort".into();
     }
     if preset.starts_with("model-popup") || submenu.is_some() {
-        app.model_controls.seed_menu(app.transport_epoch, app.generation);
-        if let Some(section)=submenu {let stamp=app.model_controls.stamp().unwrap();drop(app.update(Message::ModelControls(super::model_controls::Action::Browse(stamp,Some(section)))));}
+        app.model_controls
+            .seed_menu(app.transport_epoch, app.generation);
+        if let Some(section) = submenu {
+            let stamp = app.model_controls.stamp().unwrap();
+            drop(app.update(Message::ModelControls(
+                super::model_controls::Action::Browse(stamp, Some(section)),
+            )));
+        }
         assert!(app.model_controls.is_open());
     }
     if preset.starts_with("context-injects") {
@@ -713,15 +1311,33 @@ pub fn build(
     }
     if preset.starts_with("model-metadata") {
         app.records_expanded = preset.ends_with("expanded");
-        let effort = Effort { id: PUBLIC_EFFORT_ID.into(), name: "Medium".into() };
-        let model = Model { provider: PUBLIC_PROVIDER_ID.into(), id: PUBLIC_MODEL_ID.into(),
-            name: "Demo model".into(), label: "PUBLIC / Demo model".into(),
-            efforts: vec![effort.clone()], default_effort: Some(effort.id.clone()),
-            service_tiers: vec![], verbosity_levels: vec![] };
-        app.model_selections.insert(app.selected.clone().unwrap(), ModelSelection {
-            provider: model.provider.clone(), model: model.id.clone(),
-            reasoning_effort: Some(effort.id.clone()), service_tier: None, text_verbosity: None });
-        app.models = vec![model.clone()]; app.chosen_model = Some(model); app.chosen_effort = Some(effort);
+        let effort = Effort {
+            id: PUBLIC_EFFORT_ID.into(),
+            name: "Medium".into(),
+        };
+        let model = Model {
+            provider: PUBLIC_PROVIDER_ID.into(),
+            id: PUBLIC_MODEL_ID.into(),
+            name: "Demo model".into(),
+            label: "PUBLIC / Demo model".into(),
+            efforts: vec![effort.clone()],
+            default_effort: Some(effort.id.clone()),
+            service_tiers: vec![],
+            verbosity_levels: vec![],
+        };
+        app.model_selections.insert(
+            app.selected.clone().unwrap(),
+            ModelSelection {
+                provider: model.provider.clone(),
+                model: model.id.clone(),
+                reasoning_effort: Some(effort.id.clone()),
+                service_tier: None,
+                text_verbosity: None,
+            },
+        );
+        app.models = vec![model.clone()];
+        app.chosen_model = Some(model);
+        app.chosen_effort = Some(effort);
         assert_eq!(app.transcript.rows().len(), 10);
         assert_eq!(app.transcript.display_rows(app.records_expanded).count(), 8);
     }
@@ -734,22 +1350,37 @@ pub fn build(
     }
     if preset.starts_with("sidebar-") {
         use super::sidebar_organization::{Location, Mutation};
-        let io=app.sidebar_organization.start_load(false).unwrap();
-        app.sidebar_organization.loaded(io,Ok(Default::default()));
-        let target=dsh_native_transport::dto::SessionId::new("PUBLIC-layout-notes").unwrap();
+        let io = app.sidebar_organization.start_load(false).unwrap();
+        app.sidebar_organization.loaded(io, Ok(Default::default()));
+        let target = dsh_native_transport::dto::SessionId::new("PUBLIC-layout-notes").unwrap();
         app.workspaces.push(serde_json::from_value(json!({"workspaceId":"PUBLIC-sidebar-group","path":"/PUBLIC-other-directory",
             "title":"PUBLIC sidebar group","sessionIds":[],"createdAt":"1970-01-01T00:00:00Z","updatedAt":"1970-01-01T00:00:00Z"})).unwrap());
-        app.sidebar_organization.open(app.transport_epoch,app.generation,target);
-        if matches!(preset,"sidebar-trash-review"|"sidebar-trash") {
-            let stamp=app.sidebar_organization.stamp().unwrap();app.sidebar_organization.review(&stamp);
-            if preset=="sidebar-trash" {
-                let stamp=app.sidebar_organization.stamp().unwrap();let write=app.sidebar_organization.propose(&stamp,Mutation::Trash).unwrap();
-                app.sidebar_organization.saved(write.ticket,Ok(()));app.sidebar_organization.dismiss();app.show_trash=true;
+        app.sidebar_organization
+            .open(app.transport_epoch, app.generation, target);
+        if matches!(preset, "sidebar-trash-review" | "sidebar-trash") {
+            let stamp = app.sidebar_organization.stamp().unwrap();
+            app.sidebar_organization.review(&stamp);
+            if preset == "sidebar-trash" {
+                let stamp = app.sidebar_organization.stamp().unwrap();
+                let write = app
+                    .sidebar_organization
+                    .propose(&stamp, Mutation::Trash)
+                    .unwrap();
+                app.sidebar_organization.saved(write.ticket, Ok(()));
+                app.sidebar_organization.dismiss();
+                app.show_trash = true;
             }
-        } else if preset=="sidebar-moved" {
-            let group=dsh_native_transport::dto::WorkspaceId::new("PUBLIC-sidebar-group").unwrap();
-            let stamp=app.sidebar_organization.stamp().unwrap();let write=app.sidebar_organization.propose(&stamp,Mutation::Move(Location::Workspace(group.clone()))).unwrap();
-            app.sidebar_organization.saved(write.ticket,Ok(()));app.sidebar_organization.dismiss();app.workspace=Some(group);
+        } else if preset == "sidebar-moved" {
+            let group =
+                dsh_native_transport::dto::WorkspaceId::new("PUBLIC-sidebar-group").unwrap();
+            let stamp = app.sidebar_organization.stamp().unwrap();
+            let write = app
+                .sidebar_organization
+                .propose(&stamp, Mutation::Move(Location::Workspace(group.clone())))
+                .unwrap();
+            app.sidebar_organization.saved(write.ticket, Ok(()));
+            app.sidebar_organization.dismiss();
+            app.workspace = Some(group);
         }
     }
     app.status = if preset == "warnings" {
@@ -785,15 +1416,29 @@ pub fn attachment_drop_state(app: &App, expected: &std::path::Path) -> Value {
 pub fn metadata(app: &App, preset: &str) -> Value {
     let settings_expected = preset.starts_with("settings-");
     let info_expected = matches!(preset, "information" | "information-expanded");
+    let work_expected = preset == "work-panel";
+    let context_expected = preset.starts_with("context-management");
+    let plan_expected = preset == "plan-chip";
+    let plan_projected = app.transcript.work().plan().is_some();
+    let context_warning = app.composer_visible() && app.context_policy_open;
     let picker_expected = preset == "file-picker";
-    let sidebar_expected=matches!(preset,"sidebar-options"|"sidebar-options-tiny"|"sidebar-trash-review");
-    let composer_expected = !settings_expected && !picker_expected && !sidebar_expected
-        && !info_expected && !preset.starts_with("assistant-details")
+    let sidebar_expected = matches!(
+        preset,
+        "sidebar-options" | "sidebar-options-tiny" | "sidebar-trash-review"
+    );
+    let composer_expected = !settings_expected
+        && !picker_expected
+        && !sidebar_expected
+        && !info_expected
+        && !work_expected
+        && !preset.starts_with("assistant-details")
         && !matches!(
             preset,
             "menu" | "navigation" | "navigation-tiny" | "tool-activity-details"
         );
-    let reasoning_expected = matches!(preset, "long-model" | "tiny-long-model") || preset.starts_with("model-metadata") || (app.model_controls.is_open() && !preset.ends_with("empty"));
+    let reasoning_expected = matches!(preset, "long-model" | "tiny-long-model")
+        || preset.starts_with("model-metadata")
+        || (app.model_controls.is_open() && !preset.ends_with("empty"));
     let summaries: Vec<_> = app
         .transcript
         .rows()
@@ -855,9 +1500,22 @@ pub fn metadata(app: &App, preset: &str) -> Value {
         "filePreviewQualified":false,
         "filePathReviewVisible":app.files.editor_open(),
         "fileDraftReady":app.files.ready().is_some(),
-        "fileDraftBlocksSend":!app.files.can_send(&app.file_context())
+        "fileDraftBlocksSend":!app.files.can_send(&app.file_context()),
+        "workPanelStateMatchesPreset":app.work_open == work_expected,
+        "contextManagementSimulated":context_expected,
+        "contextTrajectoryShown":context_expected && app.records_expanded,
+        "planChipSimulated":plan_expected,
+        "planChipProjected":plan_projected,
+        "planModeSimulated":preset.starts_with("plan-mode"),
+        "planModeLabel":super::plan_mode::mode(&app.projections).map(super::plan_mode::Mode::label),
+        "contextDisclosureOpen":context_warning,
+        "workPanelReadOnlyTotal":app.transcript.work().total(),
+        "workPanelGoalsOmitted":app.transcript.work().dropped(crate::work_panel::Section::Goals)
     });
-    report.as_object_mut().unwrap().extend(local_metadata.as_object().unwrap().clone());
+    report
+        .as_object_mut()
+        .unwrap()
+        .extend(local_metadata.as_object().unwrap().clone());
     let safety = json!({
         "modelPopupExpected":preset.starts_with("model-popup") || preset.contains("-submenu"),
         "modelSubmenu":app.model_controls.section().map(|section|match section {super::model_controls::Section::Model=>"model",super::model_controls::Section::Effort=>"effort",super::model_controls::Section::Speed=>"speed",super::model_controls::Section::OutputDetail=>"output-detail"}),
@@ -943,22 +1601,25 @@ mod tests {
                 matches!(preset, "navigation" | "navigation-tiny")
             );
             assert_eq!(app.conversation_menu, preset == "menu");
-            let sidebar_modal=matches!(preset,"sidebar-options"|"sidebar-options-tiny"|"sidebar-trash-review");
-            assert_eq!(app.sidebar_organization.is_open(),sidebar_modal);
-            assert_eq!(report["sidebarOptionsExpected"],sidebar_modal);
-            assert_eq!(report["modalBackgroundOperationExcludedExpected"],preset.starts_with("settings-")||preset=="file-picker"||sidebar_modal);
+            let sidebar_modal = matches!(
+                preset,
+                "sidebar-options" | "sidebar-options-tiny" | "sidebar-trash-review"
+            );
+            assert_eq!(app.sidebar_organization.is_open(), sidebar_modal);
+            assert_eq!(report["sidebarOptionsExpected"], sidebar_modal);
+            assert_eq!(
+                report["modalBackgroundOperationExcludedExpected"],
+                preset.starts_with("settings-") || preset == "file-picker" || sidebar_modal
+            );
             if sidebar_modal {
-                assert_eq!(report["headerExpected"],false);
-                assert_eq!(report["settingsEntryExpected"],false);
-                assert_eq!(report["stopExpected"],false);
+                assert_eq!(report["headerExpected"], false);
+                assert_eq!(report["settingsEntryExpected"], false);
+                assert_eq!(report["stopExpected"], false);
             }
             assert_eq!(report["composerStateMatchesPreset"], true);
             assert_eq!(report["settingsStateMatchesPreset"], true);
             assert_eq!(report["informationStateMatchesPreset"], true);
-            assert_eq!(
-                app.settings.is_open(),
-                preset.starts_with("settings-")
-            );
+            assert_eq!(app.settings.is_open(), preset.starts_with("settings-"));
             assert_eq!(
                 app.capabilities,
                 matches!(preset, "information" | "information-expanded")
@@ -979,10 +1640,10 @@ mod tests {
                 assert_eq!(app.transcript.rows()[1].role, "Assistant");
             }
             if preset == "inbox-canceled" {
-                assert_eq!(report["conversationSnapshotSimulated"],true);
-                assert_eq!(report["displayedPublicRecordCount"],1);
-                assert_eq!(report["canceledInboxHeadingExpected"],true);
-                assert_eq!(app.transcript.rows().len(),3);
+                assert_eq!(report["conversationSnapshotSimulated"], true);
+                assert_eq!(report["displayedPublicRecordCount"], 1);
+                assert_eq!(report["canceledInboxHeadingExpected"], true);
+                assert_eq!(app.transcript.rows().len(), 3);
                 assert!(app.transcript.inbox_canceled(2));
                 assert!(app.transcript.safe_to_send());
                 drop(app.update(app.detail_request(2).unwrap()));
@@ -1007,7 +1668,13 @@ mod tests {
                 assert!(app.transcript.activity(6).unwrap().failed);
                 // Programmatic local view action only: not physical input or execution proof.
                 drop(app.update(app.detail_request(3).unwrap()));
-                assert!(app.detail.as_ref().unwrap().source.contains("PUBLIC old text"));
+                assert!(
+                    app.detail
+                        .as_ref()
+                        .unwrap()
+                        .source
+                        .contains("PUBLIC old text")
+                );
                 drop(app.update(app.detail_back().unwrap()));
                 assert!(receiver.try_recv().is_err());
             }
