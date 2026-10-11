@@ -15,6 +15,12 @@
 //! previous file, and refuses every mutation when the existing content is not
 //! the canonical form this app produces. It never merges into a shared YAML
 //! document and never hand-rolls a rewrite that could drop an unknown row.
+//!
+//! Its private-file writer is deliberately separate from `draft_store.rs`, which owns the much
+//! more frequent draft saves: those hold a cross-process advisory lock, verify the target's inode
+//! stamp and 0600/nlink, and compare the decoded map before writing, but keep no backup. This file
+//! is instead replaced rarely under an explicit review, so it takes a timestamped backup and
+//! refuses any content it did not write. One shared writer would have to carry both taxonomies.
 use dsh_native_transport::plugin::FiberPhase;
 use rustix::fs::{AtFlags, FileType, Mode, OFlags, open, openat, renameat, statat, unlinkat};
 use rustix::io::Errno;
@@ -1166,15 +1172,14 @@ pub fn commit(
     }
 }
 
-fn write_backup(dir: &File, previous: &[u8]) -> Result<String, Refusal> {
-    let millis = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis())
-        .unwrap_or(0);
-    let name = format!("{FILE_NAME}.backup-{millis}");
+/// Create one new private file in the app-owned directory and sync it. `EXCL`
+/// refuses an existing name instead of reusing it, `NOFOLLOW` refuses a
+/// substituted symlink, and mode 0600 keeps the content private from creation;
+/// the umask cannot widen it. The caller names the file.
+fn create_private(dir: &File, name: &str, bytes: &[u8]) -> Result<(), Refusal> {
     let fd = openat(
         dir,
-        name.as_str(),
+        name,
         OFlags::WRONLY
             | OFlags::CREATE
             | OFlags::EXCL
@@ -1185,12 +1190,27 @@ fn write_backup(dir: &File, previous: &[u8]) -> Result<String, Refusal> {
     )
     .map_err(|_| Refusal::Filesystem)?;
     let mut file = File::from(fd);
-    file.write_all(previous)
+    file.write_all(bytes)
         .and_then(|()| file.sync_all())
-        .map_err(|_| Refusal::Filesystem)?;
+        .map_err(|_| Refusal::Filesystem)
+}
+
+/// The prior document, kept beside the replacement under a timestamped name. A
+/// reused name is impossible (millisecond stamp plus `EXCL`); an unwritable
+/// backup refuses the whole write rather than replacing the file unprotected.
+fn write_backup(dir: &File, previous: &[u8]) -> Result<String, Refusal> {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis())
+        .unwrap_or(0);
+    let name = format!("{FILE_NAME}.backup-{millis}");
+    create_private(dir, &name, previous)?;
     Ok(name)
 }
 
+/// The replacement is staged beside the target and renamed over it. A leftover
+/// temp from an interrupted write is replaced only when it is a regular file:
+/// anything else there refuses, because this app did not leave it.
 fn write_temp(dir: &File, text: &[u8]) -> Result<(), Refusal> {
     if let Ok(stat) = statat(dir, TEMP_NAME, AtFlags::SYMLINK_NOFOLLOW) {
         if FileType::from_raw_mode(stat.st_mode) != FileType::RegularFile {
@@ -1198,22 +1218,7 @@ fn write_temp(dir: &File, text: &[u8]) -> Result<(), Refusal> {
         }
         unlinkat(dir, TEMP_NAME, AtFlags::empty()).map_err(|_| Refusal::Filesystem)?;
     }
-    let fd = openat(
-        dir,
-        TEMP_NAME,
-        OFlags::WRONLY
-            | OFlags::CREATE
-            | OFlags::EXCL
-            | OFlags::NOFOLLOW
-            | OFlags::CLOEXEC
-            | OFlags::NONBLOCK,
-        Mode::RUSR | Mode::WUSR,
-    )
-    .map_err(|_| Refusal::Filesystem)?;
-    let mut file = File::from(fd);
-    file.write_all(text)
-        .and_then(|()| file.sync_all())
-        .map_err(|_| Refusal::Filesystem)
+    create_private(dir, TEMP_NAME, text)
 }
 
 // ---- Panel state machine ----

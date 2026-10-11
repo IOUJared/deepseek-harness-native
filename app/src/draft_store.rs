@@ -11,6 +11,10 @@
 //! drafts wrapper and limits; its values are caller-validated Entry JSON, never transcript text.
 //! save_checked compares the semantic disk map (absent means empty) under the exclusive lock
 //! before creating a temporary file; stale snapshots conflict rather than overwrite.
+//! The MCP composition file has its own writer in `mcp.rs` and is deliberately not routed through
+//! this one: that file is a rare, reviewed, backup-taking replacement of a document the Host also
+//! reads, while drafts are frequent, unbacked and CAS-checked under a cross-process lock. Sharing a
+//! writer would mean one framework carrying both failure taxonomies; keep the two separate.
 use dsh_native_transport::dto::SessionId;
 use rustix::fs::{
     AtFlags, FileType, FlockOperation, Mode, OFlags, Stat, flock, fstat, open, openat, renameat,
