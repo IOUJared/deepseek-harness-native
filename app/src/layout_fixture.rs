@@ -78,7 +78,7 @@ pub const PRESETS: &[&str] = &[
     "context-injects-trajectory",
     "assistant-details-source", "assistant-details-formatted", "assistant-details-narrow", "assistant-details-fallback",
     "chat-density",
-    "file-path-review", "file-path-tiny", "file-ready", "file-unknown", "inbox-canceled",
+    "file-path-review", "file-path-tiny", "file-ready", "file-ready-two", "file-unknown", "inbox-canceled",
     "file-picker", "file-preview", "file-preview-narrow",
 ];
 pub const PUBLIC_ASSISTANT_DETAILS:&str="# PUBLIC native response\n\nThis is **bold**, *italic*, and `inline code` in a frozen PUBLIC display snapshot. No model or tool ran.\n\n## Readable steps\n\n1. Preserve the source.\n\n   PUBLIC continuation stays inside the first list item.\n\n2. Keep all controls local.\n   - No remote images.\n   - No code execution.\n\n```rust\n// PUBLIC example only; not executed.\nfn public_preview() {\n    let note = \"PUBLIC intentionally long code line demonstrates horizontal scrolling without wrapping or changing the preserved display source\";\n    println!(\"{note}\");\n}\n```\n\nPUBLIC content beyond the collapsed four-line chat preview remains visible here.\n\n> This is a read-only native presentation, not an approval or execution acknowledgement.\n\n[PUBLIC reference](https://example.invalid/PUBLIC) is inert text, not an opener.\n";
@@ -118,7 +118,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "settings-general"
         | "information"
         | "information-expanded"
-        | "tool-activity-details" | "file-path-review" | "file-ready" | "file-unknown" | "inbox-canceled" => Some((Size::new(760.0, 560.0), 1.0)),
+        | "tool-activity-details" | "file-path-review" | "file-ready" | "file-ready-two" | "file-unknown" | "inbox-canceled" => Some((Size::new(760.0, 560.0), 1.0)),
         _ => None,
     }
 }
@@ -440,13 +440,20 @@ pub fn build(
 
     match preset {
         "file-picker" | "file-preview" | "file-preview-narrow" => app.public_attachment_fixture(preset=="file-picker"),
-        "file-path-review" | "file-path-tiny" | "file-ready" | "file-unknown" => {
+        "file-path-review" | "file-path-tiny" | "file-ready" | "file-ready-two" | "file-unknown" => {
             // Pure local render metadata only: never execute StageFile/PromptFile or read the path.
             let context=app.file_context();assert!(app.files.open(&context));let stamp=app.files.editor().unwrap().0;
             assert!(app.files.edit(stamp,"/PUBLIC-layout-fixture/PUBLIC review file.bin".into(),&context));
-            if matches!(preset,"file-ready"|"file-unknown") {
+            if matches!(preset,"file-ready"|"file-ready-two"|"file-unknown") {
                 let stamp=app.files.editor().unwrap().0;let submission=app.files.stage(stamp,&context).unwrap();let ticket=submission.ticket.clone();drop(submission);
                 app.files.complete(&ticket,worker::attachments::Outcome::Staged(worker::attachments::Metadata{name:"PUBLIC review file.bin".into(),bytes:5003}),&context);
+                if preset=="file-ready-two" {
+                    // Second attachment proves the bounded set renders and stages independently.
+                    let context=app.file_context();assert!(app.files.open(&context));let stamp=app.files.editor().unwrap().0;
+                    assert!(app.files.edit(stamp,"/PUBLIC-layout-fixture/PUBLIC second file.txt".into(),&context));
+                    let stamp=app.files.editor().unwrap().0;let submission=app.files.stage(stamp,&context).unwrap();let ticket=submission.ticket.clone();drop(submission);
+                    app.files.complete(&ticket,worker::attachments::Outcome::Staged(worker::attachments::Metadata{name:"PUBLIC second file.txt".into(),bytes:2048}),&context);
+                }
                 if preset=="file-unknown" {let request=dsh_native_transport::dto::SessionRequestId::new("PUBLIC-render-only-not-transmitted").unwrap();assert!(app.files.begin_prompt(&context,request.clone()).is_some());app.files.prompt_complete(&ticket,&request,worker::attachments::PromptOutcome::Unknown,&context);}
             }
         }

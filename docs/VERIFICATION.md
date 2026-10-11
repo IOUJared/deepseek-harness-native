@@ -44,7 +44,9 @@ The fake-wire suite needs the existing `transport/tests` dependencies and `/usr/
 
 ## Known test-isolation risk
 
-`ui::draft_store::sidebar_storage_tests` is intermittent under concurrent test execution. Observed 2026-10-10 on the r2 tree: two different tests (`absent_and_present_empty_are_semantically_equal_and_nonempty_absent_conflicts`, then `checked_save_retains_intra_operation_bytes_guard`) failed with `Failure::Busy` at high parallelism, each passed alone, and no failure reproduced in three runs at one thread and four runs at two threads. The cause is not root-caused; `app/.cargo/config.toml` pins `RUST_TEST_THREADS=2` to match this runner, but that is a mitigation, not a fix. Treat a `Busy` failure there as a known flake, not proof of a regression — and do not weaken the assertions to hide it.
+`ui::draft_store::sidebar_storage_tests` is intermittent and **can fail this gate**. Reproduced 2026-10-10 on the r2 tree: at least three occurrences, each a *different* test (`absent_and_present_empty_are_semantically_equal_and_nonempty_absent_conflicts` twice, `checked_save_retains_intra_operation_bytes_guard` once, both in `Failure::Busy`/`Conflict` assertions), each passes alone, and each re-run of the same binary can pass. Failure rate is roughly one run in three at both default parallelism and `RUST_TEST_THREADS=2`, so `app/.cargo/config.toml`'s thread pin (and this runner's `--test-threads=2`) is **not** a mitigation — it was a wrong first conclusion, retained here as a correction.
+
+The fixture paths are unique per test (`dsh-sidebar-PUBLIC-<pid>-<counter>`), `Store::with_namespace` holds no process-global state, and the lock opens with `CLOEXEC`, so the contention is *inside* the store's own lock lifetime across sequential operations, not across tests. Not root-caused. Treat a `Busy` failure there as a known flake, not proof of a regression — never weaken the assertions to hide it, and re-run once before reporting a red gate. Root cause in `Store` lock lifetime remains open.
 
 ## Real native drop (opt-in)
 

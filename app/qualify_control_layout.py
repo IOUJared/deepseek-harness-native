@@ -13,7 +13,7 @@ env = {k:v for k,v in os.environ.items() if k in {"WAYLAND_DISPLAY","XDG_RUNTIME
 env.update(PATH="/usr/bin:/bin", ICED_BACKEND="wgpu", XDG_CONFIG_HOME=str(OUT / "config"), XDG_DATA_HOME=str(OUT / "data"), XDG_CACHE_HOME=str(OUT / "cache"))
 for name in ["user-home","config","data","cache"]: (OUT/name).mkdir(mode=0o700)
 env["HOME"] = str(OUT / "user-home")
-CASES = ["wide-welcome","narrow-welcome","tiny-welcome","menu","navigation","navigation-tiny","collapsed-wide","conversation","long-model","tiny-long-model","warnings","settings-general","settings-codex","information","information-expanded","tool-activity","tool-activity-narrow","tool-activity-tiny","tool-activity-details","chat-density","assistant-details-source","assistant-details-formatted","assistant-details-narrow","assistant-details-fallback","file-path-review","file-path-tiny","file-ready","file-unknown","inbox-canceled","title-controls","title-controls-expanded"]
+CASES = ["wide-welcome","narrow-welcome","tiny-welcome","menu","navigation","navigation-tiny","collapsed-wide","conversation","long-model","tiny-long-model","warnings","settings-general","settings-codex","information","information-expanded","tool-activity","tool-activity-narrow","tool-activity-tiny","tool-activity-details","chat-density","assistant-details-source","assistant-details-formatted","assistant-details-narrow","assistant-details-fallback","file-path-review","file-path-tiny","file-ready","file-ready-two","file-unknown","inbox-canceled","title-controls","title-controls-expanded"]
 # Preserve the exact executables observed even when another writer rebuilds target/.
 # Source pins are observations, not proof of a full compiler/runtime build closure.
 artifacts=OUT/"compiled-snapshot"; artifacts.mkdir(mode=0o700)
