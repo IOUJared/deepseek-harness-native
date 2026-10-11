@@ -68,6 +68,8 @@ impl Rig {
             },
             scale: 1.0,
             smoke: None,
+            // A fixture renders a public frame; it never announces itself.
+            accessibility: false,
         };
         let (mut app, commands) =
             super::layout_fixture::build(options, "conversation", iced::Size::new(1040.0, 800.0));

@@ -918,6 +918,8 @@ mod composed_tests {
                     stop_policy: Default::default(),
                 },
                 scale: 1.0,
+                // A fixture renders a public frame; it never announces itself.
+                accessibility: false,
                 smoke: None,
             },
         };

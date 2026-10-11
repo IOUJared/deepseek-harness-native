@@ -234,6 +234,8 @@ fn public_options(scale: f32) -> config::Options {
         },
         scale,
         smoke: None,
+        // A fixture renders a public frame; it never announces itself.
+        accessibility: false,
     }
 }
 

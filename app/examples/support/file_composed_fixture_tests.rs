@@ -13,6 +13,8 @@ fn fixture() -> (Fixture, tokio::sync::mpsc::Receiver<worker::Command>) {
             stop_policy: Default::default(),
         },
         scale: 1.0,
+        // A fixture renders a public frame; it never announces itself.
+        accessibility: false,
         smoke: None,
     };
     (

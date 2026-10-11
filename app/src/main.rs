@@ -31,6 +31,10 @@ fn main() -> iced::Result {
             std::process::exit(2);
         }
     };
+    let mut options = options;
+    // A real interactive run exposes its controls to AT-SPI; a smoke run renders
+    // its own one-shot window and must not announce itself as an application.
+    options.accessibility = options.smoke.is_none();
     let smoke_report = options.smoke.as_ref().map(|s| s.report.clone());
     // SAFETY: renderer selection is set before Iced/Tokio or the owner thread starts.
     unsafe {

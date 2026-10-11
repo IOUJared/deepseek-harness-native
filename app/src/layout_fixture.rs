@@ -1615,6 +1615,8 @@ mod tests {
             },
             scale: 1.0,
             smoke: None,
+            // A fixture renders a public frame; it never announces itself.
+            accessibility: false,
         }
     }
     #[test]

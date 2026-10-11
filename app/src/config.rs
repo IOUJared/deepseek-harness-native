@@ -9,6 +9,10 @@ pub struct Options {
     pub backend: RustBackendOptions,
     pub scale: f32,
     pub smoke: Option<Smoke>,
+    /// Expose this app's controls to the desktop's accessibility bus. The real
+    /// interactive run enables it; a fixture or a smoke run leaves it off, so a
+    /// synthetic frame is never announced as an application.
+    pub accessibility: bool,
 }
 #[derive(Clone)]
 pub struct Smoke {
@@ -202,6 +206,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Option<Options>, 
     Ok(Some(Options {
         scale,
         smoke,
+        // Off by default: only `main` enables it, and only for a real run.
+        accessibility: false,
         backend: RustBackendOptions {
             runtime,
             expected_version: version,

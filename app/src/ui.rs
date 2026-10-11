@@ -13,6 +13,8 @@ use iced::widget::{
 use iced::{Color, Element, Length, Subscription, Task, Theme, keyboard, window};
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
+#[path = "accessibility.rs"]
+mod accessibility;
 #[path = "workspace_membership.rs"]
 mod workspace_membership;
 // Owned here so `ui::work_panel_ui` resolves in both the binary and the
@@ -317,6 +319,12 @@ pub enum Message {
         size: iced::Size,
         native_scale: f32,
     },
+    /// One AT-SPI request: activation, deactivation or an action on a node.
+    Accessibility(accessibility::Request),
+    /// Widget bounds measured for the accessible tree.
+    AccessibilityBounds(accessibility::Bounds),
+    /// Poll the exposed state while a client is connected.
+    AccessibilityTick,
 }
 impl std::fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -358,6 +366,14 @@ pub struct App {
     pub options: Options,
     handle: Handle,
     feed: Feed,
+    /// AT-SPI bridge. `None` in every run that must not touch the desktop's
+    /// accessibility bus: fixtures, smoke runs and tests.
+    accessibility: Option<accessibility::Bridge>,
+    accessibility_source: accessibility::Source,
+    /// Fingerprint of the last published tree, so an unchanged frame publishes
+    /// nothing and a client's bus is not filled with duplicate updates.
+    accessibility_published: Option<u64>,
+    accessibility_measuring: bool,
     ready: bool,
     root_ready: bool,
     stopped: bool,
@@ -495,6 +511,15 @@ impl App {
             .working_directory
             .to_string_lossy()
             .into_owned();
+        let (accessibility, accessibility_source) = if options.accessibility {
+            let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+            (
+                Some(accessibility::Bridge::new(sender)),
+                accessibility::Source::new(receiver),
+            )
+        } else {
+            (None, accessibility::Source::disabled())
+        };
         let deadline = options.smoke.as_ref().map(|smoke| smoke.exit_after);
         let screenshot_requested = options
             .smoke
@@ -513,6 +538,10 @@ impl App {
                 options,
                 handle,
                 feed,
+                accessibility,
+                accessibility_source,
+                accessibility_published: None,
+                accessibility_measuring: false,
                 ready: false,
                 root_ready: false,
                 stopped: false,
@@ -629,6 +658,23 @@ impl App {
         };
         Subscription::batch([
             Subscription::run_with(self.feed.clone(), worker::stream).map(Message::Worker),
+            Subscription::run_with(
+                self.accessibility_source.clone(),
+                accessibility::Source::stream,
+            )
+            .map(Message::Accessibility),
+            // While a client is connected, re-examine the exposed state at a
+            // bounded rate instead of making every update path remember to
+            // publish. Publication itself still only happens on a real change.
+            if self
+                .accessibility
+                .as_ref()
+                .is_some_and(accessibility::Bridge::live)
+            {
+                iced::time::every(Duration::from_millis(200)).map(|_| Message::AccessibilityTick)
+            } else {
+                Subscription::none()
+            },
             window::events().filter_map(|(id, event)| match event {
                 window::Event::CloseRequested => Some(Message::Close),
                 window::Event::Opened { .. } => Some(Message::NativeOpened(id)),
@@ -671,6 +717,106 @@ impl App {
                 Subscription::none()
             },
         ])
+    }
+    /// One AT-SPI request. An action is answered with the very message a click
+    /// sends, so consent, single-flight and panel guards are the same ones.
+    fn accessibility_request(&mut self, request: accessibility::Request) -> Task<Message> {
+        match request {
+            accessibility::Request::Activate => {
+                // The client has no tree yet; publish one even if the exposed
+                // state happens to match the last fingerprint.
+                self.accessibility_published = None;
+                self.accessibility_tick()
+            }
+            accessibility::Request::Action(request) => match accessibility::intent(&request) {
+                Some(accessibility::Intent::Send) => self.update(Message::Send),
+                Some(accessibility::Intent::Stop) => self.update(Message::Stop),
+                Some(accessibility::Intent::Attach) => self.update(Message::FileChoose),
+                Some(accessibility::Intent::Settings) => {
+                    self.update(Message::Settings(crate::settings::Action::Open))
+                }
+                Some(accessibility::Intent::Model) => {
+                    self.update(Message::ModelControls(model_controls::Action::Toggle))
+                }
+                Some(accessibility::Intent::FocusComposer) => {
+                    iced::widget::operation::focus(accessibility::WIDGET_COMPOSER)
+                }
+                Some(accessibility::Intent::SetComposer(text)) => {
+                    self.editor = text_editor::Content::with_text(&text);
+                    self.touch_draft();
+                    Task::none()
+                }
+                None => Task::none(),
+            },
+        }
+    }
+    /// Measure once while a client is connected, so an unattended app pays nothing.
+    fn accessibility_tick(&mut self) -> Task<Message> {
+        let Some(bridge) = &self.accessibility else {
+            return Task::none();
+        };
+        if !bridge.live() || self.accessibility_measuring {
+            return Task::none();
+        }
+        self.accessibility_measuring = true;
+        accessibility::measure(Message::AccessibilityBounds)
+    }
+    /// Publish only what changed: a client is told about a new state, not about
+    /// every frame. The bounds are part of the comparison, so a resize or a panel
+    /// change republishes even when no exposed sentence changed.
+    fn accessibility_measured(&mut self, bounds: accessibility::Bounds) -> Task<Message> {
+        self.accessibility_measuring = false;
+        let fingerprint = self.accessibility_fingerprint(&bounds);
+        if self.accessibility_published == Some(fingerprint) {
+            return Task::none();
+        }
+        let snapshot = self.accessibility_snapshot(&bounds);
+        let tree = accessibility::tree(&snapshot);
+        if let Some(bridge) = &mut self.accessibility {
+            bridge.publish(tree);
+        } else {
+            return Task::none();
+        }
+        self.accessibility_published = Some(fingerprint);
+        Task::none()
+    }
+    /// The state one published tree describes. Layout decides presence: the
+    /// composer and its controls are exposed only while the composer is on
+    /// screen, which is also what keeps the API-key draft out of the tree.
+    fn accessibility_snapshot<'a>(
+        &'a self,
+        bounds: &'a accessibility::Bounds,
+    ) -> accessibility::Snapshot<'a> {
+        let composer = self.composer_visible().then(|| self.editor.text());
+        let model = composer.as_ref().map(|_| self.model_caption());
+        let status = (!routine_status(&self.status)).then(|| self.status.clone());
+        accessibility::Snapshot {
+            composer,
+            send: self.send_allowed(),
+            stop: self.stop_allowed(),
+            attach: self.file_context().allowed,
+            model,
+            status,
+            bounds,
+        }
+    }
+    fn accessibility_fingerprint(&self, bounds: &accessibility::Bounds) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.editor.text().hash(&mut hasher);
+        self.send_allowed().hash(&mut hasher);
+        self.stop_allowed().hash(&mut hasher);
+        self.file_context().allowed.hash(&mut hasher);
+        self.composer_visible().hash(&mut hasher);
+        self.model_caption().hash(&mut hasher);
+        self.status.hash(&mut hasher);
+        for (node, rectangle) in bounds {
+            node.hash(&mut hasher);
+            for value in [rectangle.x, rectangle.y, rectangle.width, rectangle.height] {
+                value.to_bits().hash(&mut hasher);
+            }
+        }
+        hasher.finish()
     }
     fn layout_size(&self) -> iced::Size {
         // Iced's Resized and get_size already include native * application scale.
@@ -1182,6 +1328,9 @@ impl App {
         self.reconcile_local_files();
         // Joined local callbacks must settle even behind another modal or during shutdown.
         match message {
+            Message::Accessibility(request) => return self.accessibility_request(request),
+            Message::AccessibilityBounds(bounds) => return self.accessibility_measured(bounds),
+            Message::AccessibilityTick => return self.accessibility_tick(),
             Message::FilePickerRead(result) => return self.picker_completed(result),
             Message::FilePreviewRead(stamp, result) => {
                 return self.complete_file_preview(stamp, result);
@@ -1528,6 +1677,9 @@ impl App {
             Message::Resized(size) => self.resize_layout(size),
             Message::WindowActive(active) => {
                 self.window_active = active;
+                if let Some(bridge) = &mut self.accessibility {
+                    bridge.window_focus(active);
+                }
                 if !active {
                     self.sidebar_motion.snap(self.sidebar_target());
                 }
@@ -4345,7 +4497,9 @@ impl App {
         );
         let mut header = column![actions].spacing(6);
         if !routine_status(&self.status) {
-            header = header.push(label(&self.status, MUTED).size(11));
+            header = header.push(
+                container(label(&self.status, MUTED).size(11)).id(accessibility::WIDGET_STATUS),
+            );
         }
         if let Some(id) = self
             .selected
@@ -4629,6 +4783,7 @@ impl App {
         // The menu claims navigation keys only while it is showing.
         let menu_open = self.completion().is_some();
         let editor = text_editor(&self.editor)
+            .id(accessibility::WIDGET_COMPOSER)
             .placeholder("Message DeepSeek Harness… or drop a file")
             .on_action(Message::Editor)
             .height(self.composer_editor_height())
