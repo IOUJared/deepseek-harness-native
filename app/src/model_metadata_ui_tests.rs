@@ -145,7 +145,10 @@ fn lookalikes_and_future_required_warnings_are_not_hidden() {
             0,
         );
         assert_eq!(app.transcript.display_rows(true).count(), 1, "{kind}");
-        assert_eq!(app.transcript.safe_to_send(), kind == "subagent/model-selection-policy");
+        assert_eq!(
+            app.transcript.safe_to_send(),
+            kind == "subagent/model-selection-policy"
+        );
         app.records_expanded = true;
         assert_eq!(app.scroll_projection().0, vec![0]);
         assert!(queue.try_recv().is_err());

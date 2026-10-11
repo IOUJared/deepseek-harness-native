@@ -31,8 +31,12 @@ mod rename;
 mod settings;
 #[path = "../src/smoke.rs"]
 mod smoke;
+#[path = "../src/terminal.rs"]
+mod terminal;
 #[path = "../src/ui.rs"]
 mod ui;
+#[path = "../src/work_panel.rs"]
+mod work_panel;
 #[path = "../src/worker.rs"]
 mod worker;
 
@@ -157,8 +161,7 @@ fn observe(event: &Event, report: &mut Value) -> Result<(), &'static str> {
         frame: SessionFollowFrame::Event { event },
         ..
     } = event
-    {
-        if [
+        && [
             "step/start",
             "step/end",
             "request/header",
@@ -168,10 +171,9 @@ fn observe(event: &Event, report: &mut Value) -> Result<(), &'static str> {
             "user/message",
         ]
         .contains(&event.event_type.as_str())
-        {
-            report["unexpectedWork"] = json!(report["unexpectedWork"].as_u64().unwrap() + 1);
-            return Err("unexpected-admitted-work");
-        }
+    {
+        report["unexpectedWork"] = json!(report["unexpectedWork"].as_u64().unwrap() + 1);
+        return Err("unexpected-admitted-work");
     }
     if matches!(
         event,
@@ -265,7 +267,10 @@ async fn file_prompt_result(
             outcome,
         } = event
         {
-            if returned.len() != 1 || &returned[0] != ticket || request_id != *id || outcome != expected
+            if returned.len() != 1
+                || &returned[0] != ticket
+                || request_id != *id
+                || outcome != expected
             {
                 return Err("file-prompt-result-invalid");
             }
@@ -404,7 +409,7 @@ async fn exercise(
         loop {
             let event = next(feed).await?;
             observe(&event, report)?;
-            if let Event::PromptNotSent { ticket:owner } = event {
+            if let Event::PromptNotSent { ticket: owner } = event {
                 if owner.generation != 1
                     || owner.session != session
                     || owner.request_id.as_str() != "PUBLIC_native_file_forged"

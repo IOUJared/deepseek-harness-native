@@ -28,8 +28,8 @@ mod usage;
 pub use usage::Action as UsageAction;
 #[path = "codex_runtime.rs"]
 mod runtime;
-pub use runtime::{Action as RuntimeAction, Field as RuntimeField};
 pub(crate) use runtime::ack_matches as runtime_ack_matches;
+pub use runtime::{Action as RuntimeAction, Field as RuntimeField};
 #[path = "codex_runtime_view.rs"]
 mod runtime_view;
 
@@ -52,12 +52,8 @@ pub struct Context {
     pub visible: bool,
     pub enabled: bool,
 }
+#[derive(Default)]
 struct Editor(String);
-impl Default for Editor {
-    fn default() -> Self {
-        Self(String::new())
-    }
-}
 impl Drop for Editor {
     fn drop(&mut self) {
         // SAFETY: overwrite the live owned allocation, including spare capacity; zeros preserve UTF-8.
@@ -112,8 +108,14 @@ impl Tab {
 }
 #[derive(Clone)]
 pub enum Action {
-    Runtime { ticket: Ticket, action: RuntimeAction },
-    Usage { ticket: Ticket, action: UsageAction },
+    Runtime {
+        ticket: Ticket,
+        action: RuntimeAction,
+    },
+    Usage {
+        ticket: Ticket,
+        action: UsageAction,
+    },
     SelectTab {
         ticket: Ticket,
         tab: Tab,
@@ -159,14 +161,18 @@ pub enum Action {
     DismissReview(Ticket),
 }
 pub enum Effect {
-    RuntimeRead { ticket: Ticket },
+    RuntimeRead {
+        ticket: Ticket,
+    },
     RuntimeSave {
         ticket: Ticket,
         expected_revision: u64,
         values: dsh_native_core::CodexRuntimeValues,
         base_values: dsh_native_core::CodexRuntimeValues,
     },
-    UsageRead { ticket: Ticket },
+    UsageRead {
+        ticket: Ticket,
+    },
     UsageSave {
         ticket: Ticket,
         expected_revision: u64,
@@ -445,8 +451,11 @@ impl Controller {
         }
     }
     pub fn operation_ticket(&self) -> Option<Ticket> {
-        self.flight.as_ref().map(|f| f.ticket)
-            .or_else(|| self.usage.ticket()).or_else(|| self.runtime.ticket())
+        self.flight
+            .as_ref()
+            .map(|f| f.ticket)
+            .or_else(|| self.usage.ticket())
+            .or_else(|| self.runtime.ticket())
     }
     /// Permission gate for future usage consumers; no usage execution is connected.
     #[allow(dead_code)]
@@ -497,15 +506,19 @@ impl Controller {
     pub(crate) fn usage_surface_action_allowed(&self, action: &UsageAction) -> bool {
         use dsh_native_core::{CodexComposerDisplay, CodexUsageAlert};
         match action {
-            UsageAction::Refresh | UsageAction::Composer(CodexComposerDisplay::Off)
-                | UsageAction::Alert(CodexUsageAlert::Off) | UsageAction::Retry(false)
-                | UsageAction::Consent(false) => true,
+            UsageAction::Refresh
+            | UsageAction::Composer(CodexComposerDisplay::Off)
+            | UsageAction::Alert(CodexUsageAlert::Off)
+            | UsageAction::Retry(false)
+            | UsageAction::Consent(false) => true,
             UsageAction::Save => self.usage.snapshot.as_ref().is_some_and(|snapshot| {
                 let before = &snapshot.preferences;
                 let after = &self.usage.draft;
                 after != before
-                    && (after.composer_display == before.composer_display || after.composer_display == CodexComposerDisplay::Off)
-                    && (after.usage_alert == before.usage_alert || after.usage_alert == CodexUsageAlert::Off)
+                    && (after.composer_display == before.composer_display
+                        || after.composer_display == CodexComposerDisplay::Off)
+                    && (after.usage_alert == before.usage_alert
+                        || after.usage_alert == CodexUsageAlert::Off)
                     && (!after.retry_after_reset || before.retry_after_reset)
                     && (!after.experimental_quota || before.experimental_quota)
                     && after.custom_remaining_percent == before.custom_remaining_percent
@@ -591,10 +604,18 @@ impl Controller {
     fn ready(&self) -> bool {
         self.flight.is_none() && !self.usage.pending() && !self.runtime.pending()
     }
-    fn handle_runtime(&mut self, ticket: Ticket, action: RuntimeAction, context: Context) -> Option<Effect> {
-        if !self.allowed(context) || ticket != self.ticket()
+    fn handle_runtime(
+        &mut self,
+        ticket: Ticket,
+        action: RuntimeAction,
+        context: Context,
+    ) -> Option<Effect> {
+        if !self.allowed(context)
+            || ticket != self.ticket()
             || !matches!(self.tab, Tab::Models | Tab::Images)
-        { return None; }
+        {
+            return None;
+        }
         // Runtime intent cannot resume an OAuth chain or queue a preference followup.
         self.connection = None;
         self.usage.initial_queued = false;
@@ -609,7 +630,12 @@ impl Controller {
                 self.serial += 1;
                 let ticket = self.ticket();
                 let (expected_revision, values, base_values) = self.runtime.save(ticket)?;
-                Some(Effect::RuntimeSave { ticket, expected_revision, values, base_values })
+                Some(Effect::RuntimeSave {
+                    ticket,
+                    expected_revision,
+                    values,
+                    base_values,
+                })
             }
             RuntimeAction::Refresh | RuntimeAction::Save => None,
             other if self.flight.is_none() && !self.usage.pending() && !self.runtime.saving() => {
@@ -625,11 +651,21 @@ impl Controller {
         self.usage.read(ticket);
         Effect::UsageRead { ticket }
     }
-    fn handle_usage(&mut self, ticket: Ticket, action: UsageAction, context: Context) -> Option<Effect> {
+    fn handle_usage(
+        &mut self,
+        ticket: Ticket,
+        action: UsageAction,
+        context: Context,
+    ) -> Option<Effect> {
         // Local OFF is a permission fence even when other settings/backend work disables writes.
-        let local = self.open && context.visible && context.epoch == self.epoch
-            && ticket == self.ticket() && self.tab == Tab::Account;
-        if !local { return None; }
+        let local = self.open
+            && context.visible
+            && context.epoch == self.epoch
+            && ticket == self.ticket()
+            && self.tab == Tab::Account;
+        if !local {
+            return None;
+        }
         // Preference intent never authorizes or resumes an OAuth/model-route chain.
         self.connection = None;
         self.usage.initial_queued = false;
@@ -637,16 +673,25 @@ impl Controller {
             self.usage.edit(action);
             return None;
         }
-        if !self.allowed(context) || !self.ready() { return None; }
+        if !self.allowed(context) || !self.ready() {
+            return None;
+        }
         match action {
             UsageAction::Refresh => Some(self.usage_read()),
             UsageAction::Save if self.usage.can_save() => {
                 self.serial += 1;
                 let ticket = self.ticket();
                 let (expected_revision, preferences) = self.usage.save(ticket)?;
-                Some(Effect::UsageSave { ticket, expected_revision, preferences })
+                Some(Effect::UsageSave {
+                    ticket,
+                    expected_revision,
+                    preferences,
+                })
             }
-            other => { self.usage.edit(other); None }
+            other => {
+                self.usage.edit(other);
+                None
+            }
         }
     }
     fn may_start(&self) -> bool {
@@ -692,10 +737,15 @@ impl Controller {
     /// Called only after a completion/observation. It never starts an intent by itself.
     pub fn continue_connection(&mut self, context: Context) -> Option<Effect> {
         let effect = self.continue_connection_step(context);
-        if effect.is_some() { return effect; }
+        if effect.is_some() {
+            return effect;
+        }
         // A preference receipt cannot advance login/models: auto-read only after the explicit chain ends.
-        if self.connection.is_none() && self.usage.initial_queued && self.allowed(context)
-            && self.ready() && self.tab == Tab::Account
+        if self.connection.is_none()
+            && self.usage.initial_queued
+            && self.allowed(context)
+            && self.ready()
+            && self.tab == Tab::Account
         {
             return Some(self.usage_read());
         }
@@ -714,17 +764,17 @@ impl Controller {
             return None;
         }
         let mut next = connection;
-        if let ConnectStep::ReadingAdded { attempt, .. } = connection.step {
-            if let Some(added) = self.managed.added.clone().filter(|a| a.attempt == attempt) {
-                let ticket = self.begin(Operation::Select);
-                next.step = ConnectStep::Selecting(ticket);
-                self.connection = Some(next);
-                return Some(Effect::SelectAccount {
-                    ticket,
-                    account_id: added.account_id,
-                    expected_epoch: added.epoch,
-                });
-            }
+        if let ConnectStep::ReadingAdded { attempt, .. } = connection.step
+            && let Some(added) = self.managed.added.clone().filter(|a| a.attempt == attempt)
+        {
+            let ticket = self.begin(Operation::Select);
+            next.step = ConnectStep::Selecting(ticket);
+            self.connection = Some(next);
+            return Some(Effect::SelectAccount {
+                ticket,
+                account_id: added.account_id,
+                expected_epoch: added.epoch,
+            });
         }
         match connection.step {
             ConnectStep::Checked(receipt) => {
@@ -1044,30 +1094,29 @@ impl Controller {
             return self.handle_account(&action, context);
         }
         // Cancel uses a separate reserved worker slot; retire this panel's other ACK, never guess cleanup.
-        if let Action::Cancel { ticket, attempt } = &action {
-            if self.allowed(context)
-                && *ticket == self.ticket()
-                && self.metadata.is_some_and(|m| {
-                    (active(m.phase) || self.owner_uncertain) && m.attempt == Some(*attempt)
-                })
-            {
-                self.connection = None;
-                self.managed.added = None;
-                if self.flight.as_ref().is_some_and(|f| {
-                    matches!(
-                        f.operation,
-                        Operation::Start | Operation::Add | Operation::Callback
-                    )
-                }) {
-                    self.owner_uncertain = true;
-                    self.managed.uncertain |= self.managed_mode();
-                }
-                self.clear_draft();
-                return Some(Effect::CancelLogin {
-                    ticket: self.begin(Operation::Cancel),
-                    attempt: *attempt,
-                });
+        if let Action::Cancel { ticket, attempt } = &action
+            && self.allowed(context)
+            && *ticket == self.ticket()
+            && self.metadata.is_some_and(|m| {
+                (active(m.phase) || self.owner_uncertain) && m.attempt == Some(*attempt)
+            })
+        {
+            self.connection = None;
+            self.managed.added = None;
+            if self.flight.as_ref().is_some_and(|f| {
+                matches!(
+                    f.operation,
+                    Operation::Start | Operation::Add | Operation::Callback
+                )
+            }) {
+                self.owner_uncertain = true;
+                self.managed.uncertain |= self.managed_mode();
             }
+            self.clear_draft();
+            return Some(Effect::CancelLogin {
+                ticket: self.begin(Operation::Cancel),
+                attempt: *attempt,
+            });
         }
         // Consume even rejected/stale/hidden input holders so a clone cannot replay plaintext.
         if let Action::Edit { ticket, input } = &action {
@@ -1079,9 +1128,7 @@ impl Controller {
             {
                 return None;
             }
-            if value.is_none() {
-                return None;
-            }
+            value.as_ref()?;
             self.connection = None;
             match value {
                 Some(InputValue::Valid(editor)) => {
@@ -1242,7 +1289,10 @@ impl Controller {
                 if matches!(operation, Operation::Status | Operation::Accounts) =>
             {
                 if self.open && ticket.epoch == self.epoch && ticket.panel == self.panel {
-                    if operation == Operation::Status && flight.follow_usage && !self.usage.initial_attempted {
+                    if operation == Operation::Status
+                        && flight.follow_usage
+                        && !self.usage.initial_attempted
+                    {
                         self.usage.initial_queued = true;
                     }
                     // Both nonmutating receipts are required to reconcile managed uncertainty.
@@ -1353,28 +1403,27 @@ impl Controller {
             }
             Outcome::Metadata(mut m) => {
                 // Start and status may introduce an attempt. A late Start ACK cannot downgrade a terminal observation.
-                if matches!(operation, Operation::Start | Operation::Add) {
-                    if let Some(observed) = self
+                if matches!(operation, Operation::Start | Operation::Add)
+                    && let Some(observed) = self
                         .deferred
                         .take()
                         .filter(|observed| observed.attempt == m.attempt)
-                    {
-                        m = observed;
-                    }
+                {
+                    m = observed;
                 }
                 if matches!(
                     operation,
                     Operation::Start | Operation::Add | Operation::Status
                 ) || self.same_attempt(m)
                 {
-                    if operation != Operation::Status {
-                        if let Some(current) = self.metadata.filter(|current| {
+                    if operation != Operation::Status
+                        && let Some(current) = self.metadata.filter(|current| {
                             current.attempt == m.attempt
                                 && !active(current.phase)
                                 && active(m.phase)
-                        }) {
-                            m = current;
-                        }
+                        })
+                    {
+                        m = current;
                     }
                     accepted = true;
                     self.metadata = Some(m);
@@ -1420,9 +1469,14 @@ impl Controller {
                 self.metadata = None;
                 self.managed.fresh = false;
             }
-            Outcome::Indeterminate | Outcome::UsageIndeterminate | Outcome::UsageSnapshot(_)
-            | Outcome::UsageConflict | Outcome::UsageUnavailable
-            | Outcome::Runtime(_) | Outcome::RuntimeConflict | Outcome::RuntimeIndeterminate
+            Outcome::Indeterminate
+            | Outcome::UsageIndeterminate
+            | Outcome::UsageSnapshot(_)
+            | Outcome::UsageConflict
+            | Outcome::UsageUnavailable
+            | Outcome::Runtime(_)
+            | Outcome::RuntimeConflict
+            | Outcome::RuntimeIndeterminate
             | Outcome::RuntimeUnavailable => self.notice = Notice::Indeterminate,
             Outcome::NotSent => {
                 self.notice = Notice::NotSent;
@@ -1551,7 +1605,10 @@ impl Controller {
         }
         if let Some(m) = self.metadata.filter(|_| self.fresh) {
             if m.credential_stored && m.route_configured {
-                body = body.push(label("Model entitlement is unverified; plan/provider limits apply.", MUTED));
+                body = body.push(label(
+                    "Model entitlement is unverified; plan/provider limits apply.",
+                    MUTED,
+                ));
             }
             if m.retry_blocked {
                 body = body.push(label("An earlier login may still be running. Restart before another sign-in. Cancellation does not guarantee credentials were not stored.", DANGER));
@@ -1724,6 +1781,13 @@ impl Controller {
         container(body).width(Length::Fill).into()
     }
 }
+
+fn active(phase: CodexPhase) -> bool {
+    matches!(
+        phase,
+        CodexPhase::WaitingBrowser | CodexPhase::Indeterminate
+    )
+}
 #[cfg(test)]
 mod disclosure_tests {
     use super::*;
@@ -1863,11 +1927,4 @@ mod disclosure_tests {
                 .is_none()
         );
     }
-}
-
-fn active(phase: CodexPhase) -> bool {
-    matches!(
-        phase,
-        CodexPhase::WaitingBrowser | CodexPhase::Indeterminate
-    )
 }

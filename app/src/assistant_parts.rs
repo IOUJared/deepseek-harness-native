@@ -426,8 +426,16 @@ mod tests {
         // A tool call is model-internal output: it groups with the thinking
         // rather than rendering as the assistant's prose answer.
         assert_eq!(parts.answer, "");
-        assert!(parts.reasoning.contains("PUBLIC thought"), "{:?}", parts.reasoning);
-        assert!(parts.reasoning.contains("Tool read: "), "{:?}", parts.reasoning);
+        assert!(
+            parts.reasoning.contains("PUBLIC thought"),
+            "{:?}",
+            parts.reasoning
+        );
+        assert!(
+            parts.reasoning.contains("Tool read: "),
+            "{:?}",
+            parts.reasoning
+        );
         // Retention is unchanged: the recorded text still carries it for Trajectory.
         assert_eq!(transcript.rows()[0].text, "PUBLIC thought\nTool read: {}");
     }
@@ -576,7 +584,11 @@ mod tests {
         transcript.apply(1, fixture).unwrap();
         let parts = transcript.assistant_parts(0).expect("parts");
         assert_eq!(parts.answer, "", "a tool call is not an answer");
-        assert!(parts.reasoning.contains("Tool bash: "), "{:?}", parts.reasoning);
+        assert!(
+            parts.reasoning.contains("Tool bash: "),
+            "{:?}",
+            parts.reasoning
+        );
         assert!(parts.reasoning.contains("date -u"), "{:?}", parts.reasoning);
         // The recorded text is untouched, so Trajectory still shows it.
         let row = transcript.rows().iter().find(|r| r.key == 0).unwrap();

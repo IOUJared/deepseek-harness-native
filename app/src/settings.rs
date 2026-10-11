@@ -67,12 +67,8 @@ pub struct RouteFacts {
     pub failed: bool,
 }
 // The native editor needs a local plaintext value; it is never an Event/String DTO.
+#[derive(Default)]
 struct Editor(String);
-impl Default for Editor {
-    fn default() -> Self {
-        Self(String::new())
-    }
-}
 impl Editor {
     fn wipe(&mut self) {
         // SAFETY: String owns its complete u8 allocation. Write only, including spare capacity;
@@ -182,11 +178,12 @@ pub enum Info {
     Details,
     Shortcuts,
     ApiHelp,
+    ContextPolicy,
 }
 impl Info {
     fn page(self) -> Page {
         match self {
-            Self::Details | Self::Shortcuts => Page::General,
+            Self::Details | Self::Shortcuts | Self::ContextPolicy => Page::General,
             Self::ApiHelp => Page::ApiLogin,
         }
     }
@@ -196,18 +193,29 @@ pub enum Action {
     Open,
     Close,
     SelectPage(Page),
-    ToggleInfo { ticket: Ticket, info: Info },
+    ToggleInfo {
+        ticket: Ticket,
+        info: Info,
+    },
     Cloudflare(cloudflare::Action),
     Plugins(crate::plugins::Action),
     Codex(crate::codex::Action),
     Refresh(Ticket),
-    Edit { ticket: Ticket, input: Input },
+    Edit {
+        ticket: Ticket,
+        input: Input,
+    },
     /// Clipboard read request; the App performs the read and replies with
     /// [`Action::Pasted`]. Reads no secret until the reply carries one.
-    Paste { ticket: Ticket },
+    Paste {
+        ticket: Ticket,
+    },
     /// Clipboard result as a one-use holder, so no plaintext enters the
     /// message or action. The App trims and validates before sending it.
-    Pasted { ticket: Ticket, input: Input },
+    Pasted {
+        ticket: Ticket,
+        input: Input,
+    },
     /// The clipboard read returned nothing usable; no draft is touched.
     PasteUnavailable {
         ticket: Ticket,
@@ -245,6 +253,7 @@ pub struct Settings {
     details_open: bool,
     shortcuts_open: bool,
     api_help_open: bool,
+    context_policy_open: bool,
     cloudflare: cloudflare::Controller,
     plugins: crate::plugins::Controller,
     codex: crate::codex::Controller,
@@ -269,6 +278,7 @@ impl Default for Settings {
             details_open: false,
             shortcuts_open: false,
             api_help_open: false,
+            context_policy_open: false,
             cloudflare: cloudflare::Controller::default(),
             plugins: crate::plugins::Controller::default(),
             codex: crate::codex::Controller::default(),
@@ -291,7 +301,17 @@ impl Settings {
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn layout_codex_tab(&mut self, tab: crate::codex::Tab) {
         let context = self.codex_context(false);
-        assert!(self.codex.handle(crate::codex::Action::SelectTab { ticket: self.codex.ticket(), tab }, context).is_none());
+        assert!(
+            self.codex
+                .handle(
+                    crate::codex::Action::SelectTab {
+                        ticket: self.codex.ticket(),
+                        tab
+                    },
+                    context
+                )
+                .is_none()
+        );
     }
     pub fn is_open(&self) -> bool {
         self.open
@@ -308,6 +328,7 @@ impl Settings {
         self.details_open = false;
         self.shortcuts_open = false;
         self.api_help_open = false;
+        self.context_policy_open = false;
     }
     fn info_button(&self, info: Info, title: &'static str, expanded: bool) -> Element<'_, Action> {
         button(
@@ -331,25 +352,36 @@ impl Settings {
             // The DeepSeek page renders the one `llm-deepseek` namespace, so it
             // needs the same live-settings authority as the plugin panel.
             visible: self.open && matches!(self.page, Page::Plugins | Page::ApiLogin),
-            enabled: enabled && !self.pending() && !self.codex.pending() && !self.cloudflare.pending(),
+            enabled: enabled
+                && !self.pending()
+                && !self.codex.pending()
+                && !self.cloudflare.pending(),
         }
     }
     fn codex_context(&self, enabled: bool) -> crate::codex::Context {
         crate::codex::Context {
             epoch: self.epoch,
             visible: self.open && self.page == Page::Codex,
-            enabled: enabled && !self.pending() && !self.plugins.pending() && !self.cloudflare.pending(),
+            enabled: enabled
+                && !self.pending()
+                && !self.plugins.pending()
+                && !self.cloudflare.pending(),
         }
     }
     #[cfg(feature = "public-layout-fixture")]
-    pub(crate) fn cloudflare_ticket(&self) -> Ticket { self.cloudflare.ticket() }
+    pub(crate) fn cloudflare_ticket(&self) -> Ticket {
+        self.cloudflare.ticket()
+    }
     pub(crate) fn cloudflare_completed(&mut self, ticket: Ticket, outcome: cloudflare::Outcome) {
         self.cloudflare.completed(ticket, outcome);
     }
-    pub(crate) fn cloudflare_observed(&mut self,status:dsh_native_core::CloudflareAuthStatus) {self.cloudflare.observed(status);}
-    pub(crate) fn cloudflare_continue(&mut self,enabled:bool)->Option<cloudflare::Effect> {
-        let enabled=self.cloudflare_enabled(enabled)&&self.open&&self.page==Page::Cloudflare;
-        self.cloudflare.continue_connection(self.epoch,enabled)
+    pub(crate) fn cloudflare_observed(&mut self, status: dsh_native_core::CloudflareAuthStatus) {
+        self.cloudflare.observed(status);
+    }
+    pub(crate) fn cloudflare_continue(&mut self, enabled: bool) -> Option<cloudflare::Effect> {
+        let enabled =
+            self.cloudflare_enabled(enabled) && self.open && self.page == Page::Cloudflare;
+        self.cloudflare.continue_connection(self.epoch, enabled)
     }
     fn cloudflare_enabled(&self, enabled: bool) -> bool {
         enabled && !self.pending() && !self.plugins.pending() && !self.codex.pending()
@@ -553,7 +585,9 @@ impl Settings {
             self.close();
             self.open = true;
             self.epoch = epoch;
-            if self.page == Page::Cloudflare { self.cloudflare.enter(epoch); }
+            if self.page == Page::Cloudflare {
+                self.cloudflare.enter(epoch);
+            }
             if matches!(self.page, Page::Plugins | Page::ApiLogin) {
                 self.plugins.enter(epoch);
             }
@@ -578,7 +612,9 @@ impl Settings {
                     self.save = SavePhase::Idle;
                     self.next(); // Previously rendered confirmation can no longer write.
                 }
-                if self.page == Page::Cloudflare { self.cloudflare.leave(); }
+                if self.page == Page::Cloudflare {
+                    self.cloudflare.leave();
+                }
                 if matches!(self.page, Page::Plugins | Page::ApiLogin) {
                     self.plugins.leave();
                 }
@@ -586,7 +622,9 @@ impl Settings {
                     self.codex.leave();
                 }
                 self.page = page;
-                if self.page == Page::Cloudflare { self.cloudflare.enter(epoch); }
+                if self.page == Page::Cloudflare {
+                    self.cloudflare.enter(epoch);
+                }
                 if self.page == Page::Codex {
                     self.codex.enter(epoch);
                 }
@@ -607,20 +645,25 @@ impl Settings {
                     Info::Details => &mut self.details_open,
                     Info::Shortcuts => &mut self.shortcuts_open,
                     Info::ApiHelp => &mut self.api_help_open,
+                    Info::ContextPolicy => &mut self.context_policy_open,
                 };
                 *expanded = !*expanded;
             }
             return None;
         }
         if let Action::Cloudflare(action) = action {
-            let enabled = self.cloudflare_enabled(enabled) && self.open && self.page == Page::Cloudflare;
-            return self.cloudflare.handle(action, epoch, enabled).map(Effect::Cloudflare);
+            let enabled =
+                self.cloudflare_enabled(enabled) && self.open && self.page == Page::Cloudflare;
+            return self
+                .cloudflare
+                .handle(action, epoch, enabled)
+                .map(Effect::Cloudflare);
         }
         if let Action::Codex(action) = action {
-            if let crate::codex::Action::Usage { action, .. } = &action {
-                if !self.codex.usage_surface_action_allowed(action) {
-                    return None; // No editable placeholder or enabling save for an unwired feature.
-                }
+            if let crate::codex::Action::Usage { action, .. } = &action
+                && !self.codex.usage_surface_action_allowed(action)
+            {
+                return None; // No editable placeholder or enabling save for an unwired feature.
             }
             let mut context = self.codex_context(enabled);
             context.epoch = epoch;
@@ -886,14 +929,12 @@ impl Settings {
         let mut footer = column![].spacing(4);
         let mut has_footer = false;
         if self.pending() {
-            footer = footer.push(
-                label("API-key save submitted; closing does not undo it.", MUTED).size(11),
-            );
+            footer = footer
+                .push(label("API-key save submitted; closing does not undo it.", MUTED).size(11));
             has_footer = true;
         } else if self.plugins.pending() {
-            footer = footer.push(
-                label("Plugin setting submitted; closing does not undo it.", MUTED).size(11),
-            );
+            footer = footer
+                .push(label("Plugin setting submitted; closing does not undo it.", MUTED).size(11));
             has_footer = true;
         } else if self.codex.pending() {
             footer = footer.push(label("Codex operation pending.", MUTED).size(11));
@@ -954,6 +995,19 @@ impl Settings {
         body = body.push(self.info_button(Info::Shortcuts, "Shortcuts", self.shortcuts_open));
         if self.shortcuts_open {
             body = body.push(label("Ctrl+B · navigation\nCtrl+F · find in conversation\nEnter · send non-empty text (Ctrl+Enter also works)\nShift+Enter · new line\nEscape · close settings and panels", TEXT));
+        }
+        // Why the harness is configured this way, from the harness-design study;
+        // live numbers stay in the composer, which reads the Host's own report.
+        body = body.push(self.info_button(
+            Info::ContextPolicy,
+            "Context & tool policy",
+            self.context_policy_open,
+        ));
+        if self.context_policy_open {
+            body = body
+                .push(label("Context: tool output over 8k characters is replaced by a stub, then older history is summarized near 80% of the window. Eliding before summarizing is what keeps peak context low. A window that overflows ends the run early, so the composer states it instead of only tinting it.", MUTED))
+                .push(label("Tools: the predefined file, search and shell tools are always offered. Bash-only interfaces reduce cost for models with strong shell control but lower success for weaker ones, so this app does not offer one.", MUTED))
+                .push(label("Loops: the guard asks the model to change approach after 3, 5 and 8 identical tool calls, and Trajectory names each reminder it injects. Planning is shown as a plan chip beside the composer.", MUTED));
         }
         body.into()
     }
@@ -1200,15 +1254,38 @@ impl Settings {
 
 #[cfg(test)]
 mod disclosure_tests {
-    fn local_usage(state: &mut Settings, action: crate::codex::UsageAction, enabled: bool) -> Option<Effect> {
-        state.handle(Action::Codex(crate::codex::Action::Usage { ticket: state.codex_ticket(), action }), 1, enabled)
+    fn local_usage(
+        state: &mut Settings,
+        action: crate::codex::UsageAction,
+        enabled: bool,
+    ) -> Option<Effect> {
+        state.handle(
+            Action::Codex(crate::codex::Action::Usage {
+                ticket: state.codex_ticket(),
+                action,
+            }),
+            1,
+            enabled,
+        )
     }
     fn usage_state(preferences: dsh_native_core::CodexUsagePreferences) -> Settings {
         let mut state = Settings::default();
         state.handle(Action::Open, 1, false);
         state.handle(Action::SelectPage(Page::Codex), 1, true);
-        let Some(Effect::Codex(crate::codex::Effect::UsageRead { ticket })) = local_usage(&mut state, crate::codex::UsageAction::Refresh, true) else { panic!("PUBLIC read") };
-        state.codex_completed(ticket, crate::codex::Outcome::UsageSnapshot(dsh_native_core::CodexUsageSnapshot { version: 1, revision: 9, persisted: true, preferences }));
+        let Some(Effect::Codex(crate::codex::Effect::UsageRead { ticket })) =
+            local_usage(&mut state, crate::codex::UsageAction::Refresh, true)
+        else {
+            panic!("PUBLIC read")
+        };
+        state.codex_completed(
+            ticket,
+            crate::codex::Outcome::UsageSnapshot(dsh_native_core::CodexUsageSnapshot {
+                version: 1,
+                revision: 9,
+                persisted: true,
+                preferences,
+            }),
+        );
         state
     }
     #[test]
@@ -1216,13 +1293,28 @@ mod disclosure_tests {
         use crate::codex::UsageAction as U;
         use dsh_native_core::{CodexComposerDisplay as C, CodexUsageAlert as A};
         let mut state = usage_state(dsh_native_core::CodexUsagePreferences::default());
-        for action in [U::Composer(C::Percent), U::Composer(C::ProgressBar), U::Composer(C::Runway), U::Alert(A::Percent20), U::Alert(A::EarlyWarning), U::Alert(A::Custom), U::Threshold("17.5".into()), U::Retry(true), U::Consent(true)] {
+        for action in [
+            U::Composer(C::Percent),
+            U::Composer(C::ProgressBar),
+            U::Composer(C::Runway),
+            U::Alert(A::Percent20),
+            U::Alert(A::EarlyWarning),
+            U::Alert(A::Custom),
+            U::Threshold("17.5".into()),
+            U::Retry(true),
+            U::Consent(true),
+        ] {
             assert!(!state.codex.usage_surface_action_allowed(&action));
             assert!(local_usage(&mut state, action, true).is_none());
             assert!(local_usage(&mut state, U::Save, true).is_none());
             assert!(state.codex.usage_footer().is_none());
         }
-        for action in [U::Composer(C::Off), U::Alert(A::Off), U::Retry(false), U::Consent(false)] {
+        for action in [
+            U::Composer(C::Off),
+            U::Alert(A::Off),
+            U::Retry(false),
+            U::Consent(false),
+        ] {
             assert!(local_usage(&mut state, action, true).is_none());
         }
         assert!(local_usage(&mut state, U::Save, true).is_none()); // No-op writes are not a feature.
@@ -1233,21 +1325,54 @@ mod disclosure_tests {
     fn native_usage_optout_is_functional_captured_and_requires_matching_ack() {
         use crate::codex::UsageAction as U;
         use dsh_native_core::{CodexComposerDisplay as C, CodexUsageAlert as A};
-        let original = dsh_native_core::CodexUsagePreferences { composer_display: C::ProgressBar, usage_alert: A::Custom, retry_after_reset: true, experimental_quota: true, ..dsh_native_core::CodexUsagePreferences::default() };
+        let original = dsh_native_core::CodexUsagePreferences {
+            composer_display: C::ProgressBar,
+            usage_alert: A::Custom,
+            retry_after_reset: true,
+            experimental_quota: true,
+            ..dsh_native_core::CodexUsagePreferences::default()
+        };
         let mut state = usage_state(original);
         assert!(local_usage(&mut state, U::Save, true).is_none());
         assert!(local_usage(&mut state, U::Consent(false), false).is_none()); // Immediate even read-only.
         assert!(!state.codex.effective_consent());
-        for action in [U::Composer(C::Off), U::Alert(A::Off), U::Retry(false)] { assert!(local_usage(&mut state, action, true).is_none()); }
-        let Some(Effect::Codex(crate::codex::Effect::UsageSave { ticket, expected_revision, preferences })) = local_usage(&mut state, U::Save, true) else { panic!("explicit opt-out save") };
+        for action in [U::Composer(C::Off), U::Alert(A::Off), U::Retry(false)] {
+            assert!(local_usage(&mut state, action, true).is_none());
+        }
+        let Some(Effect::Codex(crate::codex::Effect::UsageSave {
+            ticket,
+            expected_revision,
+            preferences,
+        })) = local_usage(&mut state, U::Save, true)
+        else {
+            panic!("explicit opt-out save")
+        };
         assert_eq!(expected_revision, 9);
         assert_eq!(preferences.composer_display, C::Off);
         assert_eq!(preferences.usage_alert, A::Off);
         assert!(!preferences.retry_after_reset && !preferences.experimental_quota);
-        assert_eq!(preferences.custom_remaining_percent, original.custom_remaining_percent);
-        assert!(state.codex.usage_footer().unwrap().0.contains("not yet acknowledged"));
+        assert_eq!(
+            preferences.custom_remaining_percent,
+            original.custom_remaining_percent
+        );
+        assert!(
+            state
+                .codex
+                .usage_footer()
+                .unwrap()
+                .0
+                .contains("not yet acknowledged")
+        );
         assert!(local_usage(&mut state, U::Save, true).is_none());
-        state.codex_completed(ticket, crate::codex::Outcome::UsageSnapshot(dsh_native_core::CodexUsageSnapshot { version: 1, revision: 10, persisted: true, preferences }));
+        state.codex_completed(
+            ticket,
+            crate::codex::Outcome::UsageSnapshot(dsh_native_core::CodexUsageSnapshot {
+                version: 1,
+                revision: 10,
+                persisted: true,
+                preferences,
+            }),
+        );
         assert!(state.codex.usage_footer().is_none());
         assert!(local_usage(&mut state, U::Save, true).is_none());
         assert!(!state.codex.effective_consent());
@@ -1257,22 +1382,45 @@ mod disclosure_tests {
         let mut state = Settings::default();
         state.handle(Action::Open, 1, true);
         state.handle(Action::SelectPage(Page::Codex), 1, true);
-        let request = state.handle(Action::Codex(crate::codex::Action::Usage {
-            ticket: state.codex_ticket(), action: crate::codex::UsageAction::Refresh,
-        }), 1, true);
-        let Some(Effect::Codex(crate::codex::Effect::UsageRead { ticket })) = request else { panic!("PUBLIC read, not dispatched") };
+        let request = state.handle(
+            Action::Codex(crate::codex::Action::Usage {
+                ticket: state.codex_ticket(),
+                action: crate::codex::UsageAction::Refresh,
+            }),
+            1,
+            true,
+        );
+        let Some(Effect::Codex(crate::codex::Effect::UsageRead { ticket })) = request else {
+            panic!("PUBLIC read, not dispatched")
+        };
         let mut snapshot = dsh_native_core::CodexUsageSnapshot::default();
         snapshot.persisted = true;
         snapshot.revision = 4;
         snapshot.preferences.retry_after_reset = true; // Prior saved choice, never an active executor.
         state.codex_completed(ticket, crate::codex::Outcome::UsageSnapshot(snapshot));
-        assert!(state.handle(Action::Codex(crate::codex::Action::Usage {
-            ticket: state.codex_ticket(), action: crate::codex::UsageAction::Retry(false),
-        }), 1, true).is_none());
-        let request = state.handle(Action::Codex(crate::codex::Action::Usage {
-            ticket: state.codex_ticket(), action: crate::codex::UsageAction::Save,
-        }), 1, true);
-        let Some(Effect::Codex(crate::codex::Effect::UsageSave { ticket, .. })) = request else { panic!("PUBLIC save, not dispatched") };
+        assert!(
+            state
+                .handle(
+                    Action::Codex(crate::codex::Action::Usage {
+                        ticket: state.codex_ticket(),
+                        action: crate::codex::UsageAction::Retry(false),
+                    }),
+                    1,
+                    true
+                )
+                .is_none()
+        );
+        let request = state.handle(
+            Action::Codex(crate::codex::Action::Usage {
+                ticket: state.codex_ticket(),
+                action: crate::codex::UsageAction::Save,
+            }),
+            1,
+            true,
+        );
+        let Some(Effect::Codex(crate::codex::Effect::UsageSave { ticket, .. })) = request else {
+            panic!("PUBLIC save, not dispatched")
+        };
         let pending = state.codex.usage_footer().unwrap();
         assert!(pending.0.contains("not yet acknowledged") && !pending.1);
         for page in Page::ALL {
@@ -1449,5 +1597,61 @@ mod disclosure_tests {
         );
         assert!(!state.api_help_open);
         assert!(state.reading.is_none() && state.metadata.is_none());
+    }
+
+    /// The context/tool-policy explanation is local help on the General page: it
+    /// expands only for its own ticket while that page is open, and produces no
+    /// effect, so it can never be mistaken for a policy change.
+    #[test]
+    fn context_policy_disclosure_is_local_help_on_the_general_page() {
+        let mut state = Settings::default();
+        assert!(state.handle(Action::Open, 1, true).is_some());
+        let page = Info::ContextPolicy.page();
+        assert_eq!(page, Page::General);
+        state.handle(Action::SelectPage(Page::General), 1, true);
+        let ticket = state.info_ticket();
+        assert!(
+            state
+                .handle(
+                    Action::ToggleInfo {
+                        ticket,
+                        info: Info::ContextPolicy,
+                    },
+                    1,
+                    true,
+                )
+                .is_none()
+        );
+        assert!(state.context_policy_open);
+        assert!(!state.api_help_open);
+        // A stale ticket or the wrong page leaves it alone.
+        let stale = Settings::default().info_ticket();
+        assert!(
+            state
+                .handle(
+                    Action::ToggleInfo {
+                        ticket: stale,
+                        info: Info::ContextPolicy,
+                    },
+                    1,
+                    true,
+                )
+                .is_none()
+        );
+        assert!(state.context_policy_open);
+        state.handle(Action::SelectPage(Page::ApiLogin), 1, true);
+        assert!(!state.context_policy_open);
+        // The page still renders with the disclosure expanded.
+        state.handle(Action::SelectPage(Page::General), 1, true);
+        state.handle(
+            Action::ToggleInfo {
+                ticket: state.info_ticket(),
+                info: Info::ContextPolicy,
+            },
+            1,
+            true,
+        );
+        assert!(state.context_policy_open);
+        let _: Element<'_, Action> = state.view(true);
     }
 }

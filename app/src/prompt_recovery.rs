@@ -64,6 +64,8 @@ impl Controller {
     pub fn is_empty(&self) -> bool {
         self.pending.is_none()
     }
+    /// Test-facing membership probe; production reads through [`Self::get`].
+    #[allow(dead_code)]
     pub fn contains_key(&self, generation: &u64) -> bool {
         self.get(generation).is_some()
     }
@@ -114,9 +116,7 @@ impl Controller {
         true
     }
     pub fn remove(&mut self, generation: &u64) -> Option<Pending> {
-        if self.get(generation).is_none() {
-            return None;
-        }
+        self.get(generation)?;
         self.checking = None;
         self.expanded = false;
         self.pending.take().map(|(_, p, _)| p)

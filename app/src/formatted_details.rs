@@ -210,11 +210,13 @@ impl Builder {
         let inline = self.inline.as_mut().ok_or(Failure::Unsupported)?;
         let bold = self.bold != 0;
         let italic = self.italic != 0;
-        if let Some(last) = inline.spans.last_mut() {
-            if last.bold == bold && last.italic == italic && last.code == code {
-                last.text.push_str(text);
-                return Ok(());
-            }
+        if let Some(last) = inline.spans.last_mut()
+            && last.bold == bold
+            && last.italic == italic
+            && last.code == code
+        {
+            last.text.push_str(text);
+            return Ok(());
         }
         if self.spans >= SPANS {
             return Err(Failure::Spans);

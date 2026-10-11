@@ -28,8 +28,13 @@ pub(super) fn codex_ticket(effect: &Effect) -> Ticket {
 }
 enum RuntimeOperation {
     Read,
-    Save { revision: u64, values: dsh_native_core::CodexRuntimeValues,
-        base: dsh_native_core::CodexRuntimeValues },
+    Save {
+        revision: u64,
+        /// Boxed like [`crate::codex_runtime`]'s request: the two value sets
+        /// dwarf every other variant of this operation.
+        values: Box<dsh_native_core::CodexRuntimeValues>,
+        base: Box<dsh_native_core::CodexRuntimeValues>,
+    },
 }
 #[derive(Default)]
 pub(super) struct CodexCoordinator {
@@ -107,8 +112,15 @@ impl CodexCoordinator {
         }
         self.runtime_operation = match effect {
             Effect::RuntimeRead { .. } => Some(RuntimeOperation::Read),
-            Effect::RuntimeSave { expected_revision, values, base_values, .. } => Some(RuntimeOperation::Save {
-                revision: *expected_revision, values: *values, base: *base_values,
+            Effect::RuntimeSave {
+                expected_revision,
+                values,
+                base_values,
+                ..
+            } => Some(RuntimeOperation::Save {
+                revision: *expected_revision,
+                values: Box::new(*values),
+                base: Box::new(*base_values),
             }),
             _ => None,
         };
@@ -171,8 +183,19 @@ impl CodexCoordinator {
                 (RuntimeOperation::Read, Outcome::Runtime(snapshot)) if snapshot.version == 1 => {
                     self.runtime_uncertain = false;
                 }
-                (RuntimeOperation::Save { revision, values, base }, Outcome::Runtime(snapshot))
-                    if crate::codex::runtime_ack_matches(snapshot, revision, values, base) => {}
+                (
+                    RuntimeOperation::Save {
+                        revision,
+                        values,
+                        base,
+                    },
+                    Outcome::Runtime(snapshot),
+                ) if crate::codex::runtime_ack_matches(
+                    snapshot,
+                    revision,
+                    *values.clone(),
+                    *base.clone(),
+                ) => {}
                 (_, Outcome::NotSent) => {}
                 (RuntimeOperation::Save { .. }, _) => self.runtime_uncertain = true,
                 _ => {}
@@ -182,7 +205,9 @@ impl CodexCoordinator {
         if let Some(saving) = self.usage_operation.take() {
             match outcome {
                 Outcome::UsageSnapshot(snapshot) if snapshot.version == 1 => {
-                    if !saving { self.usage_uncertain = false; }
+                    if !saving {
+                        self.usage_uncertain = false;
+                    }
                 }
                 Outcome::NotSent | Outcome::UsageConflict | Outcome::UsageUnavailable => {}
                 _ if saving => self.usage_uncertain = true,
@@ -230,19 +255,29 @@ fn project_usage(result: Result<PublicReply, dsh_native_core::Error>) -> Outcome
         _ => Outcome::UsageIndeterminate,
     }
 }
-fn project_usage_save(result: Result<PublicReply, dsh_native_core::Error>, expected_revision: u64,
-    preferences: dsh_native_core::CodexUsagePreferences) -> Outcome {
+fn project_usage_save(
+    result: Result<PublicReply, dsh_native_core::Error>,
+    expected_revision: u64,
+    preferences: dsh_native_core::CodexUsagePreferences,
+) -> Outcome {
     match project_usage(result) {
-        Outcome::UsageSnapshot(snapshot) if snapshot.version == 1 && snapshot.persisted
-            && expected_revision.checked_add(1) == Some(snapshot.revision)
-            && snapshot.preferences == preferences => Outcome::UsageSnapshot(snapshot),
+        Outcome::UsageSnapshot(snapshot)
+            if snapshot.version == 1
+                && snapshot.persisted
+                && expected_revision.checked_add(1) == Some(snapshot.revision)
+                && snapshot.preferences == preferences =>
+        {
+            Outcome::UsageSnapshot(snapshot)
+        }
         Outcome::UsageSnapshot(_) => Outcome::UsageIndeterminate,
         other => other,
     }
 }
 fn project_runtime(result: Result<PublicReply, dsh_native_core::Error>) -> Outcome {
     match result {
-        Ok(PublicReply::CodexRuntime(snapshot)) if snapshot.version == 1 => Outcome::Runtime(snapshot),
+        Ok(PublicReply::CodexRuntime(snapshot)) if snapshot.version == 1 => {
+            Outcome::Runtime(snapshot)
+        }
         Err(dsh_native_core::Error::CodexRuntimeConflict) => Outcome::RuntimeConflict,
         Err(dsh_native_core::Error::CodexRuntimeUnavailable) => Outcome::RuntimeUnavailable,
         Err(dsh_native_core::Error::InvalidCommand) => Outcome::NotSent,
@@ -250,10 +285,18 @@ fn project_runtime(result: Result<PublicReply, dsh_native_core::Error>) -> Outco
         _ => Outcome::RuntimeIndeterminate,
     }
 }
-fn project_runtime_save(result: Result<PublicReply, dsh_native_core::Error>, revision: u64,
-    values: dsh_native_core::CodexRuntimeValues, base: dsh_native_core::CodexRuntimeValues) -> Outcome {
+fn project_runtime_save(
+    result: Result<PublicReply, dsh_native_core::Error>,
+    revision: u64,
+    values: dsh_native_core::CodexRuntimeValues,
+    base: dsh_native_core::CodexRuntimeValues,
+) -> Outcome {
     match project_runtime(result) {
-        Outcome::Runtime(snapshot) if crate::codex::runtime_ack_matches(snapshot, revision, values, base) => Outcome::Runtime(snapshot),
+        Outcome::Runtime(snapshot)
+            if crate::codex::runtime_ack_matches(snapshot, revision, values, base) =>
+        {
+            Outcome::Runtime(snapshot)
+        }
         Outcome::Runtime(_) => Outcome::RuntimeIndeterminate,
         other => other,
     }
@@ -264,18 +307,44 @@ pub(super) fn execute_codex(backend: &Backend, effect: Effect) -> Outcome {
         Effect::RuntimeRead { .. } => {
             return project_runtime(backend.request(CoreCommand::CodexRuntimeRead, timeout));
         }
-        Effect::RuntimeSave { expected_revision, values, base_values, .. } => {
-            return project_runtime_save(backend.request(CoreCommand::CodexRuntimeSave {
-                expected_revision, values,
-            }, timeout), expected_revision, values, base_values);
+        Effect::RuntimeSave {
+            expected_revision,
+            values,
+            base_values,
+            ..
+        } => {
+            return project_runtime_save(
+                backend.request(
+                    CoreCommand::CodexRuntimeSave {
+                        expected_revision,
+                        values,
+                    },
+                    timeout,
+                ),
+                expected_revision,
+                values,
+                base_values,
+            );
         }
         Effect::UsageRead { .. } => {
             return project_usage(backend.request(CoreCommand::CodexUsageLoad, timeout));
         }
-        Effect::UsageSave { expected_revision, preferences, .. } => {
-            return project_usage_save(backend.request(CoreCommand::CodexUsageSave {
-                expected_revision, preferences,
-            }, timeout), expected_revision, preferences);
+        Effect::UsageSave {
+            expected_revision,
+            preferences,
+            ..
+        } => {
+            return project_usage_save(
+                backend.request(
+                    CoreCommand::CodexUsageSave {
+                        expected_revision,
+                        preferences,
+                    },
+                    timeout,
+                ),
+                expected_revision,
+                preferences,
+            );
         }
         Effect::StatusRead { .. } | Effect::AccountsRead { .. } => {
             // Missing metadata after an admitted request is unknown, never NotSent or legacy fallback.

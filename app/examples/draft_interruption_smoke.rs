@@ -29,6 +29,10 @@ mod rename;
 mod settings;
 #[path = "../src/smoke.rs"]
 mod smoke;
+#[path = "../src/terminal.rs"]
+mod terminal;
+#[path = "../src/work_panel.rs"]
+mod work_panel;
 #[path = "../src/worker.rs"]
 mod worker;
 mod ui {

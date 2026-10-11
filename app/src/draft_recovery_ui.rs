@@ -189,7 +189,7 @@ pub(super) async fn operation(
         },
     })
     .await;
-    joined.unwrap_or_else(|_| match ticket.kind {
+    joined.unwrap_or(match ticket.kind {
         Kind::Load => Outcome::Loaded {
             ticket,
             result: Err(Failure::Unavailable),

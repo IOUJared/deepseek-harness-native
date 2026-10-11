@@ -8,14 +8,17 @@ use dsh_native_core::{
 
 pub(super) fn seed(app: &mut App) {
     let ticket = app.settings.codex_ticket();
-    let effect = app.settings.handle(
-        settings::Action::Codex(codex::Action::Runtime {
-            ticket,
-            action: codex::RuntimeAction::Refresh,
-        }),
-        app.transport_epoch,
-        true,
-    ).expect("PUBLIC runtime read, never dispatched");
+    let effect = app
+        .settings
+        .handle(
+            settings::Action::Codex(codex::Action::Runtime {
+                ticket,
+                action: codex::RuntimeAction::Refresh,
+            }),
+            app.transport_epoch,
+            true,
+        )
+        .expect("PUBLIC runtime read, never dispatched");
     let settings::Effect::Codex(codex::Effect::RuntimeRead { ticket }) = effect else {
         panic!("PUBLIC expected runtime read");
     };
@@ -36,26 +39,36 @@ pub(super) fn seed(app: &mut App) {
         request_image_max_bytes: Some(CodexImageBudget::new(524288).unwrap()),
         max_request_image_bytes: Some(CodexImageBudget::new(8388608).unwrap()),
     };
-    app.settings.codex_completed(ticket, codex::Outcome::Runtime(CodexRuntimeSnapshot {
-        version: 1,
-        revision: 4,
-        configured: true,
-        writable: true,
-        values: overrides,
-        base_values,
-        overrides,
-    }));
+    app.settings.codex_completed(
+        ticket,
+        codex::Outcome::Runtime(CodexRuntimeSnapshot {
+            version: 1,
+            revision: 4,
+            configured: true,
+            writable: true,
+            values: overrides,
+            base_values,
+            overrides,
+        }),
+    );
 }
 
 pub(super) fn fail_save(app: &mut App) {
     let ticket = app.settings.codex_ticket();
-    let effect = app.settings.handle(
-        settings::Action::Codex(codex::Action::Runtime { ticket, action: codex::RuntimeAction::Save }),
-        app.transport_epoch,
-        true,
-    ).expect("PUBLIC runtime save, never dispatched");
+    let effect = app
+        .settings
+        .handle(
+            settings::Action::Codex(codex::Action::Runtime {
+                ticket,
+                action: codex::RuntimeAction::Save,
+            }),
+            app.transport_epoch,
+            true,
+        )
+        .expect("PUBLIC runtime save, never dispatched");
     let settings::Effect::Codex(codex::Effect::RuntimeSave { ticket, .. }) = effect else {
         panic!("PUBLIC expected runtime save");
     };
-    app.settings.codex_completed(ticket, codex::Outcome::RuntimeIndeterminate);
+    app.settings
+        .codex_completed(ticket, codex::Outcome::RuntimeIndeterminate);
 }

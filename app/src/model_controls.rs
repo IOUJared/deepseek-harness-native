@@ -84,9 +84,14 @@ impl State {
     pub fn is_open(&self) -> bool {
         self.open.is_some()
     }
+    /// Presentation-only acknowledgement stamp; the mutation path keeps its own.
+    #[allow(dead_code)]
     pub(super) fn stamp(&self) -> Option<Stamp> {
         self.open
     }
+    /// Which anchored submenu is open, for presentation that needs the section
+    /// rather than only the open state.
+    #[allow(dead_code)]
     pub(super) fn section(&self) -> Option<Section> {
         self.section
     }
@@ -394,9 +399,10 @@ mod tests {
     }
     fn receive_catalog(app: &mut App, result: Result<ModelCatalog, String>) {
         // PUBLIC reducer fixtures explicitly own a read; no real worker/provider runs.
-        let ticket = app.catalog_read.current().unwrap_or_else(|| {
-            app.catalog_read.begin(app.transport_epoch).unwrap()
-        });
+        let ticket = app
+            .catalog_read
+            .current()
+            .unwrap_or_else(|| app.catalog_read.begin(app.transport_epoch).unwrap());
         drop(app.receive(Event::Catalog { ticket, result }));
     }
     fn open(app: &mut App) -> Stamp {
@@ -427,7 +433,8 @@ mod tests {
         app.models.clear();
         assert_eq!(app.model_choice_name(), "Choose model");
         assert_eq!(app.model_caption(), "Choose model");
-        app.model_controls.seed_menu(app.transport_epoch, app.generation);
+        app.model_controls
+            .seed_menu(app.transport_epoch, app.generation);
         drop(app.model_control());
         assert!(rx.try_recv().is_err()); // Views never initiate another catalog request.
         app.catalog_read.begin(app.transport_epoch).unwrap();
@@ -682,11 +689,14 @@ mod tests {
             assert!(matches!(rx.try_recv().unwrap(), Command::Catalog(_)));
             let mut empty = catalog();
             empty.groups.clear();
-            receive_catalog(&mut app, if failed {
-                Err("PUBLIC unavailable".into())
-            } else {
-                Ok(empty)
-            });
+            receive_catalog(
+                &mut app,
+                if failed {
+                    Err("PUBLIC unavailable".into())
+                } else {
+                    Ok(empty)
+                },
+            );
             let stamp = app.model_controls.stamp().unwrap();
             drop(app.update(Message::ModelControls(Action::Browse(
                 stamp,

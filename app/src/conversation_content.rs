@@ -171,6 +171,8 @@ impl Prepared {
             .map_or(0.0, |offset| y + offset)
         }
     }
+    /// Non-search view; the transcript renders through the search-aware one.
+    #[allow(dead_code)]
     pub fn view(&self, width: f32, expanded: bool) -> Element<'static, Message> {
         self.view_search(width, expanded, "")
     }
@@ -296,6 +298,10 @@ impl Cache {
 
 type Run = native::Span<'static, (), Font>;
 
+/// `max().min()` rather than `clamp`: `f32::clamp` propagates NaN, while this
+/// form answers a finite 1.0 for a non-finite width, which is what keeps a
+/// degenerate measurement from reaching the layout as NaN.
+#[allow(clippy::manual_clamp)]
 fn bounded_width(width: f32) -> f32 {
     width.max(1.0).min(4096.0)
 }

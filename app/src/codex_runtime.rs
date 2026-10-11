@@ -39,13 +39,15 @@ pub enum Action {
     Cache(Option<CodexCacheRetention>),
     Number { field: Field, value: String },
 }
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum Request {
     Read,
     Save {
         revision: u64,
-        values: CodexRuntimeValues,
-        base: CodexRuntimeValues,
+        /// Both value sets are boxed: together they dwarf every other variant,
+        /// and this request is carried inside a `Result` back to the caller.
+        values: Box<CodexRuntimeValues>,
+        base: Box<CodexRuntimeValues>,
     },
 }
 struct Pending {
@@ -257,7 +259,14 @@ impl Runtime {
                 self.transport = None;
                 self.cache = None;
                 self.numbers = std::array::from_fn(|_| String::new());
-                if !matches!(self.notice, Notice::Reading | Notice::Failed | Notice::Conflict | Notice::Unknown | Notice::Unavailable) {
+                if !matches!(
+                    self.notice,
+                    Notice::Reading
+                        | Notice::Failed
+                        | Notice::Conflict
+                        | Notice::Unknown
+                        | Notice::Unavailable
+                ) {
                     self.notice = Notice::Reset;
                 }
             }
@@ -288,8 +297,8 @@ impl Runtime {
             ticket,
             request: Request::Save {
                 revision: snapshot.revision,
-                values,
-                base: snapshot.base_values,
+                values: Box::new(values),
+                base: Box::new(snapshot.base_values),
             },
         });
         // An admitted full draft is intent, even a no-op: unknown/conflict reads retain it.
@@ -352,7 +361,7 @@ impl Runtime {
                     base,
                 },
                 Outcome::Runtime(snapshot),
-            ) if ack_matches(snapshot, revision, values, base) => {
+            ) if ack_matches(snapshot, revision, *values.clone(), *base.clone()) => {
                 self.snapshot = Some(snapshot);
                 self.load_draft(snapshot);
                 self.fresh = true;

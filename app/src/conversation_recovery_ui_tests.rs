@@ -2,7 +2,7 @@
 #[test]
 fn recovered_delivery_is_unknown_and_consent_cannot_survive_new_editor_revision() {
     let (mut app, mut queue) = app();
-    app.transport_epoch=worker::TRANSPORT_EPOCH; // Represent a current owned transport; no executor.
+    app.transport_epoch = worker::TRANSPORT_EPOCH; // Represent a current owned transport; no executor.
     let session = app.selected.clone().unwrap();
     let load = app.draft_state.start_load().unwrap();
     drop(app.update(Message::DraftOutcome(Outcome::Loaded {

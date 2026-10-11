@@ -47,7 +47,10 @@ impl State {
     }
     #[cfg(test)]
     pub(crate) fn exhausted() -> Self {
-        Self { serial: u64::MAX, flight: None }
+        Self {
+            serial: u64::MAX,
+            flight: None,
+        }
     }
 }
 #[cfg(test)]
@@ -77,7 +80,10 @@ mod tests {
     }
     #[test]
     fn serial_exhaustion_never_wraps_or_admits_a_new_read() {
-        let mut state = State { serial: u64::MAX - 1, flight: None };
+        let mut state = State {
+            serial: u64::MAX - 1,
+            flight: None,
+        };
         let last = state.begin(1).unwrap();
         assert_eq!(last.serial, u64::MAX);
         state.retire();

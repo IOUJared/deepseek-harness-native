@@ -257,7 +257,7 @@ fn hide_tab_switch_epoch_and_stale_actions_cannot_ack_or_replace_drafts() {
         c.completed(ticket, ack(revision, preferences));
         assert!(!c.effective_consent());
         assert!(!c.usage.snapshot.unwrap().persisted);
-        assert_eq!(c.usage.draft.experimental_quota, true);
+        assert!(c.usage.draft.experimental_quota);
         assert!(!c.usage.can_save());
         c.handle(
             CodexAction::Usage {
@@ -355,24 +355,46 @@ fn malformed_save_snapshot_is_unknown_not_success() {
 
 #[test]
 fn interrupted_connect_status_cannot_schedule_an_unowned_preference_followup() {
-    use dsh_native_core::{CodexAccountMode, CodexAccountsMetadata, CodexLegacyGrant, CodexMetadata, CodexPhase};
+    use dsh_native_core::{
+        CodexAccountMode, CodexAccountsMetadata, CodexLegacyGrant, CodexMetadata, CodexPhase,
+    };
     let mut c = controller();
-    let Some(Effect::StatusRead { ticket }) = c.handle(CodexAction::Connect(c.ticket()), context()) else {
+    let Some(Effect::StatusRead { ticket }) = c.handle(CodexAction::Connect(c.ticket()), context())
+    else {
         panic!("explicit connect status")
     };
-    assert!(c.continue_connection(Context { visible: false, ..context() }).is_none());
+    assert!(
+        c.continue_connection(Context {
+            visible: false,
+            ..context()
+        })
+        .is_none()
+    );
     assert!(c.connection.is_none());
-    c.completed(ticket, Outcome::StatusSnapshot {
-        metadata: CodexMetadata {
-            available: true, credential_stored: false, route_configured: false,
-            phase: CodexPhase::Idle, attempt: None, prompt: None,
-            browser_available: false, settings_revision: Some(0), retry_blocked: false,
+    c.completed(
+        ticket,
+        Outcome::StatusSnapshot {
+            metadata: CodexMetadata {
+                available: true,
+                credential_stored: false,
+                route_configured: false,
+                phase: CodexPhase::Idle,
+                attempt: None,
+                prompt: None,
+                browser_available: false,
+                settings_revision: Some(0),
+                retry_blocked: false,
+            },
+            accounts: CodexAccountsMetadata {
+                mode: CodexAccountMode::Managed,
+                accounts: vec![],
+                selected: None,
+                epoch: Some(0),
+                legacy: CodexLegacyGrant::Absent,
+                added: None,
+            },
         },
-        accounts: CodexAccountsMetadata {
-            mode: CodexAccountMode::Managed, accounts: vec![], selected: None,
-            epoch: Some(0), legacy: CodexLegacyGrant::Absent, added: None,
-        },
-    });
+    );
     assert!(c.continue_connection(context()).is_none());
     assert!(!c.usage.pending());
     assert!(c.usage.snapshot.is_none());
@@ -392,14 +414,40 @@ fn valid_threshold_clears_only_local_validation_warning_not_backend_reconciliati
 #[test]
 fn native_owned_refresh_rebases_readonly_threshold_without_losing_optouts() {
     let mut c = controller();
-    let initial = CodexUsageSnapshot { version: 1, revision: 9, persisted: true, preferences: CodexUsagePreferences { composer_display: CodexComposerDisplay::ProgressBar, usage_alert: CodexUsageAlert::Custom, retry_after_reset: true, experimental_quota: true, ..CodexUsagePreferences::default() } };
+    let initial = CodexUsageSnapshot {
+        version: 1,
+        revision: 9,
+        persisted: true,
+        preferences: CodexUsagePreferences {
+            composer_display: CodexComposerDisplay::ProgressBar,
+            usage_alert: CodexUsageAlert::Custom,
+            retry_after_reset: true,
+            experimental_quota: true,
+            ..CodexUsagePreferences::default()
+        },
+    };
     read(&mut c, initial);
-    for a in [Action::Composer(CodexComposerDisplay::Off), Action::Alert(CodexUsageAlert::Off), Action::Retry(false), Action::Consent(false)] { action(&mut c, a); }
-    let Some(Effect::UsageRead { ticket }) = action(&mut c, Action::Refresh) else { panic!("read") };
+    for a in [
+        Action::Composer(CodexComposerDisplay::Off),
+        Action::Alert(CodexUsageAlert::Off),
+        Action::Retry(false),
+        Action::Consent(false),
+    ] {
+        action(&mut c, a);
+    }
+    let Some(Effect::UsageRead { ticket }) = action(&mut c, Action::Refresh) else {
+        panic!("read")
+    };
     let mut updated = initial;
     updated.revision = 10;
     updated.preferences.custom_remaining_percent = CodexRemainingPercent::new(17.5).unwrap();
-    c.completed_native(Ticket { serial: ticket.serial + 1, ..ticket }, Outcome::UsageSnapshot(updated));
+    c.completed_native(
+        Ticket {
+            serial: ticket.serial + 1,
+            ..ticket
+        },
+        Outcome::UsageSnapshot(updated),
+    );
     assert_eq!(c.usage.threshold, "20");
     assert!(c.usage.pending());
     c.completed_native(ticket, Outcome::UsageSnapshot(updated));
@@ -419,13 +467,29 @@ fn native_failed_unowned_or_retired_read_cannot_rebase_threshold_or_restore_cons
         let mut c = loaded();
         action(&mut c, Action::Threshold("19.25".into())); // Generic foundation draft, not native UI.
         action(&mut c, Action::Consent(false));
-        let Some(Effect::UsageRead { ticket }) = action(&mut c, Action::Refresh) else { panic!("read") };
-        match kind { 0 => c.leave(), 1 => c.adopt_epoch(2), _ => {} }
+        let Some(Effect::UsageRead { ticket }) = action(&mut c, Action::Refresh) else {
+            panic!("read")
+        };
+        match kind {
+            0 => c.leave(),
+            1 => c.adopt_epoch(2),
+            _ => {}
+        }
         let mut updated = CodexUsageSnapshot::default();
         updated.preferences.custom_remaining_percent = CodexRemainingPercent::new(17.5).unwrap();
-        if kind == 2 { c.completed_native(ticket, Outcome::UsageUnavailable); }
-        else if kind == 3 { c.completed_native(ticket, Outcome::UsageSnapshot(CodexUsageSnapshot { version: 2, ..updated })); }
-        else { c.completed_native(ticket, Outcome::UsageSnapshot(updated)); }
+        if kind == 2 {
+            c.completed_native(ticket, Outcome::UsageUnavailable);
+        } else if kind == 3 {
+            c.completed_native(
+                ticket,
+                Outcome::UsageSnapshot(CodexUsageSnapshot {
+                    version: 2,
+                    ..updated
+                }),
+            );
+        } else {
+            c.completed_native(ticket, Outcome::UsageSnapshot(updated));
+        }
         assert_eq!(c.usage.threshold, "19.25");
         assert!(!c.usage.can_save());
         assert!(!c.effective_consent());
@@ -439,14 +503,25 @@ fn native_unrelated_and_duplicate_callbacks_do_not_rebase_generic_drafts() {
     action(&mut c, Action::Threshold("19.25".into()));
     c.completed_native(ticket, ack(revision, preferences));
     assert_eq!(c.usage.threshold, "19.25");
-    let Some(Effect::UsageRead { ticket }) = action(&mut c, Action::Refresh) else { panic!("read") };
-    c.completed(ticket, Outcome::UsageSnapshot(CodexUsageSnapshot::default())); // Generic API stays editable.
+    let Some(Effect::UsageRead { ticket }) = action(&mut c, Action::Refresh) else {
+        panic!("read")
+    };
+    c.completed(
+        ticket,
+        Outcome::UsageSnapshot(CodexUsageSnapshot::default()),
+    ); // Generic API stays editable.
     assert_eq!(c.usage.threshold, "19.25");
     assert!(!c.usage_surface_action_allowed(&Action::Save));
 }
 #[test]
 fn native_save_policy_cannot_persist_enabling_or_threshold_changes_from_generic_foundation() {
-    for action in [Action::Composer(CodexComposerDisplay::Percent), Action::Alert(CodexUsageAlert::Custom), Action::Retry(true), Action::Consent(true), Action::Threshold("17.5".into())] {
+    for action in [
+        Action::Composer(CodexComposerDisplay::Percent),
+        Action::Alert(CodexUsageAlert::Custom),
+        Action::Retry(true),
+        Action::Consent(true),
+        Action::Threshold("17.5".into()),
+    ] {
         let mut c = loaded();
         c.usage.edit(action); // The future-compatible store/reducer is not the native capability gate.
         assert!(c.usage.can_save());
@@ -455,7 +530,11 @@ fn native_save_policy_cannot_persist_enabling_or_threshold_changes_from_generic_
 }
 #[test]
 fn reconciliation_warnings_survive_invalid_drafts_and_clear_only_after_owned_refresh() {
-    for outcome in [Outcome::Indeterminate, Outcome::UsageConflict, Outcome::UsageUnavailable] {
+    for outcome in [
+        Outcome::Indeterminate,
+        Outcome::UsageConflict,
+        Outcome::UsageUnavailable,
+    ] {
         let mut c = loaded();
         let (ticket, _, _) = save(&mut c);
         c.completed(ticket, outcome);
@@ -490,7 +569,13 @@ fn fixed_usage_footer_retains_pending_and_unknown_across_tabs_and_hiding() {
     assert!(!attention);
     assert!(!c.pending_account_operation()); // Local preferences are not sign-in work.
     for tab in Tab::ALL {
-        c.handle(CodexAction::SelectTab { ticket: c.ticket(), tab }, context());
+        c.handle(
+            CodexAction::SelectTab {
+                ticket: c.ticket(),
+                tab,
+            },
+            context(),
+        );
         assert!(c.usage_footer().unwrap().0.contains("not yet acknowledged"));
         let _: iced::Element<'_, CodexAction> = c.view(context());
     }
@@ -507,14 +592,19 @@ fn fixed_usage_footer_retains_pending_and_unknown_across_tabs_and_hiding() {
 #[test]
 fn lost_read_is_unavailable_not_false_write_uncertainty_and_late_receipt_cannot_clear_it() {
     let mut c = loaded();
-    let Some(Effect::UsageRead { ticket }) = action(&mut c, Action::Refresh) else { panic!("read") };
+    let Some(Effect::UsageRead { ticket }) = action(&mut c, Action::Refresh) else {
+        panic!("read")
+    };
     assert!(c.usage_footer().unwrap().0.contains("Reading local"));
     c.adopt_epoch(2);
     let warning = c.usage_footer().unwrap();
     assert!(warning.0.contains("Preferences unavailable"));
     assert!(!warning.0.contains("Save outcome unknown"));
     assert!(warning.1);
-    c.completed(ticket, Outcome::UsageSnapshot(CodexUsageSnapshot::default()));
+    c.completed(
+        ticket,
+        Outcome::UsageSnapshot(CodexUsageSnapshot::default()),
+    );
     assert_eq!(c.usage_footer(), Some(warning));
     assert!(!c.usage.can_save());
     assert!(!c.effective_consent());

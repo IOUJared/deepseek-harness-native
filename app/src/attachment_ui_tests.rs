@@ -112,7 +112,7 @@ fn file_only_send_uses_ticket_not_receipt_and_blocks_duplicate_send() {
     assert!(rx.try_recv().is_err());
     let _ = app.receive(Event::Prompt {
         generation: t.generation,
-        request_id:request.request_id.clone(),
+        request_id: request.request_id.clone(),
         result: Ok(Accepted { accepted: true }),
     });
     assert!(app.files.prompt_pending());

@@ -75,7 +75,7 @@ async fn checks(
         let entry = value
             .items
             .iter()
-            .find(|w| PathBuf::from(&w.path) == workspace)
+            .find(|w| *&w.path == workspace)
             .ok_or("opened-workspace-missing")?;
         let workspace_id = entry.workspace_id.clone();
         report["workspaceCount"] = json!(value.items.len());

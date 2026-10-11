@@ -341,11 +341,15 @@ impl Draft {
         {
             return;
         }
-        if matches!(&self.state, State::Unknown(t, _) if t == ticket) && outcome != PromptOutcome::Unknown {
+        if matches!(&self.state, State::Unknown(t, _) if t == ticket)
+            && outcome != PromptOutcome::Unknown
+        {
             self.reconcile_prompt(ticket, request_id, outcome == PromptOutcome::Accepted, c);
             return;
         }
-        if outcome != PromptOutcome::Unknown { self.prompt_owner = None; }
+        if outcome != PromptOutcome::Unknown {
+            self.prompt_owner = None;
+        }
         if !matches!(&self.state, State::Sending(t, _) if t == ticket) {
             return;
         }
@@ -372,11 +376,27 @@ impl Draft {
         };
     }
     /// Exact identity observation retires unknown prompt ownership, never restores an upload receipt.
-    pub fn reconcile_prompt(&mut self, ticket: &Ticket, request_id: &SessionRequestId, accepted: bool, c: &Context) {
-        if self.prompt_owner.as_ref().is_none_or(|(t,r)|t!=ticket || r!=request_id) { return; }
-        self.prompt_owner=None;
-        if !c.matches(ticket) || !matches!(&self.state,State::Unknown(t,_) | State::Sending(t,_) if t==ticket) { return; }
-        self.state=State::Empty;
+    pub fn reconcile_prompt(
+        &mut self,
+        ticket: &Ticket,
+        request_id: &SessionRequestId,
+        accepted: bool,
+        c: &Context,
+    ) {
+        if self
+            .prompt_owner
+            .as_ref()
+            .is_none_or(|(t, r)| t != ticket || r != request_id)
+        {
+            return;
+        }
+        self.prompt_owner = None;
+        if !c.matches(ticket)
+            || !matches!(&self.state,State::Unknown(t,_) | State::Sending(t,_) if t==ticket)
+        {
+            return;
+        }
+        self.state = State::Empty;
         self.notice=(!accepted).then_some("Original submission was rejected before dispatch. Upload receipt is not reused; choose the file again explicitly.");
     }
 }
@@ -413,10 +433,7 @@ impl fmt::Debug for Attachments {
 }
 impl Attachments {
     fn free(slot: &Draft) -> bool {
-        slot.ticket().is_none()
-            && !slot.editor_open()
-            && !slot.pending()
-            && !slot.prompt_pending()
+        slot.ticket().is_none() && !slot.editor_open() && !slot.pending() && !slot.prompt_pending()
     }
     /// Occupied slots: every slot that owns a file identity, including a reading, rejected or
     /// unknown one. The cap counts these, never the free open slot.
@@ -578,10 +595,16 @@ impl Attachments {
     pub fn metadata(&self) -> Option<&Metadata> {
         self.slots.iter().find_map(Draft::metadata)
     }
+    /// Slot-order ready receipt for the caller's display model; the send path
+    /// reads the full ticket set directly.
+    #[allow(dead_code)]
     pub fn ready(&self) -> Option<(&Ticket, &Metadata)> {
         self.slots.iter().find_map(Draft::ready)
     }
     /// Every ready ticket in slot order; the same set [`Self::begin_prompt`] returns.
+    /// Every ready ticket in slot order, for a caller that needs the whole
+    /// set; the send path reads them from the prompt it begins.
+    #[allow(dead_code)]
     pub fn tickets(&self) -> Vec<Ticket> {
         self.attachments()
             .into_iter()
@@ -622,7 +645,11 @@ impl Attachments {
     /// Bind one explicit prompt attempt over every ready file. Requires at least one ready file,
     /// no pending read and no prompt already in flight; the returned set is exactly the tickets
     /// the worker must settle.
-    pub fn begin_prompt(&mut self, c: &Context, request_id: SessionRequestId) -> Option<Vec<Ticket>> {
+    pub fn begin_prompt(
+        &mut self,
+        c: &Context,
+        request_id: SessionRequestId,
+    ) -> Option<Vec<Ticket>> {
         if !self.can_send(c) || !self.has_file(c) || self.pending() || self.prompt_pending() {
             return None;
         }
@@ -1092,10 +1119,10 @@ mod tests {
         assert_eq!(draft.notice(), Some(PROMPT_UNKNOWN));
         assert!(draft.begin_prompt(&c, id.clone()).is_none());
         assert!(!draft.open(&c));
-        let wrong=SessionRequestId::new("PUBLIC wrong observation").unwrap();
-        draft.reconcile_prompt(&ticket,&wrong,true,&c);
+        let wrong = SessionRequestId::new("PUBLIC wrong observation").unwrap();
+        draft.reconcile_prompt(&ticket, &wrong, true, &c);
         assert!(draft.prompt_pending());
-        draft.reconcile_prompt(&ticket,&id,false,&c);
+        draft.reconcile_prompt(&ticket, &id, false, &c);
         assert!(!draft.prompt_pending());
         assert!(draft.ready().is_none());
         assert!(draft.can_send(&c));
@@ -1104,16 +1131,31 @@ mod tests {
     }
 
     #[test]
-    fn exact_old_reconciliation_after_view_invalidation_does_not_clear_a_new_file_or_delayed_read() {
-        let c=context();let next=other_contexts().remove(1);let mut draft=Draft::default();
-        let old=staged(&mut draft,&c);let id=request();draft.begin_prompt(&c,id.clone());draft.prompt_complete(&old,&id,PromptOutcome::Unknown,&c);
+    fn exact_old_reconciliation_after_view_invalidation_does_not_clear_a_new_file_or_delayed_read()
+    {
+        let c = context();
+        let next = other_contexts().remove(1);
+        let mut draft = Draft::default();
+        let old = staged(&mut draft, &c);
+        let id = request();
+        draft.begin_prompt(&c, id.clone());
+        draft.prompt_complete(&old, &id, PromptOutcome::Unknown, &c);
         draft.invalidate();
-        let fresh=Ticket{epoch:next.epoch,generation:next.generation,serial:old.serial+1,target:next.target.clone().unwrap()};
-        draft.state=State::Ready(fresh.clone(),metadata());draft.read_owner=Some(fresh.clone());
-        draft.reconcile_prompt(&old,&id,true,&next);
-        assert!(!draft.prompt_pending());assert_eq!(draft.ready().unwrap().0,&fresh);assert!(draft.pending());
-        draft.complete(&old,Outcome::Staged(metadata()),&next);
-        assert_eq!(draft.ready().unwrap().0,&fresh);assert!(draft.pending());
+        let fresh = Ticket {
+            epoch: next.epoch,
+            generation: next.generation,
+            serial: old.serial + 1,
+            target: next.target.clone().unwrap(),
+        };
+        draft.state = State::Ready(fresh.clone(), metadata());
+        draft.read_owner = Some(fresh.clone());
+        draft.reconcile_prompt(&old, &id, true, &next);
+        assert!(!draft.prompt_pending());
+        assert_eq!(draft.ready().unwrap().0, &fresh);
+        assert!(draft.pending());
+        draft.complete(&old, Outcome::Staged(metadata()), &next);
+        assert_eq!(draft.ready().unwrap().0, &fresh);
+        assert!(draft.pending());
     }
     #[test]
     fn stale_prompt_and_disconnect_callbacks_never_clobber_fresh_draft_and_debug_is_redacted() {
@@ -1131,7 +1173,11 @@ mod tests {
                 let id = request();
                 draft.begin_prompt(&c, id.clone()).unwrap();
                 draft.prompt_complete(&ticket, &id, outcome, &wrong);
-                if outcome==PromptOutcome::Unknown {assert!(draft.prompt_pending());assert!(!draft.can_send(&wrong));draft.reconcile_prompt(&ticket,&id,true,&wrong);}
+                if outcome == PromptOutcome::Unknown {
+                    assert!(draft.prompt_pending());
+                    assert!(!draft.can_send(&wrong));
+                    draft.reconcile_prompt(&ticket, &id, true, &wrong);
+                }
                 assert!(!draft.prompt_pending());
                 assert!(draft.metadata().is_none());
                 assert!(draft.notice().is_none());
@@ -1164,7 +1210,10 @@ mod tests {
             assert!(!draft.open(&next));
             assert!(!draft.can_send(&next));
             draft.prompt_complete(&ticket, &id, outcome, &next);
-            if outcome==PromptOutcome::Unknown {assert!(draft.prompt_pending());draft.reconcile_prompt(&ticket,&id,true,&next);}
+            if outcome == PromptOutcome::Unknown {
+                assert!(draft.prompt_pending());
+                draft.reconcile_prompt(&ticket, &id, true, &next);
+            }
             assert!(!draft.prompt_pending());
             assert!(draft.metadata().is_none());
             assert!(draft.notice().is_none());
@@ -1231,7 +1280,12 @@ mod tests {
         // The whole set settles one ticket at a time; ownership clears only after the last one.
         files.prompt_complete(&held[0], &request(), PromptOutcome::Accepted, &c);
         assert!(files.prompt_pending());
-        assert!(files.active().iter().any(|(ticket, _, _)| *ticket == &held[1]));
+        assert!(
+            files
+                .active()
+                .iter()
+                .any(|(ticket, _, _)| *ticket == &held[1])
+        );
         files.prompt_complete(&held[1], &request(), PromptOutcome::Accepted, &c);
         assert!(!files.prompt_pending());
         assert!(!files.pending());
@@ -1293,7 +1347,11 @@ mod tests {
         files.complete(&ticket, Outcome::NotSent, &c);
         assert!(files.attachments().is_empty());
         assert_eq!(files.active().len(), 1);
-        assert!(files.notice().is_some_and(|notice| notice.contains("not sent")));
+        assert!(
+            files
+                .notice()
+                .is_some_and(|notice| notice.contains("not sent"))
+        );
         assert!(!files.can_send(&c));
         assert!(!files.at_capacity());
         assert!(files.open(&c), "an explicit repick slot stays available");

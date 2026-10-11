@@ -47,8 +47,10 @@ The backend's own text for the first two names the web Models page and the `DEEP
 | Missing and invalid credentials produce actionable guidance, not a crash | same spec: "logs actionable missing-credential guidance…" / "…invalid-credential guidance…" |
 | The native transcript replaces those provider strings with a short native notice | `credential_failures_name_the_native_fix_instead_of_the_provider_message` |
 | Paste, the page, the model list and the provider-options editor render and stay inert when they should | app unit suite |
+| **Live generation through the credential arrangement this app uses** | `packages/llm/llm-deepseek/tests/runtime.e2e.ts` "serves a real request with the key held only by a credentials-local document" — **1 passed** against the public endpoint with the stored key; the ambient variable is scrubbed so only `.credentials.yaml` can supply it, and the round trip returned `finish.kind=stop` with the expected word in **1.2 s** (one request, `maxTokens` 50) |
+| The app's own live path works with a real key | its recorded sessions: `request/header` `provider=deepseek-official model=deepseek-flash reasoningEffort=high`, a model-chosen tool call that executed, and **no retry or turn error** |
 
 ## Limits
 
 - Not implemented here: the `models` catalog array and numeric token/file limits (arrays and `token`-named fields stay with Built-in plugins), model selection from Settings, and account-route (`llm-deepseek-account`) login.
-- **A live provider call is not verified.** The endpoints above use a stubbed DeepSeek-protocol server; no request has been sent to `api.deepseek.com`, and no real key has been used. Quota, provider-side rejection text and streaming against the live service remain untested here.
+- Live generation is verified for the credential path and the app's recorded path (above). Still unqualified: the controlled spec uses `deepseek-v4-flash`, so this build's desktop-profile request with the catalog id `deepseek-flash` rests on the recorded sessions rather than a driven run; quota/reset behaviour, provider rejection text, long streaming and the Files/image flows against the live service are untested here.

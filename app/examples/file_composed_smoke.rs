@@ -29,6 +29,10 @@ mod rename;
 mod settings;
 #[path = "../src/smoke.rs"]
 mod smoke;
+#[path = "../src/terminal.rs"]
+mod terminal;
+#[path = "../src/work_panel.rs"]
+mod work_panel;
 #[path = "../src/worker.rs"]
 mod worker;
 mod ui {
@@ -55,8 +59,13 @@ mod ui {
         a.pending.is_empty()
     }
     pub(super) fn startup_ready(a: &App) -> bool {
-        a.ready && a.root_ready && !a.roster_pending && a.management.registry.ready() && !a.stopped
-            && !a.catalog_read.pending() && draft_ready(a)
+        a.ready
+            && a.root_ready
+            && !a.roster_pending
+            && a.management.registry.ready()
+            && !a.stopped
+            && !a.catalog_read.pending()
+            && draft_ready(a)
     }
     pub(super) fn selected_ready(a: &App, target: &SessionId) -> bool {
         a.selected.as_ref() == Some(target)
@@ -144,27 +153,56 @@ mod ui {
             expanded: a.records_expanded,
             retained: rows.iter().map(|row| row.key).collect(),
             disclosed: a.transcript.display_rows(true).map(|row| row.key).collect(),
-            visible: a.transcript.display_rows(a.records_expanded).map(|row| row.key).collect(),
-            submitted: rows.iter().filter(|row| a.transcript.submitted_input(row.key))
-                .map(|row| row.key).collect(),
-            notices: rows.iter().filter(|row| a.transcript.turn_notice(row.key)
-                && row.role == "Agent notice"
-                && a.transcript.records().any(|event| event.seq == row.key
-                    && event.data["reason"]["kind"] == "blocked"))
-                .map(|row| row.key).collect(),
+            visible: a
+                .transcript
+                .display_rows(a.records_expanded)
+                .map(|row| row.key)
+                .collect(),
+            submitted: rows
+                .iter()
+                .filter(|row| a.transcript.submitted_input(row.key))
+                .map(|row| row.key)
+                .collect(),
+            notices: rows
+                .iter()
+                .filter(|row| {
+                    a.transcript.turn_notice(row.key)
+                        && row.role == "Agent notice"
+                        && a.transcript.records().any(|event| {
+                            event.seq == row.key && event.data["reason"]["kind"] == "blocked"
+                        })
+                })
+                .map(|row| row.key)
+                .collect(),
             metadata: ["permission/preset", "sandbox/mode", "approval/policy"].map(|role| {
-                rows.iter().filter(|row| row.role == role).map(|row| row.key).collect()
+                rows.iter()
+                    .filter(|row| row.role == role)
+                    .map(|row| row.key)
+                    .collect()
             }),
-            claims: rows.iter().filter(|row| row.role == "agent/inbox/spliced"
-                && a.transcript.records().any(|event| event.seq == row.key
-                    && crate::reducer::presentation::routine_inbox(&event.data)
-                    && event.data["inserted"].as_array().is_some_and(Vec::is_empty)
-                    && event.data["removedCount"] == 1))
-                .map(|row| row.key).collect(),
-            controls: rows.iter().filter(|row| a.transcript.records().any(|event| {
-                event.seq == row.key
-                    && crate::reducer::presentation::ui_control_event(&event.event_type)
-            })).map(|row| row.key).collect(),
+            claims: rows
+                .iter()
+                .filter(|row| {
+                    row.role == "agent/inbox/spliced"
+                        && a.transcript.records().any(|event| {
+                            event.seq == row.key
+                                && crate::reducer::presentation::routine_inbox(&event.data)
+                                && event.data["inserted"].as_array().is_some_and(Vec::is_empty)
+                                && event.data["removedCount"] == 1
+                        })
+                })
+                .map(|row| row.key)
+                .collect(),
+            controls: rows
+                .iter()
+                .filter(|row| {
+                    a.transcript.records().any(|event| {
+                        event.seq == row.key
+                            && crate::reducer::presentation::ui_control_event(&event.event_type)
+                    })
+                })
+                .map(|row| row.key)
+                .collect(),
         }
     }
     pub(super) fn cleared(a: &App) -> bool {
@@ -184,15 +222,26 @@ mod ui {
             let (handle, feed, _, _, _) = worker::test_channels();
             let options = crate::config::parse(
                 [
-                    "--runtime", "/PUBLIC-never-start/apps/cli",
-                    "--expected-version", "0.2.1-alpha.1",
-                    "--home", "/PUBLIC-never-write/harness",
-                    "--user-home", "/PUBLIC-never-write/user",
-                    "--cwd", "/tmp",
-                ].map(str::to_owned),
-            ).unwrap().unwrap();
+                    "--runtime",
+                    "/PUBLIC-never-start/apps/cli",
+                    "--expected-version",
+                    "0.2.1-alpha.1",
+                    "--home",
+                    "/PUBLIC-never-write/harness",
+                    "--user-home",
+                    "/PUBLIC-never-write/user",
+                    "--cwd",
+                    "/tmp",
+                ]
+                .map(str::to_owned),
+            )
+            .unwrap()
+            .unwrap();
             let (fixture, task) = Fixture::boot(
-                options, std::path::PathBuf::from("/PUBLIC-never-write"), handle, feed,
+                options,
+                std::path::PathBuf::from("/PUBLIC-never-write"),
+                handle,
+                feed,
             );
             drop(task);
             fixture
@@ -200,7 +249,10 @@ mod ui {
         fn load(fixture: &mut Fixture) {
             let ticket = fixture.app.draft_state.start_load().unwrap();
             drop(fixture.update(FixtureMessage::Ui(Message::DraftOutcome(
-                draft_recovery::Outcome::Loaded { ticket, result: Ok(Default::default()) },
+                draft_recovery::Outcome::Loaded {
+                    ticket,
+                    result: Ok(Default::default()),
+                },
             ))));
         }
         #[test]
@@ -226,24 +278,39 @@ mod ui {
                 fixture.app.touch_draft();
                 let ticket = fixture.app.draft_state.next_save().unwrap();
                 drop(fixture.stop(Some("PUBLIC routing-only failure")));
-                drop(fixture.update(FixtureMessage::Ui(Message::Worker(Event::Stopped(Ok(
-                    dsh_native_core::StopResult {
-                        exited: true, graceful: true, containment_unknown: false,
-                        observed_descendants_remaining: 0, exit_code: Some(0),
-                    },
-                ))))));
+                drop(
+                    fixture.update(FixtureMessage::Ui(Message::Worker(Event::Stopped(Ok(
+                        dsh_native_core::StopResult {
+                            exited: true,
+                            graceful: true,
+                            containment_unknown: false,
+                            observed_descendants_remaining: 0,
+                            exit_code: Some(0),
+                        },
+                    ))))),
+                );
                 assert!(!fixture.completed);
                 assert!(draft_io_busy(&fixture.app));
-                let stale = draft_recovery::Ticket { id: ticket.id + 1, ..ticket };
+                let stale = draft_recovery::Ticket {
+                    id: ticket.id + 1,
+                    ..ticket
+                };
                 drop(fixture.update(FixtureMessage::Ui(Message::DraftOutcome(
-                    draft_recovery::Outcome::Saved { ticket: stale, result: Ok(()) },
+                    draft_recovery::Outcome::Saved {
+                        ticket: stale,
+                        result: Ok(()),
+                    },
                 ))));
                 assert!(!fixture.completed);
                 assert!(draft_io_busy(&fixture.app));
                 drop(fixture.update(FixtureMessage::Ui(Message::DraftOutcome(
                     draft_recovery::Outcome::Saved {
                         ticket,
-                        result: if failed { Err(draft_store::Failure::Indeterminate) } else { Ok(()) },
+                        result: if failed {
+                            Err(draft_store::Failure::Indeterminate)
+                        } else {
+                            Ok(())
+                        },
                     },
                 ))));
                 assert!(fixture.completed);
@@ -263,7 +330,8 @@ mod ui {
             assert!(draft_io_busy(&fixture.app));
             drop(fixture.update(FixtureMessage::Ui(Message::DraftOutcome(
                 draft_recovery::Outcome::Loaded {
-                    ticket, result: Err(draft_store::Failure::InvalidData),
+                    ticket,
+                    result: Err(draft_store::Failure::InvalidData),
                 },
             ))));
             assert!(fixture.completed);
@@ -303,7 +371,13 @@ mod ui {
             assert_eq!(cached.visible, [3, 6]);
             assert_eq!(cached.metadata, [vec![0], vec![1], vec![2]]);
             assert_eq!(cached.claims, [5]);
-            let submitted = fixture.app.transcript.rows().iter().find(|row| row.key == 3).unwrap();
+            let submitted = fixture
+                .app
+                .transcript
+                .rows()
+                .iter()
+                .find(|row| row.key == 3)
+                .unwrap();
             assert!(submitted.text.contains(crate::TEXT));
             assert!(submitted.text.contains("PUBLIC owned file.bin"));
             drop(fixture.dispatch(Message::ToggleRecords));
@@ -315,10 +389,15 @@ mod ui {
         #[test]
         fn keyless_catalog_failure_is_counted_without_model_work_permission() {
             let mut fixture = fixture();
-            let ticket = worker::catalog_read::State::default().begin(worker::TRANSPORT_EPOCH).unwrap();
-            drop(fixture.update(FixtureMessage::Ui(Message::Worker(Event::Catalog {
-                ticket, result: Err("PUBLIC metadata unavailable".into()),
-            }))));
+            let ticket = worker::catalog_read::State::default()
+                .begin(worker::TRANSPORT_EPOCH)
+                .unwrap();
+            drop(
+                fixture.update(FixtureMessage::Ui(Message::Worker(Event::Catalog {
+                    ticket,
+                    result: Err("PUBLIC metadata unavailable".into()),
+                }))),
+            );
             assert!(fixture.failed);
             assert_eq!(fixture.report["modelCatalogReads"], 1);
             assert_eq!(fixture.report["modelCatalogSucceeded"], false);
@@ -522,8 +601,14 @@ impl Fixture {
         );
         let mut report = json!({"status":"running","version":"0.2.1-alpha.1","pid":std::process::id(),"scope":"scripted actual native App/worker/Core/full Alpha Host file admission, keyless catalog and joined draft Tasks; no model step, history retirement or full-process restart","applicationScale":options.scale,"actualAppExercised":true,"nativeWorkerExercised":true,"scriptedUiMessages":true,"publicFixtureOnly":true,"modelCatalogRequested":false,"modelCatalogReads":0,"modelCatalogSucceeded":false,"draftRecoveryLoaded":false,"draftIoJoined":false,"draftsCleanAtExit":false,"browserSignInRequested":false,"realCredentialsUsed":false,"processWideNetworkTrace":false,"nativeKeyboardPointerInputQualified":false,"historyDrivenReceiptRetirementQualified":false,"manualBusinessMessagesForwarded":0,"unexpectedWork":0,"explicitModelPrompts":0,"explicitPrompts":0,"actualAppPromptCommands":0,"actualFileStages":0,"nativeAcks":0,"hostSettlements":0,"currentTicketProbeRefusals":0,"staleUploadRefusals":0,"duplicateSendRefusals":0,"staleRemoveRefusals":0,"staleAckRefusals":0,"recordsDisclosureRoundTrips":0,"submittedInputProjectionObserved":false,"retainedRecordsRevealed":false,"files":CASES.map(|(name,bytes)|json!({"name":name,"bytes":bytes})),"requests":[],"tickets":[],"phases":[],"captures":[]});
         for key in [
-            "disclosedRows", "conversationRows", "submittedInputs", "blockedNotices",
-            "permissionPresets", "sandboxModes", "approvalPolicies", "routineClaims",
+            "disclosedRows",
+            "conversationRows",
+            "submittedInputs",
+            "blockedNotices",
+            "permissionPresets",
+            "sandboxModes",
+            "approvalPolicies",
+            "routineClaims",
         ] {
             report[key] = Value::from(0_u64);
         }
@@ -748,7 +833,10 @@ impl Fixture {
         };
         if self
             .handle
-            .send(worker::Command::PromptFile { tickets: vec![ticket], request })
+            .send(worker::Command::PromptFile {
+                tickets: vec![ticket],
+                request,
+            })
             .is_err()
         {
             return self.stop(Some("probe-queue-not-admitted"));
@@ -915,8 +1003,7 @@ impl Fixture {
                     frame: SessionFollowFrame::Event { event },
                     ..
                 } = &event
-                {
-                    if [
+                    && [
                         "step/start",
                         "step/end",
                         "request/header",
@@ -926,10 +1013,9 @@ impl Fixture {
                         "user/message",
                     ]
                     .contains(&event.event_type.as_str())
-                    {
-                        self.increment("unexpectedWork");
-                        return self.stop(Some("unexpected-owned-model-work"));
-                    }
+                {
+                    self.increment("unexpectedWork");
+                    return self.stop(Some("unexpected-owned-model-work"));
                 }
                 match &event {
                     worker::Event::Roster(Ok(_)) => {
@@ -1080,7 +1166,8 @@ impl Fixture {
                         self.report["approvalPolicies"] = json!(projection.metadata[2].len());
                         self.report["routineClaims"] = json!(projection.claims.len());
                         if !projection.submitted_and_blocked() {
-                            return self.stop(Some("actual-submitted-input-or-blocked-notice-missing"));
+                            return self
+                                .stop(Some("actual-submitted-input-or-blocked-notice-missing"));
                         }
                         self.report["submittedInputProjectionObserved"] = json!(true);
                         let task = self.dispatch(ui::Message::ToggleRecords);
@@ -1096,7 +1183,8 @@ impl Fixture {
                         if self.projection.take().as_ref() != Some(&ui::projection(&self.app))
                             || !ui::send_ready(&self.app)
                         {
-                            return self.stop(Some("actual-records-disclosure-changed-human-projection"));
+                            return self
+                                .stop(Some("actual-records-disclosure-changed-human-projection"));
                         }
                         self.increment("recordsDisclosureRoundTrips");
                         Task::batch([task, self.probe(1, 0)])

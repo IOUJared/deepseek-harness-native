@@ -12,7 +12,9 @@ mod reducer;
 mod rename;
 mod settings;
 mod smoke;
+mod terminal;
 mod ui;
+mod work_panel;
 mod worker;
 use iced::{Size, window};
 fn main() -> iced::Result {

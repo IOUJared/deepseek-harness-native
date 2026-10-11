@@ -182,6 +182,13 @@ enum Endpoint {
     PluginInventory,
     PluginSettings,
     PluginMutate,
+    TerminalCreate,
+    TerminalList,
+    TerminalShells,
+    TerminalEnvironment,
+    TerminalWrite,
+    TerminalResize,
+    TerminalClose,
 }
 impl Endpoint {
     fn name(self) -> &'static str {
@@ -208,6 +215,13 @@ impl Endpoint {
             Self::PluginInventory => "pluginInventory/list",
             Self::PluginSettings => "settings/describe",
             Self::PluginMutate => "settings/mutate",
+            Self::TerminalCreate => "terminal/create",
+            Self::TerminalList => "terminal/list",
+            Self::TerminalShells => "terminal/shells",
+            Self::TerminalEnvironment => "terminal/environment",
+            Self::TerminalWrite => "terminal/write",
+            Self::TerminalResize => "terminal/resize",
+            Self::TerminalClose => "terminal/close",
         }
     }
 }
@@ -437,6 +451,22 @@ impl NativeClient {
                         (Endpoint::ForkSession, Some("session/workspace-attach-failed")) => {
                             Error::ForkAttachFailed
                         }
+                        // Terminal refusals keep their distinct meanings; every other code
+                        // stays an unqualified remote failure with no retained message.
+                        (Endpoint::TerminalCreate, Some("terminal/limit-reached")) => {
+                            Error::TerminalLimitReached
+                        }
+                        (
+                            Endpoint::TerminalCreate
+                            | Endpoint::TerminalWrite
+                            | Endpoint::TerminalResize
+                            | Endpoint::TerminalClose,
+                            Some("terminal/unavailable"),
+                        ) => Error::TerminalUnavailable,
+                        (
+                            Endpoint::TerminalWrite | Endpoint::TerminalResize,
+                            Some("terminal/control-unavailable"),
+                        ) => Error::TerminalControlUnavailable,
                         _ => Error::RemoteFailure,
                     },
                 )
@@ -777,6 +807,101 @@ impl NativeClient {
     pub async fn cancel_question_for(&self, delivery: &crate::EventDelivery) -> Result<()> {
         self.event_result_for(delivery, Some(WaterfallKind::Question), json!({"kind":"rejected","error":{
             "name":"UserQuestionError","message":"the user cancelled ask_user_question","code":"ASK_CANCELLED"}})).await
+    }
+    /// List retained terminals for a displayed Session, including offline history.
+    /// This never activates an Agent and creates no process.
+    pub async fn terminal_list(
+        &self,
+        session_id: &SessionId,
+    ) -> Result<Vec<crate::terminal::WebTerminalInfo>> {
+        let items: Vec<crate::terminal::WebTerminalInfo> = self
+            .invoke(Endpoint::TerminalList, json!({"sessionId":session_id}))
+            .await?;
+        crate::terminal::project_list(items)
+    }
+    /// Discover shells in the Session's execution environment. Read-only; spawns nothing.
+    /// The Host selects the registered Agent; the manifest types this parameter as a Session identity.
+    pub async fn terminal_shells(
+        &self,
+        agent_id: &SessionId,
+    ) -> Result<Vec<crate::terminal::TerminalShell>> {
+        let items: Vec<crate::terminal::TerminalShell> = self
+            .invoke(Endpoint::TerminalShells, json!({"agentId":agent_id}))
+            .await?;
+        crate::terminal::project_shells(items)
+    }
+    /// Read the Host's actual input/dimension bounds without resolving a shell.
+    pub async fn terminal_environment(
+        &self,
+        agent_id: &SessionId,
+    ) -> Result<crate::terminal::TerminalEnvironment> {
+        let environment: crate::terminal::TerminalEnvironment = self
+            .invoke(Endpoint::TerminalEnvironment, json!({"agentId":agent_id}))
+            .await?;
+        crate::terminal::validate_environment(&environment)?;
+        Ok(environment)
+    }
+    /// Ask the Host to allocate one user shell. The ACK identity must equal the requested
+    /// identity; an admitted failure is not proof that no Host process exists.
+    pub async fn terminal_create(
+        &self,
+        agent_id: &SessionId,
+        request: &crate::terminal::TerminalCreateRequest,
+    ) -> Result<crate::terminal::WebTerminalInfo> {
+        crate::terminal::validate_create(request)?;
+        let info: crate::terminal::WebTerminalInfo = self
+            .invoke(
+                Endpoint::TerminalCreate,
+                json!({"agentId":agent_id,"request":request}),
+            )
+            .await?;
+        crate::terminal::validate_info(&info)?;
+        // Only an ACK for the exact requested identity may become visible terminal state.
+        if info.id != request.id {
+            return Err(Error::InvalidDto);
+        }
+        Ok(info)
+    }
+    /// Deliver one raw input write. Refusal is not proof the Host ignored it; never retry.
+    pub async fn terminal_write(
+        &self,
+        agent_id: &SessionId,
+        id: &crate::terminal::WebTerminalId,
+        attachment_id: &crate::terminal::TerminalAttachmentId,
+        data: &str,
+    ) -> Result<()> {
+        crate::terminal::validate_input(data)?;
+        self.invoke(
+            Endpoint::TerminalWrite,
+            json!({"agentId":agent_id,"id":id,"attachmentId":attachment_id,"data":data}),
+        )
+        .await
+    }
+    /// Update the Host PTY dimensions for the current writable attachment.
+    pub async fn terminal_resize(
+        &self,
+        agent_id: &SessionId,
+        id: &crate::terminal::WebTerminalId,
+        attachment_id: &crate::terminal::TerminalAttachmentId,
+        cols: u64,
+        rows: u64,
+    ) -> Result<()> {
+        crate::terminal::validate_dimensions(cols, rows)?;
+        self.invoke(
+            Endpoint::TerminalResize,
+            json!({"agentId":agent_id,"id":id,"attachmentId":attachment_id,"cols":cols,"rows":rows}),
+        )
+        .await
+    }
+    /// Close one terminal and kill its process range idempotently. The Host, not the app,
+    /// owns termination; an admitted failure/timeout is not proof no process remains.
+    pub async fn terminal_close(
+        &self,
+        agent_id: &SessionId,
+        id: &crate::terminal::WebTerminalId,
+    ) -> Result<()> {
+        self.invoke(Endpoint::TerminalClose, json!({"agentId":agent_id,"id":id}))
+            .await
     }
     pub async fn connect_mux(&self) -> Result<Mux> {
         Mux::connect(self.inner.clone()).await

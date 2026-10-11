@@ -46,13 +46,14 @@ impl Controller {
         self.managed.added = None;
     }
     fn has_accounts(&self) -> bool {
-        self.managed.metadata.as_ref()
+        self.managed
+            .metadata
+            .as_ref()
             .is_some_and(|m| !m.accounts.is_empty())
     }
     fn can_select_account(&self, id: &CodexAccountId) -> bool {
         self.managed.metadata.as_ref().is_some_and(|m| {
-            m.selected.as_ref() != Some(id)
-                && m.accounts.iter().any(|a| &a.opaque_id == id)
+            m.selected.as_ref() != Some(id) && m.accounts.iter().any(|a| &a.opaque_id == id)
         })
     }
     fn account_epoch(&self) -> Option<u64> {
@@ -143,7 +144,11 @@ impl Controller {
                 let eligible = if selecting {
                     self.can_select_account(account_id)
                 } else {
-                    self.managed.metadata.as_ref()?.accounts.iter()
+                    self.managed
+                        .metadata
+                        .as_ref()?
+                        .accounts
+                        .iter()
                         .any(|a| &a.opaque_id == account_id)
                 };
                 if !eligible {
@@ -188,11 +193,13 @@ impl Controller {
                         ticket,
                         id,
                         epoch: expected,
-                    } if ticket == *t && expected == epoch && self.can_select_account(&id) => Some(Effect::SelectAccount {
-                        ticket: self.begin(Operation::Select),
-                        account_id: id,
-                        expected_epoch: expected,
-                    }),
+                    } if ticket == *t && expected == epoch && self.can_select_account(&id) => {
+                        Some(Effect::SelectAccount {
+                            ticket: self.begin(Operation::Select),
+                            account_id: id,
+                            expected_epoch: expected,
+                        })
+                    }
                     AccountReview::SignOut {
                         ticket,
                         id,
@@ -205,10 +212,12 @@ impl Controller {
                     AccountReview::All {
                         ticket,
                         epoch: expected,
-                    } if ticket == *t && expected == epoch && self.has_accounts() => Some(Effect::SignOutAll {
-                        ticket: self.begin(Operation::SignOutAll),
-                        expected_epoch: expected,
-                    }),
+                    } if ticket == *t && expected == epoch && self.has_accounts() => {
+                        Some(Effect::SignOutAll {
+                            ticket: self.begin(Operation::SignOutAll),
+                            expected_epoch: expected,
+                        })
+                    }
                     _ => None,
                 }
             }
@@ -280,10 +289,14 @@ impl Controller {
                     button("Switch")
                         .padding([6, 8])
                         .style(design::button_style)
-                        .on_press_maybe((writable && self.can_select_account(&account.opaque_id)).then_some(Action::ReviewSelect {
-                            ticket: t,
-                            account_id: account.opaque_id.clone()
-                        })),
+                        .on_press_maybe(
+                            (writable && self.can_select_account(&account.opaque_id)).then_some(
+                                Action::ReviewSelect {
+                                    ticket: t,
+                                    account_id: account.opaque_id.clone()
+                                }
+                            )
+                        ),
                     button("Sign out")
                         .padding([6, 8])
                         .style(design::danger)
@@ -332,7 +345,8 @@ impl Controller {
             AccountReview::Select { id, .. } => self.can_select_account(id),
             _ => true,
         };
-        let writable = allowed && *ticket == t && self.account_epoch() == Some(*epoch) && selectable;
+        let writable =
+            allowed && *ticket == t && self.account_epoch() == Some(*epoch) && selectable;
         let target_label = target.map_or_else(
             || "All locally stored accounts".to_owned(),
             |id| {

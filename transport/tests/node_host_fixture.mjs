@@ -19,6 +19,8 @@ function endClaims() {
 }
 const pluginNamespace = () => ({ ns: 'probe', revision: pluginRevision, autoGenerate: true, applies: 'live', schema: { uid: 1, refs: { 1: { type: 'object', meta: {}, dict: { count: 2, apiKey: 3, provider: 4 } }, 2: { type: 'number', meta: { min: 1, max: 8, step: 1 } }, 3: { type: 'string', meta: { role: 'secret' } }, 4: { type: 'string', meta: { role: 'credential-ref' } } } }, value: { count: pluginCount, apiKey: 'PRIVATE_PLUGIN_SENTINEL', provider: 'PRIVATE_REFERENCE_SENTINEL' }, base: {}, user: { count: pluginCount }, secrets: [{ path: ['apiKey'], set: true }] });
 const cookieValue = 'v1.fixture.signature';
+const terminalInfo = () => ({ id: 'PUBLIC-terminal-1', title: 'PUBLIC terminal', shell: { path: '/bin/PUBLIC-shell', args: ['-l'], name: 'PUBLIC shell' }, cwd: '/PUBLIC/cwd', cols: 80, rows: 24, state: 'running', exitCode: null });
+const terminalAgent = 'session / terminal opaque:%';
 const server = http.createServer(async (request, response) => {
   if (request.method === 'GET' && request.url === '/?token=fixture-only') {
     if (mode === 'redirect-start') { response.writeHead(302, { location: 'http://127.0.0.1:1/leak' }); response.end(); return; }
@@ -122,6 +124,58 @@ const server = http.createServer(async (request, response) => {
       if (!['plugin-conflict', 'plugin-rejected'].includes(mode)) { pluginCount = 5; pluginRevision = 4; }
       value = pluginNamespace(); break;
     case 'account/getState': value = { status: 'signed-out', links: { usageUrl: 'https://example.invalid/usage', topUpUrl: 'https://example.invalid/topup' }, attempt: null }; break;
+    case 'terminal/list':
+      if (!isDeepStrictEqual(args, { sessionId: terminalAgent })) { response.writeHead(400); response.end(); return; }
+      value = [terminalInfo()];
+      if (mode === 'terminal-list-empty') value = [];
+      if (mode === 'terminal-list-duplicate') value = [terminalInfo(), terminalInfo()];
+      if (mode === 'terminal-list-oversize') value = Array.from({ length: 4097 }, () => terminalInfo());
+      if (mode === 'terminal-list-bad-info') value = [{ ...terminalInfo(), cols: 1 }];
+      break;
+    case 'terminal/shells':
+      if (!isDeepStrictEqual(args, { agentId: terminalAgent })) { response.writeHead(400); response.end(); return; }
+      value = [{ path: '/bin/PUBLIC-shell', args: ['-l'], name: 'PUBLIC shell' }];
+      if (mode === 'terminal-shells-bad') value = [{ path: '', args: [], name: 'PUBLIC shell' }];
+      if (mode === 'terminal-shells-oversize') value = Array.from({ length: 257 }, (_, i) => ({ path: `/bin/s${i}`, args: [], name: `s${i}` }));
+      break;
+    case 'terminal/environment':
+      if (!isDeepStrictEqual(args, { agentId: terminalAgent })) { response.writeHead(400); response.end(); return; }
+      value = { cwd: '/PUBLIC/cwd', maxInputBytes: 65536, maxCols: 500, maxRows: 200, scrollback: 1000 };
+      if (mode === 'terminal-environment-bad') value.maxCols = 1;
+      break;
+    case 'terminal/create': {
+      const createRequest = { id: 'PUBLIC-terminal-1', cols: 80, rows: 24 };
+      if (mode === 'terminal-create-shell') createRequest.shellPath = '/bin/PUBLIC-shell';
+      if (request.method !== 'POST' || request.headers['content-type'] !== 'application/json'
+          || !isDeepStrictEqual(envelope, { type: 'client-request', rpcId: envelope.rpcId, method: 'terminal/create', payload: { args: { agentId: terminalAgent, request: createRequest } } })) {
+        response.writeHead(400); response.end(); return;
+      }
+      value = terminalInfo();
+      if (mode === 'terminal-create-missing') value = {};
+      if (mode === 'terminal-create-wrong-id') value = { ...terminalInfo(), id: 'PUBLIC-other-terminal' };
+      if (mode === 'terminal-create-wrong-type') value = { ...terminalInfo(), cols: 'eighty' };
+      if (mode === 'terminal-create-extra') value = { ...terminalInfo(), agent: {} };
+      if (mode === 'terminal-create-running-exit') value = { ...terminalInfo(), exitCode: 5 };
+      break;
+    }
+    case 'terminal/write':
+      if (request.method !== 'POST' || request.headers['content-type'] !== 'application/json'
+          || !isDeepStrictEqual(envelope, { type: 'client-request', rpcId: envelope.rpcId, method: 'terminal/write', payload: { args: { agentId: terminalAgent, id: 'PUBLIC-terminal-1', attachmentId: 'PUBLIC-attachment-1', data: 'PUBLIC input\n' } } })) {
+        response.writeHead(400); response.end(); return;
+      }
+      value = undefined; break;
+    case 'terminal/resize':
+      if (request.method !== 'POST' || request.headers['content-type'] !== 'application/json'
+          || !isDeepStrictEqual(envelope, { type: 'client-request', rpcId: envelope.rpcId, method: 'terminal/resize', payload: { args: { agentId: terminalAgent, id: 'PUBLIC-terminal-1', attachmentId: 'PUBLIC-attachment-1', cols: 120, rows: 40 } } })) {
+        response.writeHead(400); response.end(); return;
+      }
+      value = undefined; break;
+    case 'terminal/close':
+      if (request.method !== 'POST' || request.headers['content-type'] !== 'application/json'
+          || !isDeepStrictEqual(envelope, { type: 'client-request', rpcId: envelope.rpcId, method: 'terminal/close', payload: { args: { agentId: terminalAgent, id: 'PUBLIC-terminal-1' } } })) {
+        response.writeHead(400); response.end(); return;
+      }
+      value = undefined; break;
     case 'userQuestions/answer':
       if (args.agentId !== 'agent-fixture' || args.callId !== 'call-1' || 'request' in args) { response.writeHead(400); response.end(); return; }
       value = true; break;
@@ -144,6 +198,9 @@ const server = http.createServer(async (request, response) => {
   if (mode === 'fork-unavailable') output.result = { ok: false, error: { code: 'session/fork-unavailable', message: 'PRIVATE_FORK_SENTINEL', details: {} } };
   if (mode === 'fork-attach-failed') output.result = { ok: false, error: { code: 'session/workspace-attach-failed', message: 'PRIVATE_FORK_SENTINEL', details: {} } };
   if (mode === 'failure') output.result = { ok: false, error: { code: 'fixture/rejected', message: 'SECRET_SENTINEL_opaque_url_cookie', details: {} } };
+  if (mode === 'terminal-unavailable' && envelope.method.startsWith('terminal/')) output.result = { ok: false, error: { code: 'terminal/unavailable', message: 'PRIVATE_TERMINAL_SENTINEL', details: {} } };
+  if (mode === 'terminal-control-unavailable' && ['terminal/write', 'terminal/resize'].includes(envelope.method)) output.result = { ok: false, error: { code: 'terminal/control-unavailable', message: 'PRIVATE_TERMINAL_SENTINEL', details: { reason: 'read-only' } } };
+  if (mode === 'terminal-limit-reached' && envelope.method === 'terminal/create') output.result = { ok: false, error: { code: 'terminal/limit-reached', message: 'PRIVATE_TERMINAL_SENTINEL', details: { limit: 8 } } };
   if (mode === 'oversize-length') { response.writeHead(200, { 'content-type': 'application/json', 'content-length': '2000000' }); response.end('x'); return; }
   response.writeHead(200, { 'content-type': mode === 'bad-media' ? 'text/html' : 'application/json' });
   if (mode === 'slow') { setTimeout(() => response.end(JSON.stringify(output)), 2000); return; }
@@ -211,8 +268,21 @@ wss.on('connection', ws => {
           for (let i = 0; i < 5; i++) send({ type: 'waterfall', event: 'approval/request', eventId: `overflow-${i}`, agentId: 'agent-fixture', request: { toolName: 'fixture' } });
         }
         break;
-      case 'userQuestions/attachWait': {
-        if (!mode.startsWith('claim-')) { send({ remainingMs: 1234 }); break; }
+      case 'terminal/follow': {
+        const expected = { type: 'open', streamId: id, endpoint: 'terminal/follow', payload: { args: { agentId: terminalAgent, id: 'PUBLIC-terminal-1', attachmentId: 'PUBLIC-attachment-1' } } };
+        if (!isDeepStrictEqual(message, expected)) { ws.close(1008); return; }
+        if (mode === 'terminal-follow-bad-opening') { send({ type: 'output', sequence: 1, data: 'PUBLIC gap' }); break; }
+        if (mode === 'terminal-follow-state-first') { send({ type: 'state', info: terminalInfo() }); break; }
+        if (mode === 'terminal-follow-missing-sequence') { send({ type: 'snapshot', screen: 'PUBLIC screen', info: terminalInfo() }); break; }
+        send({ type: 'snapshot', sequence: 0, screen: 'PUBLIC screen', info: { ...terminalInfo(), controllerId: 'PUBLIC-attachment-1' } });
+        if (mode === 'terminal-follow-gap') { send({ type: 'output', sequence: 2, data: 'PUBLIC gap' }); break; }
+        if (mode === 'terminal-follow-extra-tag') { send({ type: 'retained' }); break; }
+        send({ type: 'output', sequence: 1, data: 'PUBLIC first\n' });
+        send({ type: 'state', info: { ...terminalInfo(), cols: 120, rows: 40, controllerId: 'PUBLIC-attachment-1' } });
+        send({ type: 'output', sequence: 2, data: 'PUBLIC second\n' });
+        break;
+      }
+      case 'userQuestions/attachWait': {        if (!mode.startsWith('claim-')) { send({ remainingMs: 1234 }); break; }
         if (!isDeepStrictEqual(message, { type: 'open', streamId: id, endpoint: 'userQuestions/attachWait', payload: { args: { agentId: 'agent-fixture', callId: 'call-1' } } })) {
           ws.send(JSON.stringify({ type: 'error', streamId: id, error: { code: 'fixture/authority', message: 'PRIVATE_AUTHORITY_SENTINEL', details: {} } })); break;
         }

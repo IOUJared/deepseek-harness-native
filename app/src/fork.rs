@@ -85,6 +85,8 @@ pub struct Submission {
     source: SessionId,
 }
 impl Submission {
+    /// Display/audit accessor for the fork's origin session.
+    #[allow(dead_code)]
     pub fn source(&self) -> &SessionId {
         &self.source
     }

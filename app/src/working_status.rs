@@ -33,17 +33,51 @@ impl App {
     }
     fn sidebar_working_presented(&self) -> bool {
         // Find the first running row without allocating/sorting the whole navigation list.
-        if !self.sessions.values().any(|session| session.running) { return false; }
-        let Some(first) = self.navigation_candidates().filter(|session| session.running)
-            .min_by(|a, b| self.navigation_order(a, b)) else { return false; };
-        self.navigation_candidates().filter(|session| self.navigation_order(session, first).is_lt()).take(200).count() < 200
+        if !self.sessions.values().any(|session| session.running) {
+            return false;
+        }
+        let Some(first) = self
+            .navigation_candidates()
+            .filter(|session| session.running)
+            .min_by(|a, b| self.navigation_order(a, b))
+        else {
+            return false;
+        };
+        self.navigation_candidates()
+            .filter(|session| self.navigation_order(session, first).is_lt())
+            .take(200)
+            .count()
+            < 200
     }
-    pub(super) fn navigation_order(&self, a: &SessionSummary, b: &SessionSummary) -> std::cmp::Ordering {
-        self.management.registry.pin_rank(&a.session_id).unwrap_or(usize::MAX)
-            .cmp(&self.management.registry.pin_rank(&b.session_id).unwrap_or(usize::MAX))
-            .then(self.sidebar_organization.rank(&a.session_id).unwrap_or(u64::MAX)
-                .cmp(&self.sidebar_organization.rank(&b.session_id).unwrap_or(u64::MAX)))
-            .then(b.updated_at.cmp(&a.updated_at)).then(a.session_id.cmp(&b.session_id))
+    pub(super) fn navigation_order(
+        &self,
+        a: &SessionSummary,
+        b: &SessionSummary,
+    ) -> std::cmp::Ordering {
+        self.management
+            .registry
+            .pin_rank(&a.session_id)
+            .unwrap_or(usize::MAX)
+            .cmp(
+                &self
+                    .management
+                    .registry
+                    .pin_rank(&b.session_id)
+                    .unwrap_or(usize::MAX),
+            )
+            .then(
+                self.sidebar_organization
+                    .rank(&a.session_id)
+                    .unwrap_or(u64::MAX)
+                    .cmp(
+                        &self
+                            .sidebar_organization
+                            .rank(&b.session_id)
+                            .unwrap_or(u64::MAX),
+                    ),
+            )
+            .then(b.updated_at.cmp(&a.updated_at))
+            .then(a.session_id.cmp(&b.session_id))
     }
     pub(super) fn working_badge(&self, session: &SessionSummary) -> Element<'_, Message> {
         let status = self.working_label(session).unwrap_or("");

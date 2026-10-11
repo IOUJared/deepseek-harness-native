@@ -7,14 +7,18 @@ use crate::{
 use dsh_native_core::{Inspection, PublicEvent, StopResult};
 use dsh_native_transport::dto::*;
 use iced::widget::{
-    Column, Space, button, column, container, rich_text, row, scrollable, span, text,
-    text_editor, text_input,
+    Column, Space, button, column, container, rich_text, row, scrollable, span, text, text_editor,
+    text_input,
 };
 use iced::{Color, Element, Length, Subscription, Task, Theme, keyboard, window};
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 #[path = "workspace_membership.rs"]
 mod workspace_membership;
+// Owned here so `ui::work_panel_ui` resolves in both the binary and the
+// examples that compile this module by path.
+#[path = "work_panel_ui.rs"]
+mod work_panel_ui;
 const ROW_HEIGHT: f32 = 160.0;
 #[cfg(test)]
 const ACTIVITY_HEIGHT: f32 = 40.0;
@@ -65,6 +69,8 @@ impl InfoSection {
         }
     }
 }
+#[path = "anchored_popup.rs"]
+mod anchored_popup;
 #[path = "attachment_draft.rs"]
 mod attachment_draft;
 #[path = "attachment_picker.rs"]
@@ -77,22 +83,44 @@ mod attachment_ui;
 #[path = "attachment_ui_tests.rs"]
 mod attachment_ui_tests;
 #[cfg(test)]
-#[path = "prompt_recovery_ui_tests.rs"]
-mod prompt_recovery_ui_tests;
-#[path = "detail_panel.rs"]
-mod detail_panel;
-#[path = "conversation_content.rs"]
-mod conversation_content;
+#[path = "chat_flow_ui_tests.rs"]
+mod chat_flow_ui_tests;
 #[path = "chat_usage.rs"]
 mod chat_usage;
+#[cfg(test)]
+#[path = "conversation_actions_ui_tests.rs"]
+mod conversation_actions_ui_tests;
+#[path = "conversation_content.rs"]
+mod conversation_content;
+#[cfg(test)]
+#[path = "conversation_recovery_ui_tests.rs"]
+mod conversation_recovery_ui_tests;
 #[path = "conversation_search.rs"]
 mod conversation_search;
-#[path = "draft_store.rs"]
-mod draft_store;
+#[path = "detail_panel.rs"]
+mod detail_panel;
+#[cfg(test)]
+#[path = "detail_ui_tests.rs"]
+mod detail_ui_tests;
+#[cfg(test)]
+#[path = "draft_lifecycle_ui_tests.rs"]
+mod draft_lifecycle_ui_tests;
 #[path = "draft_recovery.rs"]
 mod draft_recovery;
 #[path = "draft_recovery_ui.rs"]
 mod draft_recovery_ui;
+#[path = "draft_store.rs"]
+mod draft_store;
+#[path = "model_controls.rs"]
+mod model_controls;
+#[cfg(test)]
+#[path = "model_metadata_ui_tests.rs"]
+mod model_metadata_ui_tests;
+#[path = "plan_mode.rs"]
+mod plan_mode;
+#[cfg(test)]
+#[path = "prompt_recovery_ui_tests.rs"]
+mod prompt_recovery_ui_tests;
 #[path = "sidebar_organization.rs"]
 mod sidebar_organization;
 #[path = "sidebar_ui.rs"]
@@ -100,10 +128,12 @@ mod sidebar_ui;
 #[cfg(test)]
 #[path = "sidebar_ui_tests.rs"]
 mod sidebar_ui_tests;
-#[path = "model_controls.rs"]
-mod model_controls;
-#[path = "anchored_popup.rs"]
-mod anchored_popup;
+#[cfg(test)]
+#[path = "terminal_ui_tests.rs"]
+mod terminal_ui_tests;
+#[cfg(test)]
+#[path = "work_panel_ui_tests.rs"]
+mod work_panel_ui_tests;
 #[path = "working_indicator.rs"]
 mod working_indicator;
 #[path = "working_status.rs"]
@@ -111,26 +141,11 @@ mod working_status;
 #[cfg(test)]
 #[path = "working_ui_tests.rs"]
 mod working_ui_tests;
-#[cfg(test)]
-#[path = "model_metadata_ui_tests.rs"]
-mod model_metadata_ui_tests;
-#[cfg(test)]
-#[path = "chat_flow_ui_tests.rs"]
-mod chat_flow_ui_tests;
-#[cfg(test)]
-#[path = "conversation_actions_ui_tests.rs"]
-mod conversation_actions_ui_tests;
-#[cfg(test)]
-#[path = "conversation_recovery_ui_tests.rs"]
-mod conversation_recovery_ui_tests;
-#[cfg(test)]
-#[path = "draft_lifecycle_ui_tests.rs"]
-mod draft_lifecycle_ui_tests;
-#[cfg(test)]
-#[path = "detail_ui_tests.rs"]
-mod detail_ui_tests;
 #[derive(Clone)]
 pub enum Message {
+    /// Reserved for an explicit file-open action; selection and drop currently
+    /// route through [`Self::FileChoose`] and the picker.
+    #[allow(dead_code)]
     FileOpen,
     FileChoose,
     FilePicker(attachment_picker::Action),
@@ -138,7 +153,10 @@ pub enum Message {
     FileDropped(window::Id, std::path::PathBuf),
     FileDropCancelled(window::Id),
     FilePreview(attachment_draft::EditorStamp),
-    FilePreviewRead(attachment_ui::PreviewTicket, std::sync::Arc<attachment_preview::Outcome>),
+    FilePreviewRead(
+        attachment_ui::PreviewTicket,
+        std::sync::Arc<attachment_preview::Outcome>,
+    ),
     FilePath(attachment_draft::EditorStamp, String),
     FileUpload(attachment_draft::EditorStamp),
     FileCancel(attachment_draft::EditorStamp),
@@ -162,8 +180,14 @@ pub enum Message {
     Export(crate::exporter::Action),
     ArchivedView,
     Sidebar(sidebar_ui::Action),
-    SidebarLoaded { ticket:u64, result:Result<draft_store::Drafts,draft_store::Failure> },
-    SidebarSaved { ticket:u64, result:Result<(),draft_store::Failure> },
+    SidebarLoaded {
+        ticket: u64,
+        result: Result<draft_store::Drafts, draft_store::Failure>,
+    },
+    SidebarSaved {
+        ticket: u64,
+        result: Result<(), draft_store::Failure>,
+    },
     Interaction(crate::interactions::Action),
     Worker(Event),
     CheckSubmission(prompt_recovery::Ticket),
@@ -214,19 +238,49 @@ pub enum Message {
         key: u64,
     },
     CopyCode(conversation_content::Ticket, usize),
-    CopyMessage { generation: u64, key: u64 },
-    EditMessage { generation: u64, key: u64 },
-    ConfirmEdit { generation: u64, key: u64, draft_serial: u64 },
+    CopyMessage {
+        generation: u64,
+        key: u64,
+    },
+    EditMessage {
+        generation: u64,
+        key: u64,
+    },
+    ConfirmEdit {
+        generation: u64,
+        key: u64,
+        draft_serial: u64,
+    },
     CancelEdit,
     DraftFlush,
     DraftReload,
-    ReviewRecovered {generation:u64,serial:u64},
+    ReviewRecovered {
+        generation: u64,
+        serial: u64,
+    },
     DraftOutcome(draft_recovery::Outcome),
     SearchOpen,
-    SearchInput { generation:u64, serial:u64, query:String },
-    SearchNext { generation:u64, serial:u64, backwards:bool },
-    SearchClose { generation:u64, serial:u64 },
+    SearchInput {
+        generation: u64,
+        serial: u64,
+        query: String,
+    },
+    SearchNext {
+        generation: u64,
+        serial: u64,
+        backwards: bool,
+    },
+    SearchClose {
+        generation: u64,
+        serial: u64,
+    },
     Capabilities,
+    /// Open (from the More menu) or dismiss the read-only work records panel.
+    Work(work_panel_ui::Action),
+    /// Expand or collapse the composer's context-management explanation.
+    ToggleContextPolicy,
+    /// Client-only view of Host-owned terminals. Opening spawns no local shell.
+    Terminal(crate::terminal::Action),
     Close,
     Stay,
     ConfirmClose,
@@ -290,7 +344,7 @@ pub struct App {
     transcript: Transcript,
     follow_ready: bool,
     editor: text_editor::Content,
-    draft_serial:u64,
+    draft_serial: u64,
     drafts: BTreeMap<SessionId, String>,
     pending: prompt_recovery::Controller,
     prompt_serial: u64,
@@ -307,9 +361,9 @@ pub struct App {
     workspace_pending: bool,
     page_pending: bool,
     cancel_pending: bool,
-    cancel_generation:Option<u64>,
-    observations_lost:bool,
-    rejoin_pending:bool,
+    cancel_generation: Option<u64>,
+    observations_lost: bool,
+    rejoin_pending: bool,
     offset: f32,
     viewport: f32,
     follow_bottom: bool,
@@ -317,6 +371,13 @@ pub struct App {
     detail_opening: Option<u64>,
     capabilities: bool,
     conversation_menu: bool,
+    /// The composer's context-management disclosure is expanded. Presentation
+    /// only: it explains the harness's staged policy and starts no request.
+    context_policy_open: bool,
+    /// The read-only More → Work records panel is open.
+    work_open: bool,
+    /// The More → Terminal panel is open. The Host owns every shell; the app is a client.
+    terminal: crate::terminal::Terminal,
     info_expanded: u8,
     settings: crate::settings::Settings,
     decisions: crate::interactions::Decisions,
@@ -348,16 +409,28 @@ pub struct App {
     draft_exit_requested: bool,
     draft_discard_on_exit: bool,
     draft_recovered: std::collections::BTreeSet<SessionId>,
-    draft_review: Option<(u64,u64)>,
-    draft_versions: std::collections::BTreeMap<SessionId,u64>,
+    draft_review: Option<(u64, u64)>,
+    draft_versions: std::collections::BTreeMap<SessionId, u64>,
     scroll_revision: Option<u64>,
     scroll_feedback: Option<u64>,
     scroll_target: Option<f32>,
 }
 impl App {
     pub fn boot(options: Options, handle: Handle, feed: Feed) -> (Self, Task<Message>) {
-        let draft_store=if options.smoke.is_none() {draft_store::Store::new(options.backend.native_home.clone()).ok().map(|store|std::sync::Arc::new(std::sync::Mutex::new(store)))}else{None};
-        let sidebar_store=if options.smoke.is_none() {draft_store::Store::sidebar(options.backend.native_home.clone()).ok().map(|store|std::sync::Arc::new(std::sync::Mutex::new(store)))}else{None};
+        let draft_store = if options.smoke.is_none() {
+            draft_store::Store::new(options.backend.native_home.clone())
+                .ok()
+                .map(|store| std::sync::Arc::new(std::sync::Mutex::new(store)))
+        } else {
+            None
+        };
+        let sidebar_store = if options.smoke.is_none() {
+            draft_store::Store::sidebar(options.backend.native_home.clone())
+                .ok()
+                .map(|store| std::sync::Arc::new(std::sync::Mutex::new(store)))
+        } else {
+            None
+        };
         let workspace_path = options
             .backend
             .working_directory
@@ -409,7 +482,7 @@ impl App {
                 transcript: Transcript::new(0),
                 follow_ready: false,
                 editor: text_editor::Content::new(),
-                draft_serial:0,
+                draft_serial: 0,
                 drafts: BTreeMap::new(),
                 pending: prompt_recovery::Controller::default(),
                 prompt_serial: 0,
@@ -426,9 +499,9 @@ impl App {
                 workspace_pending: false,
                 page_pending: false,
                 cancel_pending: false,
-                cancel_generation:None,
-                observations_lost:false,
-                rejoin_pending:false,
+                cancel_generation: None,
+                observations_lost: false,
+                rejoin_pending: false,
                 offset: 0.0,
                 viewport: 480.0,
                 follow_bottom: true,
@@ -436,6 +509,9 @@ impl App {
                 detail_opening: Some(0),
                 capabilities: false,
                 conversation_menu: false,
+                work_open: false,
+                context_policy_open: false,
+                terminal: crate::terminal::Terminal::default(),
                 info_expanded: 0,
                 settings: Default::default(),
                 decisions: Default::default(),
@@ -513,9 +589,16 @@ impl App {
                     _ => None,
                 }),
             animation,
-            if self.draft_state.ready() && self.draft_state.dirty() && !self.draft_state.busy() && self.draft_state.failure().is_none() && matches!(self.close,Close::None) {
-                iced::time::every(Duration::from_millis(750)).map(|_|Message::DraftFlush)
-            }else{Subscription::none()},
+            if self.draft_state.ready()
+                && self.draft_state.dirty()
+                && !self.draft_state.busy()
+                && self.draft_state.failure().is_none()
+                && matches!(self.close, Close::None)
+            {
+                iced::time::every(Duration::from_millis(750)).map(|_| Message::DraftFlush)
+            } else {
+                Subscription::none()
+            },
             if self.working_animation_active() {
                 iced::time::every(Duration::from_millis(100)).map(|_| Message::WorkingTick)
             } else {
@@ -593,46 +676,83 @@ impl App {
         self.layout_controls_enabled()
             && !self.capabilities
             && !self.conversation_menu
+            && !self.work_open
+            && !self.terminal.is_open()
             && self.detail.is_none()
             && !self.sidebar_sheet
-            && !self.selected.as_ref().is_some_and(|id| self.sidebar_organization.trashed(id))
+            && !self
+                .selected
+                .as_ref()
+                .is_some_and(|id| self.sidebar_organization.trashed(id))
     }
     fn detail_visible(&self) -> bool {
-        self.layout_controls_enabled() && !self.capabilities && !self.conversation_menu
-            && !self.sidebar_sheet && self.detail.is_some()
+        self.layout_controls_enabled()
+            && !self.capabilities
+            && !self.conversation_menu
+            && !self.work_open
+            && !self.terminal.is_open()
+            && !self.sidebar_sheet
+            && self.detail.is_some()
     }
-    fn detail_request(&self, key:u64) -> Option<Message> {
-        self.detail_opening.filter(|opening|*opening<u64::MAX).map(|prior_opening|Message::Details(detail_panel::Opening {
-            generation:self.generation, prior_opening, key,
-        }))
+    fn detail_request(&self, key: u64) -> Option<Message> {
+        self.detail_opening
+            .filter(|opening| *opening < u64::MAX)
+            .map(|prior_opening| {
+                Message::Details(detail_panel::Opening {
+                    generation: self.generation,
+                    prior_opening,
+                    key,
+                })
+            })
     }
     fn detail_back(&self) -> Option<Message> {
-        self.detail.as_ref().and_then(|detail|detail.ticket).map(Message::HideDetails)
+        self.detail
+            .as_ref()
+            .and_then(|detail| detail.ticket)
+            .map(Message::HideDetails)
     }
     fn detail_copy_source(&self, ticket: detail_panel::Stamp) -> Option<String> {
         if !self.detail_visible() || ticket.generation != self.generation {
             return None;
         }
-        self.detail.as_ref().filter(|detail| detail.ticket == Some(ticket) && detail.copy_available())
+        self.detail
+            .as_ref()
+            .filter(|detail| detail.ticket == Some(ticket) && detail.copy_available())
             .map(|detail| detail.source.clone())
     }
     fn detail_escape_ticket(&self) -> Option<detail_panel::Stamp> {
-        self.detail_visible().then(||self.detail.as_ref().and_then(|detail|detail.ticket)).flatten()
+        self.detail_visible()
+            .then(|| self.detail.as_ref().and_then(|detail| detail.ticket))
+            .flatten()
     }
-    fn open_detail(&mut self,heading:String,source:String,metadata:Option<String>,assistant:bool) {
-        let Some(opening)=self.detail_opening.and_then(|n|n.checked_add(1)) else {
+    fn open_detail(
+        &mut self,
+        heading: String,
+        source: String,
+        metadata: Option<String>,
+        assistant: bool,
+    ) {
+        let Some(opening) = self.detail_opening.and_then(|n| n.checked_add(1)) else {
             // Never mint a reusable ticket after exhaustion. Keep any readable old
             // snapshot and its valid Back ticket, but reject all new openings.
-            self.detail_opening=None;
+            self.detail_opening = None;
             return;
         };
-        self.detail_opening=Some(opening);
-        let ticket=Some(detail_panel::Stamp{generation:self.generation,opening});
-        self.detail=Some(detail_panel::Detail::new(heading,source,metadata,assistant,ticket));
+        self.detail_opening = Some(opening);
+        let ticket = Some(detail_panel::Stamp {
+            generation: self.generation,
+            opening,
+        });
+        self.detail = Some(detail_panel::Detail::new(
+            heading, source, metadata, assistant, ticket,
+        ));
     }
     fn request_catalog(&mut self) {
-        if self.options.smoke.is_some() || !self.ready || self.stopped
-            || self.observations_lost || !matches!(self.close, Close::None)
+        if self.options.smoke.is_some()
+            || !self.ready
+            || self.stopped
+            || self.observations_lost
+            || !matches!(self.close, Close::None)
             || self.catalog_read.pending()
         {
             return;
@@ -646,10 +766,10 @@ impl App {
         self.command(Command::Catalog(ticket));
     }
     fn command(&mut self, command: Command) {
-        if let Command::Catalog(ticket) = &command {
-            if !self.catalog_read.owns(*ticket, self.transport_epoch) {
-                return;
-            }
+        if let Command::Catalog(ticket) = &command
+            && !self.catalog_read.owns(*ticket, self.transport_epoch)
+        {
+            return;
         }
         if matches!(
             &command,
@@ -723,13 +843,39 @@ impl App {
                     self.fork
                         .finish(&submission.receipt, crate::fork::Outcome::NotSent);
                 }
+                Command::TerminalRead(ticket) => {
+                    self.terminal
+                        .loaded(&ticket, Err(crate::terminal::ReadFailure::Rejected));
+                }
+                Command::TerminalFollow(ticket) => {
+                    self.terminal
+                        .follow_ended(&ticket, Some(crate::terminal::ReadFailure::Rejected));
+                }
+                Command::TerminalCreate(submission) => {
+                    self.terminal.finish_create(
+                        &submission.receipt,
+                        crate::terminal::CreateOutcome::NotSent,
+                    );
+                }
+                Command::TerminalClose(submission) => {
+                    self.terminal
+                        .finish_close(&submission.receipt, crate::terminal::CloseOutcome::NotSent);
+                }
+                Command::TerminalWrite(submission) => {
+                    self.terminal
+                        .finish_write(&submission.receipt, crate::terminal::WriteOutcome::NotSent);
+                }
                 Command::Export(submission) => {
                     self.exporter
                         .finish(&submission.receipt, crate::exporter::Outcome::NotSent);
                 }
                 Command::Cloudflare(effect) => {
-                    let ticket=effect.ticket(); drop(effect);
-                    self.settings.cloudflare_completed(ticket,crate::settings::cloudflare::Outcome::NotSent);
+                    let ticket = effect.ticket();
+                    drop(effect);
+                    self.settings.cloudflare_completed(
+                        ticket,
+                        crate::settings::cloudflare::Outcome::NotSent,
+                    );
                 }
                 Command::KeyMetadata(ticket) => self.settings.metadata(ticket, Err(())),
                 Command::SaveKey { ticket, secret } => {
@@ -755,19 +901,32 @@ impl App {
                     self.new_pending = false;
                     self.model_controls.new_selection = None;
                     self.reconcile_model_selection();
-                },
+                }
                 Command::OpenWorkspace(_) => self.workspace_pending = false,
                 Command::Catalog(ticket) => {
                     if self.catalog_read.complete(ticket, self.transport_epoch) {
                         self.model_controls.catalog_failed(true);
                     }
-                },
-                Command::Prompt { generation, request } => {
-                    let ticket=prompt_recovery::Ticket{epoch:self.transport_epoch,generation,session:request.session_id,request_id:request.request_id};
-                    self.pending.settle(&ticket,prompt_recovery::Receipt::NotSent);
                 }
-                Command::CheckSubmission(ticket) => {self.pending.checked(&ticket,None);}
-                Command::RejoinObservations{..}=>{self.rejoin_pending=false;}
+                Command::Prompt {
+                    generation,
+                    request,
+                } => {
+                    let ticket = prompt_recovery::Ticket {
+                        epoch: self.transport_epoch,
+                        generation,
+                        session: request.session_id,
+                        request_id: request.request_id,
+                    };
+                    self.pending
+                        .settle(&ticket, prompt_recovery::Receipt::NotSent);
+                }
+                Command::CheckSubmission(ticket) => {
+                    self.pending.checked(&ticket, None);
+                }
+                Command::RejoinObservations { .. } => {
+                    self.rejoin_pending = false;
+                }
                 Command::SelectModel { generation, .. } if generation == self.generation => {
                     self.model_pending = false;
                     self.reconcile_model_selection();
@@ -793,6 +952,7 @@ impl App {
         self.management.dismiss();
         self.sidebar_organization.dismiss();
         self.rename.dismiss();
+        self.terminal.dismiss();
         self.exporter.dismiss();
         self.selected = Some(session.clone());
         self.generation += 1;
@@ -802,7 +962,7 @@ impl App {
         self.thoughts_expanded.clear();
         self.activity_expanded.clear();
         self.edit_review = None;
-        self.draft_review=None;
+        self.draft_review = None;
         self.search_open = false;
         self.search_query.clear();
         self.search_serial = 0;
@@ -849,7 +1009,8 @@ impl App {
             generation: self.generation,
             target: self.selected.clone(),
             allowed: self.options.smoke.is_none()
-                && !self.observations_lost && self.pending.is_empty()
+                && !self.observations_lost
+                && self.pending.is_empty()
                 && self.ready
                 && self.root_ready
                 && self.follow_ready
@@ -860,22 +1021,26 @@ impl App {
                         && self.management.registry.ready()
                         && !self.pending.values().any(|p| &p.session == id)
                 })
-                && !self.model_pending && !self.new_pending
+                && !self.model_pending
+                && !self.new_pending
                 && matches!(self.close, Close::None)
                 && self.composer_base_visible(),
         }
     }
     fn file_local_context(&self) -> attachment_draft::Context {
         let mut context = self.file_context();
-        context.allowed = self.pending.is_empty() && self.options.smoke.is_none()
+        context.allowed = self.pending.is_empty()
+            && self.options.smoke.is_none()
             && matches!(self.close, Close::None)
             && self.composer_visible()
             && !self.files.prompt_pending();
         context
     }
     fn send_allowed(&self) -> bool {
-        self.pending.is_empty() && self.draft_serial!=u64::MAX
-            && !self.sidebar_organization.busy() && self.sidebar_organization.failure().is_none()
+        self.pending.is_empty()
+            && self.draft_serial != u64::MAX
+            && !self.sidebar_organization.busy()
+            && self.sidebar_organization.failure().is_none()
             && !self.local_files.picker.is_open()
             && !self.model_controls.is_open()
             && self.options.smoke.is_none()
@@ -889,7 +1054,8 @@ impl App {
                     && self.management.registry.ready()
                     && !self.pending.values().any(|p| &p.session == id)
             })
-            && !self.model_pending && !self.new_pending
+            && !self.model_pending
+            && !self.new_pending
             && self.files.can_send(&self.file_context())
             && self.draft_load_allows_send()
             && (!self.editor.text().trim().is_empty() || self.files.has_file(&self.file_context()))
@@ -906,18 +1072,21 @@ impl App {
     }
     fn shutdown(&mut self) {
         self.capture_draft();
-        self.draft_exit_requested=true;
+        self.draft_exit_requested = true;
         self.pending.disconnect();
         self.files.invalidate();
-        self.management.disconnect();self.sidebar_organization.dismiss();
+        self.management.disconnect();
+        self.sidebar_organization.dismiss();
         self.exporter.disconnect();
         self.rename.disconnect();
         self.fork.disconnect();
+        self.terminal.disconnect();
         self.settings.disconnect();
         self.settings.close();
         self.close = Close::Stopping;
         self.local_files.invalidate();
-        self.catalog_read.retire(); self.ready = false;
+        self.catalog_read.retire();
+        self.ready = false;
         self.command(Command::Shutdown);
     }
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -925,24 +1094,58 @@ impl App {
         // Joined local callbacks must settle even behind another modal or during shutdown.
         match message {
             Message::FilePickerRead(result) => return self.picker_completed(result),
-            Message::FilePreviewRead(stamp, result) => return self.complete_file_preview(stamp, result),
-            Message::SidebarLoaded {ticket,result} => {
-                self.sidebar_organization.loaded(ticket,result);
-                return if self.draft_exit_requested {self.finish_draft_exit()}else{Task::none()};
+            Message::FilePreviewRead(stamp, result) => {
+                return self.complete_file_preview(stamp, result);
             }
-            Message::SidebarSaved {ticket,result} => {
-                self.sidebar_organization.saved(ticket,result);
-                return if self.draft_exit_requested {self.finish_draft_exit()}else{Task::none()};
+            Message::SidebarLoaded { ticket, result } => {
+                self.sidebar_organization.loaded(ticket, result);
+                return if self.draft_exit_requested {
+                    self.finish_draft_exit()
+                } else {
+                    Task::none()
+                };
+            }
+            Message::SidebarSaved { ticket, result } => {
+                self.sidebar_organization.saved(ticket, result);
+                return if self.draft_exit_requested {
+                    self.finish_draft_exit()
+                } else {
+                    Task::none()
+                };
             }
             _ => {}
         }
         if self.local_files.picker.is_open()
-            && (background_message(&message) || matches!(&message,Message::Settings(_)))
-            && !matches!(&message, Message::FilePicker(_)) { return Task::none(); }
-        if (self.observations_lost || !self.pending.is_empty()) && matches!(&message,Message::Send|Message::KeyboardSend|Message::NewSession|Message::OpenWorkspace|Message::Model(_)|Message::Effort(_)|Message::ModelControls(_)|Message::Reload|Message::Select(_)|Message::FileUpload(_)|Message::FileRemove(_)|Message::ExportSession(_)) {return Task::none();}
+            && (background_message(&message) || matches!(&message, Message::Settings(_)))
+            && !matches!(&message, Message::FilePicker(_))
+        {
+            return Task::none();
+        }
+        if (self.observations_lost || !self.pending.is_empty())
+            && matches!(
+                &message,
+                Message::Send
+                    | Message::KeyboardSend
+                    | Message::NewSession
+                    | Message::OpenWorkspace
+                    | Message::Model(_)
+                    | Message::Effort(_)
+                    | Message::ModelControls(_)
+                    | Message::Reload
+                    | Message::Select(_)
+                    | Message::FileUpload(_)
+                    | Message::FileRemove(_)
+                    | Message::ExportSession(_)
+            )
+        {
+            return Task::none();
+        }
         if ((self.sidebar_organization.busy() || self.sidebar_organization.failure().is_some())
-            && matches!(&message,Message::Select(_)))
-            || matches!(&message,Message::Select(id) if self.sidebar_organization.trashed(id)) {return Task::none();}
+            && matches!(&message, Message::Select(_)))
+            || matches!(&message,Message::Select(id) if self.sidebar_organization.trashed(id))
+        {
+            return Task::none();
+        }
         if matches!(&message, Message::WorkingTick) {
             if self.working_animation_active() {
                 self.working_phase = (self.working_phase + 1) % working_indicator::PHASES;
@@ -984,8 +1187,18 @@ impl App {
             return Task::none();
         }
         if self.sidebar_organization.is_open()
-            && ((background_message(&message) && !matches!(&message,Message::Sidebar(_)))
-                || matches!(&message,Message::Settings(_))) {return Task::none();}
+            && ((background_message(&message) && !matches!(&message, Message::Sidebar(_)))
+                || matches!(&message, Message::Settings(_)))
+        {
+            return Task::none();
+        }
+        if self.terminal.is_open()
+            && !self.settings.is_open()
+            && ((background_message(&message) && !matches!(&message, Message::Terminal(_)))
+                || matches!(&message, Message::Settings(_)))
+        {
+            return Task::none();
+        }
         let was_active = self.transcript_active();
         let geometry_change = matches!(
             &message,
@@ -1010,6 +1223,8 @@ impl App {
                 | Message::ExportSession(_)
                 | Message::Export(_)
                 | Message::Capabilities
+                | Message::Work(_)
+                | Message::Terminal(_)
                 | Message::Close
                 | Message::Select(_)
                 | Message::Workspace(_)
@@ -1018,7 +1233,14 @@ impl App {
             self.conversation_menu = false;
             self.model_controls.dismiss();
         }
-        if matches!(&message,Message::ToggleConversationMenu | Message::FileOpen | Message::Details(_) | Message::Resized(_) | Message::WindowActive(false)) {
+        if matches!(
+            &message,
+            Message::ToggleConversationMenu
+                | Message::FileOpen
+                | Message::Details(_)
+                | Message::Resized(_)
+                | Message::WindowActive(false)
+        ) {
             self.model_controls.dismiss();
         }
         match message {
@@ -1027,15 +1249,23 @@ impl App {
                 self.sidebar_organization.dismiss();
             }
             Message::DismissPanel if self.search_open && self.composer_visible() => {
-                return self.update(Message::SearchClose {generation:self.generation,serial:self.search_serial});
+                return self.update(Message::SearchClose {
+                    generation: self.generation,
+                    serial: self.search_serial,
+                });
             }
             Message::ModelControls(action) => return self.model_control_action(action),
             Message::FileChoose => return self.file_choose(),
             Message::FilePicker(action) => return self.file_picker_action(action),
             Message::FilePreview(stamp) => return self.start_file_preview(stamp),
-            Message::FileDropped(id, path) if self.own_window == Some(id) => return self.choose_local_file(path),
-            Message::FileDropCancelled(id) if self.own_window == Some(id) && self.file_context().allowed => {
-                self.status = "Drop canceled or unsupported. Attach up to 4 local files (4 MiB each).".into();
+            Message::FileDropped(id, path) if self.own_window == Some(id) => {
+                return self.choose_local_file(path);
+            }
+            Message::FileDropCancelled(id)
+                if self.own_window == Some(id) && self.file_context().allowed =>
+            {
+                self.status =
+                    "Drop canceled or unsupported. Attach up to 4 local files (4 MiB each).".into();
             }
             Message::FileOpen => {
                 let context = self.file_context();
@@ -1076,6 +1306,8 @@ impl App {
                 if self.layout_controls_enabled() && !self.sidebar_sheet =>
             {
                 self.conversation_menu = !self.conversation_menu;
+                self.work_open = false;
+                self.terminal.dismiss();
             }
             Message::ToggleInfoDetails(section)
                 if self.layout_controls_enabled()
@@ -1105,6 +1337,9 @@ impl App {
             Message::DismissPanel if self.fork.is_open() && !self.settings_modal_visible() => {
                 self.fork.dismiss();
             }
+            Message::DismissPanel if self.terminal.is_open() && !self.settings_modal_visible() => {
+                self.terminal.dismiss();
+            }
             Message::ExportSession(ticket) => {
                 let context = self.management_context();
                 if context.allowed
@@ -1116,13 +1351,12 @@ impl App {
                     })
                     && !self.management.pending()
                     && self.exporter.pending().is_none()
+                    && let Some(view) = context.view
                 {
-                    if let Some(view) = context.view {
-                        self.management.dismiss();
-                        let context = self.export_context_for(Some(&view.target));
-                        self.exporter
-                            .apply(crate::exporter::Action::Open(view), &context);
-                    }
+                    self.management.dismiss();
+                    let context = self.export_context_for(Some(&view.target));
+                    self.exporter
+                        .apply(crate::exporter::Action::Open(view), &context);
                 }
             }
             Message::Export(action) => {
@@ -1147,6 +1381,19 @@ impl App {
                 let context = self.fork_context();
                 if let Some(submission) = self.fork.apply(action, &context) {
                     self.command(Command::Fork(submission));
+                }
+            }
+            Message::Terminal(action) => {
+                // Opening from the More menu replaces the menu and any other panel.
+                if matches!(action, crate::terminal::Action::Open { .. }) {
+                    self.conversation_menu = false;
+                    self.capabilities = false;
+                    self.work_open = false;
+                    self.detail = None;
+                }
+                let context = self.terminal_context();
+                if let Some(effect) = self.terminal.apply(action, &context) {
+                    self.dispatch_terminal(effect);
                 }
             }
             #[cfg(test)]
@@ -1182,6 +1429,9 @@ impl App {
             }
             Message::DismissPanel if self.layout_controls_enabled() && self.conversation_menu => {
                 self.conversation_menu = false;
+            }
+            Message::DismissPanel if self.layout_controls_enabled() && self.work_open => {
+                self.work_open = false;
             }
             Message::DismissPanel if self.layout_controls_enabled() => {
                 self.sidebar_sheet = false;
@@ -1309,8 +1559,11 @@ impl App {
                 self.smoke_evidence.screenshot_started = true;
                 // Allow a draw after layout rebuild; capture directly, with no intervening
                 // App message. A bounded scheduling assumption, not an atomic draw barrier.
-                return Task::future(async {tokio::time::sleep(Duration::from_millis(100)).await;})
-                    .then(move |()|window::screenshot(id)).map(Message::OwnScreenshot);
+                return Task::future(async {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                })
+                .then(move |()| window::screenshot(id))
+                .map(Message::OwnScreenshot);
             }
             Message::OwnScreenshot(screenshot) => {
                 if let Some(path) = self
@@ -1350,15 +1603,34 @@ impl App {
                 }
                 return task;
             }
-            Message::ReviewRecovered {generation,serial} if generation==self.generation && serial==self.draft_serial && self.composer_visible() && self.pending.is_empty() && self.recovered_draft_needs_review() => {self.draft_review=Some((generation,serial));}
+            Message::ReviewRecovered { generation, serial }
+                if generation == self.generation
+                    && serial == self.draft_serial
+                    && self.composer_visible()
+                    && self.pending.is_empty()
+                    && self.recovered_draft_needs_review() =>
+            {
+                self.draft_review = Some((generation, serial));
+            }
             Message::DraftFlush => return self.flush_drafts(),
             Message::DraftOutcome(outcome) => return self.drafts_completed(outcome),
-            Message::DraftReload if self.composer_visible() && self.draft_state.failure().is_some() => return self.load_drafts(true),
-            Message::Editor(action) if !self.model_controls.is_open() && self.composer_visible() => {
-                let changed=matches!(&action,text_editor::Action::Edit(_));
-                if changed {self.draft_serial=self.draft_serial.saturating_add(1); self.edit_review=None;}
+            Message::DraftReload
+                if self.composer_visible() && self.draft_state.failure().is_some() =>
+            {
+                return self.load_drafts(true);
+            }
+            Message::Editor(action)
+                if !self.model_controls.is_open() && self.composer_visible() =>
+            {
+                let changed = matches!(&action, text_editor::Action::Edit(_));
+                if changed {
+                    self.draft_serial = self.draft_serial.saturating_add(1);
+                    self.edit_review = None;
+                }
                 self.editor.perform(action);
-                if changed {self.touch_draft();}
+                if changed {
+                    self.touch_draft();
+                }
             }
             Message::KeyboardSend if !self.editor.text().trim().is_empty() => {
                 return self.update(Message::Send);
@@ -1382,17 +1654,50 @@ impl App {
             {
                 self.draft_serial = self.draft_serial.saturating_add(1);
                 self.edit_review = None;
-                self.editor.perform(text_editor::Action::Edit(
-                    text_editor::Edit::Paste(std::sync::Arc::new(text)),
-                ));
+                self.editor
+                    .perform(text_editor::Action::Edit(text_editor::Edit::Paste(
+                        std::sync::Arc::new(text),
+                    )));
                 self.touch_draft();
             }
-            Message::StopSubmission(ticket) if self.ready && !self.stopped && !self.cancel_pending && ticket.epoch==self.transport_epoch && self.pending.ticket().as_ref()==Some(&ticket) && self.composer_visible()=>{self.cancel_pending=true;self.cancel_generation=Some(ticket.generation);self.command(Command::Cancel{generation:ticket.generation,session:ticket.session});}
-            Message::RejoinObservations if self.ready && self.observations_lost && !self.rejoin_pending && !self.stopped=>{self.rejoin_pending=true;self.command(Command::RejoinObservations{epoch:self.transport_epoch});}
-            Message::CheckSubmission(ticket) if self.ready && !self.stopped && self.composer_visible() => {
-                if let Some(check)=self.pending.begin_check(&ticket,self.transport_epoch) {self.command(Command::CheckSubmission(check));}
+            Message::StopSubmission(ticket)
+                if self.ready
+                    && !self.stopped
+                    && !self.cancel_pending
+                    && ticket.epoch == self.transport_epoch
+                    && self.pending.ticket().as_ref() == Some(&ticket)
+                    && self.composer_visible() =>
+            {
+                self.cancel_pending = true;
+                self.cancel_generation = Some(ticket.generation);
+                self.command(Command::Cancel {
+                    generation: ticket.generation,
+                    session: ticket.session,
+                });
             }
-            Message::ReviewSubmission(ticket) if self.pending.ticket().as_ref()==Some(&ticket) && self.composer_visible()=>{self.pending.expanded=!self.pending.expanded;}
+            Message::RejoinObservations
+                if self.ready
+                    && self.observations_lost
+                    && !self.rejoin_pending
+                    && !self.stopped =>
+            {
+                self.rejoin_pending = true;
+                self.command(Command::RejoinObservations {
+                    epoch: self.transport_epoch,
+                });
+            }
+            Message::CheckSubmission(ticket)
+                if self.ready && !self.stopped && self.composer_visible() =>
+            {
+                if let Some(check) = self.pending.begin_check(&ticket, self.transport_epoch) {
+                    self.command(Command::CheckSubmission(check));
+                }
+            }
+            Message::ReviewSubmission(ticket)
+                if self.pending.ticket().as_ref() == Some(&ticket) && self.composer_visible() =>
+            {
+                self.pending.expanded = !self.pending.expanded;
+            }
             Message::Send if self.send_allowed() => {
                 let session = self.selected.clone().unwrap();
                 let value = self.editor.text();
@@ -1437,20 +1742,35 @@ impl App {
                     },
                     client_time_zone: Some("UTC".into()),
                 };
-                let captured=self.pending.insert(
+                let captured = self.pending.insert(
                     self.generation,
                     Pending {
                         session,
                         text: value,
-                        draft_serial:self.draft_serial,
+                        draft_serial: self.draft_serial,
                         file_request_id: file_tickets.as_ref().map(|_| request_id),
-                        epoch:self.transport_epoch,
-                        file:self.files.metadata_all(),
-                        file_ticket:file_tickets.clone().unwrap_or_default(),
-                        request:request.clone(),
+                        epoch: self.transport_epoch,
+                        file: self.files.metadata_all(),
+                        file_ticket: file_tickets.clone().unwrap_or_default(),
+                        request: request.clone(),
                     },
                 );
-                if !captured {if let Some(tickets)=&file_tickets {let context=self.file_context();for ticket in tickets {self.files.prompt_complete(ticket,&request.request_id,worker::attachments::PromptOutcome::NotSent,&context);}}self.status="Original intent could not be captured; no prompt dispatched.".into();return Task::none();}
+                if !captured {
+                    if let Some(tickets) = &file_tickets {
+                        let context = self.file_context();
+                        for ticket in tickets {
+                            self.files.prompt_complete(
+                                ticket,
+                                &request.request_id,
+                                worker::attachments::PromptOutcome::NotSent,
+                                &context,
+                            );
+                        }
+                    }
+                    self.status =
+                        "Original intent could not be captured; no prompt dispatched.".into();
+                    return Task::none();
+                }
                 self.touch_draft(); // Scrub this owned original from the next private snapshot.
                 self.status = "Sending prompt; awaiting Host inbox acceptance…".into();
                 if let Some(tickets) = file_tickets {
@@ -1509,8 +1829,12 @@ impl App {
             }
             Message::Filter(value) => self.filter = value,
             Message::LoadModels
-                if self.options.smoke.is_none() && self.ready && !self.catalog_read.pending()
-                    && !self.observations_lost && !self.stopped && matches!(self.close, Close::None) =>
+                if self.options.smoke.is_none()
+                    && self.ready
+                    && !self.catalog_read.pending()
+                    && !self.observations_lost
+                    && !self.stopped
+                    && matches!(self.close, Close::None) =>
             {
                 self.status = "Loading available models…".into();
                 self.request_catalog();
@@ -1526,7 +1850,9 @@ impl App {
                     .as_ref()
                     .and_then(|id| model.efforts.iter().find(|e| &e.id == id))
                     .cloned();
-                if self.chosen_model.as_ref().is_none_or(|previous| previous.provider != model.provider || previous.id != model.id) {
+                if self.chosen_model.as_ref().is_none_or(|previous| {
+                    previous.provider != model.provider || previous.id != model.id
+                }) {
                     self.chosen_service_tier = None;
                     self.chosen_text_verbosity = None;
                 }
@@ -1607,26 +1933,43 @@ impl App {
                 self.invalidate_scroll();
                 return self.position_transcript();
             }
-            Message::Details(request) if self.composer_visible()
-                && request.generation==self.generation
-                && self.detail_opening==Some(request.prior_opening) => {
-                let key=request.key;
+            Message::Details(request)
+                if self.composer_visible()
+                    && request.generation == self.generation
+                    && self.detail_opening == Some(request.prior_opening) =>
+            {
+                let key = request.key;
                 if key == u64::MAX {
-                    if let Some(source)=self.transcript.partial() {
-                        self.open_detail("Live assistant snapshot".into(),source,
-                            Some("Frozen live display · not a durable record".into()),true);
+                    if let Some(source) = self.transcript.partial() {
+                        self.open_detail(
+                            "Live assistant snapshot".into(),
+                            source,
+                            Some("Frozen live display · not a durable record".into()),
+                            true,
+                        );
                     }
                 } else if let Some(row) = self.transcript.rows().iter().find(|r| r.key == key) {
-                    let heading = self.transcript.activity(key).map_or_else(||row.role.clone(),|a|a.title);
-                    let source=row.text.clone();
-                    let metadata=Some(format!("Record #{} · timestamp {} · frozen display",row.key,row.time));
-                    let assistant=self.transcript.assistant_record(key);
-                    self.open_detail(heading,source,metadata,assistant);
+                    let heading = self
+                        .transcript
+                        .activity(key)
+                        .map_or_else(|| row.role.clone(), |a| a.title);
+                    let source = row.text.clone();
+                    let metadata = Some(format!(
+                        "Record #{} · timestamp {} · frozen display",
+                        row.key, row.time
+                    ));
+                    let assistant = self.transcript.assistant_record(key);
+                    self.open_detail(heading, source, metadata, assistant);
                 }
             }
-            Message::ToggleThoughts(ticket) if ticket.generation == self.generation && self.composer_visible() => {
-                if self.reply_parts(ticket.key).is_some_and(|reply| reply.ticket == Some(ticket) && !reply.reasoning.is_empty()) {
-                    if !self.thoughts_expanded.remove(&ticket.key) { self.thoughts_expanded.insert(ticket.key); }
+            Message::ToggleThoughts(ticket)
+                if ticket.generation == self.generation && self.composer_visible() =>
+            {
+                if self.reply_parts(ticket.key).is_some_and(|reply| {
+                    reply.ticket == Some(ticket) && !reply.reasoning.is_empty()
+                }) && !self.thoughts_expanded.remove(&ticket.key)
+                {
+                    self.thoughts_expanded.insert(ticket.key);
                 }
             }
             // One tool row expands in place: the conversation never leaves for a
@@ -1647,36 +1990,99 @@ impl App {
                     self.activity_expanded.remove(&key);
                 }
             }
-            Message::CopyCode(ticket, index) if ticket.generation == self.generation && self.composer_visible() => {
-                if let Some(reply) = self.reply_parts(ticket.key).filter(|reply| reply.ticket == Some(ticket))
-                    && let Some(source) = reply.code(index).filter(|source| !source.is_empty()) {
+            Message::CopyCode(ticket, index)
+                if ticket.generation == self.generation && self.composer_visible() =>
+            {
+                if let Some(reply) = self
+                    .reply_parts(ticket.key)
+                    .filter(|reply| reply.ticket == Some(ticket))
+                    && let Some(source) = reply.code(index).filter(|source| !source.is_empty())
+                {
                     self.status = "Code copy requested.".into();
                     return iced::clipboard::write(source.to_owned());
                 }
             }
-            Message::CopyMessage {generation,key} if generation == self.generation && self.composer_visible() => {
-                if let Some(source) = self.row_copy_source(key) { self.status = "Message copy requested.".into(); return iced::clipboard::write(source); }
+            Message::CopyMessage { generation, key }
+                if generation == self.generation && self.composer_visible() =>
+            {
+                if let Some(source) = self.row_copy_source(key) {
+                    self.status = "Message copy requested.".into();
+                    return iced::clipboard::write(source);
+                }
             }
-            Message::EditMessage {generation,key} if self.edit_message_allowed(generation,key) => {
-                if self.editor.text().is_empty() { self.populate_message_draft(key); }
-                else { self.edit_review = Some((generation,key,self.draft_serial)); }
+            Message::EditMessage { generation, key }
+                if self.edit_message_allowed(generation, key) =>
+            {
+                if self.editor.text().is_empty() {
+                    self.populate_message_draft(key);
+                } else {
+                    self.edit_review = Some((generation, key, self.draft_serial));
+                }
             }
-            Message::ConfirmEdit {generation,key,draft_serial} if self.edit_review == Some((generation,key,draft_serial))
-                && self.draft_serial == draft_serial && self.edit_message_allowed(generation,key) => { self.populate_message_draft(key); }
-            Message::SearchOpen if self.composer_visible() && self.selected.is_some() && self.search_serial != u64::MAX => {
-                if !self.search_open {self.search_serial+=1;self.search_open=true;}
+            Message::ConfirmEdit {
+                generation,
+                key,
+                draft_serial,
+            } if self.edit_review == Some((generation, key, draft_serial))
+                && self.draft_serial == draft_serial
+                && self.edit_message_allowed(generation, key) =>
+            {
+                self.populate_message_draft(key);
+            }
+            Message::SearchOpen
+                if self.composer_visible()
+                    && self.selected.is_some()
+                    && self.search_serial != u64::MAX =>
+            {
+                if !self.search_open {
+                    self.search_serial += 1;
+                    self.search_open = true;
+                }
                 return iced::widget::operation::focus("native-chat-search");
             }
-            Message::SearchInput {generation,serial,query} if generation==self.generation && serial==self.search_serial && self.search_open && self.composer_visible() => {
-                self.search_query=if query.len()<=conversation_search::MAX_QUERY_BYTES {query}else{self.status="Search is limited to 256 bytes.".into();String::new()};
-                self.search_cursor=None;return self.jump_search(false,true);
+            Message::SearchInput {
+                generation,
+                serial,
+                query,
+            } if generation == self.generation
+                && serial == self.search_serial
+                && self.search_open
+                && self.composer_visible() =>
+            {
+                self.search_query = if query.len() <= conversation_search::MAX_QUERY_BYTES {
+                    query
+                } else {
+                    self.status = "Search is limited to 256 bytes.".into();
+                    String::new()
+                };
+                self.search_cursor = None;
+                return self.jump_search(false, true);
             }
-            Message::SearchNext {generation,serial,backwards} if generation==self.generation && serial==self.search_serial && self.search_open && self.composer_visible() => {return self.jump_search(backwards,false);}
-            Message::SearchClose {generation,serial} if generation==self.generation && serial==self.search_serial && self.search_open && self.composer_visible() => {
-                let anchor=self.reader_anchor();self.search_open=false;self.search_cursor=None;
+            Message::SearchNext {
+                generation,
+                serial,
+                backwards,
+            } if generation == self.generation
+                && serial == self.search_serial
+                && self.search_open
+                && self.composer_visible() =>
+            {
+                return self.jump_search(backwards, false);
+            }
+            Message::SearchClose { generation, serial }
+                if generation == self.generation
+                    && serial == self.search_serial
+                    && self.search_open
+                    && self.composer_visible() =>
+            {
+                let anchor = self.reader_anchor();
+                self.search_open = false;
+                self.search_cursor = None;
                 return self.reflow_transcript(anchor);
             }
-            Message::CancelEdit => { self.edit_review = None; }
+            Message::CancelEdit => {
+                self.edit_review = None;
+            }
             Message::CopyDetailSource(ticket) => {
                 if let Some(source) = self.detail_copy_source(ticket) {
                     // Iced writes Standard clipboard without a success acknowledgement.
@@ -1684,15 +2090,46 @@ impl App {
                     return iced::clipboard::write(source);
                 }
             }
-            Message::DetailMode(ticket,mode) if self.detail_visible() && ticket.generation==self.generation => {
-                if let Some(detail)=&mut self.detail {detail.set_mode(ticket,mode);}
+            Message::DetailMode(ticket, mode)
+                if self.detail_visible() && ticket.generation == self.generation =>
+            {
+                if let Some(detail) = &mut self.detail {
+                    detail.set_mode(ticket, mode);
+                }
             }
-            Message::HideDetails(ticket) if self.detail_visible()
-                && ticket.generation==self.generation
-                && self.detail.as_ref().and_then(|detail|detail.ticket)==Some(ticket) => self.detail = None,
+            Message::HideDetails(ticket)
+                if self.detail_visible()
+                    && ticket.generation == self.generation
+                    && self.detail.as_ref().and_then(|detail| detail.ticket) == Some(ticket) =>
+            {
+                self.detail = None
+            }
             Message::Capabilities => {
                 self.capabilities = !self.capabilities;
+                self.work_open = false;
+                self.terminal.dismiss();
                 self.info_expanded = 0;
+            }
+            // Read-only view of retained records: opening it produces no command,
+            // effect, prompt, cancellation or schedule edit.
+            Message::Work(work_panel_ui::Action::Open)
+                if self.layout_controls_enabled() && !self.sidebar_sheet =>
+            {
+                self.work_open = true;
+                self.conversation_menu = false;
+                self.capabilities = false;
+                self.terminal.dismiss();
+            }
+            Message::Work(work_panel_ui::Action::Close) if self.work_open => {
+                self.work_open = false;
+            }
+            // A disclosure with no visible composer has nothing to expand, and an
+            // invisible one is collapsed again rather than kept as hidden state.
+            Message::ToggleContextPolicy if self.composer_visible() => {
+                self.context_policy_open = !self.context_policy_open;
+            }
+            Message::ToggleContextPolicy => {
+                self.context_policy_open = false;
             }
             Message::Close => {
                 self.local_files.invalidate();
@@ -1700,6 +2137,7 @@ impl App {
                 self.exporter.dismiss();
                 self.rename.dismiss();
                 self.fork.dismiss();
+                self.terminal.dismiss();
                 if self.stopped {
                     if self.last_stop.as_ref().is_some_and(|r|matches!(r,Ok(s) if s.exited&&!s.containment_unknown&&s.observed_descendants_remaining==0)){self.capture_draft();self.draft_exit_requested=true;self.close=Close::Stopping;return self.finish_draft_exit();}
                     self.close = Close::Failed(
@@ -1713,11 +2151,20 @@ impl App {
                 }
             }
             Message::Stay => {
-                self.close=Close::None;self.draft_exit_requested=false;self.draft_discard_on_exit=false;
-                if self.ready && !self.stopped {return Task::batch([self.load_drafts(false),self.position_transcript()]);}
-            },
+                self.close = Close::None;
+                self.draft_exit_requested = false;
+                self.draft_discard_on_exit = false;
+                if self.ready && !self.stopped {
+                    return Task::batch([self.load_drafts(false), self.position_transcript()]);
+                }
+            }
             Message::ConfirmClose => self.shutdown(),
-            Message::ExitAnyway if self.stopped && !self.draft_state.busy() && !self.local_files.busy() => {self.draft_discard_on_exit=true;return iced::exit();},
+            Message::ExitAnyway
+                if self.stopped && !self.draft_state.busy() && !self.local_files.busy() =>
+            {
+                self.draft_discard_on_exit = true;
+                return iced::exit();
+            }
             _ => {}
         }
         self.reconcile_local_files();
@@ -1732,14 +2179,33 @@ impl App {
     }
     fn select_model(&mut self) {
         if self.selected.is_none() {
-            if let Some(model) = self.chosen_model.as_ref().filter(|_| !self.new_pending && self.ready && self.options.smoke.is_none()) {
-                self.model_controls.new_selection = Some((self.transport_epoch, self.generation, ModelSelection {
-                    provider: model.provider.clone(), model: model.id.clone(),
-                    reasoning_effort: self.chosen_effort.as_ref().map(|e| e.id.clone()),
-                    service_tier: self.chosen_service_tier.clone(), text_verbosity: self.chosen_text_verbosity.clone(),
-                }));
+            if let Some(model) = self
+                .chosen_model
+                .as_ref()
+                .filter(|_| !self.new_pending && self.ready && self.options.smoke.is_none())
+            {
+                self.model_controls.new_selection = Some((
+                    self.transport_epoch,
+                    self.generation,
+                    ModelSelection {
+                        provider: model.provider.clone(),
+                        model: model.id.clone(),
+                        reasoning_effort: self.chosen_effort.as_ref().map(|e| e.id.clone()),
+                        service_tier: self.chosen_service_tier.clone(),
+                        text_verbosity: self.chosen_text_verbosity.clone(),
+                    },
+                ));
                 self.new_pending = true;
-                self.command(Command::Create { workspace: self.workspace.clone(), cwd: self.workspace.is_none().then(|| self.options.backend.working_directory.to_string_lossy().into_owned()) });
+                self.command(Command::Create {
+                    workspace: self.workspace.clone(),
+                    cwd: self.workspace.is_none().then(|| {
+                        self.options
+                            .backend
+                            .working_directory
+                            .to_string_lossy()
+                            .into_owned()
+                    }),
+                });
             }
             return;
         }
@@ -1791,9 +2257,14 @@ impl App {
                 }
                 self.status = format!("Owned Core {version}; authenticated native transport ready");
                 self.request_catalog();
-                if !self.stopped && matches!(self.close,Close::None) {return Task::batch([self.load_drafts(false),self.load_sidebar(false)]);}
+                if !self.stopped && matches!(self.close, Close::None) {
+                    return Task::batch([self.load_drafts(false), self.load_sidebar(false)]);
+                }
             }
-            Event::Core(PublicEvent::CloudflareAuth(status)) => {self.settings.cloudflare_observed(status);self.continue_cloudflare_connection();}
+            Event::Core(PublicEvent::CloudflareAuth(status)) => {
+                self.settings.cloudflare_observed(status);
+                self.continue_cloudflare_connection();
+            }
             Event::Core(PublicEvent::Codex(metadata)) => {
                 self.settings.codex_observed(metadata);
                 self.continue_codex_connection();
@@ -1823,13 +2294,16 @@ impl App {
             Event::Core(PublicEvent::Exited(result)) => {
                 self.pending.disconnect();
                 self.files.disconnect();
-                self.management.disconnect();self.sidebar_organization.dismiss();
+                self.management.disconnect();
+                self.sidebar_organization.dismiss();
                 self.exporter.disconnect();
                 self.rename.disconnect();
                 self.fork.disconnect();
+                self.terminal.disconnect();
                 self.settings.disconnect();
                 self.account = "Account metadata unavailable (disconnected)".into();
-                self.catalog_read.retire(); self.ready = false;
+                self.catalog_read.retire();
+                self.ready = false;
                 self.root_ready = false;
                 self.decisions.disconnect();
                 self.status = format!(
@@ -1852,17 +2326,34 @@ impl App {
                     self.files
                         .prompt_complete(ticket, &request_id, outcome, &context);
                 }
-                if let Some(ticket) = tickets.first() {
-                    if self.pending.get(&ticket.generation).is_some_and(|pending| {
+                if let Some(ticket) = tickets.first()
+                    && self.pending.get(&ticket.generation).is_some_and(|pending| {
                         pending.session == ticket.target
                             && pending.file_request_id.as_ref() == Some(&request_id)
-                    }) {
-                        let owner=prompt_recovery::Ticket{epoch:ticket.epoch,generation:ticket.generation,session:ticket.target.clone(),request_id:request_id.clone()};
-                        let receipt=match outcome {worker::attachments::PromptOutcome::Accepted=>prompt_recovery::Receipt::Accepted,worker::attachments::PromptOutcome::NotSent=>prompt_recovery::Receipt::NotSent,worker::attachments::PromptOutcome::Unknown=>prompt_recovery::Receipt::Unknown};
-                        if let Some(pending)=self.pending.settle(&owner,receipt) {self.prompt_resolved(pending,ticket.generation,receipt);}
-                        if ticket.generation == self.generation {
-                            self.status=match outcome {worker::attachments::PromptOutcome::Accepted=>"Attachment prompt accepted into Host inbox; generation/history still come from Host events",worker::attachments::PromptOutcome::NotSent=>"Attachment prompt not admitted; files remain ready",worker::attachments::PromptOutcome::Unknown=>"Attachment Send outcome unknown; do not retry automatically"}.into();
+                    })
+                {
+                    let owner = prompt_recovery::Ticket {
+                        epoch: ticket.epoch,
+                        generation: ticket.generation,
+                        session: ticket.target.clone(),
+                        request_id: request_id.clone(),
+                    };
+                    let receipt = match outcome {
+                        worker::attachments::PromptOutcome::Accepted => {
+                            prompt_recovery::Receipt::Accepted
                         }
+                        worker::attachments::PromptOutcome::NotSent => {
+                            prompt_recovery::Receipt::NotSent
+                        }
+                        worker::attachments::PromptOutcome::Unknown => {
+                            prompt_recovery::Receipt::Unknown
+                        }
+                    };
+                    if let Some(pending) = self.pending.settle(&owner, receipt) {
+                        self.prompt_resolved(pending, ticket.generation, receipt);
+                    }
+                    if ticket.generation == self.generation {
+                        self.status=match outcome {worker::attachments::PromptOutcome::Accepted=>"Attachment prompt accepted into Host inbox; generation/history still come from Host events",worker::attachments::PromptOutcome::NotSent=>"Attachment prompt not admitted; files remain ready",worker::attachments::PromptOutcome::Unknown=>"Attachment Send outcome unknown; do not retry automatically"}.into();
                     }
                 }
             }
@@ -1908,20 +2399,68 @@ impl App {
                     self.fork.reveal(visible);
                 }
             }
+            Event::TerminalLoaded { ticket, result } => {
+                self.terminal.loaded(&ticket, result);
+            }
+            Event::TerminalFrame { ticket, frame } => {
+                self.terminal.frame(&ticket, frame);
+            }
+            Event::TerminalFollowEnded { ticket, failure } => {
+                self.terminal.follow_ended(&ticket, failure);
+            }
+            Event::TerminalCreated { submission, result } => {
+                use crate::terminal::{CreateFailure, CreateOutcome};
+                let outcome = match result {
+                    Ok(info) => CreateOutcome::Created(Box::new(info)),
+                    Err(CreateFailure::Unavailable) => CreateOutcome::Unavailable,
+                    Err(CreateFailure::LimitReached) => CreateOutcome::LimitReached,
+                    Err(CreateFailure::NotSent) => CreateOutcome::NotSent,
+                    Err(CreateFailure::Unknown) => CreateOutcome::Unknown,
+                };
+                // Only the Host ACK may add and follow the new terminal.
+                if let Some(applied) = self.terminal.finish_create(&submission.receipt, outcome) {
+                    self.command(Command::TerminalFollow(applied.follow));
+                }
+            }
+            Event::TerminalClosed { submission, result } => {
+                use crate::terminal::{CloseFailure, CloseOutcome};
+                let outcome = match result {
+                    Ok(()) => CloseOutcome::Closed,
+                    Err(CloseFailure::Unavailable) => CloseOutcome::Unavailable,
+                    Err(CloseFailure::NotSent) => CloseOutcome::NotSent,
+                    Err(CloseFailure::Unknown) => CloseOutcome::Unknown,
+                };
+                self.terminal.finish_close(&submission.receipt, outcome);
+            }
+            Event::TerminalWritten { submission, result } => {
+                use crate::terminal::{WriteFailure, WriteOutcome};
+                let outcome = match result {
+                    Ok(()) => WriteOutcome::Sent,
+                    // A control/unavailable refusal never delivered the input.
+                    Err(WriteFailure::ControlUnavailable | WriteFailure::Unavailable) => {
+                        WriteOutcome::Refused
+                    }
+                    Err(WriteFailure::NotSent) => WriteOutcome::NotSent,
+                    Err(WriteFailure::Unknown) => WriteOutcome::Unknown,
+                };
+                self.terminal.finish_write(&submission.receipt, outcome);
+            }
             Event::Roster(result) => {
                 self.roster_pending = false;
                 match result {
                     Ok(roster) => {
                         if roster.items.len() > 4096 {
                             self.status = "Session list exceeds native 4096-row limit".into();
-                            self.catalog_read.retire(); self.ready = false;
+                            self.catalog_read.retire();
+                            self.ready = false;
                         } else {
                             self.sessions = roster
                                 .items
                                 .into_iter()
                                 .map(|s| (s.session_id.clone(), s))
                                 .collect();
-                            self.title_updates.retain(|id, _| self.sessions.contains_key(id));
+                            self.title_updates
+                                .retain(|id, _| self.sessions.contains_key(id));
                             for frame in std::mem::take(&mut self.early_root) {
                                 self.root(frame, None);
                             }
@@ -1997,7 +2536,8 @@ impl App {
                     } else {
                         self.status =
                             "Roster event buffer overflow; close and restart native app".into();
-                        self.catalog_read.retire(); self.ready = false;
+                        self.catalog_read.retire();
+                        self.ready = false;
                     }
                 } else {
                     self.root(frame, decision_key);
@@ -2009,11 +2549,23 @@ impl App {
                     self.thoughts_expanded.clear();
                     self.activity_expanded.clear();
                 }
-                if matches!(&frame,SessionFollowFrame::AssistantStream {..}) { self.reply_content.clear_live(); }
+                if matches!(&frame, SessionFollowFrame::AssistantStream { .. }) {
+                    self.reply_content.clear_live();
+                }
                 let snapshot = matches!(&frame, SessionFollowFrame::Snapshot { .. });
                 let title_change = match &frame {
-                    SessionFollowFrame::Snapshot { projections, .. } => projections.values.get("title").map(|value| (projections.as_of_seq, value.clone())),
-                    SessionFollowFrame::Event { event } if event.event_type == "session/title" => event.data.get("title").and_then(|value| i64::try_from(event.seq).ok().filter(|seq| *seq > self.transcript.cursor()).map(|seq| (seq, value.clone()))),
+                    SessionFollowFrame::Snapshot { projections, .. } => projections
+                        .values
+                        .get("title")
+                        .map(|value| (projections.as_of_seq, value.clone())),
+                    SessionFollowFrame::Event { event } if event.event_type == "session/title" => {
+                        event.data.get("title").and_then(|value| {
+                            i64::try_from(event.seq)
+                                .ok()
+                                .filter(|seq| *seq > self.transcript.cursor())
+                                .map(|seq| (seq, value.clone()))
+                        })
+                    }
                     _ => None,
                 };
                 if let SessionFollowFrame::Snapshot {
@@ -2042,13 +2594,11 @@ impl App {
                             .values
                             .get("modelSelection")
                             .and_then(|v| v.get("next")),
-                    ) {
-                        if let Ok(selection) =
-                            serde_json::from_value::<ModelSelection>(value.clone())
-                        {
-                            self.model_selections.insert(id, selection);
-                            self.reconcile_model_selection();
-                        }
+                    ) && let Ok(selection) =
+                        serde_json::from_value::<ModelSelection>(value.clone())
+                    {
+                        self.model_selections.insert(id, selection);
+                        self.reconcile_model_selection();
                     }
                     self.follow_ready = true;
                     self.status = "Live real session; UTC timestamps; no generation started".into();
@@ -2075,15 +2625,31 @@ impl App {
             }
             Event::Created(result) => {
                 self.new_pending = false;
-                let deferred = self.model_controls.new_selection.take()
-                    .filter(|(epoch, generation, _)| *epoch == self.transport_epoch && *generation == self.generation && self.selected.is_none() && self.ready && !self.stopped && matches!(self.close, Close::None));
+                let deferred =
+                    self.model_controls
+                        .new_selection
+                        .take()
+                        .filter(|(epoch, generation, _)| {
+                            *epoch == self.transport_epoch
+                                && *generation == self.generation
+                                && self.selected.is_none()
+                                && self.ready
+                                && !self.stopped
+                                && matches!(self.close, Close::None)
+                        });
                 match result {
                     Ok(value) => {
                         self.smoke_evidence.session_created = true;
                         self.choose(value.session_id);
                         if let Some((_, _, selection)) = deferred {
                             self.model_pending = true;
-                            self.command(Command::SelectModel { generation: self.generation, request: SelectModelRequest { session_id: self.selected.clone().unwrap(), selection } });
+                            self.command(Command::SelectModel {
+                                generation: self.generation,
+                                request: SelectModelRequest {
+                                    session_id: self.selected.clone().unwrap(),
+                                    selection,
+                                },
+                            });
                         }
                     }
                     Err(error) => {
@@ -2119,7 +2685,9 @@ impl App {
             }
             Event::Catalog { ticket, result } => {
                 if !self.catalog_read.complete(ticket, self.transport_epoch)
-                    || !self.ready || self.observations_lost || self.stopped
+                    || !self.ready
+                    || self.observations_lost
+                    || self.stopped
                     || !matches!(self.close, Close::None)
                 {
                     return Task::none();
@@ -2142,9 +2710,13 @@ impl App {
                                         label: format!("{} / {}", group_name, model.name),
                                         name: model.name,
                                         service_tiers: model_controls::Choice::from_catalog(
-                                            model.service_tier.map_or(vec![], |t| t.tiers), model_controls::Section::Speed),
+                                            model.service_tier.map_or(vec![], |t| t.tiers),
+                                            model_controls::Section::Speed,
+                                        ),
                                         verbosity_levels: model_controls::Choice::from_catalog(
-                                            model.text_verbosity.map_or(vec![], |v| v.levels), model_controls::Section::OutputDetail),
+                                            model.text_verbosity.map_or(vec![], |v| v.levels),
+                                            model_controls::Section::OutputDetail,
+                                        ),
                                         default_effort: reasoning
                                             .as_ref()
                                             .and_then(|r| r.default_effort.clone()),
@@ -2189,34 +2761,95 @@ impl App {
                 }
                 self.reconcile_model_selection();
             }
-            Event::ObservationsLost=>{
+            Event::ObservationsLost => {
                 self.catalog_read.retire();
-                self.observations_lost=true;self.rejoin_pending=false;self.root_ready=false;self.follow_ready=false;self.pending.disconnect();self.files.invalidate();self.management.disconnect();self.sidebar_organization.dismiss();self.decisions.disconnect();self.model_controls.dismiss();
+                self.observations_lost = true;
+                self.rejoin_pending = false;
+                self.root_ready = false;
+                self.follow_ready = false;
+                self.pending.disconnect();
+                self.files.invalidate();
+                self.management.disconnect();
+                self.sidebar_organization.dismiss();
+                self.decisions.disconnect();
+                self.model_controls.dismiss();
+                self.terminal.disconnect();
                 self.status="Observation connection lost; original Host identity not re-verified. Check/reconnect explicitly; no automatic restart or session resume.".into();
             }
-            Event::ObservationsRejoined{epoch,result} if epoch==self.transport_epoch && self.ready=>{
-                self.rejoin_pending=false;
-                match result {Ok(())=>{self.observations_lost=false;self.status="Same owned Host verified; root observations rejoined. Check original submission, then select a session explicitly to resume.".into();},Err(error)=>self.status=error,}
+            Event::ObservationsRejoined { epoch, result }
+                if epoch == self.transport_epoch && self.ready =>
+            {
+                self.rejoin_pending = false;
+                match result {
+                    Ok(()) => {
+                        self.observations_lost = false;
+                        self.status="Same owned Host verified; root observations rejoined. Check original submission, then select a session explicitly to resume.".into();
+                    }
+                    Err(error) => self.status = error,
+                }
             }
-            Event::Prompt { generation, request_id, result } => {
-                if let Some(ticket)=self.pending.ticket().filter(|t|t.generation==generation && t.request_id==request_id && t.epoch==self.transport_epoch && self.pending.get(&generation).is_some_and(|p|p.file_request_id.is_none())) {
-                    let receipt=if result.as_ref().is_ok_and(|accepted|accepted.accepted) {prompt_recovery::Receipt::Accepted} else {prompt_recovery::Receipt::Unknown};
-                    if let Some(pending)=self.pending.settle(&ticket,receipt) {self.prompt_resolved(pending,generation,receipt);}
-                    else {self.status="Submission outcome unknown. Original intent retained; do not resend. Check submission explicitly.".into();}
+            Event::Prompt {
+                generation,
+                request_id,
+                result,
+            } => {
+                if let Some(ticket) = self.pending.ticket().filter(|t| {
+                    t.generation == generation
+                        && t.request_id == request_id
+                        && t.epoch == self.transport_epoch
+                        && self
+                            .pending
+                            .get(&generation)
+                            .is_some_and(|p| p.file_request_id.is_none())
+                }) {
+                    let receipt = if result.as_ref().is_ok_and(|accepted| accepted.accepted) {
+                        prompt_recovery::Receipt::Accepted
+                    } else {
+                        prompt_recovery::Receipt::Unknown
+                    };
+                    if let Some(pending) = self.pending.settle(&ticket, receipt) {
+                        self.prompt_resolved(pending, generation, receipt);
+                    } else {
+                        self.status="Submission outcome unknown. Original intent retained; do not resend. Check submission explicitly.".into();
+                    }
                 }
             }
             Event::PromptNotSent { ticket } => {
-                if let Some(pending)=self.pending.settle(&ticket,prompt_recovery::Receipt::NotSent) {self.prompt_resolved(pending,ticket.generation,prompt_recovery::Receipt::NotSent);}
+                if let Some(pending) = self
+                    .pending
+                    .settle(&ticket, prompt_recovery::Receipt::NotSent)
+                {
+                    self.prompt_resolved(
+                        pending,
+                        ticket.generation,
+                        prompt_recovery::Receipt::NotSent,
+                    );
+                }
             }
-            Event::SubmissionChecked { ticket,value } => {
-                if let Some((pending,receipt))=self.pending.checked(&ticket,value) {
-                    if !pending.file_ticket.is_empty() {let context=self.file_context();let accepted=receipt==prompt_recovery::Receipt::Accepted;for file in &pending.file_ticket {self.files.reconcile_prompt(file,&pending.request.request_id,accepted,&context);}}
-                    self.prompt_resolved(pending,ticket.submission.generation,receipt);
-                } else if self.pending.ticket().as_ref()==Some(&ticket.submission) {self.status="No verified admission decision. Original submission still owned; no resend permission. Check again only explicitly.".into();}
+            Event::SubmissionChecked { ticket, value } => {
+                if let Some((pending, receipt)) = self.pending.checked(&ticket, value) {
+                    if !pending.file_ticket.is_empty() {
+                        let context = self.file_context();
+                        let accepted = receipt == prompt_recovery::Receipt::Accepted;
+                        for file in &pending.file_ticket {
+                            self.files.reconcile_prompt(
+                                file,
+                                &pending.request.request_id,
+                                accepted,
+                                &context,
+                            );
+                        }
+                    }
+                    self.prompt_resolved(pending, ticket.submission.generation, receipt);
+                } else if self.pending.ticket().as_ref() == Some(&ticket.submission) {
+                    self.status="No verified admission decision. Original submission still owned; no resend permission. Check again only explicitly.".into();
+                }
             }
-            Event::Cancel { generation, result } if generation == self.generation || self.cancel_generation==Some(generation) => {
+            Event::Cancel { generation, result }
+                if generation == self.generation || self.cancel_generation == Some(generation) =>
+            {
                 self.cancel_pending = false;
-                self.cancel_generation=None;
+                self.cancel_generation = None;
                 self.status = match result {
                     Ok(value) if value.accepted => {
                         "Cancellation accepted; awaiting actual Host status".into()
@@ -2244,8 +2877,12 @@ impl App {
                 self.status = error;
             }
             Event::Inspection(result) if matches!(self.close, Close::Inspecting) => match result {
-                Ok(inspection) if inspection.is_known_idle() && self.pending.is_empty() => self.shutdown(),
-                Ok(_) if !self.pending.is_empty() => {self.close=Close::Confirm("Original submission is unresolved. Closing stops only this owned Host and discards local recovery state; it is not rollback or permission to resend.".into());},
+                Ok(inspection) if inspection.is_known_idle() && self.pending.is_empty() => {
+                    self.shutdown()
+                }
+                Ok(_) if !self.pending.is_empty() => {
+                    self.close=Close::Confirm("Original submission is unresolved. Closing stops only this owned Host and discards local recovery state; it is not rollback or permission to resend.".into());
+                }
                 Ok(Inspection {
                     active_tasks,
                     scheduled_tasks,
@@ -2278,32 +2915,41 @@ impl App {
             }
             Event::PluginsLoaded { ticket, result } => self.settings.plugins_loaded(ticket, result),
             Event::PluginSaved { ticket, result } => self.settings.plugin_saved(ticket, result),
-            Event::CloudflareCompleted { ticket, outcome } => {self.settings.cloudflare_completed(ticket,outcome);self.continue_cloudflare_connection();},
+            Event::CloudflareCompleted { ticket, outcome } => {
+                self.settings.cloudflare_completed(ticket, outcome);
+                self.continue_cloudflare_connection();
+            }
             Event::KeyMetadata { ticket, result } => self.settings.metadata(ticket, result),
             Event::KeySaved { ticket, result } => self.settings.saved(ticket, result),
             Event::Fault(error) => {
                 self.pending.disconnect();
                 self.files.disconnect();
-                self.management.disconnect();self.sidebar_organization.dismiss();
+                self.management.disconnect();
+                self.sidebar_organization.dismiss();
                 self.exporter.disconnect();
                 self.rename.disconnect();
                 self.fork.disconnect();
+                self.terminal.disconnect();
                 self.settings.disconnect();
                 self.account = "Account metadata unavailable (disconnected)".into();
-                self.catalog_read.retire(); self.ready = false;
+                self.catalog_read.retire();
+                self.ready = false;
                 self.root_ready = false;
                 self.decisions.disconnect();
                 self.status = error;
             }
             Event::NoBackendStarted => {
                 self.files.disconnect();
-                self.management.disconnect();self.sidebar_organization.dismiss();
+                self.management.disconnect();
+                self.sidebar_organization.dismiss();
                 self.exporter.disconnect();
                 self.rename.disconnect();
                 self.fork.disconnect();
+                self.terminal.disconnect();
                 self.settings.disconnect();
                 self.account = "Account metadata unavailable (disconnected)".into();
-                self.catalog_read.retire(); self.ready = false;
+                self.catalog_read.retire();
+                self.ready = false;
                 self.stopped = true;
                 self.status = "No owned backend was started".into();
                 if matches!(self.close, Close::Stopping) {
@@ -2313,10 +2959,12 @@ impl App {
             Event::Stopped(result) => {
                 self.pending.disconnect();
                 self.files.disconnect();
-                self.management.disconnect();self.sidebar_organization.dismiss();
+                self.management.disconnect();
+                self.sidebar_organization.dismiss();
                 self.exporter.disconnect();
                 self.rename.disconnect();
                 self.fork.disconnect();
+                self.terminal.disconnect();
                 self.settings.disconnect();
                 self.account = "Account metadata unavailable (disconnected)".into();
                 self.transport_epoch += 1;
@@ -2337,7 +2985,8 @@ impl App {
                     }
                     return iced::exit();
                 }
-                self.catalog_read.retire(); self.ready = false;
+                self.catalog_read.retire();
+                self.ready = false;
                 self.root_ready = false;
                 self.stopped = true;
                 self.decisions.disconnect();
@@ -2446,10 +3095,9 @@ impl App {
                             .and_then(|v| v.as_str())
                             .and_then(|v| SessionId::new(v).ok()),
                         args.get(1).and_then(|v| v.as_bool()),
-                    ) {
-                        if let Some(session) = self.sessions.get_mut(&id) {
-                            session.running = running;
-                        }
+                    ) && let Some(session) = self.sessions.get_mut(&id)
+                    {
+                        session.running = running;
                     }
                 }
                 "api-session/activity" => {
@@ -2458,10 +3106,9 @@ impl App {
                             .and_then(|v| v.as_str())
                             .and_then(|v| SessionId::new(v).ok()),
                         args.get(1).and_then(|v| v.as_i64()),
-                    ) {
-                        if let Some(session) = self.sessions.get_mut(&id) {
-                            session.updated_at = updated;
-                        }
+                    ) && let Some(session) = self.sessions.get_mut(&id)
+                    {
+                        session.updated_at = updated;
                     }
                 }
                 "api-session/error" => {
@@ -2495,12 +3142,16 @@ impl App {
     fn management_context(&self) -> crate::management::Context {
         self.management_context_for(self.management.target().or(self.selected.as_ref()))
     }
-    fn management_context_for(&self, target:Option<&SessionId>) -> crate::management::Context {
+    fn management_context_for(&self, target: Option<&SessionId>) -> crate::management::Context {
         let mut context = self.operator_context_for(target);
-        context.allowed =
-            context.allowed && !self.exporter.is_open() && self.exporter.pending().is_none()
-                && !self.rename.is_open() && self.rename.pending().is_none()
-                && !self.fork.is_open() && self.fork.pending().is_none();
+        context.allowed = context.allowed
+            && !self.exporter.is_open()
+            && self.exporter.pending().is_none()
+            && !self.rename.is_open()
+            && self.rename.pending().is_none()
+            && !self.fork.is_open()
+            && self.fork.pending().is_none()
+            && !self.terminal.busy();
         context
     }
     fn rename_context(&self) -> crate::rename::Context {
@@ -2511,7 +3162,7 @@ impl App {
             .or(self.selected.as_ref());
         self.rename_context_for(target)
     }
-    fn rename_context_for(&self, target:Option<&SessionId>) -> crate::rename::Context {
+    fn rename_context_for(&self, target: Option<&SessionId>) -> crate::rename::Context {
         let context = self.operator_context_for(target);
         crate::rename::Context {
             view: context.view,
@@ -2521,7 +3172,8 @@ impl App {
                 && !self.exporter.is_open()
                 && self.exporter.pending().is_none()
                 && !self.fork.is_open()
-                && self.fork.pending().is_none(),
+                && self.fork.pending().is_none()
+                && !self.terminal.busy(),
         }
     }
     fn fork_context(&self) -> crate::fork::Context {
@@ -2542,7 +3194,7 @@ impl App {
                 .iter()
                 .any(|workspace| workspace.session_ids.contains(child))
     }
-    fn fork_context_for(&self, target:Option<&SessionId>) -> crate::fork::Context {
+    fn fork_context_for(&self, target: Option<&SessionId>) -> crate::fork::Context {
         let context = self.operator_context_for(target);
         crate::fork::Context {
             view: context.view,
@@ -2552,33 +3204,91 @@ impl App {
                 && !self.rename.is_open()
                 && self.rename.pending().is_none()
                 && !self.exporter.is_open()
-                && self.exporter.pending().is_none(),
+                && self.exporter.pending().is_none()
+                && !self.terminal.busy(),
         }
     }
     fn export_context(&self) -> crate::exporter::Context {
-        let ticket=self.exporter.ticket();
-        self.export_context_for(ticket.as_ref().map(|ticket|&ticket.target).or(self.selected.as_ref()))
+        let ticket = self.exporter.ticket();
+        self.export_context_for(
+            ticket
+                .as_ref()
+                .map(|ticket| &ticket.target)
+                .or(self.selected.as_ref()),
+        )
     }
-    fn export_context_for(&self, target:Option<&SessionId>) -> crate::exporter::Context {
+    fn export_context_for(&self, target: Option<&SessionId>) -> crate::exporter::Context {
         let context = self.operator_context_for(target);
         crate::exporter::Context {
             view: context.view,
-            allowed: context.allowed && !self.management.is_open() && !self.management.pending()
-                && !self.rename.is_open() && self.rename.pending().is_none()
-                && !self.fork.is_open() && self.fork.pending().is_none(),
+            allowed: context.allowed
+                && !self.management.is_open()
+                && !self.management.pending()
+                && !self.rename.is_open()
+                && self.rename.pending().is_none()
+                && !self.fork.is_open()
+                && self.fork.pending().is_none()
+                && !self.terminal.busy(),
         }
     }
+    /// The terminal panel reads and mutates only the selected Session's Host terminals.
+    /// Create/close share the app's single management flight with rename/fork/export.
+    fn terminal_context(&self) -> crate::terminal::Context {
+        let target = self
+            .terminal
+            .target()
+            .cloned()
+            .or_else(|| self.selected.clone());
+        self.terminal_context_for(target.as_ref())
+    }
+    fn terminal_context_for(&self, target: Option<&SessionId>) -> crate::terminal::Context {
+        let context = self.operator_context_for(target);
+        crate::terminal::Context {
+            view: context.view,
+            allowed: context.allowed
+                && !self.management.is_open()
+                && !self.management.pending()
+                && !self.rename.is_open()
+                && self.rename.pending().is_none()
+                && !self.fork.is_open()
+                && self.fork.pending().is_none()
+                && !self.exporter.is_open()
+                && self.exporter.pending().is_none(),
+        }
+    }
+    /// Map one terminal model effect onto the worker. Only mutating effects reserve
+    /// the management flight; a read or follow never blocks another operation.
+    fn dispatch_terminal(&mut self, effect: crate::terminal::Effect) {
+        match effect {
+            crate::terminal::Effect::Read(ticket) => self.command(Command::TerminalRead(ticket)),
+            crate::terminal::Effect::Follow(ticket) => {
+                self.command(Command::TerminalFollow(ticket))
+            }
+            crate::terminal::Effect::Create(submission) => {
+                self.command(Command::TerminalCreate(submission))
+            }
+            crate::terminal::Effect::Close(submission) => {
+                self.command(Command::TerminalClose(submission))
+            }
+            crate::terminal::Effect::Write(submission) => {
+                self.command(Command::TerminalWrite(submission))
+            }
+        }
+    }
+    /// Read-only context for the composed export policy; the mutation path
+    /// assembles its own context where the ticket is minted.
+    #[allow(dead_code)]
     fn operator_context(&self) -> crate::management::Context {
         self.operator_context_for(self.selected.as_ref())
     }
-    fn operator_context_for(&self, target:Option<&SessionId>) -> crate::management::Context {
+    fn operator_context_for(&self, target: Option<&SessionId>) -> crate::management::Context {
         let observed = target.and_then(|id| self.sessions.get(id));
         crate::management::Context {
             view: target.map(|target| crate::management::View {
-                    epoch: self.transport_epoch,
-                    generation: self.generation,
-                    target: target.clone(),
-                }),
+                epoch: self.transport_epoch,
+                generation: self.generation,
+                target: target.clone(),
+            }),
             allowed: self.options.smoke.is_none()
                 && self.ready
                 && self.root_ready
@@ -2597,8 +3307,10 @@ impl App {
             && matches!(self.close, Close::None)
     }
     fn continue_cloudflare_connection(&mut self) {
-        let enabled=self.settings_enabled();
-        if let Some(effect)=self.settings.cloudflare_continue(enabled) {self.command(Command::Cloudflare(effect));}
+        let enabled = self.settings_enabled();
+        if let Some(effect) = self.settings.cloudflare_continue(enabled) {
+            self.command(Command::Cloudflare(effect));
+        }
     }
     fn continue_codex_connection(&mut self) {
         let enabled = self.settings_enabled();
@@ -2607,7 +3319,9 @@ impl App {
         }
     }
     fn settings_enabled(&self) -> bool {
-        self.pending.is_empty() && !self.observations_lost && self.exporter.pending().is_none()
+        self.pending.is_empty()
+            && !self.observations_lost
+            && self.exporter.pending().is_none()
             && !self.exporter.is_open()
             && self.options.smoke.is_none()
             && self.ready
@@ -2691,15 +3405,21 @@ impl App {
             );
         }
         if let Some(stamp) = self.sidebar_organization.stamp() {
-            return settings_overlay(self.presentation_shell(false), self.sidebar_panel(),
-                Message::Sidebar(sidebar_ui::Action::Close(stamp)));
+            return settings_overlay(
+                self.presentation_shell(false),
+                self.sidebar_panel(),
+                Message::Sidebar(sidebar_ui::Action::Close(stamp)),
+            );
         }
         if let Some(dialog) = self.decisions.dialog(self.decision_replies_enabled()) {
             return dialog.map(Message::Interaction);
         }
         if let Some(ticket) = self.local_files.picker.ticket() {
-            return settings_overlay(self.presentation_shell(false), self.picker_view(ticket),
-                Message::FilePicker(attachment_picker::Action::Close(ticket)));
+            return settings_overlay(
+                self.presentation_shell(false),
+                self.picker_view(ticket),
+                Message::FilePicker(attachment_picker::Action::Close(ticket)),
+            );
         }
         self.presentation_shell(self.composer_visible())
     }
@@ -2795,7 +3515,8 @@ impl App {
             .map(|session| self.session_title(session))
             .unwrap_or_else(|| "Unavailable conversation".into());
         let enabled = self.rename_context().allowed && self.rename.pending().is_none();
-        let mut body = column![
+        let mut body =
+            column![
             row![
                 label("Rename conversation", TEXT).size(22).width(Length::Fill),
                 button("Close")
@@ -2810,18 +3531,16 @@ impl App {
             )
             .size(11),
         ]
-        .spacing(10);
+            .spacing(10);
         if let Some(review) = self.rename.review() {
             body = body
                 .push(label("Confirm this exact title", TEXT).size(13))
                 .push(label(self.rename.title(), ACCENT).size(14))
                 .push(
                     row![
-                        button("Back")
-                            .style(design::ghost)
-                            .on_press_maybe(
-                                enabled.then_some(Message::Rename(Action::Back(ticket.clone())))
-                            ),
+                        button("Back").style(design::ghost).on_press_maybe(
+                            enabled.then_some(Message::Rename(Action::Back(ticket.clone())))
+                        ),
                         button("Confirm rename")
                             .style(design::primary)
                             .on_press_maybe(
@@ -2932,11 +3651,9 @@ impl App {
                 .push(label(format!("Source: {}", short(&source, 80)), ACCENT).size(14))
                 .push(
                     row![
-                        button("Back")
-                            .style(design::ghost)
-                            .on_press_maybe(
-                                enabled.then_some(Message::Fork(Action::Back(ticket.clone())))
-                            ),
+                        button("Back").style(design::ghost).on_press_maybe(
+                            enabled.then_some(Message::Fork(Action::Back(ticket.clone())))
+                        ),
                         button("Confirm fork")
                             .style(design::primary)
                             .on_press_maybe(
@@ -2946,13 +3663,10 @@ impl App {
                     .spacing(8),
                 );
         } else {
-            body = body.push(
-                button("Review fork")
-                    .style(design::primary)
-                    .on_press_maybe(
-                        enabled.then_some(Message::Fork(Action::Review(ticket.clone())))
-                    ),
-            );
+            body =
+                body.push(button("Review fork").style(design::primary).on_press_maybe(
+                    enabled.then_some(Message::Fork(Action::Review(ticket.clone()))),
+                ));
         }
         body = body.push(match self.fork.notice() {
             Notice::None => label(
@@ -3145,6 +3859,8 @@ impl App {
         self.selected.is_some()
             && !self.conversation_menu
             && !self.capabilities
+            && !self.work_open
+            && !self.terminal.is_open()
             && self.detail.is_none()
     }
     fn presentation_shell(&self, include_composer: bool) -> Element<'_, Message> {
@@ -3155,6 +3871,10 @@ impl App {
                 self.conversation_menu_view()
             } else if self.capabilities {
                 self.capabilities_view()
+            } else if self.work_open {
+                self.work_panel_view()
+            } else if self.terminal.is_open() {
+                self.terminal_view()
             } else if let Some(detail) = &self.detail {
                 self.detail_view(detail)
             } else {
@@ -3180,7 +3900,11 @@ impl App {
         self.layout_controls_enabled() && !self.composer_visible() && self.selected.is_some()
     }
     fn stop_color(&self) -> Color {
-        if self.cancel_pending || self.stop_allowed() { DANGER } else { MUTED }
+        if self.cancel_pending || self.stop_allowed() {
+            DANGER
+        } else {
+            MUTED
+        }
     }
     fn stop_button(&self) -> Element<'_, Message> {
         // Keep cancellation reachable even when the displayed running state lags the Host.
@@ -3233,6 +3957,28 @@ impl App {
             label("APPLICATION", MUTED).size(11),
             button(label("Information & diagnostics", TEXT))
                 .on_press(Message::Capabilities)
+                .style(design::button_style)
+                .padding([12, 14])
+                .width(Length::Fill),
+            button(label(
+                format!(
+                    "Work records · read-only ({})",
+                    self.transcript.work().total()
+                ),
+                TEXT
+            ))
+            .on_press(Message::Work(work_panel_ui::Action::Open))
+            .style(design::button_style)
+            .padding([12, 14])
+            .width(Length::Fill),
+            button(label("Terminal · Host shell", TEXT))
+                .on_press_maybe(
+                    self.terminal_context()
+                        .allowed
+                        .then(|| self.terminal_context().view)
+                        .flatten()
+                        .map(|view| Message::Terminal(crate::terminal::Action::Open { view })),
+                )
                 .style(design::button_style)
                 .padding([12, 14])
                 .width(Length::Fill),
@@ -3301,10 +4047,28 @@ impl App {
         if !routine_status(&self.status) {
             header = header.push(label(&self.status, MUTED).size(11));
         }
-        if let Some(id)=self.selected.as_ref().filter(|id|self.sidebar_organization.trashed(id)) {
-            header=header.push(row![label("In Trash · history retained; background work may continue",DANGER).size(11).width(Length::Fill),
-                button(label("Restore…",TEXT).size(11)).style(design::ghost)
-                    .on_press_maybe(self.sidebar_target_allowed(id).then(||self.sidebar_open_message(id)))].spacing(6));
+        if let Some(id) = self
+            .selected
+            .as_ref()
+            .filter(|id| self.sidebar_organization.trashed(id))
+        {
+            header = header.push(
+                row![
+                    label(
+                        "In Trash · history retained; background work may continue",
+                        DANGER
+                    )
+                    .size(11)
+                    .width(Length::Fill),
+                    button(label("Restore…", TEXT).size(11))
+                        .style(design::ghost)
+                        .on_press_maybe(
+                            self.sidebar_target_allowed(id)
+                                .then(|| self.sidebar_open_message(id))
+                        )
+                ]
+                .spacing(6),
+            );
         }
         if self.decisions.len() > 0 {
             header = header.push(
@@ -3341,8 +4105,13 @@ impl App {
                         .size(12)
                         .width(Length::Fill),
                     button(label("Browse…", MUTED).size(12))
-                        .on_press_maybe((context.allowed && !self.local_files.busy()).then_some(Message::FilePicker(attachment_picker::Action::Open(stamp))))
-                        .style(design::button_style).padding([6, 9]),
+                        .on_press_maybe(
+                            (context.allowed && !self.local_files.busy()).then_some(
+                                Message::FilePicker(attachment_picker::Action::Open(stamp))
+                            )
+                        )
+                        .style(design::button_style)
+                        .padding([6, 9]),
                     button(label("Upload", TEXT).size(12))
                         .on_press_maybe(
                             (context.allowed && !path.is_empty())
@@ -3363,8 +4132,14 @@ impl App {
                 .align_y(iced::Alignment::Center),
             );
             body = body.push(label(attachment_draft::UPLOAD_CONSENT, MUTED).size(10));
-            body = body.push(button(label("Preview image", MUTED).size(10)).style(design::button_style)
-                .on_press_maybe((context.allowed && !path.is_empty() && !self.local_files.busy()).then_some(Message::FilePreview(stamp))));
+            body = body.push(
+                button(label("Preview image", MUTED).size(10))
+                    .style(design::button_style)
+                    .on_press_maybe(
+                        (context.allowed && !path.is_empty() && !self.local_files.busy())
+                            .then_some(Message::FilePreview(stamp)),
+                    ),
+            );
         }
         for (ticket, metadata) in self.files.attachments() {
             body = body.push(self.attachment_row(
@@ -3425,13 +4200,33 @@ impl App {
         .align_y(iced::Alignment::Center)
         .into()
     }
-    fn prompt_resolved(&mut self,pending:Pending,generation:u64,receipt:prompt_recovery::Receipt) {
+    fn prompt_resolved(
+        &mut self,
+        pending: Pending,
+        generation: u64,
+        receipt: prompt_recovery::Receipt,
+    ) {
         self.draft_state.touch(&pending.session); // Includes definitive NotSent/queue refusal.
-        if receipt==prompt_recovery::Receipt::Accepted {
-            if generation==self.generation && self.draft_serial==pending.draft_serial && self.editor.text()==pending.text {self.editor=text_editor::Content::new();self.touch_draft();}
-            if self.draft_versions.get(&pending.session)==Some(&pending.draft_serial) && self.drafts.get(&pending.session)==Some(&pending.text) {self.drafts.remove(&pending.session);self.draft_versions.remove(&pending.session);self.draft_recovered.remove(&pending.session);self.draft_state.touch(&pending.session);}
+        if receipt == prompt_recovery::Receipt::Accepted {
+            if generation == self.generation
+                && self.draft_serial == pending.draft_serial
+                && self.editor.text() == pending.text
+            {
+                self.editor = text_editor::Content::new();
+                self.touch_draft();
+            }
+            if self.draft_versions.get(&pending.session) == Some(&pending.draft_serial)
+                && self.drafts.get(&pending.session) == Some(&pending.text)
+            {
+                self.drafts.remove(&pending.session);
+                self.draft_versions.remove(&pending.session);
+                self.draft_recovered.remove(&pending.session);
+                self.draft_state.touch(&pending.session);
+            }
             self.status="Submission admission verified; recorded is not provider completion. Transcript/running state come from Host events.".into();
-        } else {self.status="Original submission was definitely not dispatched; original draft retained. No automatic resend.".into();}
+        } else {
+            self.status="Original submission was definitely not dispatched; original draft retained. No automatic resend.".into();
+        }
     }
     fn composer(&self) -> Element<'_, Message> {
         let allowed = self.send_allowed() && self.composer_visible();
@@ -3451,33 +4246,126 @@ impl App {
             .any(|p| Some(&p.session) == self.selected.as_ref());
         let mut inner = column![editor].spacing(4);
         if self.sidebar_organization.failure().is_some() {
-            inner=inner.push(row![label("Sidebar organization not confirmed · sending paused",DANGER).size(11).width(Length::Fill),
-                button(label("Reload",MUTED).size(11)).style(design::ghost).on_press_maybe((!self.sidebar_organization.busy()).then_some(Message::Sidebar(sidebar_ui::Action::Reload)))]);
+            inner = inner.push(row![
+                label(
+                    "Sidebar organization not confirmed · sending paused",
+                    DANGER
+                )
+                .size(11)
+                .width(Length::Fill),
+                button(label("Reload", MUTED).size(11))
+                    .style(design::ghost)
+                    .on_press_maybe(
+                        (!self.sidebar_organization.busy())
+                            .then_some(Message::Sidebar(sidebar_ui::Action::Reload))
+                    )
+            ]);
         }
         if self.recovered_draft_needs_review() {
             inner=inner.push(column![label("Recovered text may already have been submitted. Check the conversation first.",DANGER).size(11),
                 button(label("Reviewed · enable a new Send",TEXT).size(11)).style(design::button_style)
                     .on_press_maybe(self.pending.is_empty().then_some(Message::ReviewRecovered {generation:self.generation,serial:self.draft_serial}))].spacing(3));
         }
-        if self.options.smoke.is_none() && (self.draft_state.is_loading() || self.draft_state.failure().is_some()) {
-            let mut recovery=row![label(self.draft_state.status(),if self.draft_state.failure().is_some(){DANGER}else{MUTED}).size(10).width(Length::Fill)];
-            if self.draft_state.failure().is_some() {recovery=recovery.push(button(label("Reload drafts",MUTED).size(10)).style(design::button_style).on_press_maybe((!self.draft_state.busy()).then_some(Message::DraftReload)));}
-            inner=inner.push(recovery);
+        if self.options.smoke.is_none()
+            && (self.draft_state.is_loading() || self.draft_state.failure().is_some())
+        {
+            let mut recovery = row![
+                label(
+                    self.draft_state.status(),
+                    if self.draft_state.failure().is_some() {
+                        DANGER
+                    } else {
+                        MUTED
+                    }
+                )
+                .size(10)
+                .width(Length::Fill)
+            ];
+            if self.draft_state.failure().is_some() {
+                recovery = recovery.push(
+                    button(label("Reload drafts", MUTED).size(10))
+                        .style(design::button_style)
+                        .on_press_maybe((!self.draft_state.busy()).then_some(Message::DraftReload)),
+                );
+            }
+            inner = inner.push(recovery);
         }
-        if let Some((generation,key,draft_serial))=self.edit_review {
-            inner=inner.push(row![label("Replace your unsent draft?",MUTED).size(11).width(Length::Fill),
-                button(label("Replace draft",TEXT).size(11)).style(design::button_style).on_press_maybe((self.draft_serial==draft_serial && self.edit_message_allowed(generation,key)).then_some(Message::ConfirmEdit {generation,key,draft_serial})),
-                button(label("Cancel",MUTED).size(11)).style(design::button_style).on_press(Message::CancelEdit)].spacing(6));
+        if let Some((generation, key, draft_serial)) = self.edit_review {
+            inner = inner.push(
+                row![
+                    label("Replace your unsent draft?", MUTED)
+                        .size(11)
+                        .width(Length::Fill),
+                    button(label("Replace draft", TEXT).size(11))
+                        .style(design::button_style)
+                        .on_press_maybe(
+                            (self.draft_serial == draft_serial
+                                && self.edit_message_allowed(generation, key))
+                            .then_some(Message::ConfirmEdit {
+                                generation,
+                                key,
+                                draft_serial
+                            })
+                        ),
+                    button(label("Cancel", MUTED).size(11))
+                        .style(design::button_style)
+                        .on_press(Message::CancelEdit)
+                ]
+                .spacing(6),
+            );
         }
-        if self.observations_lost {inner=inner.push(button("Reconnect observations · no session resume").style(design::button_style).padding([6,9]).on_press_maybe((self.ready && !self.rejoin_pending && !self.stopped).then_some(Message::RejoinObservations)));}
-        if let Some(ticket)=self.pending.ticket() {
-            let pending=self.pending.get(&ticket.generation).expect("owned submission");
-            let unknown=self.pending.uncertain();
+        if self.observations_lost {
+            inner = inner.push(
+                button("Reconnect observations · no session resume")
+                    .style(design::button_style)
+                    .padding([6, 9])
+                    .on_press_maybe(
+                        (self.ready && !self.rejoin_pending && !self.stopped)
+                            .then_some(Message::RejoinObservations),
+                    ),
+            );
+        }
+        if let Some(ticket) = self.pending.ticket() {
+            let pending = self
+                .pending
+                .get(&ticket.generation)
+                .expect("owned submission");
+            let unknown = self.pending.uncertain();
             inner=inner.push(label(if unknown {"Submission unresolved · original retained; current draft is separate. No resend."} else {"Awaiting admission · original request is frozen."},if unknown {DANGER} else {MUTED}).size(11))
                 .push(row![button("Check submission").style(design::button_style).padding([6,9]).on_press_maybe((unknown && !self.pending.checking() && self.ready && !self.stopped).then_some(Message::CheckSubmission(ticket.clone()))),button(if self.pending.expanded {"Hide original"} else {"Review original"}).style(design::button_style).padding([6,9]).on_press(Message::ReviewSubmission(ticket.clone()))].spacing(6));
-            if self.selected.as_ref()!=Some(&ticket.session) || self.generation!=ticket.generation {inner=inner.push(button("Stop original session").style(design::button_style).padding([6,9]).on_press_maybe((self.ready && !self.cancel_pending && !self.stopped).then_some(Message::StopSubmission(ticket.clone()))));}
-            if !pending.file.is_empty() {let bytes:u64=pending.file.iter().map(|file|file.bytes).sum();let description=if pending.file.len()==1{format!("Original file: {} · {} bytes · receipt is never replayed",pending.file[0].name,bytes)}else{format!("Original files: {} · {} bytes total · receipts are never replayed",pending.file.len(),bytes)};inner=inner.push(label(description,MUTED).size(11));}
-            if self.pending.expanded {inner=inner.push(scrollable(label(pending.text.clone(),TEXT).size(12)).height(100));}
+            if self.selected.as_ref() != Some(&ticket.session)
+                || self.generation != ticket.generation
+            {
+                inner = inner.push(
+                    button("Stop original session")
+                        .style(design::button_style)
+                        .padding([6, 9])
+                        .on_press_maybe(
+                            (self.ready && !self.cancel_pending && !self.stopped)
+                                .then_some(Message::StopSubmission(ticket.clone())),
+                        ),
+                );
+            }
+            if !pending.file.is_empty() {
+                let bytes: u64 = pending.file.iter().map(|file| file.bytes).sum();
+                let description = if pending.file.len() == 1 {
+                    format!(
+                        "Original file: {} · {} bytes · receipt is never replayed",
+                        pending.file[0].name, bytes
+                    )
+                } else {
+                    format!(
+                        "Original files: {} · {} bytes total · receipts are never replayed",
+                        pending.file.len(),
+                        bytes
+                    )
+                };
+                inner = inner.push(label(description, MUTED).size(11));
+            }
+            if self.pending.expanded {
+                inner =
+                    inner.push(scrollable(label(pending.text.clone(), TEXT).size(12)).height(100));
+            }
         }
         if self.files.editor_open()
             || self.files.ticket().is_some()
@@ -3488,29 +4376,48 @@ impl App {
         {
             inner = inner.push(self.file_controls());
         }
-        let usage = chat_usage::describe(&self.projections,
-            self.follow_ready && self.transcript.safe_to_send() && !self.model_pending && !self.observations_lost
-                && self.transcript.cursor() == self.transcript.opening_cursor(), self.transcript.records());
+        // One reading: the tier colours the line, and only a real window with a
+        // plausible occupancy can raise one (see `chat_usage::Severity`).
+        let context = chat_usage::state(
+            &self.projections,
+            self.follow_ready
+                && self.transcript.safe_to_send()
+                && !self.model_pending
+                && !self.observations_lost
+                && self.transcript.cursor() == self.transcript.opening_cursor(),
+            self.transcript.records(),
+        );
         inner = inner.push(
             row![
                 self.model_control(),
                 Space::new().width(Length::Fill),
                 container(
-                    button(label(
-                        if self.files.count()==0 {"+ Attach".to_owned()}else{format!("+ Attach · {}/{}",self.files.count(),attachment_draft::MAX_ATTACHMENTS)},
-                        MUTED,
-                    ).size(11))
-                        .on_press_maybe(
-                            (self.file_context().allowed
-                                && !self.files.editor_open()
-                                && !self.files.at_capacity()
-                                && !self.files.pending()
-                                && !self.files.prompt_pending()
-                                && !self.local_files.busy())
-                            .then_some(Message::FileChoose)
+                    button(
+                        label(
+                            if self.files.count() == 0 {
+                                "+ Attach".to_owned()
+                            } else {
+                                format!(
+                                    "+ Attach · {}/{}",
+                                    self.files.count(),
+                                    attachment_draft::MAX_ATTACHMENTS
+                                )
+                            },
+                            MUTED,
                         )
-                        .style(design::button_style)
-                        .padding([6, 9])
+                        .size(11)
+                    )
+                    .on_press_maybe(
+                        (self.file_context().allowed
+                            && !self.files.editor_open()
+                            && !self.files.at_capacity()
+                            && !self.files.pending()
+                            && !self.files.prompt_pending()
+                            && !self.local_files.busy())
+                        .then_some(Message::FileChoose)
+                    )
+                    .style(design::button_style)
+                    .padding([6, 9])
                 )
                 .id("native-file-open"),
                 self.stop_button(),
@@ -3538,6 +4445,17 @@ impl App {
                 .size(11),
             );
         }
+        // The paper's strongest single effect is that a context which overflows
+        // ends the run early, so reaching the window is stated, not tinted only.
+        if context.severity == chat_usage::Severity::Critical {
+            inner = inner.push(
+                label(
+                    "Context at the window limit — the next turns risk an early stop.",
+                    DANGER,
+                )
+                .size(11),
+            );
+        }
         let card = container(inner)
             .padding(10)
             .width(Length::Fill)
@@ -3549,10 +4467,74 @@ impl App {
         } else {
             "Enter to send · Shift+Enter for a new line"
         };
-        let metadata = row![label(usage, MUTED).size(10).width(Length::Fill), label(hint, MUTED).size(10)]
-            .spacing(8).align_y(iced::Alignment::Center);
+        let severity_color = match context.severity {
+            chat_usage::Severity::Normal => MUTED,
+            chat_usage::Severity::Tight => TEXT,
+            chat_usage::Severity::Critical => DANGER,
+        };
+        let plan = self
+            .transcript
+            .work()
+            .plan()
+            .map(|(done, total, next)| match next {
+                Some(next) => format!("Plan · {done}/{total} · next: {next}"),
+                None if done == total => format!("Plan · {done}/{total} · complete"),
+                None => format!("Plan · {done}/{total}"),
+            });
+        let mut metadata = row![];
+        // Plan mode is harness state published to clients as { active, pending }.
+        // Read-only here: this chip can neither enter nor leave the mode.
+        if let Some(mode) = plan_mode::mode(&self.projections) {
+            metadata = metadata.push(label(mode.label(), ACCENT).size(10));
+        }
+        if let Some(plan) = plan {
+            metadata = metadata.push(label(short(&plan, 60), MUTED).size(10));
+        }
+        metadata = metadata.push(label(context.line.clone(), severity_color).size(10));
+        if !context.detail.is_empty() {
+            metadata = metadata.push(
+                button(
+                    label(
+                        format!(
+                            "{} Context policy",
+                            if self.context_policy_open {
+                                "▾"
+                            } else {
+                                "▸"
+                            }
+                        ),
+                        MUTED,
+                    )
+                    .size(10),
+                )
+                .padding([2, 4])
+                .style(design::button_style)
+                .on_press(Message::ToggleContextPolicy),
+            );
+        }
+        metadata = metadata
+            .push(Space::new().width(Length::Fill))
+            .push(label(hint, MUTED).size(10));
+        let mut shell = column![];
+        if self.context_policy_open {
+            let mut detail = column![];
+            for line in &context.detail {
+                // Wrapped, because a one-line paragraph is clipped by the lane
+                // and a clipped warning is not a warning.
+                detail = detail.push(
+                    label(line.clone(), MUTED)
+                        .size(10)
+                        .width(Length::Fill)
+                        .wrapping(iced::widget::text::Wrapping::Word),
+                );
+            }
+            shell = shell.push(container(detail).padding([0, 8]).width(Length::Fill));
+        }
+        shell = shell
+            .push(card)
+            .push(container(metadata.spacing(8).align_y(iced::Alignment::Center)).padding([0, 8]));
         container(
-            container(column![card, container(metadata).padding([0, 8])].spacing(5))
+            container(shell.spacing(5))
                 .max_width(self.chat_lane())
                 .width(Length::Fill),
         )
@@ -3650,60 +4632,97 @@ impl App {
         self.options.smoke.is_none() && self.ready && !self.new_pending
     }
     fn observe_title(&mut self, seq: i64, value: serde_json::Value) {
-        let Some(id) = self.selected.clone() else { return; };
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
         self.observe_title_for(&id, seq, value);
     }
     /// Record one title projection for an explicit Session, including a rename ACK.
     /// Nothing is displayed until it is durable; a malformed value is ignored.
     fn observe_title_for(&mut self, id: &SessionId, seq: i64, value: serde_json::Value) {
-        if seq < -1 || !self.sessions.contains_key(id)
+        if seq < -1
+            || !self.sessions.contains_key(id)
             || (self.title_updates.len() >= 4096 && !self.title_updates.contains_key(id))
-            || self.title_updates.get(id).is_some_and(|(old, _)| *old > seq) {
+            || self
+                .title_updates
+                .get(id)
+                .is_some_and(|(old, _)| *old > seq)
+        {
             return;
         }
         let value = match value {
             serde_json::Value::Null => serde_json::Value::Null,
-            serde_json::Value::String(value) if !value.trim().is_empty() => serde_json::Value::String(reducer::bounded(value.trim(), 1024)),
+            serde_json::Value::String(value) if !value.trim().is_empty() => {
+                serde_json::Value::String(reducer::bounded(value.trim(), 1024))
+            }
             _ => return,
         };
         self.title_updates.insert(id.clone(), (seq, value));
     }
     fn session_title(&self, session: &SessionSummary) -> String {
-        let value = self.title_updates.get(&session.session_id).filter(|(seq, _)| {
-            session.projections.as_ref().is_none_or(|p| p.as_of_seq <= *seq)
-        });
-        value.map_or_else(|| title(session), |(_, value)| projected_title(session, Some(value)))
+        let value = self
+            .title_updates
+            .get(&session.session_id)
+            .filter(|(seq, _)| {
+                session
+                    .projections
+                    .as_ref()
+                    .is_none_or(|p| p.as_of_seq <= *seq)
+            });
+        value.map_or_else(
+            || title(session),
+            |(_, value)| projected_title(session, Some(value)),
+        )
     }
     fn navigation_workspace_ids(&self) -> Option<&[SessionId]> {
-        self.workspace.as_ref()
+        self.workspace
+            .as_ref()
             .and_then(|id| self.workspaces.iter().find(|w| &w.workspace_id == id))
             .map(|w| w.session_ids.as_slice())
     }
     fn navigation_candidates(&self) -> impl Iterator<Item = &SessionSummary> {
         self.navigation_candidates_for(self.navigation_workspace_ids())
     }
-    fn navigation_candidates_for<'a>(&'a self, ids: Option<&'a [SessionId]>) -> impl Iterator<Item = &'a SessionSummary> {
+    fn navigation_candidates_for<'a>(
+        &'a self,
+        ids: Option<&'a [SessionId]>,
+    ) -> impl Iterator<Item = &'a SessionSummary> {
         let filter = self.filter.to_lowercase();
         let mut membership = workspace_membership::Membership::new(ids);
         self.sessions.values().filter(move |s| {
-                self.sidebar_organization.trashed(&s.session_id) == self.show_trash
-                    && (self.show_trash || self.management.registry.archived(&s.session_id) == self.show_archived)
-                    && (self.show_trash || match self.sidebar_organization.location(&s.session_id) {
-                        sidebar_organization::Location::Original => membership.contains(&s.session_id),
-                        sidebar_organization::Location::Workspace(id) => ids.is_none() || self.workspace.as_ref()==Some(&id),
+            self.sidebar_organization.trashed(&s.session_id) == self.show_trash
+                && (self.show_trash
+                    || self.management.registry.archived(&s.session_id) == self.show_archived)
+                && (self.show_trash
+                    || match self.sidebar_organization.location(&s.session_id) {
+                        sidebar_organization::Location::Original => {
+                            membership.contains(&s.session_id)
+                        }
+                        sidebar_organization::Location::Workspace(id) => {
+                            ids.is_none() || self.workspace.as_ref() == Some(&id)
+                        }
                         sidebar_organization::Location::Ungrouped => ids.is_none(),
                     })
-                    && (filter.is_empty()
-                        || s.session_id.as_str().to_lowercase().contains(&filter)
-                        || self.session_title(s).to_lowercase().contains(&filter))
-            })
+                && (filter.is_empty()
+                    || s.session_id.as_str().to_lowercase().contains(&filter)
+                    || self.session_title(s).to_lowercase().contains(&filter))
+        })
     }
     fn navigation_sessions(&self) -> Vec<&SessionSummary> {
         let ids = self.navigation_workspace_ids();
-        if ids.is_some_and(|ids| ids.is_empty()) && !self.show_trash && self.sidebar_organization.data.is_empty() { return Vec::new(); }
+        if ids.is_some_and(|ids| ids.is_empty())
+            && !self.show_trash
+            && self.sidebar_organization.data.is_empty()
+        {
+            return Vec::new();
+        }
         let capacity = if self.filter.is_empty() {
-            ids.map_or(self.sessions.len(), |ids| ids.len().min(self.sessions.len()))
-        } else { 0 };
+            ids.map_or(self.sessions.len(), |ids| {
+                ids.len().min(self.sessions.len())
+            })
+        } else {
+            0
+        };
         let mut sessions = Vec::with_capacity(capacity);
         sessions.extend(self.navigation_candidates_for(ids));
         sessions.sort_by(|a, b| self.navigation_order(a, b));
@@ -3715,14 +4734,34 @@ impl App {
         let mut list = Column::new().spacing(3);
         for session in sessions.into_iter().take(200) {
             let active = self.selected.as_ref() == Some(&session.session_id);
-            let mut identity = column![label(
-                short(&self.session_title(session), 28),
-                if active || session.running { TEXT } else { MUTED },
-            ).size(13)].spacing(3).width(Length::Fill);
-            if !session.agent_available {identity=identity.push(label("Resume · queued input may run",MUTED).size(11));}
+            let mut identity = column![
+                label(
+                    short(&self.session_title(session), 28),
+                    if active || session.running {
+                        TEXT
+                    } else {
+                        MUTED
+                    },
+                )
+                .size(13)
+            ]
+            .spacing(3)
+            .width(Length::Fill);
+            if !session.agent_available {
+                identity = identity.push(label("Resume · queued input may run", MUTED).size(11));
+            }
             if let Some(status) = self.working_label(session) {
-                identity = identity.push(label(status,
-                    if self.running_status_live() { design::FOAM } else { MUTED }).size(11));
+                identity = identity.push(
+                    label(
+                        status,
+                        if self.running_status_live() {
+                            design::FOAM
+                        } else {
+                            MUTED
+                        },
+                    )
+                    .size(11),
+                );
             }
             let mut content = row![].spacing(8).align_y(iced::Alignment::Center);
             if session.running && self.running_status_live() {
@@ -3732,24 +4771,44 @@ impl App {
             if self.management.registry.pinned(&session.session_id) {
                 content = content.push(label("•", design::FOAM).size(10));
             }
-            list = list.push(row![
-                button(content)
-                .on_press_maybe(
-                    (self.ready && !self.observations_lost && self.pending.is_empty() && !self.show_trash
-                        && !self.sidebar_organization.busy() && self.sidebar_organization.failure().is_none())
-                        .then_some(Message::Select(session.session_id.clone())),
-                )
-                .style(move |theme, status| design::navigation(theme, status, active))
-                .padding([11, 10]).width(Length::Fill),
-                button(label("⋯", MUTED).size(16)).style(design::ghost).padding([9, 5])
-                    .on_press_maybe(self.sidebar_target_allowed(&session.session_id)
-                        .then(||self.sidebar_open_message(&session.session_id)))
-            ].spacing(2).align_y(iced::Alignment::Center));
+            list = list.push(
+                row![
+                    button(content)
+                        .on_press_maybe(
+                            (self.ready
+                                && !self.observations_lost
+                                && self.pending.is_empty()
+                                && !self.show_trash
+                                && !self.sidebar_organization.busy()
+                                && self.sidebar_organization.failure().is_none())
+                            .then_some(Message::Select(session.session_id.clone())),
+                        )
+                        .style(move |theme, status| design::navigation(theme, status, active))
+                        .padding([11, 10])
+                        .width(Length::Fill),
+                    button(label("⋯", MUTED).size(16))
+                        .style(design::ghost)
+                        .padding([9, 5])
+                        .on_press_maybe(
+                            self.sidebar_target_allowed(&session.session_id)
+                                .then(|| self.sidebar_open_message(&session.session_id))
+                        )
+                ]
+                .spacing(2)
+                .align_y(iced::Alignment::Center),
+            );
         }
         if self.sidebar_organization.failure().is_some() {
-            list=list.push(label("Organization not confirmed",DANGER).size(11))
-                .push(button(label("Reload organization",MUTED).size(11)).style(design::ghost)
-                    .on_press_maybe((!self.sidebar_organization.busy()).then_some(Message::Sidebar(sidebar_ui::Action::Reload))));
+            list = list
+                .push(label("Organization not confirmed", DANGER).size(11))
+                .push(
+                    button(label("Reload organization", MUTED).size(11))
+                        .style(design::ghost)
+                        .on_press_maybe(
+                            (!self.sidebar_organization.busy())
+                                .then_some(Message::Sidebar(sidebar_ui::Action::Reload)),
+                        ),
+                );
         }
         if count == 0 {
             list = list.push(
@@ -3800,8 +4859,9 @@ impl App {
                 )
                 .on_press(Message::ArchivedView)
                 .style(design::button_style),
-                button(label(if self.show_trash { "Recent" } else { "Trash" },MUTED).size(10))
-                    .on_press(Message::Sidebar(sidebar_ui::Action::TrashView)).style(design::ghost)
+                button(label(if self.show_trash { "Recent" } else { "Trash" }, MUTED).size(10))
+                    .on_press(Message::Sidebar(sidebar_ui::Action::TrashView))
+                    .style(design::ghost)
             ]
             .align_y(iced::Alignment::Center),
             scrollable(list).height(Length::Fill),
@@ -3911,34 +4971,60 @@ impl App {
             .into()
     }
     fn detail_view<'a>(&'a self, detail: &'a detail_panel::Detail) -> Element<'a, Message> {
-        let mut toolbar=row![label(detail.heading.as_str(),TEXT).size(18).width(Length::Fill)];
+        let mut toolbar = row![
+            label(detail.heading.as_str(), TEXT)
+                .size(18)
+                .width(Length::Fill)
+        ];
         if detail.formatted_available() {
-            for (mode,title) in [(detail_panel::Mode::Formatted,"Formatted"),(detail_panel::Mode::Source,"Source")] {
-                let selected=detail.mode==mode;
-                let control=button(label(title,if selected {ACCENT}else{MUTED}).size(12))
-                    .on_press_maybe(detail.ticket.map(|ticket|Message::DetailMode(ticket,mode)))
-                    .style(move |theme,status|design::navigation(theme,status,selected));
-                #[cfg(feature="public-layout-fixture")]
-                let control=container(control).id(match mode {detail_panel::Mode::Formatted=>"native-detail-formatted",detail_panel::Mode::Source=>"native-detail-source"});
-                toolbar=toolbar.push(control);
+            for (mode, title) in [
+                (detail_panel::Mode::Formatted, "Formatted"),
+                (detail_panel::Mode::Source, "Source"),
+            ] {
+                let selected = detail.mode == mode;
+                let control = button(label(title, if selected { ACCENT } else { MUTED }).size(12))
+                    .on_press_maybe(
+                        detail
+                            .ticket
+                            .map(|ticket| Message::DetailMode(ticket, mode)),
+                    )
+                    .style(move |theme, status| design::navigation(theme, status, selected));
+                #[cfg(feature = "public-layout-fixture")]
+                let control = container(control).id(match mode {
+                    detail_panel::Mode::Formatted => "native-detail-formatted",
+                    detail_panel::Mode::Source => "native-detail-source",
+                });
+                toolbar = toolbar.push(control);
             }
         }
-        let copy=button(label("Copy source",MUTED).size(12))
-            .on_press_maybe(detail.ticket.filter(|_|detail.copy_available()).map(Message::CopyDetailSource))
+        let copy = button(label("Copy source", MUTED).size(12))
+            .on_press_maybe(
+                detail
+                    .ticket
+                    .filter(|_| detail.copy_available())
+                    .map(Message::CopyDetailSource),
+            )
             .style(design::button_style);
-        #[cfg(feature="public-layout-fixture")]
-        let copy=container(copy).id("native-detail-copy-source");
-        toolbar=toolbar.push(copy);
-        let back=button(label("Back",MUTED)).on_press_maybe(self.detail_back()).style(design::button_style);
-        #[cfg(feature="public-layout-fixture")]
-        let back=container(back).id("native-detail-back");
-        toolbar=toolbar.push(back).spacing(8).align_y(iced::Alignment::Center);
-        let mut body=Column::new().spacing(12).width(Length::Fill);
-        if let Some(metadata)=&detail.metadata {body=body.push(label(metadata.as_str(),MUTED).size(11));}
-        let rendered=detail.body();
-        #[cfg(feature="public-layout-fixture")]
-        let rendered=container(rendered).id("native-detail-body");
-        body=body.push(rendered);
+        #[cfg(feature = "public-layout-fixture")]
+        let copy = container(copy).id("native-detail-copy-source");
+        toolbar = toolbar.push(copy);
+        let back = button(label("Back", MUTED))
+            .on_press_maybe(self.detail_back())
+            .style(design::button_style);
+        #[cfg(feature = "public-layout-fixture")]
+        let back = container(back).id("native-detail-back");
+        toolbar = toolbar
+            .push(back)
+            .spacing(8)
+            .align_y(iced::Alignment::Center);
+        let mut body = Column::new().spacing(12).width(Length::Fill);
+        if let Some(metadata) = &detail.metadata {
+            body = body.push(label(metadata.as_str(), MUTED).size(11));
+        }
+        let rendered = detail.body();
+        #[cfg(feature = "public-layout-fixture")]
+        let rendered = container(rendered).id("native-detail-body");
+        body = body.push(rendered);
         let content=column![toolbar,label(detail.notice(),MUTED).size(11),
             scrollable(container(body).padding(16)).height(Length::Fill),
             label("Bounded native display source (up to 32 KiB); raw records and unsupported content may not be fully represented.",MUTED).size(11)
@@ -3955,20 +5041,42 @@ impl App {
         .into()
     }
     fn reply_parts(&self, key: u64) -> Option<std::rc::Rc<conversation_content::Prepared>> {
-        if let Some(prepared) = self.reply_content.get(self.generation,key) { return Some(prepared); }
-        let parts = if key == u64::MAX { self.transcript.partial_parts() } else { self.transcript.assistant_parts(key) }?;
-        Some(self.reply_content.prepare(self.generation, key, parts.reasoning, parts.answer))
+        if let Some(prepared) = self.reply_content.get(self.generation, key) {
+            return Some(prepared);
+        }
+        let parts = if key == u64::MAX {
+            self.transcript.partial_parts()
+        } else {
+            self.transcript.assistant_parts(key)
+        }?;
+        Some(
+            self.reply_content
+                .prepare(self.generation, key, parts.reasoning, parts.answer),
+        )
     }
     fn row_copy_source(&self, key: u64) -> Option<String> {
-        if key == u64::MAX { return None; } // Only a frozen durable source is copied.
-        let row = self.transcript.display_rows(self.records_expanded).find(|row| row.key == key)?;
-        if let Some(parts) = self.transcript.assistant_parts(key) { return (!parts.answer.is_empty()).then_some(parts.answer); }
-        ((row.role == "You" || self.transcript.assistant_record(key)) && !row.text.is_empty()).then(|| row.text.clone())
+        if key == u64::MAX {
+            return None;
+        } // Only a frozen durable source is copied.
+        let row = self
+            .transcript
+            .display_rows(self.records_expanded)
+            .find(|row| row.key == key)?;
+        if let Some(parts) = self.transcript.assistant_parts(key) {
+            return (!parts.answer.is_empty()).then_some(parts.answer);
+        }
+        ((row.role == "You" || self.transcript.assistant_record(key)) && !row.text.is_empty())
+            .then(|| row.text.clone())
     }
     fn edit_message_allowed(&self, generation: u64, key: u64) -> bool {
-        generation == self.generation && self.composer_visible() && self.layout_controls_enabled()
-            && self.pending.is_empty() && !self.observations_lost && self.files.ticket().is_none()
-            && self.draft_serial != u64::MAX && self.transcript.editable_text(key).is_some()
+        generation == self.generation
+            && self.composer_visible()
+            && self.layout_controls_enabled()
+            && self.pending.is_empty()
+            && !self.observations_lost
+            && self.files.ticket().is_none()
+            && self.draft_serial != u64::MAX
+            && self.transcript.editable_text(key).is_some()
     }
     fn populate_message_draft(&mut self, key: u64) {
         if let Some(text) = self.transcript.editable_text(key) {
@@ -3979,51 +5087,157 @@ impl App {
             self.status = "Copied into the composer. Edit, then Send explicitly; existing conversation is unchanged.".into();
         }
     }
-    fn active_search(&self) -> &str { if self.search_open { &self.search_query } else { "" } }
+    fn active_search(&self) -> &str {
+        if self.search_open {
+            &self.search_query
+        } else {
+            ""
+        }
+    }
     fn search_hits(&self) -> Vec<u64> {
-        let query=self.active_search();
-        if query.is_empty() {return Vec::new();}
-        let mut hits:Vec<_>=self.transcript.display_rows(self.records_expanded).filter(|row| {
-            if let Some(reply)=self.reply_parts(row.key) {reply.matches(query)}
-            else if row.role=="You" {conversation_search::contains(&row.text,query)}
-            else {false}
-        }).map(|row|row.key).collect();
-        if self.transcript.partial().is_some() && self.reply_parts(u64::MAX).is_some_and(|reply|reply.matches(query)) { hits.push(u64::MAX); }
+        let query = self.active_search();
+        if query.is_empty() {
+            return Vec::new();
+        }
+        let mut hits: Vec<_> = self
+            .transcript
+            .display_rows(self.records_expanded)
+            .filter(|row| {
+                if let Some(reply) = self.reply_parts(row.key) {
+                    reply.matches(query)
+                } else if row.role == "You" {
+                    conversation_search::contains(&row.text, query)
+                } else {
+                    false
+                }
+            })
+            .map(|row| row.key)
+            .collect();
+        if self.transcript.partial().is_some()
+            && self
+                .reply_parts(u64::MAX)
+                .is_some_and(|reply| reply.matches(query))
+        {
+            hits.push(u64::MAX);
+        }
         hits
     }
-    fn search_expands_user(&self,row:&DisplayRow)->bool {
-        row.role=="You" && !self.active_search().is_empty() && self.search_cursor==Some(row.key)
+    fn search_expands_user(&self, row: &DisplayRow) -> bool {
+        row.role == "You" && !self.active_search().is_empty() && self.search_cursor == Some(row.key)
     }
-    fn jump_search(&mut self, backwards:bool, first:bool) -> Task<Message> {
-        let hits=self.search_hits();
-        if hits.is_empty() {self.search_cursor=None;return self.reflow_transcript(None);}
-        let current=self.search_cursor.and_then(|key|hits.iter().position(|candidate|*candidate==key));
-        let index=if first {0}else if backwards {current.map_or(hits.len()-1,|index|(index+hits.len()-1)%hits.len())}else{current.map_or(0,|index|(index+1)%hits.len())};
-        let key=hits[index]; self.search_cursor=Some(key);
-        if self.reply_parts(key).is_some_and(|reply|conversation_search::contains(&reply.reasoning,self.active_search())) {self.thoughts_expanded.insert(key);}
-        let partial=self.transcript.partial().map(|text|DisplayRow {key:u64::MAX,role:"Assistant · live".into(),text,time:0,surface:false});
-        let rows:Vec<_>=self.transcript.display_rows(self.records_expanded).chain(partial.as_ref()).collect();
-        let geometries=self.row_geometries(&rows);
-        if let Some(index)=rows.iter().position(|row|row.key==key) {
-            let width=(geometries[index].width-28.0).max(1.0);
-            let inside=if let Some(reply)=self.reply_parts(key) {reply.first_match_offset(width,self.thoughts_expanded.contains(&key),self.active_search())}
-                else {conversation_content::plain_first_match_offset(&rows[index].text,width,15.0,self.active_search())};
-            self.offset=(geometries[..index].iter().map(|geometry|geometry.height).sum::<f32>()+chat_geometry::body_top(&rows[index].role)+inside-12.0).max(0.0);
-            self.follow_bottom=false;
+    fn jump_search(&mut self, backwards: bool, first: bool) -> Task<Message> {
+        let hits = self.search_hits();
+        if hits.is_empty() {
+            self.search_cursor = None;
+            return self.reflow_transcript(None);
         }
-        self.invalidate_scroll(); self.position_transcript()
+        let current = self
+            .search_cursor
+            .and_then(|key| hits.iter().position(|candidate| *candidate == key));
+        let index = if first {
+            0
+        } else if backwards {
+            current.map_or(hits.len() - 1, |index| {
+                (index + hits.len() - 1) % hits.len()
+            })
+        } else {
+            current.map_or(0, |index| (index + 1) % hits.len())
+        };
+        let key = hits[index];
+        self.search_cursor = Some(key);
+        if self.reply_parts(key).is_some_and(|reply| {
+            conversation_search::contains(&reply.reasoning, self.active_search())
+        }) {
+            self.thoughts_expanded.insert(key);
+        }
+        let partial = self.transcript.partial().map(|text| DisplayRow {
+            key: u64::MAX,
+            role: "Assistant · live".into(),
+            kind: "assistant/message".into(),
+            chat: true,
+            text,
+            time: 0,
+            surface: false,
+        });
+        let rows: Vec<_> = self
+            .transcript
+            .display_rows(self.records_expanded)
+            .chain(partial.as_ref())
+            .collect();
+        let geometries = self.row_geometries(&rows);
+        if let Some(index) = rows.iter().position(|row| row.key == key) {
+            let width = (geometries[index].width - 28.0).max(1.0);
+            let inside = if let Some(reply) = self.reply_parts(key) {
+                reply.first_match_offset(
+                    width,
+                    self.thoughts_expanded.contains(&key),
+                    self.active_search(),
+                )
+            } else {
+                conversation_content::plain_first_match_offset(
+                    &rows[index].text,
+                    width,
+                    15.0,
+                    self.active_search(),
+                )
+            };
+            self.offset = (geometries[..index]
+                .iter()
+                .map(|geometry| geometry.height)
+                .sum::<f32>()
+                + chat_geometry::body_top(&rows[index].role)
+                + inside
+                - 12.0)
+                .max(0.0);
+            self.follow_bottom = false;
+        }
+        self.invalidate_scroll();
+        self.position_transcript()
     }
-    fn search_bar(&self)->Element<'_,Message> {
-        let generation=self.generation; let serial=self.search_serial;
-        let hits=self.search_hits();
-        let current=self.search_cursor.and_then(|key|hits.iter().position(|candidate|*candidate==key)).map_or(0,|index|index+1);
-        container(row![text_input("Find in loaded messages…",&self.search_query).id("native-chat-search")
-            .on_input(move |query|Message::SearchInput {generation,serial,query}).style(design::input_style).size(13).width(Length::Fill),
-            label(format!("{current}/{} messages",hits.len()),MUTED).size(11),
-            button(label("↑",MUTED)).on_press_maybe((!hits.is_empty()).then_some(Message::SearchNext {generation,serial,backwards:true})).style(design::button_style),
-            button(label("↓",MUTED)).on_press_maybe((!hits.is_empty()).then_some(Message::SearchNext {generation,serial,backwards:false})).style(design::button_style),
-            button(label("Close",MUTED).size(11)).on_press(Message::SearchClose {generation,serial}).style(design::button_style)]
-            .spacing(6).align_y(iced::Alignment::Center)).padding([4,20]).into()
+    fn search_bar(&self) -> Element<'_, Message> {
+        let generation = self.generation;
+        let serial = self.search_serial;
+        let hits = self.search_hits();
+        let current = self
+            .search_cursor
+            .and_then(|key| hits.iter().position(|candidate| *candidate == key))
+            .map_or(0, |index| index + 1);
+        container(
+            row![
+                text_input("Find in loaded messages…", &self.search_query)
+                    .id("native-chat-search")
+                    .on_input(move |query| Message::SearchInput {
+                        generation,
+                        serial,
+                        query
+                    })
+                    .style(design::input_style)
+                    .size(13)
+                    .width(Length::Fill),
+                label(format!("{current}/{} messages", hits.len()), MUTED).size(11),
+                button(label("↑", MUTED))
+                    .on_press_maybe((!hits.is_empty()).then_some(Message::SearchNext {
+                        generation,
+                        serial,
+                        backwards: true
+                    }))
+                    .style(design::button_style),
+                button(label("↓", MUTED))
+                    .on_press_maybe((!hits.is_empty()).then_some(Message::SearchNext {
+                        generation,
+                        serial,
+                        backwards: false
+                    }))
+                    .style(design::button_style),
+                button(label("Close", MUTED).size(11))
+                    .on_press(Message::SearchClose { generation, serial })
+                    .style(design::button_style)
+            ]
+            .spacing(6)
+            .align_y(iced::Alignment::Center),
+        )
+        .padding([4, 20])
+        .into()
     }
     /// True only while this tool row is expanded and actually has a recorded body.
     fn activity_is_expanded(&self, row: &DisplayRow) -> bool {
@@ -4034,18 +5248,37 @@ impl App {
             // Formatted assistant replies share the content column, never wider
             // than the web's 920 cap (the lane never exceeds it).
             let width = (lane - 8.0).clamp(37.0, design::MAX_CHAT);
-            let body_height = reply.body_height(width - 28.0, self.thoughts_expanded.contains(&row.key));
+            let body_height =
+                reply.body_height(width - 28.0, self.thoughts_expanded.contains(&row.key));
             // An answerless reply keeps only its thoughts disclosure, so it has
             // no action row and must not reserve one.
             let actions = if reply.has_answer() { 22.0 } else { 0.0 };
-            return chat_geometry::Geometry { width, body_height, height: chat_geometry::chrome_height(&row.role) + body_height + actions };
+            return chat_geometry::Geometry {
+                width,
+                body_height,
+                height: chat_geometry::chrome_height(&row.role) + body_height + actions,
+            };
         }
-        let mut geometry = self.chat_geometry.geometry(row.key, &row.role, &excerpt(&row.text), lane);
+        let mut geometry =
+            self.chat_geometry
+                .geometry(row.key, &row.role, &excerpt(&row.text), lane);
         if self.search_expands_user(row) {
-            geometry.body_height=conversation_content::plain_height(&row.text,geometry.width-28.0,15.0,FONT,false).max(20.0);
-            geometry.height=chat_geometry::chrome_height(&row.role)+geometry.body_height;
+            geometry.body_height = conversation_content::plain_height(
+                &row.text,
+                geometry.width - 28.0,
+                15.0,
+                FONT,
+                false,
+            )
+            .max(20.0);
+            geometry.height = chat_geometry::chrome_height(&row.role) + geometry.body_height;
         }
-        if row.role == "You" || row.role.starts_with("Assistant") || row.role == "Interrupted assistant attempt" { geometry.height += 22.0; }
+        if row.role == "You"
+            || row.role.starts_with("Assistant")
+            || row.role == "Interrupted assistant attempt"
+        {
+            geometry.height += 22.0;
+        }
         if self.activity_is_expanded(row) {
             // The compact line stays; the recorded body sits beneath it in the
             // same conversation row, so expanding never leaves this chat.
@@ -4068,8 +5301,14 @@ impl App {
                 .map(|row| row.key)
                 .chain(std::iter::once(u64::MAX)),
         );
-        self.reply_content.retain(rows.iter().map(|row| row.key).chain(std::iter::once(u64::MAX)));
-        rows.iter().map(|row| self.row_geometry(row, lane)).collect()
+        self.reply_content.retain(
+            rows.iter()
+                .map(|row| row.key)
+                .chain(std::iter::once(u64::MAX)),
+        );
+        rows.iter()
+            .map(|row| self.row_geometry(row, lane))
+            .collect()
     }
     fn scroll_projection(&self) -> (Vec<u64>, Vec<f32>, f32) {
         let rows: Vec<_> = self
@@ -4083,7 +5322,19 @@ impl App {
             .collect();
         let lane = self.chat_lane();
         let trailing = self.transcript.partial().map_or(0.0, |text| {
-            self.row_geometry(&DisplayRow { key:u64::MAX, role:"Assistant · live".into(), text, time:0, surface:false },lane).height
+            self.row_geometry(
+                &DisplayRow {
+                    key: u64::MAX,
+                    role: "Assistant · live".into(),
+                    kind: "assistant/message".into(),
+                    chat: true,
+                    text,
+                    time: 0,
+                    surface: false,
+                },
+                lane,
+            )
+            .height
         });
         (rows.iter().map(|r| r.key).collect(), heights, trailing)
     }
@@ -4208,6 +5459,8 @@ impl App {
         let partial = self.transcript.partial().map(|text| DisplayRow {
             key: u64::MAX,
             role: "Assistant · live".into(),
+            kind: "assistant/message".into(),
+            chat: true,
             text,
             time: 0,
             surface: false,
@@ -4220,7 +5473,13 @@ impl App {
             .collect();
         if rendered.is_empty() {
             self.chat_geometry.retain_keys(std::iter::empty());
-            return if self.search_open {column![self.search_bar(),self.welcome(len)].height(Length::Fill).into()}else{self.welcome(len)};
+            return if self.search_open {
+                column![self.search_bar(), self.welcome(len)]
+                    .height(Length::Fill)
+                    .into()
+            } else {
+                self.welcome(len)
+            };
         }
         let geometries = self.row_geometries(&rendered);
         let heights: Vec<_> = geometries.iter().map(|g| g.height).collect();
@@ -4255,6 +5514,12 @@ impl App {
                     "↳"
                 } else if verb == "Bash" || verb == "Shell" {
                     ">_"
+                } else if verb == "Context elided" || verb == "Context summarized" {
+                    // Both of the paper's context-management mechanisms replace
+                    // retained content, so they share the replacement glyph.
+                    "↳"
+                } else if verb == "Loop guard" {
+                    "⟳"
                 } else {
                     "▤"
                 };
@@ -4360,44 +5625,102 @@ impl App {
                     .style(|_| panel(BASE))
                     .into()
                 } else {
-                let body: Element<'_,Message> = if let Some(reply) = self.reply_parts(record.key) {
-                    reply.view_search(geometry.width - 28.0,self.thoughts_expanded.contains(&record.key),self.active_search())
-                } else {
-                    let source=if self.search_expands_user(record) {record.text.clone()}else{excerpt(&record.text)};
-                    conversation_content::plain_view(&source,self.active_search(),15,TEXT)
-                };
-                let mut footer = row![button(label("Copy",MUTED).size(10))
-                    .on_press_maybe(self.row_copy_source(record.key).is_some().then_some(Message::CopyMessage {generation:self.generation,key:record.key}))
-                    .style(design::button_style).padding([1,2])].spacing(6).height(18);
-                if human && self.transcript.editable_text(record.key).is_some() {
-                    footer=footer.push(button(label("Edit",MUTED).size(10)).on_press_maybe(self.edit_message_allowed(self.generation,record.key)
-                        .then_some(Message::EditMessage {generation:self.generation,key:record.key})).style(design::button_style).padding([1,2]));
-                }
-                if assistant || excerpt(&record.text) != record.text {
-                    footer = footer.push(button(label(
-                        if human { "Read more ▸" } else { "Details ▸" },
-                        MUTED).size(10)).on_press_maybe(self.detail_request(record.key))
-                        .style(design::button_style).padding([1,2]));
-                }
-                let mut card = Column::new();
-                if chat_geometry::status_header(&record.role) {
-                    card = card.push(container(label(record.role.clone(),
-                        if record.role == "Interrupted assistant attempt" { DANGER } else { MUTED }).size(12))
-                        .height(24).clip(true)).push(Space::new().height(7));
-                }
-                let card = card.push(container(body).height(geometry.body_height).clip(true))
-                    .push(Space::new().height(4)).push(footer);
-                container(card)
-                    .padding([10, 14])
-                    .width(geometry.width)
-                    .style(move |_| {
-                        if human {
-                            design::card(OVERLAY, design::RADIUS_LG)
+                    let body: Element<'_, Message> = if let Some(reply) =
+                        self.reply_parts(record.key)
+                    {
+                        reply.view_search(
+                            geometry.width - 28.0,
+                            self.thoughts_expanded.contains(&record.key),
+                            self.active_search(),
+                        )
+                    } else {
+                        let source = if self.search_expands_user(record) {
+                            record.text.clone()
                         } else {
-                            panel(BASE)
-                        }
-                    })
-                    .into()
+                            excerpt(&record.text)
+                        };
+                        conversation_content::plain_view(&source, self.active_search(), 15, TEXT)
+                    };
+                    let mut footer = row![
+                        button(label("Copy", MUTED).size(10))
+                            .on_press_maybe(self.row_copy_source(record.key).is_some().then_some(
+                                Message::CopyMessage {
+                                    generation: self.generation,
+                                    key: record.key
+                                }
+                            ))
+                            .style(design::button_style)
+                            .padding([1, 2])
+                    ]
+                    .spacing(6)
+                    .height(18);
+                    if human && self.transcript.editable_text(record.key).is_some() {
+                        footer = footer.push(
+                            button(label("Edit", MUTED).size(10))
+                                .on_press_maybe(
+                                    self.edit_message_allowed(self.generation, record.key)
+                                        .then_some(Message::EditMessage {
+                                            generation: self.generation,
+                                            key: record.key,
+                                        }),
+                                )
+                                .style(design::button_style)
+                                .padding([1, 2]),
+                        );
+                    }
+                    if assistant || excerpt(&record.text) != record.text {
+                        footer = footer.push(
+                            button(
+                                label(
+                                    if human {
+                                        "Read more ▸"
+                                    } else {
+                                        "Details ▸"
+                                    },
+                                    MUTED,
+                                )
+                                .size(10),
+                            )
+                            .on_press_maybe(self.detail_request(record.key))
+                            .style(design::button_style)
+                            .padding([1, 2]),
+                        );
+                    }
+                    let mut card = Column::new();
+                    if chat_geometry::status_header(&record.role) {
+                        card = card
+                            .push(
+                                container(
+                                    label(
+                                        record.role.clone(),
+                                        if record.role == "Interrupted assistant attempt" {
+                                            DANGER
+                                        } else {
+                                            MUTED
+                                        },
+                                    )
+                                    .size(12),
+                                )
+                                .height(24)
+                                .clip(true),
+                            )
+                            .push(Space::new().height(7));
+                    }
+                    let card = card
+                        .push(container(body).height(geometry.body_height).clip(true))
+                        .push(Space::new().height(4))
+                        .push(footer);
+                    container(card)
+                        .padding([10, 14])
+                        .width(geometry.width)
+                        .style(move |_| {
+                            if human {
+                                design::card(OVERLAY, design::RADIUS_LG)
+                            } else {
+                                panel(BASE)
+                            }
+                        })
+                        .into()
                 }
             } else {
                 let card = column![
@@ -4407,7 +5730,9 @@ impl App {
                         } else {
                             record.role.clone()
                         },
-                        if self.transcript.inbox_canceled(record.key) || self.transcript.turn_notice(record.key) {
+                        if self.transcript.inbox_canceled(record.key)
+                            || self.transcript.turn_notice(record.key)
+                        {
                             DANGER
                         } else if assistant {
                             design::FOAM
@@ -4416,9 +5741,19 @@ impl App {
                         }
                     )
                     .size(12),
-                    container(label(excerpt(&record.text), if self.transcript.turn_notice(record.key) { DANGER } else { TEXT }).size(15))
-                        .height(75)
-                        .clip(true),
+                    container(
+                        label(
+                            excerpt(&record.text),
+                            if self.transcript.turn_notice(record.key) {
+                                DANGER
+                            } else {
+                                TEXT
+                            }
+                        )
+                        .size(15)
+                    )
+                    .height(75)
+                    .clip(true),
                     button(label("Read more ▸", MUTED).size(10))
                         .on_press_maybe(self.detail_request(record.key))
                         .style(design::button_style)
@@ -4481,7 +5816,9 @@ impl App {
             button(label("Reload", MUTED).size(11))
                 .on_press_maybe((self.ready && self.selected.is_some()).then_some(Message::Reload))
                 .style(design::button_style),
-            button(label("Find",MUTED).size(11)).on_press(Message::SearchOpen).style(design::button_style),
+            button(label("Find", MUTED).size(11))
+                .on_press(Message::SearchOpen)
+                .style(design::button_style),
             Space::new().width(Length::Fill),
             button(
                 label(
@@ -4504,16 +5841,20 @@ impl App {
         let lane = container(contents)
             .max_width(self.chat_lane())
             .width(Length::Fill);
-        let mut chat=column![container(controls).padding([2,20])];
-        if self.search_open {chat=chat.push(self.search_bar());}
-        chat.push(scrollable(container(lane).center_x(Length::Fill).padding([0, 20]))
+        let mut chat = column![container(controls).padding([2, 20])];
+        if self.search_open {
+            chat = chat.push(self.search_bar());
+        }
+        chat.push(
+            scrollable(container(lane).center_x(Length::Fill).padding([0, 20]))
                 .id(self.scroll_id())
                 .on_scroll(move |viewport| Message::Scrolled {
                     generation,
                     revision,
-                    viewport
+                    viewport,
                 })
-                .height(Length::Fill))
+                .height(Length::Fill),
+        )
         .height(Length::Fill)
         .into()
     }
@@ -4543,13 +5884,30 @@ impl App {
         .spacing(18)
         .align_x(iced::Alignment::Center);
         if selected && self.transcript.has_more() {
-            hero = hero.push(row![
-                button(label(if self.page_pending { "Loading older messages…" } else { "Older messages" }, MUTED).size(12))
-                    .on_press_maybe((self.ready && self.follow_ready && !self.page_pending).then_some(Message::Older))
+            hero = hero.push(
+                row![
+                    button(
+                        label(
+                            if self.page_pending {
+                                "Loading older messages…"
+                            } else {
+                                "Older messages"
+                            },
+                            MUTED
+                        )
+                        .size(12)
+                    )
+                    .on_press_maybe(
+                        (self.ready && self.follow_ready && !self.page_pending)
+                            .then_some(Message::Older)
+                    )
                     .style(design::button_style),
-                button(label("Reload", MUTED).size(12))
-                    .on_press_maybe(self.ready.then_some(Message::Reload)).style(design::button_style),
-            ].spacing(8));
+                    button(label("Reload", MUTED).size(12))
+                        .on_press_maybe(self.ready.then_some(Message::Reload))
+                        .style(design::button_style),
+                ]
+                .spacing(8),
+            );
         }
         if records > 0 {
             hero = hero.push(
@@ -4620,8 +5978,10 @@ impl App {
                 ));
             if let Some(id) = &self.selected {
                 if let Some(session) = self.sessions.get(id) {
-                    details =
-                        details.push(label(format!("Conversation: {}", self.session_title(session)), TEXT));
+                    details = details.push(label(
+                        format!("Conversation: {}", self.session_title(session)),
+                        TEXT,
+                    ));
                 }
                 if let Some(model) = self.model_selections.get(id) {
                     details = details.push(label(
@@ -4658,6 +6018,529 @@ impl App {
         .height(Length::Fill)
         .into()
     }
+    fn work_panel_view(&self) -> Element<'_, Message> {
+        let work = self.transcript.work().clone();
+        let mut details = column![
+            label("Work records", TEXT).size(22),
+            label(
+                "Read-only view of Goals, Todos, Subagents and Schedules recorded in this conversation. Nothing here can be changed, cancelled, retried or rescheduled.",
+                MUTED
+            )
+            .size(11),
+            label(
+                format!(
+                    "Keeping the newest {} records per section, {} in total; {} older record(s) omitted.",
+                    crate::work_panel::SECTION_CAP,
+                    crate::work_panel::TOTAL_CAP,
+                    work.dropped_total()
+                ),
+                MUTED
+            )
+            .size(11),
+        ]
+        .spacing(12);
+        if work.is_empty() {
+            details = details.push(
+                label(
+                    "No goal, todo, subagent or schedule records in this conversation.",
+                    MUTED,
+                )
+                .size(12),
+            );
+        }
+        for section in crate::work_panel::Section::ALL {
+            let entries = work.entries(section);
+            if entries.is_empty() {
+                continue;
+            }
+            details = details.push(label(section.name(), TEXT).size(14));
+            if work.dropped(section) > 0 {
+                details = details.push(
+                    label(
+                        format!("{} older records omitted", work.dropped(section)),
+                        MUTED,
+                    )
+                    .size(10),
+                );
+            }
+            for entry in entries {
+                let mut lines = entry.lines.iter();
+                if let Some(first) = lines.next() {
+                    details = details.push(label(first.clone(), TEXT).size(12));
+                }
+                for line in lines {
+                    details = details.push(
+                        container(label(line.clone(), MUTED).size(11))
+                            .padding([0, 10])
+                            .width(Length::Fill),
+                    );
+                }
+            }
+        }
+        details = details.push(
+            button(label("Back to conversation", TEXT))
+                .on_press(Message::Work(work_panel_ui::Action::Close))
+                .style(design::button_style),
+        );
+        scrollable(
+            container(
+                container(details)
+                    .max_width(self.chat_lane())
+                    .width(Length::Fill),
+            )
+            .center_x(Length::Fill)
+            .padding(24),
+        )
+        .height(Length::Fill)
+        .into()
+    }
+    /// Client-only terminal panel. It renders exactly what the Host confirmed: the
+    /// list, shell profiles and limits from read ACKs, the ACK-created terminal, and
+    /// bounded frames from the owned follow. Opening it spawns no local shell.
+    fn terminal_view(&self) -> Element<'_, Message> {
+        use crate::terminal::{Action, CloseReview, DISPLAY_BYTES, Notice, Review};
+        let ticket = self.terminal.ticket().expect("visible terminal panel");
+        let context = self.terminal_context();
+        let current = context.view.as_ref().is_some_and(|view| {
+            view.epoch == ticket.epoch
+                && view.generation == ticket.generation
+                && view.target == ticket.target
+        });
+        let enabled = context.allowed && current && !self.terminal.busy();
+        let mut body = column![
+            row![
+                label("Terminal", TEXT).size(22).width(Length::Fill),
+                button("Close")
+                    .style(design::ghost)
+                    .on_press(Message::Terminal(Action::Dismiss(ticket.clone())))
+            ]
+            .spacing(10),
+            label(
+                "The shell runs on the Host with the Host's authority. This app is a client: it never spawns a shell or child process. Input is sent as-is, without interpretation; acceptance is not execution confirmation.",
+                MUTED
+            )
+            .size(11),
+            label(
+                format!(
+                    "Output is bounded to {} chunks / {} KiB; discarded output is counted, never silently hidden. The panel renders only the newest {} KiB.",
+                    crate::terminal::OUTPUT_CHUNKS,
+                    crate::terminal::OUTPUT_BYTES / 1024,
+                    DISPLAY_BYTES / 1024
+                ),
+                MUTED
+            )
+            .size(11),
+        ]
+        .spacing(10);
+        match self.terminal.environment() {
+            Some(environment) => {
+                body = body.push(
+                    label(
+                        format!(
+                            "Host limits: input ≤ {} UTF-8 bytes · {}×{} max · scrollback {} rows · cwd {}",
+                            environment.max_input_bytes,
+                            environment.max_cols,
+                            environment.max_rows,
+                            environment.scrollback,
+                            short(&environment.cwd, 60)
+                        ),
+                        MUTED,
+                    )
+                    .size(10),
+                );
+            }
+            None => {
+                body = body.push(
+                    label(
+                        "Host limits unavailable: this Session has no registered Agent. History is listed below, but create, write and close cannot run.",
+                        MUTED,
+                    )
+                    .size(10),
+                );
+            }
+        }
+        body = body.push(label("SHELL", MUTED).size(10));
+        if self.terminal.shells().is_empty() {
+            body = body.push(
+                label(
+                    "No shell profile was discovered; create uses the Host default shell.",
+                    MUTED,
+                )
+                .size(11),
+            );
+        } else {
+            let mut choices = row![].spacing(6);
+            for (index, profile) in self.terminal.shells().iter().enumerate() {
+                let chosen = self
+                    .terminal
+                    .chosen_shell()
+                    .is_some_and(|shell| shell.path == profile.path);
+                let choose = ticket.clone();
+                choices = choices.push(
+                    button(
+                        label(
+                            format!(
+                                "{}{}",
+                                if chosen { "● " } else { "" },
+                                short(&profile.name, 24)
+                            ),
+                            if chosen { ACCENT } else { MUTED },
+                        )
+                        .size(11),
+                    )
+                    .on_press_maybe(enabled.then_some(Message::Terminal(Action::ChooseShell {
+                        ticket: choose,
+                        index,
+                    })))
+                    .style(design::button_style)
+                    .padding([6, 8]),
+                );
+            }
+            body = body.push(choices);
+        }
+        if self.terminal.review_create() {
+            let shell = self
+                .terminal
+                .chosen_shell()
+                .map(|shell| short(&shell.name, 24).to_owned())
+                .unwrap_or_else(|| "Host default".into());
+            body = body
+                .push(
+                    label(
+                        format!(
+                            "Confirm create: shell {} · {}×{}. The Host allocates and owns the process.",
+                            shell,
+                            crate::terminal::DEFAULT_COLS,
+                            crate::terminal::DEFAULT_ROWS
+                        ),
+                        ACCENT,
+                    )
+                    .size(12),
+                )
+                .push(
+                    row![
+                        button("Back")
+                            .style(design::ghost)
+                            .on_press_maybe(
+                                enabled.then_some(Message::Terminal(Action::BackCreate(
+                                    ticket.clone()
+                                )))
+                            ),
+                        button("Confirm create")
+                            .style(design::primary)
+                            .on_press_maybe(
+                                enabled.then_some(Message::Terminal(Action::ConfirmCreate(
+                                    Review {
+                                        ticket: ticket.clone()
+                                    }
+                                )))
+                            ),
+                    ]
+                    .spacing(8),
+                );
+        } else {
+            body = body.push(
+                button("New terminal…")
+                    .style(design::primary)
+                    .on_press_maybe(
+                        enabled.then_some(Message::Terminal(Action::ReviewCreate(ticket.clone()))),
+                    ),
+            );
+        }
+        body = body.push(
+            row![
+                label("TERMINALS", MUTED).size(10).width(Length::Fill),
+                button("Refresh").style(design::ghost).on_press_maybe(
+                    enabled.then_some(Message::Terminal(Action::Refresh(ticket.clone())))
+                ),
+            ]
+            .spacing(8),
+        );
+        if !self.terminal.list_loaded() {
+            body = body.push(label("Loading the Host terminal list…", MUTED).size(11));
+        } else if self.terminal.list().is_empty() {
+            body = body.push(label("No Host terminals exist for this Session.", MUTED).size(11));
+        }
+        for info in self.terminal.list() {
+            let selected = self.terminal.selected() == Some(&info.id);
+            let select = ticket.clone();
+            let close = ticket.clone();
+            let state = match info.state {
+                dsh_native_transport::terminal::TerminalState::Running => "running",
+                dsh_native_transport::terminal::TerminalState::Exited => "exited",
+                dsh_native_transport::terminal::TerminalState::Failed => "failed",
+            };
+            body = body.push(
+                row![
+                    button(
+                        label(
+                            format!(
+                                "{} {}",
+                                if selected { "▸" } else { " " },
+                                short(&info.title, 24)
+                            ),
+                            if selected { ACCENT } else { TEXT },
+                        )
+                        .size(11)
+                    )
+                    .on_press_maybe(enabled.then_some(Message::Terminal(Action::Select {
+                        ticket: select,
+                        id: info.id.clone()
+                    })))
+                    .style(design::button_style)
+                    .padding([6, 8]),
+                    label(
+                        format!(
+                            "{} · {}×{} · {}",
+                            short(info.id.as_str(), 18),
+                            info.cols,
+                            info.rows,
+                            state
+                        ),
+                        MUTED,
+                    )
+                    .size(10)
+                    .width(Length::Fill),
+                    button("Close…")
+                        .on_press_maybe(enabled.then_some(Message::Terminal(Action::ReviewClose {
+                            ticket: close,
+                            id: info.id.clone()
+                        })))
+                        .style(design::danger_button)
+                        .padding([6, 8]),
+                ]
+                .spacing(6)
+                .align_y(iced::Alignment::Center),
+            );
+        }
+        if let Some(id) = self.terminal.review_close() {
+            body = body
+                .push(
+                    label(
+                        format!(
+                            "Confirm close of {}: the Host terminates the whole process range. Repeated closes succeed; a failure leaves the terminal for explicit retry.",
+                            short(id.as_str(), 24)
+                        ),
+                        DANGER,
+                    )
+                    .size(11),
+                )
+                .push(
+                    row![
+                        button("Back")
+                            .style(design::ghost)
+                            .on_press_maybe(
+                                enabled.then_some(Message::Terminal(Action::BackClose(
+                                    ticket.clone()
+                                )))
+                            ),
+                        button("Confirm close")
+                            .style(design::danger_button)
+                            .on_press_maybe(
+                                enabled.then_some(Message::Terminal(Action::ConfirmClose(
+                                    CloseReview {
+                                        ticket: ticket.clone(),
+                                        id: id.clone()
+                                    }
+                                )))
+                            ),
+                    ]
+                    .spacing(8),
+                );
+        }
+        body = body.push(label("OUTPUT", MUTED).size(10));
+        if self.terminal.selected().is_none() {
+            body = body.push(
+                label(
+                    "Select a listed terminal to attach an input controller and stream its bounded output.",
+                    MUTED,
+                )
+                .size(11),
+            );
+        } else {
+            if self.terminal.output().dropped() > 0 {
+                body = body.push(
+                    label(
+                        format!(
+                            "{} older output chunk(s) were discarded by the panel bound.",
+                            self.terminal.output().dropped()
+                        ),
+                        MUTED,
+                    )
+                    .size(10),
+                );
+            }
+            let text = self.terminal.output().tail(DISPLAY_BYTES);
+            body = body.push(
+                container(scrollable(
+                    container(
+                        label(
+                            if text.is_empty() {
+                                "(no output yet)".to_owned()
+                            } else {
+                                text
+                            },
+                            TEXT,
+                        )
+                        .size(11),
+                    )
+                    .width(Length::Fill),
+                ))
+                .height(Length::Fixed(240.0))
+                .width(Length::Fill)
+                .padding(8)
+                .style(|_| design::card(OVERLAY, design::RADIUS_MD)),
+            );
+            let write_enabled = enabled
+                && self.terminal.environment().is_some()
+                && !self.terminal.write_pending()
+                && !self.terminal.input().is_empty()
+                && self.terminal.input().len() as u64 <= self.terminal.max_input_bytes();
+            let edit = ticket.clone();
+            body = body
+                .push(
+                    text_input("Type input, then Write", self.terminal.input())
+                        .id("native-terminal-input")
+                        .on_input_maybe(enabled.then_some(move |text| {
+                            Message::Terminal(Action::EditInput {
+                                ticket: edit.clone(),
+                                text,
+                            })
+                        }))
+                        .style(design::input_style)
+                        .padding(8)
+                        .size(12),
+                )
+                .push(
+                    row![
+                        button("Write").style(design::primary).on_press_maybe(
+                            write_enabled
+                                .then_some(Message::Terminal(Action::Write(ticket.clone())))
+                        ),
+                        label(
+                            format!(
+                                "{} / {} UTF-8 bytes",
+                                self.terminal.input().len(),
+                                self.terminal.max_input_bytes()
+                            ),
+                            MUTED,
+                        )
+                        .size(10)
+                        .width(Length::Fill),
+                    ]
+                    .spacing(8),
+                );
+        }
+        body = body.push(match self.terminal.notice() {
+            Notice::None => label("", MUTED).size(1),
+            Notice::Loading => label("Reading the Host terminal list, shells and limits…", MUTED).size(11),
+            Notice::ReadFailed => label(
+                "The Host terminal list could not be read. Nothing was created; reconcile explicitly.",
+                DANGER,
+            )
+            .size(11),
+            Notice::Limits { .. } => {
+                label("Host limits loaded. Select a terminal or create one explicitly.", MUTED)
+                    .size(11)
+            }
+            Notice::LimitsUnavailable => label(
+                "This Session has no registered Agent, so Host limits are unavailable; history is read-only here.",
+                MUTED,
+            )
+            .size(11),
+            Notice::CreateReview => label("Review the shell and dimensions, then Confirm.", MUTED).size(11),
+            Notice::Creating => label(
+                "Create admitted. Closing does not cancel or undo it; the terminal appears only from the Host acknowledgment.",
+                ACCENT,
+            )
+            .size(11),
+            Notice::CreateFailed => label(
+                "The Host refused the create (unavailable or invalid). No terminal was added and there is no automatic retry.",
+                DANGER,
+            )
+            .size(11),
+            Notice::CreateLimit => label(
+                "The Session's Host terminal limit was reached. Close an existing terminal explicitly before creating another.",
+                DANGER,
+            )
+            .size(11),
+            Notice::CreatingIndeterminate => label(
+                "Create outcome unknown: the Host may or may not have allocated a terminal. No retry was attempted; reconcile with Refresh.",
+                DANGER,
+            )
+            .size(11),
+            Notice::CreateNotSent => label(
+                "Worker queue rejected the create: not sent. No automatic retry.",
+                DANGER,
+            )
+            .size(11),
+            Notice::CloseReview => label("Review the exact terminal, then Confirm close.", MUTED).size(11),
+            Notice::Closing => label(
+                "Close admitted. Closing this panel does not cancel it; the list changes only from the Host acknowledgment.",
+                ACCENT,
+            )
+            .size(11),
+            Notice::Closed => label("Host confirmed the terminal closed.", ACCENT).size(11),
+            Notice::CloseFailed => label(
+                "The Host refused the close. The terminal may still be running; no automatic retry.",
+                DANGER,
+            )
+            .size(11),
+            Notice::ClosingIndeterminate => label(
+                "Close outcome unknown: the Host process may still be running. Inspect and retry explicitly if needed.",
+                DANGER,
+            )
+            .size(11),
+            Notice::CloseNotSent => label("Worker queue rejected the close: not sent.", DANGER).size(11),
+            Notice::WritePending => label(
+                "Input admitted to the Host attachment. Acceptance is not shell execution; the line clears only on the Host acknowledgment.",
+                ACCENT,
+            )
+            .size(11),
+            Notice::WriteRefused => label(
+                "The Host refused this input (attachment read-only, not running, or unavailable). The typed line is kept; no automatic retry.",
+                DANGER,
+            )
+            .size(11),
+            Notice::WriteNotSent => label("Worker queue rejected the input: not sent.", DANGER).size(11),
+            Notice::WriteIndeterminate => label(
+                "Input outcome unknown: the Host may or may not have delivered it. Do not resend blindly; check the terminal output.",
+                DANGER,
+            )
+            .size(11),
+            Notice::InputRefused => label(
+                "Nothing was written: select a terminal, keep the input non-empty, and stay within the Host limit.",
+                DANGER,
+            )
+            .size(11),
+            Notice::FollowAttached => label(
+                "Attached with exclusive input control; an older attachment became read-only.",
+                MUTED,
+            )
+            .size(11),
+            Notice::FollowEnded => label(
+                "The Host ended this output attachment. The process is unaffected; select the terminal again to reattach.",
+                MUTED,
+            )
+            .size(11),
+            Notice::FollowFailed => label(
+                "The output attachment ended with an error. The Host process is unaffected; reattach explicitly.",
+                DANGER,
+            )
+            .size(11),
+        });
+        scrollable(
+            container(
+                container(body)
+                    .max_width(self.chat_lane())
+                    .width(Length::Fill),
+            )
+            .center_x(Length::Fill)
+            .padding(24),
+        )
+        .height(Length::Fill)
+        .into()
+    }
     fn close_view(&self) -> Element<'_, Message> {
         let mut content = column![label("Close native Harness", ACCENT)].spacing(16);
         match &self.close {Close::Inspecting=>content=content.push(label("Inspecting owned Core outside the GUI thread…",TEXT)),Close::Confirm(reason)=>content=content.push(label(reason,TEXT)).push(row![button("Stay").on_press(Message::Stay),button("Close and stop own backend").on_press(Message::ConfirmClose)].spacing(12)),Close::Stopping=>content=content.push(label("Closing native subscriptions and transport; waiting for owned Core exit, containment and any admitted filesystem save (not cancellable; partial files may remain)…",TEXT)),Close::Failed(reason)=>content=content.push(label(reason,DANGER)).push(row![button("Stay").on_press(Message::Stay),button("Exit anyway (result uncertain)").on_press_maybe((self.stopped && !self.draft_state.busy() && !self.local_files.busy()).then_some(Message::ExitAnyway))].spacing(12)),Close::None=>{}}
@@ -4673,19 +6556,16 @@ impl App {
     }
 }
 #[cfg(test)]
-fn chat_role(role: &str) -> bool {
-    reducer::presentation::conversation_role(role)
+fn chat_role(kind: &str, role: &str) -> bool {
+    reducer::presentation::chat_visible(kind, role)
 }
 #[cfg(test)]
 fn chat_row_count(rows: &[DisplayRow]) -> usize {
-    rows.iter().filter(|row| chat_role(&row.role)).count()
+    rows.iter().filter(|row| row.chat).count()
 }
 #[cfg(test)]
 fn chat_rows<'a>(rows: &'a [DisplayRow], partial: Option<&'a DisplayRow>) -> Vec<&'a DisplayRow> {
-    rows.iter()
-        .filter(|row| chat_role(&row.role))
-        .chain(partial)
-        .collect()
+    rows.iter().filter(|row| row.chat).chain(partial).collect()
 }
 pub(crate) fn panel(color: Color) -> container::Style {
     container::Style {
@@ -4774,12 +6654,17 @@ pub(crate) fn label<'a>(
 }
 // Focus-local layout shortcuts only; never register or alter desktop bindings.
 fn layout_shortcut(key: &keyboard::Key, modifiers: keyboard::Modifiers) -> Option<Message> {
-    if modifiers.control() && !modifiers.alt() && !modifiers.logo() && !modifiers.shift() {
-        if let keyboard::Key::Character(value) = key {
-            if value.eq_ignore_ascii_case("f") { return Some(Message::SearchOpen); }
-            if value.eq_ignore_ascii_case("b") {
-                return Some(Message::ToggleSidebar);
-            }
+    if modifiers.control()
+        && !modifiers.alt()
+        && !modifiers.logo()
+        && !modifiers.shift()
+        && let keyboard::Key::Character(value) = key
+    {
+        if value.eq_ignore_ascii_case("f") {
+            return Some(Message::SearchOpen);
+        }
+        if value.eq_ignore_ascii_case("b") {
+            return Some(Message::ToggleSidebar);
         }
     }
     if modifiers.is_empty() && matches!(key, keyboard::Key::Named(keyboard::key::Named::Escape)) {
@@ -4787,10 +6672,14 @@ fn layout_shortcut(key: &keyboard::Key, modifiers: keyboard::Modifiers) -> Optio
     }
     None
 }
-fn panel_shortcut(key:&keyboard::Key, modifiers:keyboard::Modifiers, ticket:Option<detail_panel::Stamp>) -> Option<Message> {
-    match (layout_shortcut(key,modifiers)?,ticket) {
-        (Message::DismissPanel,Some(ticket)) => Some(Message::HideDetails(ticket)),
-        (message,_) => Some(message),
+fn panel_shortcut(
+    key: &keyboard::Key,
+    modifiers: keyboard::Modifiers,
+    ticket: Option<detail_panel::Stamp>,
+) -> Option<Message> {
+    match (layout_shortcut(key, modifiers)?, ticket) {
+        (Message::DismissPanel, Some(ticket)) => Some(Message::HideDetails(ticket)),
+        (message, _) => Some(message),
     }
 }
 fn routine_status(status: &str) -> bool {
@@ -4861,6 +6750,9 @@ pub(crate) fn settings_overlay<'a, M: Clone + 'a>(
 
 fn settings_modal_size(viewport: iced::Size) -> iced::Size {
     // Fit the preferred 960×700 card even below the application's minimum size.
+    // `max().min()` rather than `clamp` so a non-finite viewport answers a finite
+    // 1.0 instead of propagating NaN into the modal's size.
+    #[allow(clippy::manual_clamp)]
     iced::Size::new(
         (viewport.width - 48.0).max(1.0).min(960.0),
         (viewport.height - 48.0).max(1.0).min(700.0),
@@ -4909,22 +6801,23 @@ fn background_message(message: &Message) -> bool {
             | Message::CopyDetailSource(_)
             | Message::ToggleThoughts(_)
             | Message::CopyCode(..)
-            | Message::CopyMessage {..}
-            | Message::EditMessage {..}
-            | Message::ConfirmEdit {..}
+            | Message::CopyMessage { .. }
+            | Message::EditMessage { .. }
+            | Message::ConfirmEdit { .. }
             | Message::CancelEdit
             | Message::DraftReload
-            | Message::ReviewRecovered {..}
+            | Message::ReviewRecovered { .. }
             | Message::SearchOpen
-            | Message::SearchInput {..}
-            | Message::SearchNext {..}
-            | Message::SearchClose {..}
+            | Message::SearchInput { .. }
+            | Message::SearchNext { .. }
+            | Message::SearchClose { .. }
             | Message::HideDetails(_)
             | Message::Capabilities
             | Message::Interaction(_)
             | Message::Management(_)
             | Message::Rename(_)
             | Message::Fork(_)
+            | Message::Terminal(_)
             | Message::ExportSession(_)
             | Message::Export(_)
             | Message::ArchivedView
@@ -5307,7 +7200,13 @@ pub(crate) fn deepseek_route(model: &Model) -> bool {
         || model.id.to_ascii_lowercase().contains("deepseek")
 }
 fn title(session: &SessionSummary) -> String {
-    projected_title(session, session.projections.as_ref().and_then(|p| p.values.get("title")))
+    projected_title(
+        session,
+        session
+            .projections
+            .as_ref()
+            .and_then(|p| p.values.get("title")),
+    )
 }
 fn projected_title(session: &SessionSummary, value: Option<&serde_json::Value>) -> String {
     value
@@ -5414,6 +7313,9 @@ pub mod layout_fixture;
 #[cfg(test)]
 #[path = "layout_ui_tests.rs"]
 mod layout_ui_tests;
+#[cfg(test)]
+#[path = "navigation_efficiency_tests.rs"]
+mod navigation_efficiency_tests;
 #[path = "scroll_anchor.rs"]
 mod scroll_anchor;
 #[cfg(feature = "public-layout-fixture")]
@@ -5425,17 +7327,14 @@ mod scroll_operation;
 #[path = "scroll_ui_tests.rs"]
 mod scroll_ui_tests;
 #[cfg(test)]
-#[path = "navigation_efficiency_tests.rs"]
-mod navigation_efficiency_tests;
+#[path = "title_ui_tests.rs"]
+mod title_ui_tests;
 #[cfg(test)]
 #[path = "transcript_layout_tests.rs"]
 mod transcript_layout_tests;
 #[cfg(test)]
 #[path = "transcript_projection_tests.rs"]
 mod transcript_projection_tests;
-#[cfg(test)]
-#[path = "title_ui_tests.rs"]
-mod title_ui_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5449,6 +7348,8 @@ mod tests {
         DisplayRow {
             key,
             role: role.into(),
+            kind: role.into(),
+            chat: crate::reducer::presentation::chat_visible(role, role),
             text: "fixture".into(),
             time: 1000,
             surface: false,
@@ -5599,12 +7500,20 @@ mod tests {
         assert_eq!(app.transcript.rows().len(), 5);
         assert_eq!(chat_row_count(app.transcript.rows()), 2);
         let after_rows: Vec<_> = app.transcript.display_rows(false).collect();
-        assert_eq!(after_rows.iter().map(|row| row.key).collect::<Vec<_>>(), [3, 4]);
+        assert_eq!(
+            after_rows.iter().map(|row| row.key).collect::<Vec<_>>(),
+            [3, 4]
+        );
         let after_geometry = app.row_geometries(&after_rows);
         let anchor_index = after_rows.iter().position(|row| row.key == 4).unwrap();
-        let prefix = after_geometry[..anchor_index].iter().map(|row| row.height).sum::<f32>();
+        let prefix = after_geometry[..anchor_index]
+            .iter()
+            .map(|row| row.height)
+            .sum::<f32>();
         assert_eq!(app.offset - prefix, within);
-        assert!(app.offset + app.viewport < after_geometry.iter().map(|row| row.height).sum::<f32>());
+        assert!(
+            app.offset + app.viewport < after_geometry.iter().map(|row| row.height).sum::<f32>()
+        );
     }
     #[test]
     fn workspace_controls_toggle_is_view_only() {
@@ -5659,7 +7568,7 @@ mod tests {
             "future/required",
             "Permission/preset",
         ] {
-            assert!(chat_role(role));
+            assert!(chat_role(role, role));
         }
         for role in [
             "System",
@@ -5669,7 +7578,7 @@ mod tests {
             "approval/policy",
             "session-log-deepseek/delivery-accepted",
         ] {
-            assert!(!chat_role(role), "{role}");
+            assert!(!chat_role(role, role), "{role}");
         }
     }
     #[test]
@@ -5698,14 +7607,23 @@ mod tests {
     fn enter_and_ctrl_enter_require_nonempty_send_permission_shift_enter_is_newline() {
         for modifiers in [keyboard::Modifiers::empty(), keyboard::Modifiers::CTRL] {
             assert!(composer_binding(enter(modifiers), false).is_none());
-            assert!(matches!(composer_binding(enter(modifiers), true), Some(text_editor::Binding::Custom(Message::KeyboardSend))));
+            assert!(matches!(
+                composer_binding(enter(modifiers), true),
+                Some(text_editor::Binding::Custom(Message::KeyboardSend))
+            ));
         }
-        for allowed in [false,true] {
-            assert!(matches!(composer_binding(enter(keyboard::Modifiers::SHIFT), allowed), Some(text_editor::Binding::Enter)));
+        for allowed in [false, true] {
+            assert!(matches!(
+                composer_binding(enter(keyboard::Modifiers::SHIFT), allowed),
+                Some(text_editor::Binding::Enter)
+            ));
         }
         let mut unfocused = enter(keyboard::Modifiers::empty());
         unfocused.status = text_editor::Status::Active;
-        assert!(!matches!(composer_binding(unfocused,true),Some(text_editor::Binding::Custom(Message::KeyboardSend))));
+        assert!(!matches!(
+            composer_binding(unfocused, true),
+            Some(text_editor::Binding::Custom(Message::KeyboardSend))
+        ));
     }
     #[test]
     fn paste_shortcut_matches_only_unmodified_ctrl_or_command_v() {
@@ -5796,7 +7714,7 @@ mod tests {
         assert!(receiver.try_recv().is_err());
         assert!(app.panel_stop_visible());
         app.capabilities = false;
-        app.open_detail("Fixture".into(),"read-only".into(),None,false);
+        app.open_detail("Fixture".into(), "read-only".into(), None, false);
         assert!(app.panel_stop_visible());
         let _ = app.update(Message::Send);
         assert!(receiver.try_recv().is_err());
@@ -6270,7 +8188,7 @@ mod tests {
     #[test]
     fn send_is_typed_and_failed_acceptance_preserves_draft_and_identity() {
         let (mut app, mut receiver) = app();
-        app.transport_epoch=worker::TRANSPORT_EPOCH;
+        app.transport_epoch = worker::TRANSPORT_EPOCH;
         app.ready = true;
         app.root_ready = true;
         app.follow_ready = true;
@@ -6281,7 +8199,7 @@ mod tests {
         assert!(
             matches!(receiver.try_recv(),Ok(Command::Prompt{request,..}) if request.client_time_zone.as_deref()==Some("UTC") && matches!(&request.content[0],PromptContentPart::Text{text} if text=="hello 世界"))
         );
-        let request_id=app.pending.ticket().unwrap().request_id;
+        let request_id = app.pending.ticket().unwrap().request_id;
         let _ = app.receive(Event::Prompt {
             generation: 0,
             request_id,

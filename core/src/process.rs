@@ -104,13 +104,12 @@ fn snapshot(root: Identity, owned: &mut HashMap<i32, OwnedProcess>) -> bool {
     for process in owned.values_mut() {
         if let Some(current) = identity(process.identity.pid).filter(|current| {
             current.pid == process.identity.pid && current.start == process.identity.start
-        }) {
-            if process.alive() {
-                // Group movement does not revoke an already proven pidfd owner. This
-                // also keeps orphaned owned descendants traversable after reparenting.
-                process.identity = current;
-                pending.push(current);
-            }
+        }) && process.alive()
+        {
+            // Group movement does not revoke an already proven pidfd owner. This
+            // also keeps orphaned owned descendants traversable after reparenting.
+            process.identity = current;
+            pending.push(current);
         }
     }
     let mut visited = HashSet::new();
@@ -269,65 +268,66 @@ pub(crate) fn monitor(
             phase = 1;
             shutdown = Some(Instant::now() + inner.stop.terminate);
         }
-        if let Some(deadline) = shutdown {
-            if Instant::now() >= deadline && (root_exit.is_none() || !owned.is_empty()) {
-                let signal = if phase == 0 {
-                    libc::SIGTERM
-                } else {
-                    libc::SIGKILL
-                };
-                if root_exit.is_none() {
-                    // Child has not been reaped, so its PID cannot be reused. Recheck before group use.
-                    match child.try_wait() {
-                        Ok(None) => {
-                            forced = true;
-                            if root.is_some_and(|root| {
-                                identity(root.pid) == Some(root) && root.group == root.pid
-                            }) {
-                                unsafe {
-                                    libc::kill(-(child.id() as i32), signal);
-                                }
-                            } else {
-                                unknown = true;
-                                if let Some(root_fd) = &root_fd {
-                                    root_fd.signal(signal);
-                                }
+        if let Some(deadline) = shutdown
+            && Instant::now() >= deadline
+            && (root_exit.is_none() || !owned.is_empty())
+        {
+            let signal = if phase == 0 {
+                libc::SIGTERM
+            } else {
+                libc::SIGKILL
+            };
+            if root_exit.is_none() {
+                // Child has not been reaped, so its PID cannot be reused. Recheck before group use.
+                match child.try_wait() {
+                    Ok(None) => {
+                        forced = true;
+                        if root.is_some_and(|root| {
+                            identity(root.pid) == Some(root) && root.group == root.pid
+                        }) {
+                            unsafe {
+                                libc::kill(-(child.id() as i32), signal);
+                            }
+                        } else {
+                            unknown = true;
+                            if let Some(root_fd) = &root_fd {
+                                root_fd.signal(signal);
                             }
                         }
-                        // Reap and publish on the next iteration; never signal its former group.
-                        Ok(Some(status)) => {
-                            root_exit = Some(status);
-                            exited_at = Some(Instant::now());
-                            let mut state = inner.state.0.lock().unwrap();
-                            state.root_exited = true;
-                            state.clear_private();
-                            inner.pending.lock().unwrap().clear();
-                            inner.state.1.notify_all();
-                        }
-                        Err(_) => {
-                            unknown = true;
-                        }
+                    }
+                    // Reap and publish on the next iteration; never signal its former group.
+                    Ok(Some(status)) => {
+                        root_exit = Some(status);
+                        exited_at = Some(Instant::now());
+                        let mut state = inner.state.0.lock().unwrap();
+                        state.root_exited = true;
+                        state.clear_private();
+                        inner.pending.lock().unwrap().clear();
+                        inner.state.1.notify_all();
+                    }
+                    Err(_) => {
+                        unknown = true;
                     }
                 }
-                if !owned.is_empty() {
-                    forced = true;
-                }
-                for process in owned.values() {
-                    process.signal(signal);
-                }
-                phase = phase.saturating_add(1);
-                shutdown = Some(
-                    Instant::now()
-                        + if phase == 1 {
-                            inner.stop.terminate
-                        } else {
-                            inner.stop.kill
-                        },
-                );
-                if phase >= 3 {
-                    unknown = true;
-                    break;
-                }
+            }
+            if !owned.is_empty() {
+                forced = true;
+            }
+            for process in owned.values() {
+                process.signal(signal);
+            }
+            phase = phase.saturating_add(1);
+            shutdown = Some(
+                Instant::now()
+                    + if phase == 1 {
+                        inner.stop.terminate
+                    } else {
+                        inner.stop.kill
+                    },
+            );
+            if phase >= 3 {
+                unknown = true;
+                break;
             }
         }
         if root_exit.is_some() && owned.is_empty() {
@@ -544,25 +544,50 @@ fn handle_event(inner: &Inner, event: Event) {
             inner.emit(PublicEvent::Codex(metadata));
         }
         Event::CloudflareAuth(metadata, setup, browser) => {
-            let mut state=inner.state.0.lock().unwrap();
-            if state.root_exited || inner.stopping.load(Ordering::Acquire) || inner.fault.load(Ordering::Acquire) {return;}
-            if let Some(previous)=state.cloudflare_auth.as_ref() {
-                if (metadata.auth_epoch,metadata.sequence)<(previous.auth_epoch,previous.sequence)
-                    || previous.attempt_id==metadata.attempt_id && !previous.phase.active() && previous.phase!=crate::CloudflareAuthPhase::Idle && metadata.phase.active() {return;}
+            let mut state = inner.state.0.lock().unwrap();
+            if state.root_exited
+                || inner.stopping.load(Ordering::Acquire)
+                || inner.fault.load(Ordering::Acquire)
+            {
+                return;
             }
-            let mut metadata=metadata;
-            if state.cloudflare_revoked || state.cloudflare_opened==metadata.attempt_id && metadata.attempt_id.is_some() {metadata.browser_available=false;state.cloudflare_browser=None;}
-            else if metadata.phase!=crate::CloudflareAuthPhase::WaitingBrowser || metadata.retry_blocked {
-                state.cloudflare_browser=None;metadata.browser_available=false;
+            if let Some(previous) = state.cloudflare_auth.as_ref()
+                && ((metadata.auth_epoch, metadata.sequence)
+                    < (previous.auth_epoch, previous.sequence)
+                    || previous.attempt_id == metadata.attempt_id
+                        && !previous.phase.active()
+                        && previous.phase != crate::CloudflareAuthPhase::Idle
+                        && metadata.phase.active())
+            {
+                return;
+            }
+            let mut metadata = metadata;
+            if state.cloudflare_revoked
+                || state.cloudflare_opened == metadata.attempt_id && metadata.attempt_id.is_some()
+            {
+                metadata.browser_available = false;
+                state.cloudflare_browser = None;
+            } else if metadata.phase != crate::CloudflareAuthPhase::WaitingBrowser
+                || metadata.retry_blocked
+            {
+                state.cloudflare_browser = None;
+                metadata.browser_available = false;
             } else {
-                if state.cloudflare_auth.as_ref().is_none_or(|old|old.attempt_id!=metadata.attempt_id||old.auth_epoch!=metadata.auth_epoch)
-                    || state.cloudflare_setup.as_ref()!=Some(&setup) {state.cloudflare_browser=None;}
-                if browser.is_some() {state.cloudflare_browser=browser;}
-                metadata.browser_available=state.cloudflare_browser.is_some();
+                if state.cloudflare_auth.as_ref().is_none_or(|old| {
+                    old.attempt_id != metadata.attempt_id || old.auth_epoch != metadata.auth_epoch
+                }) || state.cloudflare_setup.as_ref() != Some(&setup)
+                {
+                    state.cloudflare_browser = None;
+                }
+                if browser.is_some() {
+                    state.cloudflare_browser = browser;
+                }
+                metadata.browser_available = state.cloudflare_browser.is_some();
             }
-            state.cloudflare_setup=Some(setup);
-            state.cloudflare_auth=Some(metadata.clone());
-            drop(state);inner.emit(PublicEvent::CloudflareAuth(metadata));
+            state.cloudflare_setup = Some(setup);
+            state.cloudflare_auth = Some(metadata.clone());
+            drop(state);
+            inner.emit(PublicEvent::CloudflareAuth(metadata));
         }
         Event::Account(account) => inner.emit(PublicEvent::Account(account)),
         Event::Reply { id, command, reply } => {
@@ -597,24 +622,40 @@ fn handle_event(inner: &Inner, event: Event) {
                                 }
                             }
                             Ok(crate::PublicReply::Codex(metadata))
-                        } else if let crate::PublicReply::Cloudflare(mut snapshot)=reply {
-                            let mut state=inner.state.0.lock().unwrap();
-                            let incoming=&snapshot.auth_status;
-                            if state.cloudflare_auth.as_ref().is_none_or(|old| (incoming.auth_epoch,incoming.sequence)>(old.auth_epoch,old.sequence)) {
-                                if incoming.phase!=crate::CloudflareAuthPhase::WaitingBrowser || incoming.retry_blocked
-                                    || state.cloudflare_auth.as_ref().is_none_or(|old|old.attempt_id!=incoming.attempt_id||old.auth_epoch!=incoming.auth_epoch)
-                                    || state.cloudflare_setup.as_ref()!=Some(&snapshot.oauth_setup) {state.cloudflare_browser=None;}
-                                let mut installed=incoming.clone();installed.browser_available=state.cloudflare_browser.is_some()&&!state.cloudflare_revoked;
-                                state.cloudflare_auth=Some(installed);
-                                state.cloudflare_setup=Some(snapshot.oauth_setup.clone());
-                            }
-                            if let Some(current)=state.cloudflare_auth.as_ref() {
-                                if current.auth_epoch==snapshot.auth_status.auth_epoch && current.sequence>=snapshot.auth_status.sequence {
-                                    snapshot.auth_status=current.clone();
+                        } else if let crate::PublicReply::Cloudflare(mut snapshot) = reply {
+                            let mut state = inner.state.0.lock().unwrap();
+                            let incoming = &snapshot.auth_status;
+                            if state.cloudflare_auth.as_ref().is_none_or(|old| {
+                                (incoming.auth_epoch, incoming.sequence)
+                                    > (old.auth_epoch, old.sequence)
+                            }) {
+                                if incoming.phase != crate::CloudflareAuthPhase::WaitingBrowser
+                                    || incoming.retry_blocked
+                                    || state.cloudflare_auth.as_ref().is_none_or(|old| {
+                                        old.attempt_id != incoming.attempt_id
+                                            || old.auth_epoch != incoming.auth_epoch
+                                    })
+                                    || state.cloudflare_setup.as_ref()
+                                        != Some(&snapshot.oauth_setup)
+                                {
+                                    state.cloudflare_browser = None;
                                 }
+                                let mut installed = incoming.clone();
+                                installed.browser_available =
+                                    state.cloudflare_browser.is_some() && !state.cloudflare_revoked;
+                                state.cloudflare_auth = Some(installed);
+                                state.cloudflare_setup = Some(snapshot.oauth_setup.clone());
+                            }
+                            if let Some(current) = state.cloudflare_auth.as_ref()
+                                && current.auth_epoch == snapshot.auth_status.auth_epoch
+                                && current.sequence >= snapshot.auth_status.sequence
+                            {
+                                snapshot.auth_status = current.clone();
                             }
                             Ok(crate::PublicReply::Cloudflare(snapshot))
-                        } else { Ok(reply) }
+                        } else {
+                            Ok(reply)
+                        }
                     }
                 });
                 let _ = pending.reply.send(reply);

@@ -8,7 +8,10 @@ mod agent_discovery;
 pub use agent_discovery::AgentDiscovery;
 mod browser;
 mod cloudflare;
-pub use cloudflare::{CloudflareSnapshot, CloudflareOauthSetup, CloudflareAuthStatus, CloudflareAuthMode, CloudflareAuthPhase, CloudflareAuthError};
+pub use cloudflare::{
+    CloudflareAuthError, CloudflareAuthMode, CloudflareAuthPhase, CloudflareAuthStatus,
+    CloudflareOauthSetup, CloudflareSnapshot,
+};
 mod codex;
 mod codex_runtime;
 #[cfg(test)]
@@ -133,13 +136,28 @@ pub enum Command {
         expected_revision: u64,
         values: CodexRuntimeValues,
     },
-    CloudflareAuthModeSave { expected_revision:u64, auth_mode:CloudflareAuthMode },
-    CloudflareSetupSave { expected_revision: u64, setup: CloudflareOauthSetup },
-    CloudflareOauthStart { expected_revision: u64 },
-    CloudflareOauthCancel { attempt_id: String },
-    CloudflareOauthDisconnect { expected_revision: u64, revoke: bool },
+    CloudflareAuthModeSave {
+        expected_revision: u64,
+        auth_mode: CloudflareAuthMode,
+    },
+    CloudflareSetupSave {
+        expected_revision: u64,
+        setup: CloudflareOauthSetup,
+    },
+    CloudflareOauthStart {
+        expected_revision: u64,
+    },
+    CloudflareOauthCancel {
+        attempt_id: String,
+    },
+    CloudflareOauthDisconnect {
+        expected_revision: u64,
+        revoke: bool,
+    },
     CloudflareRead,
-    CloudflareDisable { expected_revision: u64 },
+    CloudflareDisable {
+        expected_revision: u64,
+    },
     Inspect,
     OpenWorkspace(PathBuf),
     OnboardingRead,
@@ -295,8 +313,11 @@ impl State {
         self.codex_opened = None;
         self.codex_known_attempt = None;
         self.codex_cancelled = None;
-        self.cloudflare_auth=None;self.cloudflare_setup=None;self.cloudflare_browser=None;
-        self.cloudflare_opened=None;self.cloudflare_revoked=true;
+        self.cloudflare_auth = None;
+        self.cloudflare_setup = None;
+        self.cloudflare_browser = None;
+        self.cloudflare_opened = None;
+        self.cloudflare_revoked = true;
         #[cfg(feature = "transport")]
         {
             self.revoke_transport();
@@ -353,7 +374,8 @@ impl Inner {
         // Revocation and browser spawn share this lock: no launch is admitted after stop.
         let mut state = self.state.0.lock().unwrap();
         state.codex_browser = None;
-        state.cloudflare_browser=None;state.cloudflare_revoked=true;
+        state.cloudflare_browser = None;
+        state.cloudflare_revoked = true;
         state.codex_metadata = None;
         #[cfg(feature = "transport")]
         {
@@ -372,7 +394,8 @@ impl Inner {
     fn protocol_fault(&self) {
         let mut state = self.state.0.lock().unwrap();
         state.codex_browser = None;
-        state.cloudflare_browser=None;state.cloudflare_revoked=true;
+        state.cloudflare_browser = None;
+        state.cloudflare_revoked = true;
         #[cfg(feature = "transport")]
         state.revoke_transport();
         let first = !self.fault.swap(true, Ordering::AcqRel);
@@ -827,7 +850,15 @@ impl Backend {
                 return Err(Error::RequestFailed);
             }
         }
-        if matches!(&command, Command::CloudflareOauthCancel { .. } | Command::CloudflareOauthDisconnect { .. } | Command::CloudflareSetupSave { .. } | Command::CloudflareAuthModeSave { .. }) {self.revoke_cloudflare_browser();}
+        if matches!(
+            &command,
+            Command::CloudflareOauthCancel { .. }
+                | Command::CloudflareOauthDisconnect { .. }
+                | Command::CloudflareSetupSave { .. }
+                | Command::CloudflareAuthModeSave { .. }
+        ) {
+            self.revoke_cloudflare_browser();
+        }
         if let Command::CodexCancel { attempt } = &command {
             // Retire local browser authority before the cancellable Node request/ACK gap.
             let mut state = self.inner.state.0.lock().unwrap();
@@ -930,10 +961,9 @@ impl Backend {
         #[cfg(feature = "transport")]
         if let (Command::DiscoverSessionAgent(requested), PublicReply::AgentDiscovery(found)) =
             (&command, &reply)
+            && &found.session_id != requested
         {
-            if &found.session_id != requested {
-                return Err(Error::Protocol);
-            }
+            return Err(Error::Protocol);
         }
         Ok(reply)
     }
@@ -964,19 +994,49 @@ impl Backend {
     /// Explicit compare-and-swap configuration. None preserves the existing token.
     /// Secret input and encoded frame are consumed/wiped; unknown receipts must not be retried blindly.
     pub fn save_cloudflare(
-        &self, expected_revision: u64, account_id: &str, models_enabled: bool,
-        browser_enabled: bool, free_plan_confirmed: bool, api_token: Option<SecretApiKey>,
+        &self,
+        expected_revision: u64,
+        account_id: &str,
+        models_enabled: bool,
+        browser_enabled: bool,
+        free_plan_confirmed: bool,
+        api_token: Option<SecretApiKey>,
         timeout: Duration,
     ) -> Result<CloudflareSnapshot, Error> {
-        cloudflare::validate_save(expected_revision, account_id, models_enabled, browser_enabled, free_plan_confirmed)?;
+        cloudflare::validate_save(
+            expected_revision,
+            account_id,
+            models_enabled,
+            browser_enabled,
+            free_plan_confirmed,
+        )?;
         let id = self.request_id(timeout)?;
-        let frame = secret::cloudflare_frame(&id, expected_revision, account_id, models_enabled, browser_enabled, free_plan_confirmed, api_token.as_ref())?;
+        let frame = secret::cloudflare_frame(
+            &id,
+            expected_revision,
+            account_id,
+            models_enabled,
+            browser_enabled,
+            free_plan_confirmed,
+            api_token.as_ref(),
+        )?;
         drop(api_token);
-        let reply = self.control_request("cloudflare-save", id, move || self.inner.send_frame(frame.as_slice()), timeout)?;
+        let reply = self.control_request(
+            "cloudflare-save",
+            id,
+            move || self.inner.send_frame(frame.as_slice()),
+            timeout,
+        )?;
         match reply {
-            PublicReply::Cloudflare(snapshot) if (expected_revision..=expected_revision + 1).contains(&snapshot.revision)
-                && snapshot.account_id == account_id && snapshot.models_enabled == models_enabled
-                && snapshot.browser_enabled == browser_enabled && snapshot.free_plan_confirmed == free_plan_confirmed => Ok(snapshot),
+            PublicReply::Cloudflare(snapshot)
+                if (expected_revision..=expected_revision + 1).contains(&snapshot.revision)
+                    && snapshot.account_id == account_id
+                    && snapshot.models_enabled == models_enabled
+                    && snapshot.browser_enabled == browser_enabled
+                    && snapshot.free_plan_confirmed == free_plan_confirmed =>
+            {
+                Ok(snapshot)
+            }
             _ => Err(Error::Protocol),
         }
     }
@@ -1007,32 +1067,71 @@ impl Backend {
 
     /// Only an explicit same-panel connection permit can arm a new browser attempt.
     /// Generic request/start receipts cannot revive authority withdrawn by close/cancel.
-    pub fn start_cloudflare(&self, expected_revision:u64, permit:&std::sync::atomic::AtomicBool, timeout:Duration)->Result<CloudflareSnapshot,Error> {
+    pub fn start_cloudflare(
+        &self,
+        expected_revision: u64,
+        permit: &std::sync::atomic::AtomicBool,
+        timeout: Duration,
+    ) -> Result<CloudflareSnapshot, Error> {
         {
-            let mut state=self.inner.state.0.lock().unwrap();
-            if !permit.load(Ordering::Acquire) {return Err(Error::InvalidCommand);}
-            if self.inner.stopping.load(Ordering::Acquire)||state.root_exited {return Err(Error::Stopping);}
-            state.cloudflare_revoked=false;state.cloudflare_opened=None;state.cloudflare_browser=None;
+            let mut state = self.inner.state.0.lock().unwrap();
+            if !permit.load(Ordering::Acquire) {
+                return Err(Error::InvalidCommand);
+            }
+            if self.inner.stopping.load(Ordering::Acquire) || state.root_exited {
+                return Err(Error::Stopping);
+            }
+            state.cloudflare_revoked = false;
+            state.cloudflare_opened = None;
+            state.cloudflare_browser = None;
         }
-        match self.request(Command::CloudflareOauthStart {expected_revision},timeout)? {PublicReply::Cloudflare(value)=>Ok(value),_=>Err(Error::Protocol)}
+        match self.request(Command::CloudflareOauthStart { expected_revision }, timeout)? {
+            PublicReply::Cloudflare(value) => Ok(value),
+            _ => Err(Error::Protocol),
+        }
     }
     /// Revoke even before Start ACK knows an attempt. Late packets cannot restore authority.
     pub fn revoke_cloudflare_browser(&self) {
-        let mut state=self.inner.state.0.lock().unwrap();
-        state.cloudflare_revoked=true;state.cloudflare_browser=None;
-        if let Some(status)=state.cloudflare_auth.as_mut() {status.browser_available=false;}
+        let mut state = self.inner.state.0.lock().unwrap();
+        state.cloudflare_revoked = true;
+        state.cloudflare_browser = None;
+        if let Some(status) = state.cloudflare_auth.as_mut() {
+            status.browser_available = false;
+        }
     }
     /// The originating panel owns this atomic permit; close/cancel withdraws it synchronously.
-    pub fn open_cloudflare_browser(&self, attempt: &str, permit: &std::sync::atomic::AtomicBool) -> Result<(),Error> {
-        if !cloudflare::valid_attempt(attempt) {return Err(Error::InvalidCommand);}
-        let child={
-            let mut state=self.inner.state.0.lock().unwrap();
-            if self.inner.stopping.load(Ordering::Acquire)||state.root_exited {return Err(Error::Stopping);}
-            if self.inner.fault.load(Ordering::Acquire) {return Err(Error::Protocol);}
-            if !permit.load(Ordering::Acquire) || state.cloudflare_revoked || state.cloudflare_opened.as_deref()==Some(attempt)
-                || !state.cloudflare_auth.as_ref().is_some_and(|m| m.attempt_id.as_deref()==Some(attempt) && m.phase==CloudflareAuthPhase::WaitingBrowser && !m.retry_blocked) {return Err(Error::InvalidCommand);}
-            let capability=state.cloudflare_browser.take().ok_or(Error::InvalidCommand)?;
-            state.cloudflare_opened=Some(attempt.to_owned());
+    pub fn open_cloudflare_browser(
+        &self,
+        attempt: &str,
+        permit: &std::sync::atomic::AtomicBool,
+    ) -> Result<(), Error> {
+        if !cloudflare::valid_attempt(attempt) {
+            return Err(Error::InvalidCommand);
+        }
+        let child = {
+            let mut state = self.inner.state.0.lock().unwrap();
+            if self.inner.stopping.load(Ordering::Acquire) || state.root_exited {
+                return Err(Error::Stopping);
+            }
+            if self.inner.fault.load(Ordering::Acquire) {
+                return Err(Error::Protocol);
+            }
+            if !permit.load(Ordering::Acquire)
+                || state.cloudflare_revoked
+                || state.cloudflare_opened.as_deref() == Some(attempt)
+                || !state.cloudflare_auth.as_ref().is_some_and(|m| {
+                    m.attempt_id.as_deref() == Some(attempt)
+                        && m.phase == CloudflareAuthPhase::WaitingBrowser
+                        && !m.retry_blocked
+                })
+            {
+                return Err(Error::InvalidCommand);
+            }
+            let capability = state
+                .cloudflare_browser
+                .take()
+                .ok_or(Error::InvalidCommand)?;
+            state.cloudflare_opened = Some(attempt.to_owned());
             capability.spawn()?
         };
         browser::wait(child)

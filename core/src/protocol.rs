@@ -31,7 +31,11 @@ pub(crate) enum Event {
         command: Option<String>,
         reply: Result<PublicReply, Error>,
     },
-    CloudflareAuth(crate::CloudflareAuthStatus, crate::CloudflareOauthSetup, Option<crate::browser::BrowserCapability>),
+    CloudflareAuth(
+        crate::CloudflareAuthStatus,
+        crate::CloudflareOauthSetup,
+        Option<crate::browser::BrowserCapability>,
+    ),
     Acknowledged,
     Fatal,
     AccountSubscriptionError,
@@ -145,7 +149,16 @@ fn inspection(value: &Value) -> Inspection {
 
 fn public_result(command: &str, value: &Value) -> Result<PublicReply, Error> {
     match command {
-        "cloudflare-read" | "cloudflare-save" | "cloudflare-disable" | "cloudflare-setup-save" | "cloudflare-oauth-start" | "cloudflare-oauth-cancel" | "cloudflare-oauth-disconnect" | "cloudflare-auth-mode-save" => Ok(PublicReply::Cloudflare(crate::cloudflare::snapshot(value)?)),
+        "cloudflare-read"
+        | "cloudflare-save"
+        | "cloudflare-disable"
+        | "cloudflare-setup-save"
+        | "cloudflare-oauth-start"
+        | "cloudflare-oauth-cancel"
+        | "cloudflare-oauth-disconnect"
+        | "cloudflare-auth-mode-save" => {
+            Ok(PublicReply::Cloudflare(crate::cloudflare::snapshot(value)?))
+        }
         "codex-status" | "codex-start" | "codex-add" | "codex-cancel" | "codex-enable-models" => {
             Ok(PublicReply::Codex(crate::codex::metadata(value)?))
         }
@@ -158,12 +171,12 @@ fn public_result(command: &str, value: &Value) -> Result<PublicReply, Error> {
             }
             Ok(PublicReply::CodexAccounts(metadata))
         }
-        "codex-usage-load" | "codex-usage-save" => {
-            Ok(PublicReply::CodexUsage(crate::codex_usage::snapshot(value)?))
-        }
-        "codex-runtime-read" | "codex-runtime-save" => {
-            Ok(PublicReply::CodexRuntime(crate::codex_runtime::snapshot(value)?))
-        }
+        "codex-usage-load" | "codex-usage-save" => Ok(PublicReply::CodexUsage(
+            crate::codex_usage::snapshot(value)?,
+        )),
+        "codex-runtime-read" | "codex-runtime-save" => Ok(PublicReply::CodexRuntime(
+            crate::codex_runtime::snapshot(value)?,
+        )),
         "codex-callback" => Ok(PublicReply::CodexCallbackAccepted(
             value["ok"].as_bool().ok_or(Error::Protocol)?,
         )),
@@ -216,18 +229,34 @@ pub(crate) fn parse(bytes: &[u8], expected_version: &str) -> Result<Event, Error
             Event::Codex(metadata, browser)
         }
         "cloudflare-auth-state" => {
-            let obj=value.as_object().ok_or(Error::Protocol)?;
-            if obj.len()!=4 || !["type","value","browserUrl","oauthSetup"].iter().all(|k|obj.contains_key(*k)) {return Err(Error::Protocol);}
-            let mut metadata=crate::cloudflare::auth(&value["value"])?;
-            let setup=crate::cloudflare::setup(&value["oauthSetup"])?;
-            if !setup.valid(metadata.setup_configured) {return Err(Error::Protocol);}
-            let browser=match &value["browserUrl"] {
-                Value::Null=>None,
-                Value::String(raw) if metadata.phase==crate::CloudflareAuthPhase::WaitingBrowser && !metadata.retry_blocked=>Some(crate::browser::BrowserCapability::cloudflare(raw.clone(),setup.clone())?),
-                _=>return Err(Error::Protocol),
+            let obj = value.as_object().ok_or(Error::Protocol)?;
+            if obj.len() != 4
+                || !["type", "value", "browserUrl", "oauthSetup"]
+                    .iter()
+                    .all(|k| obj.contains_key(*k))
+            {
+                return Err(Error::Protocol);
+            }
+            let mut metadata = crate::cloudflare::auth(&value["value"])?;
+            let setup = crate::cloudflare::setup(&value["oauthSetup"])?;
+            if !setup.valid(metadata.setup_configured) {
+                return Err(Error::Protocol);
+            }
+            let browser = match &value["browserUrl"] {
+                Value::Null => None,
+                Value::String(raw)
+                    if metadata.phase == crate::CloudflareAuthPhase::WaitingBrowser
+                        && !metadata.retry_blocked =>
+                {
+                    Some(crate::browser::BrowserCapability::cloudflare(
+                        raw.clone(),
+                        setup.clone(),
+                    )?)
+                }
+                _ => return Err(Error::Protocol),
             };
-            metadata.browser_available=browser.is_some();
-            Event::CloudflareAuth(metadata,setup,browser)
+            metadata.browser_available = browser.is_some();
+            Event::CloudflareAuth(metadata, setup, browser)
         }
         "platform-session" => Event::Auth(session(value.get("session").ok_or(Error::Protocol)?)?),
         "account-state" => Event::Account(account(&value["state"])?),
@@ -257,12 +286,16 @@ pub(crate) fn parse(bytes: &[u8], expected_version: &str) -> Result<Event, Error
                 _ if value["code"] == "CODEX_USAGE_INDETERMINATE" => {
                     Err(Error::CodexUsageIndeterminate)
                 }
-                _ if value["code"] == "CODEX_USAGE_UNAVAILABLE" => Err(Error::CodexUsageUnavailable),
+                _ if value["code"] == "CODEX_USAGE_UNAVAILABLE" => {
+                    Err(Error::CodexUsageUnavailable)
+                }
                 _ if value["code"] == "CODEX_RUNTIME_CONFLICT" => Err(Error::CodexRuntimeConflict),
                 _ if value["code"] == "CODEX_RUNTIME_INDETERMINATE" => {
                     Err(Error::CodexRuntimeIndeterminate)
                 }
-                _ if value["code"] == "CODEX_RUNTIME_UNAVAILABLE" => Err(Error::CodexRuntimeUnavailable),
+                _ if value["code"] == "CODEX_RUNTIME_UNAVAILABLE" => {
+                    Err(Error::CodexRuntimeUnavailable)
+                }
                 _ => Err(Error::RequestFailed),
             };
             Event::Reply {
@@ -375,31 +408,58 @@ impl Command {
                 value["expectedRevision"] = json!(expected_revision);
                 value["values"] = values.encode();
             }
-            Self::CloudflareAuthModeSave {expected_revision,auth_mode} => {
-                if *expected_revision>=crate::codex::MAX_SAFE_INTEGER {return Err(Error::InvalidCommand);}
-                value["expectedRevision"]=json!(expected_revision);
-                value["authMode"]=json!(match auth_mode {crate::CloudflareAuthMode::ApiToken=>"api-token",crate::CloudflareAuthMode::Oauth=>"oauth"});
+            Self::CloudflareAuthModeSave {
+                expected_revision,
+                auth_mode,
+            } => {
+                if *expected_revision >= crate::codex::MAX_SAFE_INTEGER {
+                    return Err(Error::InvalidCommand);
+                }
+                value["expectedRevision"] = json!(expected_revision);
+                value["authMode"] = json!(match auth_mode {
+                    crate::CloudflareAuthMode::ApiToken => "api-token",
+                    crate::CloudflareAuthMode::Oauth => "oauth",
+                });
             }
-            Self::CloudflareSetupSave { expected_revision, setup } => {
-                if *expected_revision>=crate::codex::MAX_SAFE_INTEGER || !setup.valid(true) {return Err(Error::InvalidCommand);}
-                value["expectedRevision"]=json!(expected_revision);
-                let fields=setup.encode();
-                for k in ["clientId","scopes","callbackPort"] {value[k]=fields[k].clone();}
+            Self::CloudflareSetupSave {
+                expected_revision,
+                setup,
+            } => {
+                if *expected_revision >= crate::codex::MAX_SAFE_INTEGER || !setup.valid(true) {
+                    return Err(Error::InvalidCommand);
+                }
+                value["expectedRevision"] = json!(expected_revision);
+                let fields = setup.encode();
+                for k in ["clientId", "scopes", "callbackPort"] {
+                    value[k] = fields[k].clone();
+                }
             }
             Self::CloudflareOauthStart { expected_revision } => {
-                if *expected_revision>=crate::codex::MAX_SAFE_INTEGER {return Err(Error::InvalidCommand);}
-                value["expectedRevision"]=json!(expected_revision);
+                if *expected_revision >= crate::codex::MAX_SAFE_INTEGER {
+                    return Err(Error::InvalidCommand);
+                }
+                value["expectedRevision"] = json!(expected_revision);
             }
             Self::CloudflareOauthCancel { attempt_id } => {
-                if !crate::cloudflare::valid_attempt(attempt_id) {return Err(Error::InvalidCommand);}
-                value["attemptId"]=json!(attempt_id);
+                if !crate::cloudflare::valid_attempt(attempt_id) {
+                    return Err(Error::InvalidCommand);
+                }
+                value["attemptId"] = json!(attempt_id);
             }
-            Self::CloudflareOauthDisconnect { expected_revision, revoke } => {
-                if *expected_revision>=crate::codex::MAX_SAFE_INTEGER {return Err(Error::InvalidCommand);}
-                value["expectedRevision"]=json!(expected_revision);value["revoke"]=json!(revoke);
+            Self::CloudflareOauthDisconnect {
+                expected_revision,
+                revoke,
+            } => {
+                if *expected_revision >= crate::codex::MAX_SAFE_INTEGER {
+                    return Err(Error::InvalidCommand);
+                }
+                value["expectedRevision"] = json!(expected_revision);
+                value["revoke"] = json!(revoke);
             }
             Self::CloudflareDisable { expected_revision } => {
-                if *expected_revision >= crate::codex::MAX_SAFE_INTEGER { return Err(Error::InvalidCommand); }
+                if *expected_revision >= crate::codex::MAX_SAFE_INTEGER {
+                    return Err(Error::InvalidCommand);
+                }
                 value["expectedRevision"] = json!(expected_revision);
             }
             Self::OpenWorkspace(path) => {
@@ -460,6 +520,16 @@ pub(crate) fn matches_reply(name: &str, reply: &PublicReply) -> bool {
             | ("account-unsubscribe", PublicReply::Unsubscribed)
             | ("cancel-generation", PublicReply::GenerationCancelled(_))
             | ("save-api-key", PublicReply::ApiKeySaved(_))
-            | ("cloudflare-read" | "cloudflare-save" | "cloudflare-disable" | "cloudflare-setup-save" | "cloudflare-oauth-start" | "cloudflare-oauth-cancel" | "cloudflare-oauth-disconnect" | "cloudflare-auth-mode-save", PublicReply::Cloudflare(_))
+            | (
+                "cloudflare-read"
+                    | "cloudflare-save"
+                    | "cloudflare-disable"
+                    | "cloudflare-setup-save"
+                    | "cloudflare-oauth-start"
+                    | "cloudflare-oauth-cancel"
+                    | "cloudflare-oauth-disconnect"
+                    | "cloudflare-auth-mode-save",
+                PublicReply::Cloudflare(_)
+            )
     )
 }

@@ -30,8 +30,12 @@ mod rename;
 mod settings;
 #[path = "../src/smoke.rs"]
 mod smoke;
+#[path = "../src/terminal.rs"]
+mod terminal;
 #[path = "../src/ui.rs"]
 mod ui;
+#[path = "../src/work_panel.rs"]
+mod work_panel;
 #[path = "../src/worker.rs"]
 mod worker;
 
@@ -297,7 +301,7 @@ mod driver {
             }
         }
         fn frame(&self, operation: usize) -> Size {
-            if operation == 0 || (operation <= self.reflows() && operation % 2 == 0) {
+            if operation == 0 || (operation <= self.reflows() && operation.is_multiple_of(2)) {
                 INITIAL
             } else {
                 REFLOWED
@@ -1319,15 +1323,16 @@ mod driver {
                         }
                         // Exact current receipts cannot appear twice or acknowledge an
                         // inactive dialog, even though ordinary on_scroll is forwarded.
-                        if let Stage::Observing(p) = &self.stage {
-                            if receipt == p.receipt && self.rig.id() == p.id {
-                                let reason = if self.options.pipeline_phase(p.phase) == 3 {
-                                    "inactive-dialog-false-acknowledgment"
-                                } else {
-                                    "duplicate-current-operation-receipt"
-                                };
-                                return self.finish(false, reason);
-                            }
+                        if let Stage::Observing(p) = &self.stage
+                            && receipt == p.receipt
+                            && self.rig.id() == p.id
+                        {
+                            let reason = if self.options.pipeline_phase(p.phase) == 3 {
+                                "inactive-dialog-false-acknowledgment"
+                            } else {
+                                "duplicate-current-operation-receipt"
+                            };
+                            return self.finish(false, reason);
                         }
                         self.ignored_callbacks += 1;
                     }

@@ -157,7 +157,8 @@ fn first_two_hundred_navigation_cap_gates_background_animation() {
         let summary: SessionSummary = serde_json::from_value(json!({
             "sessionId":format!("PUBLIC-idle-{index}"), "agentAvailable":true,
             "updatedAt":1000+index,"running":false,"blank":true,"cwd":"/PUBLIC/workspace"
-        })).unwrap();
+        }))
+        .unwrap();
         app.sessions.insert(summary.session_id.clone(), summary);
     }
     assert!(!app.working_animation_active());

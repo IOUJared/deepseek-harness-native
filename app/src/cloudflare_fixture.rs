@@ -104,10 +104,8 @@ pub(super) fn seed(app: &mut App, preset: &str) {
         }
         return;
     }
-    for action in [cloudflare::Action::Models(
-        app.settings.cloudflare_ticket(),
-        true,
-    )] {
+    {
+        let action = cloudflare::Action::Models(app.settings.cloudflare_ticket(), true);
         assert!(
             app.settings
                 .handle(

@@ -495,7 +495,7 @@ struct Temporary<'a> {
 impl<'a> Temporary<'a> {
     fn create(directory: &'a Directory) -> Result<Self, Failure> {
         let serial = TEMP_SERIAL
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |old| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |old| {
                 old.checked_add(1)
             })
             .map_err(|_| Failure::NotSaved)?;
@@ -1096,7 +1096,7 @@ mod tests {
         assert!(fixture.store().save(&drafts("PUBLIC")).is_err());
         let owned = Fixture::new();
         owned.put(&encode(&drafts("PUBLIC")).unwrap());
-        let stat = fstat(&File::open(owned.path.join(DOCUMENT)).unwrap()).unwrap();
+        let stat = fstat(File::open(owned.path.join(DOCUMENT)).unwrap()).unwrap();
         assert!(private_regular(&stat, stat.st_uid));
         assert!(!private_regular(&stat, stat.st_uid.wrapping_add(1)));
         let directory = Directory::open(&owned.path, Namespace::Drafts)

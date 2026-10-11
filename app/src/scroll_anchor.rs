@@ -224,7 +224,7 @@ mod tests {
         let target = anchor
             .restore_durable(&[1, 2, 3], &[100.0, 20.0, 200.0], 50.0)
             .unwrap();
-        assert!(target >= 100.0 && target < 120.0);
+        assert!((100.0..120.0).contains(&target));
         assert_eq!(
             anchor.restore_durable(&[1, 2, 3], &[100.0, 20.0, 200.0], 300.0),
             Some(20.0)

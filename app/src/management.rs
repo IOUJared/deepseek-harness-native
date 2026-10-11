@@ -277,19 +277,18 @@ impl Management {
                     && context.view.as_ref() == Some(&ticket.view())
                     && self.ticket().as_ref() == Some(&ticket) =>
             {
-                if let Some((submission, revision)) = self.review.as_ref() {
-                    if submission.ticket == ticket
-                        && *revision == self.registry.serial
-                        && self.allows(submission.operation)
-                    {
-                        let submission = submission.clone();
-                        self.pending =
-                            Some((submission.clone(), self.panel.as_ref().unwrap().lifetime));
-                        self.review = None;
-                        self.bump();
-                        self.notice = Notice::Pending;
-                        return Some(submission);
-                    }
+                if let Some((submission, revision)) = self.review.as_ref()
+                    && submission.ticket == ticket
+                    && *revision == self.registry.serial
+                    && self.allows(submission.operation)
+                {
+                    let submission = submission.clone();
+                    self.pending =
+                        Some((submission.clone(), self.panel.as_ref().unwrap().lifetime));
+                    self.review = None;
+                    self.bump();
+                    self.notice = Notice::Pending;
+                    return Some(submission);
                 }
             }
             _ => {}

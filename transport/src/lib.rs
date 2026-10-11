@@ -10,6 +10,7 @@ mod mux;
 pub mod plugin;
 pub mod prompt_admission;
 mod question;
+pub mod terminal;
 pub mod upload;
 pub use http::{Limits, NativeClient, SecretLaunchUrl};
 pub use mux::{Mux, NativeStream};
@@ -38,6 +39,12 @@ pub enum Error {
     /// The Host created the child but could not attach it to its workspace. The child id is
     /// not carried by this redacted error, so the caller must treat the outcome as uncertain.
     ForkAttachFailed,
+    /// `terminal/unavailable`: the terminal identity is missing or has begun process cleanup.
+    TerminalUnavailable,
+    /// `terminal/control-unavailable`: input or resize was refused; the output attachment stays valid.
+    TerminalControlUnavailable,
+    /// `terminal/limit-reached`: the Session's retained-terminal quota is exhausted.
+    TerminalLimitReached,
     InvalidFrame,
     Sequence,
     QueueFull,
@@ -70,6 +77,9 @@ impl Error {
             Self::SettingsRejected => "settings-rejected",
             Self::ForkUnavailable => "fork-unavailable",
             Self::ForkAttachFailed => "fork-attach-failed",
+            Self::TerminalUnavailable => "terminal-unavailable",
+            Self::TerminalControlUnavailable => "terminal-control-unavailable",
+            Self::TerminalLimitReached => "terminal-limit-reached",
             Self::InvalidFrame => "invalid-frame",
             Self::Sequence => "sequence",
             Self::QueueFull => "queue-full",

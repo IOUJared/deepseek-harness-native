@@ -30,8 +30,12 @@ mod rename;
 mod settings;
 #[path = "../src/smoke.rs"]
 mod smoke;
+#[path = "../src/terminal.rs"]
+mod terminal;
 #[path = "../src/ui.rs"]
 mod ui;
+#[path = "../src/work_panel.rs"]
+mod work_panel;
 #[path = "../src/worker.rs"]
 mod worker;
 use dsh_native_transport::dto::*;
@@ -57,8 +61,7 @@ fn observe(event: &Event, report: &mut Value) -> Result<(), &'static str> {
         frame: RemoteEventFrame::Emit { event, .. },
         ..
     } = event
-    {
-        if [
+        && [
             "turn/start",
             "turn/end",
             "step/start",
@@ -70,9 +73,8 @@ fn observe(event: &Event, report: &mut Value) -> Result<(), &'static str> {
             "user/message",
         ]
         .contains(&event.as_str())
-        {
-            report["unexpectedWork"] = json!(report["unexpectedWork"].as_u64().unwrap() + 1);
-        }
+    {
+        report["unexpectedWork"] = json!(report["unexpectedWork"].as_u64().unwrap() + 1);
     }
     if let Event::Selected {
         frame: SessionFollowFrame::Snapshot { records, .. },

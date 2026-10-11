@@ -99,6 +99,9 @@ impl Effect {
             | Self::Disconnect { ticket: t, .. } => *t,
         }
     }
+    /// Classification for callers that must separate a write from a read; the
+    /// worker selects the same split at its own match site.
+    #[allow(dead_code)]
     pub fn mutation(&self) -> bool {
         !matches!(self, Self::Read(_) | Self::OpenBrowser { .. })
     }

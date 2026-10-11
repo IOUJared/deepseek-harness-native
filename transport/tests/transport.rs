@@ -1,10 +1,10 @@
 use dsh_native_transport::{Error, Limits, NativeClient, SecretLaunchUrl, dto::*};
 #[path = "support/event_delivery.rs"]
 mod event_delivery;
-#[path = "support/question_claim.rs"]
-mod question_claim;
 #[path = "support/prompt_recovery.rs"]
 mod prompt_recovery;
+#[path = "support/question_claim.rs"]
+mod question_claim;
 
 #[tokio::test]
 async fn plugin_projection_and_revisioned_scalar_write_use_exact_private_wire() {
@@ -552,7 +552,10 @@ fn fork_dtos_use_exact_object_fields_and_reject_extra_authority() {
     }
     let value = json!({"sessionId":"session-fork-child"});
     let parsed: SessionForkValue = serde_json::from_value(value.clone()).unwrap();
-    assert_eq!(parsed.session_id, SessionId::new("session-fork-child").unwrap());
+    assert_eq!(
+        parsed.session_id,
+        SessionId::new("session-fork-child").unwrap()
+    );
     assert_eq!(serde_json::to_value(parsed).unwrap(), value);
     for malformed in [
         Value::Null,
@@ -687,6 +690,368 @@ async fn fork_timeout_and_retired_clone_never_retry() {
     );
     client.close().await;
     fixture.stop().await;
+}
+
+fn terminal_agent() -> SessionId {
+    SessionId::new("session / terminal opaque:%").unwrap()
+}
+fn terminal_id() -> dsh_native_transport::terminal::WebTerminalId {
+    dsh_native_transport::terminal::WebTerminalId::new("PUBLIC-terminal-1").unwrap()
+}
+fn terminal_attachment() -> dsh_native_transport::terminal::TerminalAttachmentId {
+    dsh_native_transport::terminal::TerminalAttachmentId::new("PUBLIC-attachment-1").unwrap()
+}
+fn terminal_create() -> dsh_native_transport::terminal::TerminalCreateRequest {
+    dsh_native_transport::terminal::TerminalCreateRequest {
+        shell_path: None,
+        id: terminal_id(),
+        cols: 80,
+        rows: 24,
+    }
+}
+
+#[test]
+fn terminal_dtos_use_exact_fields_and_refuse_local_impossibilities_before_send() {
+    use dsh_native_transport::terminal::*;
+    // The identity character class is the Host's `[\w-]{1,128}`; nothing else can be sent.
+    for value in ["", "has space", "slash/path", "döt"] {
+        assert_eq!(WebTerminalId::new(value), Err(Error::InvalidDto));
+    }
+    // A create request serializes exactly the four named fields and no agent authority.
+    assert_eq!(
+        serde_json::to_value(terminal_create()).unwrap(),
+        serde_json::json!({"id":"PUBLIC-terminal-1","cols":80,"rows":24})
+    );
+    for field in ["agent", "agentId", "title"] {
+        let mut extra = serde_json::to_value(terminal_create()).unwrap();
+        extra[field] = serde_json::json!(false);
+        assert!(serde_json::from_value::<TerminalCreateRequest>(extra).is_err());
+    }
+    // State/exit-code consistency is enforced on the value before it is published.
+    let running = WebTerminalInfo {
+        id: terminal_id(),
+        title: "PUBLIC terminal".into(),
+        shell: TerminalShell {
+            path: "/bin/PUBLIC-shell".into(),
+            args: vec!["-l".into()],
+            name: "PUBLIC shell".into(),
+        },
+        cwd: "/PUBLIC/cwd".into(),
+        cols: 80,
+        rows: 24,
+        state: TerminalState::Running,
+        exit_code: Some(0),
+        error: None,
+        controller_id: None,
+    };
+    assert_eq!(validate_info(&running), Err(Error::InvalidDto));
+}
+
+#[tokio::test]
+async fn terminal_unary_methods_use_exact_authenticated_wire() {
+    // The fixture 400s unless each full envelope matches exactly, so success proves
+    // method, positional argument names and the omitted `shellPath` all match the Host.
+    let mut fixture = NodeHostFixture::start("normal").await;
+    let client = fixture.connect(Limits::default()).await.unwrap();
+    let agent = terminal_agent();
+    let list = client.terminal_list(&agent).await.unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(
+        list[0].state,
+        dsh_native_transport::terminal::TerminalState::Running
+    );
+    assert_eq!(list[0].exit_code, None);
+    let shells = client.terminal_shells(&agent).await.unwrap();
+    assert_eq!(shells[0].path, "/bin/PUBLIC-shell");
+    let environment = client.terminal_environment(&agent).await.unwrap();
+    assert_eq!(environment.max_input_bytes, 65536);
+    assert_eq!(environment.max_cols, 500);
+    let created = client
+        .terminal_create(&agent, &terminal_create())
+        .await
+        .unwrap();
+    assert_eq!(created.id, terminal_id());
+    assert_eq!(created.controller_id, None);
+    client
+        .terminal_write(
+            &agent,
+            &terminal_id(),
+            &terminal_attachment(),
+            "PUBLIC input\n",
+        )
+        .await
+        .unwrap();
+    client
+        .terminal_resize(&agent, &terminal_id(), &terminal_attachment(), 120, 40)
+        .await
+        .unwrap();
+    client.terminal_close(&agent, &terminal_id()).await.unwrap();
+    client.close().await;
+    fixture.stop().await;
+}
+
+#[tokio::test]
+async fn terminal_create_carries_an_optional_shell_hint_exactly() {
+    let mut fixture = NodeHostFixture::start("terminal-create-shell").await;
+    let client = fixture.connect(Limits::default()).await.unwrap();
+    let created = client
+        .terminal_create(
+            &terminal_agent(),
+            &dsh_native_transport::terminal::TerminalCreateRequest {
+                shell_path: Some("/bin/PUBLIC-shell".into()),
+                ..terminal_create()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(created.id, terminal_id());
+    client.close().await;
+    fixture.stop().await;
+}
+
+#[tokio::test]
+async fn terminal_create_malformed_or_impossible_ack_fails_closed() {
+    for mode in [
+        "terminal-create-missing",
+        "terminal-create-wrong-id",
+        "terminal-create-wrong-type",
+        "terminal-create-extra",
+        "terminal-create-running-exit",
+    ] {
+        let mut fixture = NodeHostFixture::start(mode).await;
+        let client = fixture.connect(Limits::default()).await.unwrap();
+        assert_eq!(
+            client
+                .terminal_create(&terminal_agent(), &terminal_create())
+                .await
+                .unwrap_err(),
+            Error::InvalidDto,
+            "{mode}"
+        );
+        client.close().await;
+        fixture.stop().await;
+    }
+}
+
+#[tokio::test]
+async fn terminal_list_shells_and_environment_malformed_responses_fail_closed() {
+    for (mode, expected) in [
+        ("terminal-list-duplicate", Error::InvalidDto),
+        ("terminal-list-oversize", Error::InvalidDto),
+        ("terminal-list-bad-info", Error::InvalidDto),
+    ] {
+        let mut fixture = NodeHostFixture::start(mode).await;
+        let client = fixture.connect(Limits::default()).await.unwrap();
+        assert_eq!(
+            client.terminal_list(&terminal_agent()).await.unwrap_err(),
+            expected,
+            "{mode}"
+        );
+        client.close().await;
+        fixture.stop().await;
+    }
+    for mode in ["terminal-shells-bad", "terminal-shells-oversize"] {
+        let mut fixture = NodeHostFixture::start(mode).await;
+        let client = fixture.connect(Limits::default()).await.unwrap();
+        assert_eq!(
+            client.terminal_shells(&terminal_agent()).await.unwrap_err(),
+            Error::InvalidDto,
+            "{mode}"
+        );
+        client.close().await;
+        fixture.stop().await;
+    }
+    let mut fixture = NodeHostFixture::start("terminal-environment-bad").await;
+    let client = fixture.connect(Limits::default()).await.unwrap();
+    assert_eq!(
+        client
+            .terminal_environment(&terminal_agent())
+            .await
+            .unwrap_err(),
+        Error::InvalidDto
+    );
+    client.close().await;
+    fixture.stop().await;
+}
+
+#[tokio::test]
+async fn terminal_refusals_keep_distinct_meanings_and_never_echo_private_messages() {
+    let mut fixture = NodeHostFixture::start("terminal-unavailable").await;
+    let client = fixture.connect(Limits::default()).await.unwrap();
+    for error in [
+        client
+            .terminal_create(&terminal_agent(), &terminal_create())
+            .await
+            .unwrap_err(),
+        client
+            .terminal_close(&terminal_agent(), &terminal_id())
+            .await
+            .unwrap_err(),
+    ] {
+        assert_eq!(error, Error::TerminalUnavailable);
+        assert!(!format!("{error:?} {error}").contains("PRIVATE_TERMINAL_SENTINEL"));
+    }
+    client.close().await;
+    fixture.stop().await;
+
+    let mut fixture = NodeHostFixture::start("terminal-control-unavailable").await;
+    let client = fixture.connect(Limits::default()).await.unwrap();
+    for error in [
+        client
+            .terminal_write(
+                &terminal_agent(),
+                &terminal_id(),
+                &terminal_attachment(),
+                "PUBLIC input\n",
+            )
+            .await
+            .unwrap_err(),
+        client
+            .terminal_resize(
+                &terminal_agent(),
+                &terminal_id(),
+                &terminal_attachment(),
+                120,
+                40,
+            )
+            .await
+            .unwrap_err(),
+    ] {
+        assert_eq!(error, Error::TerminalControlUnavailable);
+        assert!(!format!("{error:?} {error}").contains("PRIVATE_TERMINAL_SENTINEL"));
+    }
+    client.close().await;
+    fixture.stop().await;
+
+    let mut fixture = NodeHostFixture::start("terminal-limit-reached").await;
+    let client = fixture.connect(Limits::default()).await.unwrap();
+    let error = client
+        .terminal_create(&terminal_agent(), &terminal_create())
+        .await
+        .unwrap_err();
+    assert_eq!(error, Error::TerminalLimitReached);
+    assert!(!format!("{error:?} {error}").contains("PRIVATE_TERMINAL_SENTINEL"));
+    client.close().await;
+    fixture.stop().await;
+}
+
+#[tokio::test]
+async fn terminal_correlation_and_remote_failure_stay_redacted_and_never_retry() {
+    for (mode, expected) in [
+        ("wrong-rpc", Error::Correlation),
+        ("failure", Error::RemoteFailure),
+    ] {
+        let mut fixture = NodeHostFixture::start(mode).await;
+        let client = fixture.connect(Limits::default()).await.unwrap();
+        let error = client
+            .terminal_create(&terminal_agent(), &terminal_create())
+            .await
+            .unwrap_err();
+        assert_eq!(error, expected, "{mode}");
+        assert!(!format!("{error:?} {error}").contains("SECRET_SENTINEL"));
+        client.close().await;
+        fixture.stop().await;
+    }
+    let mut fixture = NodeHostFixture::start("slow").await;
+    let client = fixture
+        .connect(Limits {
+            timeout: Duration::from_millis(100),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        client
+            .terminal_create(&terminal_agent(), &terminal_create())
+            .await
+            .unwrap_err(),
+        Error::Timeout
+    );
+    let copy = client.clone();
+    client.invalidate();
+    assert_eq!(
+        copy.terminal_create(&terminal_agent(), &terminal_create())
+            .await
+            .unwrap_err(),
+        Error::Closed
+    );
+    client.close().await;
+    fixture.stop().await;
+}
+
+#[tokio::test]
+async fn terminal_follow_streams_a_snapshot_then_strictly_ordered_output() {
+    use dsh_native_transport::terminal::TerminalFrame;
+    let mut fixture = NodeHostFixture::start("normal").await;
+    let client = fixture.connect(Limits::default()).await.unwrap();
+    let mux = client.connect_mux().await.unwrap();
+    let mut stream = mux
+        .terminal_follow(&terminal_agent(), &terminal_id(), &terminal_attachment())
+        .await
+        .unwrap();
+    let mut frames = Vec::new();
+    for _ in 0..4 {
+        frames.push(
+            tokio::time::timeout(Duration::from_secs(3), stream.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap(),
+        );
+    }
+    assert!(matches!(
+        frames[0],
+        TerminalFrame::Snapshot { sequence: 0, .. }
+    ));
+    assert!(matches!(
+        frames[1],
+        TerminalFrame::Output { sequence: 1, .. }
+    ));
+    assert!(matches!(frames[2], TerminalFrame::State { .. }));
+    assert!(matches!(
+        frames[3],
+        TerminalFrame::Output { sequence: 2, .. }
+    ));
+    mux.close().await;
+    client.close().await;
+    fixture.stop().await;
+}
+
+#[tokio::test]
+async fn terminal_follow_rejects_a_bad_opening_or_a_sequence_gap() {
+    for (mode, expected) in [
+        ("terminal-follow-bad-opening", Error::Sequence),
+        ("terminal-follow-state-first", Error::Sequence),
+        ("terminal-follow-missing-sequence", Error::InvalidDto),
+        ("terminal-follow-gap", Error::Sequence),
+        ("terminal-follow-extra-tag", Error::InvalidFrame),
+    ] {
+        let mut fixture = NodeHostFixture::start(mode).await;
+        let client = fixture.connect(Limits::default()).await.unwrap();
+        let mux = client.connect_mux().await.unwrap();
+        let mut stream = mux
+            .terminal_follow(&terminal_agent(), &terminal_id(), &terminal_attachment())
+            .await
+            .unwrap();
+        let mut found = None;
+        for _ in 0..3 {
+            match tokio::time::timeout(Duration::from_secs(3), stream.next())
+                .await
+                .unwrap()
+            {
+                Some(Err(error)) => {
+                    found = Some(error);
+                    break;
+                }
+                None => break,
+                Some(Ok(_)) => {}
+            }
+        }
+        assert_eq!(found, Some(expected), "{mode}");
+        mux.close().await;
+        client.close().await;
+        fixture.stop().await;
+    }
 }
 
 #[tokio::test]
@@ -1167,8 +1532,10 @@ fn optional_request_controls_preserve_old_wire_and_use_exact_new_fields() {
     selection.service_tier = Some("priority".into());
     selection.text_verbosity = Some("high".into());
     let wire = serde_json::to_value(SelectModelRequest {
-        session_id: SessionId::new("PUBLIC_session").unwrap(), selection,
-    }).unwrap();
+        session_id: SessionId::new("PUBLIC_session").unwrap(),
+        selection,
+    })
+    .unwrap();
     assert_eq!(wire["serviceTier"], "priority");
     assert_eq!(wire["textVerbosity"], "high");
     assert!(wire.get("service_tier").is_none());
@@ -1177,7 +1544,10 @@ fn optional_request_controls_preserve_old_wire_and_use_exact_new_fields() {
         "textVerbosity":{"levels":[{"id":"high","name":"Detailed"}],"defaultLevel":"low"}
     })).unwrap();
     assert_eq!(catalog.service_tier.unwrap().tiers[0].id, "priority");
-    assert_eq!(catalog.text_verbosity.unwrap().default_level.as_deref(), Some("low"));
+    assert_eq!(
+        catalog.text_verbosity.unwrap().default_level.as_deref(),
+        Some("low")
+    );
 }
 #[tokio::test]
 async fn cookie_exchange_and_all_unary_wire_dtos() {

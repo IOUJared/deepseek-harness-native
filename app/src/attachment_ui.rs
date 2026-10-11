@@ -51,7 +51,7 @@ impl LocalFiles {
 }
 impl App {
     #[cfg(feature = "public-layout-fixture")]
-    pub(super) fn public_local_preview_ready(&self)->bool {
+    pub(super) fn public_local_preview_ready(&self) -> bool {
         self.preview_current() && self.local_files.preview.is_some()
     }
     #[cfg(feature = "public-layout-fixture")]
@@ -250,14 +250,15 @@ impl App {
             return Task::none();
         }
         if self.files.at_capacity() {
-            self.status=format!("Attachment limit reached ({} files, 4 MiB each). Remove a file before choosing another.",attachment_draft::MAX_ATTACHMENTS);
+            self.status = format!(
+                "Attachment limit reached ({} files, 4 MiB each). Remove a file before choosing another.",
+                attachment_draft::MAX_ATTACHMENTS
+            );
             return Task::none();
         }
-        if self.files.editor_open()
-            || self.files.pending()
-            || self.files.prompt_pending()
-        {
-            self.status="Finish the current file selection or upload before choosing another.".into();
+        if self.files.editor_open() || self.files.pending() || self.files.prompt_pending() {
+            self.status =
+                "Finish the current file selection or upload before choosing another.".into();
             return Task::none();
         }
         if self.local_files.busy() {

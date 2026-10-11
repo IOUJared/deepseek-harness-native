@@ -232,19 +232,18 @@ fn decode(kind: WaterfallKind, value: &Value) -> Payload {
                         "Question option labels invalid, duplicate or exceed 32 options; no reply sent",
                     );
                 }
-                if let Some(intent) = &question.intent {
-                    if intent.get("kind").and_then(Value::as_str) == Some("plan-review")
-                        && (question.detail.as_ref().is_none_or(|s| s.trim().is_empty())
-                            || !intent
-                                .get("approve")
-                                .and_then(Value::as_str)
-                                .is_some_and(|s| options.iter().any(|o| o.label == s)))
-                    {
-                        return unsupported(
-                            value,
-                            "Plan review has no visible detail or matching approval option; no reply sent",
-                        );
-                    }
+                if let Some(intent) = &question.intent
+                    && intent.get("kind").and_then(Value::as_str) == Some("plan-review")
+                    && (question.detail.as_ref().is_none_or(|s| s.trim().is_empty())
+                        || !intent
+                            .get("approve")
+                            .and_then(Value::as_str)
+                            .is_some_and(|s| options.iter().any(|o| o.label == s)))
+                {
+                    return unsupported(
+                        value,
+                        "Plan review has no visible detail or matching approval option; no reply sent",
+                    );
                 }
             }
             // Intent affects presentation only; validation needs no retained opaque JSON tree.
@@ -406,11 +405,12 @@ impl Decisions {
         }
     }
     pub fn fail(&mut self, key: &Key, attempt: u64, error: String) {
-        if let Some(p) = self.pending.get_mut(&key.event_id) {
-            if p.key == *key && matches!(p.phase,Phase::Submitting(a) if a==attempt) {
-                p.phase = Phase::Ready;
-                p.error = Some(crate::reducer::bounded(&error, 512));
-            }
+        if let Some(p) = self.pending.get_mut(&key.event_id)
+            && p.key == *key
+            && matches!(p.phase,Phase::Submitting(a) if a==attempt)
+        {
+            p.phase = Phase::Ready;
+            p.error = Some(crate::reducer::bounded(&error, 512));
         }
     }
     pub fn acknowledge(&mut self, key: &Key, attempt: u64, result: Result<(), String>) -> bool {
@@ -485,44 +485,40 @@ impl Decisions {
             Action::Toggle {
                 question, option, ..
             } => {
-                if let Payload::Question(q) = &pending.payload {
-                    if let (Some(item), Some(draft)) =
+                if let Payload::Question(q) = &pending.payload
+                    && let (Some(item), Some(draft)) =
                         (q.questions.get(question), pending.drafts.get_mut(question))
-                    {
-                        if item.options.as_ref().is_some_and(|o| option < o.len()) {
-                            if item.multi_select == Some(true) {
-                                if !draft.selected.remove(&option) {
-                                    draft.selected.insert(option);
-                                }
-                            } else {
-                                draft.selected.clear();
-                                draft.selected.insert(option);
-                                draft.custom.clear();
-                            }
-                            draft.skipped = false;
-                            pending.error = None;
+                    && item.options.as_ref().is_some_and(|o| option < o.len())
+                {
+                    if item.multi_select == Some(true) {
+                        if !draft.selected.remove(&option) {
+                            draft.selected.insert(option);
                         }
+                    } else {
+                        draft.selected.clear();
+                        draft.selected.insert(option);
+                        draft.custom.clear();
                     }
+                    draft.skipped = false;
+                    pending.error = None;
                 }
                 None
             }
             Action::Custom { question, text, .. } => {
-                if let Payload::Question(q) = &pending.payload {
-                    if let (Some(item), Some(draft)) =
+                if let Payload::Question(q) = &pending.payload
+                    && let (Some(item), Some(draft)) =
                         (q.questions.get(question), pending.drafts.get_mut(question))
-                    {
-                        if text.len() <= MAX_CUSTOM {
-                            draft.custom = text;
-                            if item.multi_select != Some(true) {
-                                draft.selected.clear();
-                            }
-                            draft.skipped = false;
-                            pending.error = None;
-                        } else {
-                            pending.error = Some(
-                                "Custom answer exceeds 2 KiB; last valid input retained".into(),
-                            );
+                {
+                    if text.len() <= MAX_CUSTOM {
+                        draft.custom = text;
+                        if item.multi_select != Some(true) {
+                            draft.selected.clear();
                         }
+                        draft.skipped = false;
+                        pending.error = None;
+                    } else {
+                        pending.error =
+                            Some("Custom answer exceeds 2 KiB; last valid input retained".into());
                     }
                 }
                 None

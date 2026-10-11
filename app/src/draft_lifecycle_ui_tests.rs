@@ -45,9 +45,7 @@ fn ready_during_startup_close_then_stay_admits_initial_draft_load_once() {
     app.ready = false;
     drop(app.update(Message::Close));
     assert!(matches!(app.close, Close::Confirm(_)));
-    drop(app.update(Message::Worker(Event::Ready(
-        "0.2.1-alpha.1".into(),
-    ))));
+    drop(app.update(Message::Worker(Event::Ready("0.2.1-alpha.1".into()))));
     assert!(app.ready);
     assert!(!app.draft_state.ready());
     assert!(!app.draft_state.busy());

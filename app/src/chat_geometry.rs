@@ -247,7 +247,12 @@ mod tests {
     #[test]
     fn routine_headers_are_absent_but_live_and_interrupted_status_keep_their_space() {
         let cache = Cache::default();
-        for role in ["You", "Assistant", "Assistant · live", "Interrupted assistant attempt"] {
+        for role in [
+            "You",
+            "Assistant",
+            "Assistant · live",
+            "Interrupted assistant attempt",
+        ] {
             let geometry = cache.geometry(1, role, "PUBLIC", 700.0);
             let status = matches!(role, "Assistant · live" | "Interrupted assistant attempt");
             assert_eq!(status_header(role), status);

@@ -15,6 +15,9 @@ pub enum Action {
     Save,
     Composer(CodexComposerDisplay),
     Alert(CodexUsageAlert),
+    /// Reserved for an alert-threshold edit once the Host exposes one; the
+    /// native surface rejects it today.
+    #[allow(dead_code)]
     Threshold(String),
     Retry(bool),
     Consent(bool),
@@ -125,16 +128,19 @@ impl Usage {
         )
     }
     pub(super) fn read_pending_for(&self, ticket: Ticket) -> bool {
-        self.pending.as_ref().is_some_and(|pending| pending.ticket == ticket && matches!(&pending.request, Request::Read))
+        self.pending.as_ref().is_some_and(|pending| {
+            pending.ticket == ticket && matches!(&pending.request, Request::Read)
+        })
     }
     /// Native surface cannot edit this scalar; retain opt-out drafts while using the
     /// current owned read's threshold after CAS conflict/reconciliation, not a stale draft.
     pub(super) fn rebase_native_read_only_threshold(&mut self) {
-        if self.fresh && !self.pending() {
-            if let Some(snapshot) = &self.snapshot {
-                self.draft.custom_remaining_percent = snapshot.preferences.custom_remaining_percent;
-                self.threshold = self.draft.custom_remaining_percent.as_f64().to_string();
-            }
+        if self.fresh
+            && !self.pending()
+            && let Some(snapshot) = &self.snapshot
+        {
+            self.draft.custom_remaining_percent = snapshot.preferences.custom_remaining_percent;
+            self.threshold = self.draft.custom_remaining_percent.as_f64().to_string();
         }
     }
     pub(super) fn can_save(&self) -> bool {
@@ -182,7 +188,11 @@ impl Usage {
                 {
                     self.draft.custom_remaining_percent = percent;
                     if matches!(self.notice, Notice::Invalid) {
-                        self.notice = if self.fresh { Notice::Loaded } else { Notice::Idle };
+                        self.notice = if self.fresh {
+                            Notice::Loaded
+                        } else {
+                            Notice::Idle
+                        };
                     }
                 } else if !self.notice.reconciliation_required() {
                     // Local validation must not hide a possibly committed write or failed read.

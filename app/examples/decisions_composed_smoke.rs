@@ -29,6 +29,10 @@ mod rename;
 mod settings;
 #[path = "../src/smoke.rs"]
 mod smoke;
+#[path = "../src/terminal.rs"]
+mod terminal;
+#[path = "../src/work_panel.rs"]
+mod work_panel;
 #[path = "../src/worker.rs"]
 mod worker;
 mod ui {
@@ -373,44 +377,44 @@ impl Fixture {
                 return self.stop(Some("marker-create-failed"));
             }
         }
-        if (1..=4).contains(&self.phase) {
-            if let Some(value) = private_json(&control.join(format!("phase-{}.json", self.phase))) {
-                if value["phase"] != json!(self.phase) || value["settled"] != true {
-                    return self.stop(Some("host-settlement-mismatch"));
+        if (1..=4).contains(&self.phase)
+            && let Some(value) = private_json(&control.join(format!("phase-{}.json", self.phase)))
+        {
+            if value["phase"] != json!(self.phase) || value["settled"] != true {
+                return self.stop(Some("host-settlement-mismatch"));
+            }
+            if self.ack || (self.phase == 4 && self.cancel) {
+                if self
+                    .active
+                    .as_ref()
+                    .is_none_or(|_| ui::fixture_count(&self.app) != 0)
+                {
+                    return self.stop(Some("ui-delivery-not-retired"));
                 }
-                if self.ack || (self.phase == 4 && self.cancel) {
-                    if self
-                        .active
-                        .as_ref()
-                        .is_none_or(|_| ui::fixture_count(&self.app) != 0)
-                    {
-                        return self.stop(Some("ui-delivery-not-retired"));
-                    }
-                    self.report["hostSettlements"] = json!(self.phase);
-                    self.active = None;
-                    self.attempt = None;
-                    self.ack = false;
-                    self.cancel = false;
-                    self.phase += 1;
-                    if self.phase <= 4 && !self.mark(&format!("go-{}", self.phase)) {
-                        return self.stop(Some("marker-create-failed"));
-                    }
+                self.report["hostSettlements"] = json!(self.phase);
+                self.active = None;
+                self.attempt = None;
+                self.ack = false;
+                self.cancel = false;
+                self.phase += 1;
+                if self.phase <= 4 && !self.mark(&format!("go-{}", self.phase)) {
+                    return self.stop(Some("marker-create-failed"));
                 }
             }
         }
-        if self.phase == 5 {
-            if let Some(value) = private_json(&control.join("complete.json")) {
-                if value["disposed"] != true
-                    || value["turnClosed"] != true
-                    || value["approvalAuditPair"] != true
-                    || value["zeroAdmittedModelSteps"] != true
-                {
-                    return self.stop(Some("host-turn-or-model-step-evidence-invalid"));
-                }
-                self.report["host"] = value;
-                self.report["liveHostDecisionQualified"] = json!(true);
-                return self.stop(None);
+        if self.phase == 5
+            && let Some(value) = private_json(&control.join("complete.json"))
+        {
+            if value["disposed"] != true
+                || value["turnClosed"] != true
+                || value["approvalAuditPair"] != true
+                || value["zeroAdmittedModelSteps"] != true
+            {
+                return self.stop(Some("host-turn-or-model-step-evidence-invalid"));
             }
+            self.report["host"] = value;
+            self.report["liveHostDecisionQualified"] = json!(true);
+            return self.stop(None);
         }
         Task::none()
     }

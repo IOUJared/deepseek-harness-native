@@ -1,13 +1,16 @@
 //! Codex subscription navigation; presentation never claims account or quota verification from grant presence.
 use super::*;
 use crate::ui::SURFACE;
-use iced::widget::{Column, Space, column, toggler};
 use dsh_native_core::{CodexComposerDisplay, CodexUsageAlert};
+use iced::widget::{Column, Space, column, toggler};
 
 fn usage_switch(theme: &iced::Theme, status: toggler::Status) -> toggler::Style {
     let mut style = toggler::default(theme, status);
-    let on = matches!(status, toggler::Status::Active { is_toggled: true }
-        | toggler::Status::Hovered { is_toggled: true });
+    let on = matches!(
+        status,
+        toggler::Status::Active { is_toggled: true }
+            | toggler::Status::Hovered { is_toggled: true }
+    );
     style.background = (if on { ACCENT } else { SURFACE }).into();
     style.foreground = TEXT.into();
     style.text_color = Some(TEXT);
@@ -33,28 +36,79 @@ impl Controller {
             (CodexComposerDisplay::Percent, "Percent"),
             (CodexComposerDisplay::ProgressBar, "Progress bar"),
             (CodexComposerDisplay::Runway, "Runway · Beta"),
-        ].into_iter().fold(row![].spacing(4), |controls, (mode, title)| {
-            controls.push(button(label(title, if preferences.composer_display == mode { ACCENT } else { MUTED }).size(12))
-                .width(Length::Fill).padding([8, 4]).style(design::button_style)
-                .on_press_maybe((enabled && mode != preferences.composer_display && self.usage_surface_action_allowed(&UsageAction::Composer(mode))).then_some(action(UsageAction::Composer(mode)))))
+        ]
+        .into_iter()
+        .fold(row![].spacing(4), |controls, (mode, title)| {
+            controls.push(
+                button(
+                    label(
+                        title,
+                        if preferences.composer_display == mode {
+                            ACCENT
+                        } else {
+                            MUTED
+                        },
+                    )
+                    .size(12),
+                )
+                .width(Length::Fill)
+                .padding([8, 4])
+                .style(design::button_style)
+                .on_press_maybe(
+                    (enabled
+                        && mode != preferences.composer_display
+                        && self.usage_surface_action_allowed(&UsageAction::Composer(mode)))
+                    .then_some(action(UsageAction::Composer(mode))),
+                ),
+            )
         });
         let alerts = [
             (CodexUsageAlert::Off, "Off"),
             (CodexUsageAlert::Percent20, "20% remaining"),
             (CodexUsageAlert::EarlyWarning, "Early warning"),
             (CodexUsageAlert::Custom, "Custom"),
-        ].into_iter().fold(row![].spacing(4), |controls, (mode, title)| {
-            controls.push(button(label(title, if preferences.usage_alert == mode { ACCENT } else { MUTED }).size(12))
-                .width(Length::Fill).padding([8, 4]).style(design::button_style)
-                .on_press_maybe((enabled && mode != preferences.usage_alert && self.usage_surface_action_allowed(&UsageAction::Alert(mode))).then_some(action(UsageAction::Alert(mode)))))
+        ]
+        .into_iter()
+        .fold(row![].spacing(4), |controls, (mode, title)| {
+            controls.push(
+                button(
+                    label(
+                        title,
+                        if preferences.usage_alert == mode {
+                            ACCENT
+                        } else {
+                            MUTED
+                        },
+                    )
+                    .size(12),
+                )
+                .width(Length::Fill)
+                .padding([8, 4])
+                .style(design::button_style)
+                .on_press_maybe(
+                    (enabled
+                        && mode != preferences.usage_alert
+                        && self.usage_surface_action_allowed(&UsageAction::Alert(mode)))
+                    .then_some(action(UsageAction::Alert(mode))),
+                ),
+            )
         });
-        let retry = toggler(preferences.retry_after_reset).label("Retry after reset · inactive local choice").text_size(12)
+        let retry = toggler(preferences.retry_after_reset)
+            .label("Retry after reset · inactive local choice")
+            .text_size(12)
             .style(usage_switch)
-            .on_toggle_maybe((enabled && preferences.retry_after_reset).then_some(move |value| action(UsageAction::Retry(value))));
+            .on_toggle_maybe(
+                (enabled && preferences.retry_after_reset)
+                    .then_some(move |value| action(UsageAction::Retry(value))),
+            );
         // OFF is still actionable during pending work or disabled backend/settings writes.
-        let local_off = self.open && context.visible && context.epoch == self.epoch
+        let local_off = self.open
+            && context.visible
+            && context.epoch == self.epoch
             && preferences.experimental_quota;
-        let consent = toggler(preferences.experimental_quota).label("Beta · Experimental quota consent").text_size(12)
+        let consent = toggler(preferences.experimental_quota)
+            .label("Beta · Experimental quota consent")
+            .text_size(12)
             .style(usage_switch)
             .on_toggle_maybe(local_off.then_some(move |value| action(UsageAction::Consent(value))));
         let mut body = column![
@@ -63,11 +117,17 @@ impl Controller {
             label("Usage alerts", TEXT).size(12), alerts,
         ].spacing(10);
         if preferences.usage_alert == CodexUsageAlert::Custom || !self.usage.valid_threshold() {
-            body = body.push(row![
-                label("Remaining threshold (%)", MUTED).size(12),
-                // Saved threshold is read-only without a working alert executor.
-                text_input("0–100", &self.usage.threshold).width(100).padding(8).style(design::input_style),
-            ].spacing(10));
+            body = body.push(
+                row![
+                    label("Remaining threshold (%)", MUTED).size(12),
+                    // Saved threshold is read-only without a working alert executor.
+                    text_input("0–100", &self.usage.threshold)
+                        .width(100)
+                        .padding(8)
+                        .style(design::input_style),
+                ]
+                .spacing(10),
+            );
         }
         let storage = if self
             .usage
@@ -95,13 +155,38 @@ impl Controller {
     pub fn view(&self, context: Context) -> Element<'_, Action> {
         if let Some(review) = self.review_view(context) {
             return if self.runtime.pending() || self.runtime.attention() {
-                column![label(self.runtime.status(), if self.runtime.attention() { DANGER } else { MUTED }).size(12), review].spacing(12).into()
-            } else { review };
+                column![
+                    label(
+                        self.runtime.status(),
+                        if self.runtime.attention() {
+                            DANGER
+                        } else {
+                            MUTED
+                        }
+                    )
+                    .size(12),
+                    review
+                ]
+                .spacing(12)
+                .into()
+            } else {
+                review
+            };
         }
         if let Some(review) = self.managed_review_view(context) {
             let mut body = column![review];
             if self.runtime.pending() || self.runtime.attention() {
-                body = body.push(label(self.runtime.status(), if self.runtime.attention() { DANGER } else { MUTED }).size(12));
+                body = body.push(
+                    label(
+                        self.runtime.status(),
+                        if self.runtime.attention() {
+                            DANGER
+                        } else {
+                            MUTED
+                        },
+                    )
+                    .size(12),
+                );
             }
             return card("Review local account change", body);
         }
@@ -190,7 +275,17 @@ impl Controller {
         if !matches!(self.tab, Tab::Models | Tab::Images)
             && (self.runtime.pending() || self.runtime.attention())
         {
-            panel = panel.push(label(self.runtime.status(), if self.runtime.attention() { DANGER } else { MUTED }).size(12));
+            panel = panel.push(
+                label(
+                    self.runtime.status(),
+                    if self.runtime.attention() {
+                        DANGER
+                    } else {
+                        MUTED
+                    },
+                )
+                .size(12),
+            );
         }
         // Cancellation and indeterminate writes remain visible even outside the Account tab.
         if self.tab != Tab::Account && self.pending_account_operation() {
@@ -235,18 +330,44 @@ mod tests {
     fn usage_controls_construct_for_all_modes_and_visible_failure_without_business_effects() {
         let mut state = Controller::default();
         state.enter(1);
-        for mode in [CodexComposerDisplay::Off, CodexComposerDisplay::Percent,
-            CodexComposerDisplay::ProgressBar, CodexComposerDisplay::Runway] {
-            state.handle(Action::Usage { ticket: state.ticket(), action: UsageAction::Composer(mode) }, context(1));
-            for alert in [CodexUsageAlert::Off, CodexUsageAlert::Percent20,
-                CodexUsageAlert::EarlyWarning, CodexUsageAlert::Custom] {
-                state.handle(Action::Usage { ticket: state.ticket(), action: UsageAction::Alert(alert) }, context(1));
+        for mode in [
+            CodexComposerDisplay::Off,
+            CodexComposerDisplay::Percent,
+            CodexComposerDisplay::ProgressBar,
+            CodexComposerDisplay::Runway,
+        ] {
+            state.handle(
+                Action::Usage {
+                    ticket: state.ticket(),
+                    action: UsageAction::Composer(mode),
+                },
+                context(1),
+            );
+            for alert in [
+                CodexUsageAlert::Off,
+                CodexUsageAlert::Percent20,
+                CodexUsageAlert::EarlyWarning,
+                CodexUsageAlert::Custom,
+            ] {
+                state.handle(
+                    Action::Usage {
+                        ticket: state.ticket(),
+                        action: UsageAction::Alert(alert),
+                    },
+                    context(1),
+                );
                 let _: Element<'_, Action> = state.view(context(1));
             }
         }
-        let Some(Effect::UsageRead { ticket }) = state.handle(Action::Usage {
-            ticket: state.ticket(), action: UsageAction::Refresh,
-        }, context(1)) else { panic!("private read") };
+        let Some(Effect::UsageRead { ticket }) = state.handle(
+            Action::Usage {
+                ticket: state.ticket(),
+                action: UsageAction::Refresh,
+            },
+            context(1),
+        ) else {
+            panic!("private read")
+        };
         state.completed(ticket, Outcome::UsageUnavailable);
         assert!(state.usage.attention());
         assert!(state.usage.status().contains("No cached fallback"));

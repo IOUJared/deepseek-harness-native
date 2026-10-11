@@ -6,21 +6,29 @@ use dsh_native_core::{CodexMetadata, CodexPhase};
 
 fn usage_action(app: &mut App, action: crate::codex::UsageAction) {
     let ticket = app.settings.codex_ticket();
-    let _ = app.update(Message::Settings(SettingsAction::Codex(ConnectAction::Usage { ticket, action })));
+    let _ = app.update(Message::Settings(SettingsAction::Codex(
+        ConnectAction::Usage { ticket, action },
+    )));
 }
 fn usage_snapshot() -> dsh_native_core::CodexUsageSnapshot {
-    dsh_native_core::CodexUsageSnapshot { version: 1, revision: 4, persisted: true,
+    dsh_native_core::CodexUsageSnapshot {
+        version: 1,
+        revision: 4,
+        persisted: true,
         preferences: dsh_native_core::CodexUsagePreferences {
             composer_display: dsh_native_core::CodexComposerDisplay::Runway,
             usage_alert: dsh_native_core::CodexUsageAlert::Custom,
             custom_remaining_percent: dsh_native_core::CodexRemainingPercent::new(19.25).unwrap(),
-            retry_after_reset: true, experimental_quota: true,
+            retry_after_reset: true,
+            experimental_quota: true,
         },
     }
 }
 fn usage_read(app: &mut App, receiver: &mut tokio::sync::mpsc::Receiver<Command>) {
     usage_action(app, crate::codex::UsageAction::Refresh);
-    let Effect::UsageRead { ticket } = effect(receiver) else { panic!("private preferences only") };
+    let Effect::UsageRead { ticket } = effect(receiver) else {
+        panic!("private preferences only")
+    };
     complete(app, ticket, Outcome::UsageSnapshot(usage_snapshot()));
     assert!(receiver.try_recv().is_err());
 }
@@ -29,31 +37,60 @@ fn usage_actual_ui_queue_reads_saves_and_reloads_without_login_models_or_provide
     use crate::codex::UsageAction;
     let (mut app, mut receiver) = app();
     usage_read(&mut app, &mut receiver);
-    for action in [UsageAction::Composer(dsh_native_core::CodexComposerDisplay::Runway),
+    for action in [
+        UsageAction::Composer(dsh_native_core::CodexComposerDisplay::Runway),
         UsageAction::Alert(dsh_native_core::CodexUsageAlert::Custom),
-        UsageAction::Threshold("19.25".into()), UsageAction::Retry(true), UsageAction::Consent(true)] {
+        UsageAction::Threshold("19.25".into()),
+        UsageAction::Retry(true),
+        UsageAction::Consent(true),
+    ] {
         usage_action(&mut app, action);
         usage_action(&mut app, UsageAction::Save); // Enabling and unchanged writes are rejected by native facade.
         assert!(receiver.try_recv().is_err());
     }
-    for action in [UsageAction::Composer(dsh_native_core::CodexComposerDisplay::Off), UsageAction::Alert(dsh_native_core::CodexUsageAlert::Off), UsageAction::Retry(false), UsageAction::Consent(false)] {
+    for action in [
+        UsageAction::Composer(dsh_native_core::CodexComposerDisplay::Off),
+        UsageAction::Alert(dsh_native_core::CodexUsageAlert::Off),
+        UsageAction::Retry(false),
+        UsageAction::Consent(false),
+    ] {
         usage_action(&mut app, action);
         assert!(receiver.try_recv().is_err());
     }
     usage_action(&mut app, UsageAction::Save);
-    let Effect::UsageSave { ticket, expected_revision, preferences } = effect(&mut receiver) else { panic!("private opt-out save") };
+    let Effect::UsageSave {
+        ticket,
+        expected_revision,
+        preferences,
+    } = effect(&mut receiver)
+    else {
+        panic!("private opt-out save")
+    };
     assert_eq!(expected_revision, 4);
-    assert_eq!(preferences.composer_display, dsh_native_core::CodexComposerDisplay::Off);
-    assert_eq!(preferences.usage_alert, dsh_native_core::CodexUsageAlert::Off);
+    assert_eq!(
+        preferences.composer_display,
+        dsh_native_core::CodexComposerDisplay::Off
+    );
+    assert_eq!(
+        preferences.usage_alert,
+        dsh_native_core::CodexUsageAlert::Off
+    );
     assert!(!preferences.retry_after_reset && !preferences.experimental_quota);
     assert_eq!(preferences.custom_remaining_percent.as_f64(), 19.25);
     usage_action(&mut app, UsageAction::Save);
     assert!(receiver.try_recv().is_err());
-    let saved = dsh_native_core::CodexUsageSnapshot { version: 1, revision: 5, preferences, persisted: true };
+    let saved = dsh_native_core::CodexUsageSnapshot {
+        version: 1,
+        revision: 5,
+        preferences,
+        persisted: true,
+    };
     complete(&mut app, ticket, Outcome::UsageSnapshot(saved));
     assert!(receiver.try_recv().is_err());
     usage_action(&mut app, UsageAction::Refresh);
-    let Effect::UsageRead { ticket } = effect(&mut receiver) else { panic!() };
+    let Effect::UsageRead { ticket } = effect(&mut receiver) else {
+        panic!()
+    };
     complete(&mut app, ticket, Outcome::UsageSnapshot(saved));
     assert!(receiver.try_recv().is_err());
     assert_eq!(app.smoke_evidence.model_prompts, 0);
@@ -62,21 +99,51 @@ fn usage_actual_ui_queue_reads_saves_and_reloads_without_login_models_or_provide
 fn initial_real_status_receipt_admits_one_usage_read_and_failed_read_never_loops() {
     let (mut app, mut receiver) = app();
     let ticket = app.settings.codex_ticket();
-    let _ = app.update(Message::Settings(SettingsAction::Codex(ConnectAction::CheckStatus(ticket))));
-    let Effect::StatusRead { ticket } = effect(&mut receiver) else { panic!() };
-    let accounts = dsh_native_core::CodexAccountsMetadata {
-        mode: dsh_native_core::CodexAccountMode::Managed, accounts: vec![], selected: None,
-        epoch: Some(0), legacy: dsh_native_core::CodexLegacyGrant::Absent, added: None,
+    let _ = app.update(Message::Settings(SettingsAction::Codex(
+        ConnectAction::CheckStatus(ticket),
+    )));
+    let Effect::StatusRead { ticket } = effect(&mut receiver) else {
+        panic!()
     };
-    complete(&mut app, ticket, Outcome::StatusSnapshot { metadata: idle(), accounts: accounts.clone() });
-    let Effect::UsageRead { ticket } = effect(&mut receiver) else { panic!("one bounded preference read") };
+    let accounts = dsh_native_core::CodexAccountsMetadata {
+        mode: dsh_native_core::CodexAccountMode::Managed,
+        accounts: vec![],
+        selected: None,
+        epoch: Some(0),
+        legacy: dsh_native_core::CodexLegacyGrant::Absent,
+        added: None,
+    };
+    complete(
+        &mut app,
+        ticket,
+        Outcome::StatusSnapshot {
+            metadata: idle(),
+            accounts: accounts.clone(),
+        },
+    );
+    let Effect::UsageRead { ticket } = effect(&mut receiver) else {
+        panic!("one bounded preference read")
+    };
     complete(&mut app, ticket, Outcome::UsageUnavailable);
-    for _ in 0..3 { app.continue_codex_connection(); }
+    for _ in 0..3 {
+        app.continue_codex_connection();
+    }
     assert!(receiver.try_recv().is_err());
     let ticket = app.settings.codex_ticket();
-    let _ = app.update(Message::Settings(SettingsAction::Codex(ConnectAction::CheckStatus(ticket))));
-    let Effect::StatusRead { ticket } = effect(&mut receiver) else { panic!() };
-    complete(&mut app, ticket, Outcome::StatusSnapshot { metadata: idle(), accounts });
+    let _ = app.update(Message::Settings(SettingsAction::Codex(
+        ConnectAction::CheckStatus(ticket),
+    )));
+    let Effect::StatusRead { ticket } = effect(&mut receiver) else {
+        panic!()
+    };
+    complete(
+        &mut app,
+        ticket,
+        Outcome::StatusSnapshot {
+            metadata: idle(),
+            accounts,
+        },
+    );
     assert!(receiver.try_recv().is_err());
 }
 #[test]
@@ -85,27 +152,42 @@ fn usage_queue_rejection_drains_without_replaying_save_and_hide_preserves_pendin
     let (mut app, mut receiver) = app();
     usage_read(&mut app, &mut receiver);
     usage_action(&mut app, UsageAction::Retry(false)); // Functional opt-out of prior saved choice.
-    for _ in 0..32 { assert!(app.handle.send(Command::Inspect).is_ok()); }
+    for _ in 0..32 {
+        assert!(app.handle.send(Command::Inspect).is_ok());
+    }
     usage_action(&mut app, UsageAction::Save); // Actual queue admission rejects, not an ACK.
     while receiver.try_recv().is_ok() {}
     app.continue_codex_connection();
     assert!(receiver.try_recv().is_err());
     usage_action(&mut app, UsageAction::Save); // Only a new explicit action can retry known NotSent.
-    let Effect::UsageSave { ticket, expected_revision, preferences } = effect(&mut receiver) else { panic!() };
+    let Effect::UsageSave {
+        ticket,
+        expected_revision,
+        preferences,
+    } = effect(&mut receiver)
+    else {
+        panic!()
+    };
     let _ = app.update(Message::Settings(SettingsAction::Close));
     app.settings.handle(SettingsAction::Open, 1, false);
     let _ = app.update(Message::Settings(SettingsAction::SelectPage(Page::Codex)));
     usage_action(&mut app, UsageAction::Save);
     assert!(receiver.try_recv().is_err());
-    complete(&mut app, ticket, Outcome::UsageSnapshot(dsh_native_core::CodexUsageSnapshot {
-        version: 1, revision: expected_revision + 1, preferences, persisted: true,
-    }));
+    complete(
+        &mut app,
+        ticket,
+        Outcome::UsageSnapshot(dsh_native_core::CodexUsageSnapshot {
+            version: 1,
+            revision: expected_revision + 1,
+            preferences,
+            persisted: true,
+        }),
+    );
     usage_action(&mut app, UsageAction::Save);
     assert!(receiver.try_recv().is_err()); // Old-panel write cannot silently authorize another Save.
     usage_action(&mut app, UsageAction::Refresh);
     assert!(matches!(effect(&mut receiver), Effect::UsageRead { .. }));
 }
-
 
 fn idle() -> CodexMetadata {
     CodexMetadata {

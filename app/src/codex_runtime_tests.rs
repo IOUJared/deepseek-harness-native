@@ -502,7 +502,11 @@ fn critical_unknown_status_cannot_be_hidden_by_invalid_edits_and_is_constructibl
 }
 #[test]
 fn reset_keeps_reconciliation_warnings_until_owned_read() {
-    for outcome in [Outcome::RuntimeIndeterminate, Outcome::RuntimeConflict, Outcome::RuntimeUnavailable] {
+    for outcome in [
+        Outcome::RuntimeIndeterminate,
+        Outcome::RuntimeConflict,
+        Outcome::RuntimeUnavailable,
+    ] {
         let mut c = loaded();
         let (ticket, _, _, _) = save(&mut c);
         c.completed(ticket, outcome);
@@ -522,7 +526,9 @@ fn reset_keeps_reconciliation_warnings_until_owned_read() {
 fn reset_keeps_pending_read_visible_and_does_not_dispatch() {
     let mut c = loaded();
     number(&mut c, Field::Timeout, "900");
-    let Some(Effect::RuntimeRead { ticket }) = action(&mut c, Action::Refresh) else { panic!("read") };
+    let Some(Effect::RuntimeRead { ticket }) = action(&mut c, Action::Refresh) else {
+        panic!("read")
+    };
     assert!(action(&mut c, Action::Reset).is_none());
     assert!(c.runtime.status().starts_with("Reading runtime settings"));
     assert_eq!(c.runtime.ticket(), Some(ticket));

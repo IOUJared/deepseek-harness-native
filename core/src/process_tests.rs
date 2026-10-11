@@ -11,16 +11,14 @@ impl Drop for Cleanup {
     fn drop(&mut self) {
         // The fork receipt is private fixture data. Authorize C only while its proven,
         // pinned parent B remains live; a failed assertion must not abandon fixture C.
-        if let Some(pid) = fixture_pid(self.directory.path(), "c") {
-            if let Some((child, parent)) = identity_and_parent(pid) {
-                if self.owned.get(&parent).is_some_and(|p| {
-                    p.alive() && p.identity.start == identity(parent).map_or(0, |i| i.start)
-                }) {
-                    if let Some(pin) = OwnedProcess::capture(child) {
-                        self.owned.insert(pid, pin);
-                    }
-                }
-            }
+        if let Some(pid) = fixture_pid(self.directory.path(), "c")
+            && let Some((child, parent)) = identity_and_parent(pid)
+            && self.owned.get(&parent).is_some_and(|p| {
+                p.alive() && p.identity.start == identity(parent).map_or(0, |i| i.start)
+            })
+            && let Some(pin) = OwnedProcess::capture(child)
+        {
+            self.owned.insert(pid, pin);
         }
         for process in self.owned.values() {
             process.signal(libc::SIGKILL);
