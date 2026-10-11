@@ -26,6 +26,7 @@ wl-clipboard-rs = "=0.9.4"
 zeroize = "=1.9.1"
 accesskit = "=0.25.1"
 accesskit_unix = "=0.24.0"
+keyring = "=4.2.0"
 
 [features]
 public-layout-fixture = []
