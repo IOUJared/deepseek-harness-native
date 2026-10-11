@@ -1,6 +1,6 @@
 [package]
 name = "dsh-native-core"
-version = "2026.10.10-r1"
+version = "2026.10.10-r2"
 edition = "2024"
 license = "MIT"
 description = "Framework-neutral Linux native Harness Host lifecycle foundation"

@@ -1,12 +1,16 @@
 # Changelog
 
-## Unreleased
+## 2026.10.10-r2 — Native Linux development release
+
+October 10, 2026, America/Chicago. Second calendar release of the day; collects the Cloudflare, sidebar, chat-polish, clipboard and quality-gate work landed after `2026.10.10-r1`. [Release checks and limits](<RELEASES/2026.10.10-r2.md>).
 
 - [Sidebar organization](<docs/NATIVE-SIDEBAR.md>): per-row options without selecting/resuming, confirmed pin/archive/restore, native-local manual order and workspace grouping, recoverable Trash, private compare-and-save metadata and joined shutdown. No working-directory relocation, permanent history deletion, automatic cancellation or Web synchronization.
 
 - [Native chat polish](<docs/NATIVE-CHAT-POLISH.md>): remove repeated message headers, preserve explicit live/interrupted status, compact message actions and combine composer controls; keep routine usage/keyboard hints outside the composer and all recovery/error controls visible. Shared geometry keeps virtual scrolling and search aligned.
 
 - [Cloudflare](<docs/NATIVE-CLOUDFLARE.md>): Workers AI models and Browser Run Markdown/screenshot tools; [Connect Cloudflare](<docs/NATIVE-CLOUDFLARE-OAUTH.md>) uses own-client PKCE, private grant storage/refresh and reserved cancellation. Explicit saved API-token selection, Workers Free confirmation and revision-checked writes; no paid fallback or automatic model switch. Matching Core/App/backend rebuild required for the extended private metadata; live registration/login remain unverified.
+
+- [Quality gates](<docs/VERIFICATION.md>): `scripts/check.sh` is the single entry point, and `scripts/format-debt.py` records first-party formatting debt per file (46 files / 3,229 hunks) instead of failing on the pinned third-party `app/vendor/winit` tree; it fails when a clean file becomes unformatted or a new file is added unformatted. Two unused imports removed.
 
 ## 2026.10.10-r1 — Native Linux development release
 
