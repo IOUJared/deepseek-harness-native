@@ -180,3 +180,116 @@ fn outstanding_new_session_blocks_button_and_keyboard_prompt_intents() {
     assert_eq!(app.editor.text(), "PUBLIC draft waits for session creation");
     assert!(queue.try_recv().is_err());
 }
+
+/// Typing a leading slash must reach out for the advertisement exactly once, and
+/// prose must not. This is the live path the fixture bypasses, so it is the one
+/// that has to be pinned: a menu that never opens because nothing was ever asked
+/// for is invisible to a fixture that pre-loads the list.
+#[test]
+fn a_leading_slash_asks_once_for_the_advertisement_and_prose_does_not() {
+    // The file's own `app` binding shadows the helper, so reach it by path.
+    let (mut app, mut queue) = super::conversation_actions_ui_tests::app();
+
+    edit(&mut app, "/");
+    assert_eq!(app.editor.text(), "/");
+    assert!(
+        command_menu::query(&app.editor.text()).is_some(),
+        "the draft must still be a command position"
+    );
+    let asked = queue.try_recv().expect("a leading slash must ask the Host");
+    assert!(
+        matches!(asked, Command::CommandsList(_)),
+        "the ask must be the advertisement read"
+    );
+    assert!(app.commands_pending, "the ask must be marked in flight");
+
+    // One ask per session: a second character does not dispatch another.
+    edit(&mut app, "/plan");
+    assert!(
+        queue.try_recv().is_err(),
+        "a second keystroke must not ask again"
+    );
+
+    // Prose is not a command position and must not ask.
+    let (mut other, mut other_queue) = super::conversation_actions_ui_tests::app();
+    edit(&mut other, "what does / mean");
+    assert!(command_menu::query(&other.editor.text()).is_none());
+    assert!(
+        other_queue.try_recv().is_err(),
+        "prose must not ask for commands"
+    );
+}
+
+/// The whole chain the composer depends on: a slash asks, the Host's own reply
+/// opens the menu, navigation moves the highlight, and accepting rewrites the
+/// draft without executing anything. A fixture cannot show this, because it
+/// pre-loads the list the live app has to earn.
+#[test]
+fn the_host_reply_opens_the_menu_and_accepting_only_rewrites_the_draft() {
+    let (mut app, mut queue) = super::conversation_actions_ui_tests::app();
+    let session = app.selected.clone().unwrap();
+    edit(&mut app, "/");
+    let Command::CommandsList(asked) = queue.try_recv().unwrap() else {
+        panic!("a leading slash must ask for the advertisement");
+    };
+    assert_eq!(asked, session);
+    assert!(
+        app.completion().is_none(),
+        "no advertisement has arrived yet"
+    );
+
+    let listed = vec![
+        dsh_native_transport::dto::CommandDescriptor {
+            definition_id: None,
+            name: "plan".into(),
+            description: "Explore and design before executing".into(),
+        },
+        dsh_native_transport::dto::CommandDescriptor {
+            definition_id: None,
+            name: "compact".into(),
+            description: "Condense history".into(),
+        },
+    ];
+    drop(app.update(Message::Worker(Event::CommandsListed {
+        session_id: session,
+        result: Ok(listed),
+    })));
+    let menu = app
+        .completion()
+        .expect("the Host's reply must open the menu");
+    assert_eq!(menu.matches.len(), 2, "every advertised command is offered");
+    assert_eq!(menu.matches[0].name, "plan", "advertised order is kept");
+    assert!(!app.commands_pending, "the ask is settled");
+
+    // Navigation wraps and moves the highlight.
+    drop(app.update(Message::CommandMenuMove(1)));
+    assert_eq!(app.completion().unwrap().selected, 1);
+    drop(app.update(Message::CommandMenuMove(1)));
+    assert_eq!(app.completion().unwrap().selected, 0, "selection wraps");
+
+    // Accepting rewrites the draft only: nothing is queued, nothing is sent.
+    drop(app.update(Message::CommandMenuAccept));
+    assert_eq!(app.editor.text(), "/plan ");
+    assert!(queue.try_recv().is_err(), "accepting must not execute");
+    assert!(
+        app.pending.is_empty(),
+        "accepting must not start a submission"
+    );
+    assert!(
+        app.completion().is_none(),
+        "the menu closes once the line leaves the command position"
+    );
+
+    // A reply for a session the user has left changes nothing.
+    let (mut other, mut other_queue) = super::conversation_actions_ui_tests::app();
+    edit(&mut other, "/");
+    let _ = other_queue.try_recv();
+    drop(other.update(Message::Worker(Event::CommandsListed {
+        session_id: SessionId::new("PUBLIC-other-session").unwrap(),
+        result: Ok(Vec::new()),
+    })));
+    assert!(
+        other.completion().is_none(),
+        "a foreign reply must not open the menu"
+    );
+}

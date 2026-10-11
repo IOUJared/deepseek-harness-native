@@ -2457,6 +2457,12 @@ impl App {
                 // for a session the user has left changes nothing.
                 if self.selected.as_ref() == Some(&session_id) {
                     match result {
+                        Ok(commands) if commands.is_empty() => {
+                            self.commands = Some(Vec::new());
+                            self.status =
+                                "This Host advertises no commands; slash completion is unavailable."
+                                    .into();
+                        }
                         Ok(commands) => {
                             self.commands = Some(
                                 commands
@@ -2469,8 +2475,15 @@ impl App {
                             );
                         }
                         // A failed read offers nothing and is not remembered as an
-                        // answer, so the next command line asks again.
-                        Err(()) => self.commands = None,
+                        // answer, so the next command line asks again. It is also
+                        // reported: a silent dead end leaves the user with a slash
+                        // and no menu and nothing to act on.
+                        Err(()) => {
+                            self.commands = None;
+                            self.status =
+                                "No command list from the Host; slash completion is unavailable."
+                                    .into();
+                        }
                     }
                 }
             }
