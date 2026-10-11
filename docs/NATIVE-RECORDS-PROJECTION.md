@@ -1,13 +1,14 @@
 # Native conversation and diagnostic records
 
-Routine inbox/policy JSON no longer appears as chat. **Show N session records / Session records** retains all raw rows and read-only Details. Presentation creates no optimistic messages, generation, ACKs or file authority.
+Routine inbox/policy JSON no longer appears as chat. A **Chat / Trajectory** tab strip above the conversation switches projection: **Chat** presents the conversation, **Trajectory** retains every raw row with read-only Details. Presentation creates no optimistic messages, generation, ACKs or file authority.
 
 ## One displayed-row projection
 
 - [Shared iterator](<../app/src/reducer.rs>) drives App view, virtualization, durable anchors and active-transcript detection. Exact permission/preset, sandbox/mode, approval/policy and recognized ordinary inbox mutations are secondary.
 - [Classifier](<../app/src/transcript_presentation.rs>) requires known target, safe integer coordinates, real mutation and exact recognized user/source/text/file shapes. Empty/**4 MiB** file metadata stays supported. This is presentation classification, not new alpha/provider validation.
+- A `user/message` is human history only for the `user` producer; `runtime-context`, `time-context`, `skill-catalog` and every other declared source kind project to **Injected context** and stay out of Chat. A message carrying no kind is kept, because every real producer declares one and hiding an unlabelled human message is the worse error.
 - Extensions/malformed/unknown producers/outcomes/cancellation remain primary; classification never uses truncated/redacted JSON. Exact canceled outcome displays red **Canceled queued input**. Unknown required events preserve warning/error and disable Send.
-- Tools/errors/system/developer/attempt/live/unknown roles remain visible; unusual records are not completed work or durable user-message history.
+- Chat shows the conversation: human messages, assistant replies, tool activity, turn notices and the cancellation/splice kind. **Trajectory** owns the system prompt, developer injects, model-only context, `Injected context` and every kind in `known::LOG_EVENTS` (`session-log-*`, `command/*`, `todo/write`, `subagent/*`, …). The exclusion is a known list rather than an allowlist, so an unrecognized kind stays visible and a future required diagnostic cannot be dropped. Unusual records are not completed work or durable user-message history.
 - All consumers share durable key/order/heights. Live text is cache-only trailing extent; disclosure count is raw count. Toggle captures old anchor, changes projection and rotates revision/widget ID; late prior-mode feedback drops. Neighbor fallback/native clamp may limit alignment; reader/follow intent survives.
 
 ## Evidence

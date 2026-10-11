@@ -2,7 +2,7 @@
 
 ## Behavior
 
-- [Filter](<../app/src/transcript_presentation.rs>) hides exact `session/title`/`session/title-llm-request` metadata in Conversation and expanded Session records—not user/assistant text mentioning those names.
+- [Filter](<../app/src/transcript_presentation.rs>) hides exact `session/title`/`session/title-llm-request` metadata in both Chat and Trajectory—not user/assistant text mentioning those names.
 - Raw records/export data remain intact; unknown events, cancellation, warnings and Send gates stay unchanged.
 - [UI](<../app/src/ui.rs>) applies title baseline/newer admitted live updates to heading, sidebar, search and secondary label. LLM-request payloads never become titles or native model requests.
 - Replay/stale generations/gaps/malformed values publish no title. Newer roster wins; removal retires local title.

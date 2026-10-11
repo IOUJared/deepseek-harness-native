@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Serial, headless native checks with retained outcomes and source-drift detection."""
+"""Serial, headless native checks with retained outcomes and source-drift detection.
+
+One check, `binary-freshness`, is in-process rather than an argv command: it
+compares each *present* release artifact against the first-party sources that
+feed it. A suite that passes while the launched binary predates the fix is how a
+report misleads, so the guard fails instead. An absent artifact is not a
+failure: a checkout that never built the release binary has nothing to launch.
+"""
 import argparse
 import hashlib
 import json
@@ -87,6 +94,78 @@ def source_snapshot():
     return {"sha256": digest, "files": files}
 
 
+# First-party inputs every present release artifact must be newer than. The
+# comparison is modification time, not a rebuild claim: a comment-only edit
+# still requires the artifact to be rebuilt before it can be reported as verified.
+SOURCE_ROOTS = ("app/src", "app/examples", "app/fixtures", "core/src", "transport/src")
+SOURCE_FILES = ("app/Cargo.toml", "app/Cargo.lock", "core/Cargo.toml", "transport/Cargo.toml")
+# Only artifacts the documented flow builds and a report relies on: the launchable
+# deliverable (app/README.md) and the fixture that produces every rendered layout
+# capture. A debug build or a one-off release example is incidental, so checking
+# it would fail the suite for a tree nobody launches or captures from.
+BUILT_ARTIFACTS = (
+    "app/target/release/dsh-native-app",
+    "app/target/release/examples/layout_smoke",
+)
+FRESHNESS_SUITES = ("test", "all")
+FRESHNESS_ARGV = ("internal", "binary-freshness")
+
+
+def newest_source_mtime():
+    """Newest modification time among the first-party inputs of those artifacts."""
+    newest = 0.0
+    for name in SOURCE_ROOTS:
+        for path in (ROOT / name).rglob("*"):
+            if path.is_file():
+                newest = max(newest, path.stat().st_mtime)
+    for name in SOURCE_FILES:
+        path = ROOT / name
+        if path.is_file():
+            newest = max(newest, path.stat().st_mtime)
+    return newest
+
+
+def freshness_findings():
+    """Return the present artifacts and those older than their sources."""
+    newest = newest_source_mtime()
+    built, stale = [], []
+    for name in BUILT_ARTIFACTS:
+        path = ROOT / name
+        if not path.is_file():
+            continue
+        built.append(name)
+        if path.stat().st_mtime < newest:
+            stale.append(name)
+    return built, stale
+
+
+def run_freshness_check(output):
+    """Fail when a present release artifact is older than the sources it embeds."""
+    start = time.monotonic()
+    log = output / "binary-freshness.log"
+    built, stale = freshness_findings()
+    lines = [f"present artifacts: {', '.join(built) if built else 'none'}"]
+    if stale:
+        lines.append("older than their first-party sources:")
+        lines.extend(f"  - {name}" for name in stale)
+        lines.append("rebuild before reporting, or the report describes code you cannot launch:")
+        lines.append("  cargo build --release --manifest-path app/Cargo.toml --bin dsh-native-app")
+        lines.append("  cargo build --release --manifest-path app/Cargo.toml --example layout_smoke "
+                     "--features public-layout-fixture")
+        lines.append("a failing check here is not a test failure: nothing was rebuilt or rerun")
+        status, code = "failed", 1
+    else:
+        lines.append("every present artifact is at least as new as its sources")
+        status, code = "passed", 0
+    with log.open("xb") as stream:
+        os.chmod(log, 0o600)
+        stream.write(("\n".join(lines) + "\n").encode())
+    return {"name": "binary-freshness", "command": list(FRESHNESS_ARGV), "status": status,
+            "exitCode": code, "timedOut": False, "signal": None,
+            "seconds": round(time.monotonic() - start, 3), "log": str(log),
+            "presentArtifacts": built, "staleArtifacts": stale}
+
+
 def run_check(name, argv, output, env, timeout):
     """Retain failed and timed-out attempts; never rerun or silently skip a command."""
     start = time.monotonic()
@@ -137,9 +216,12 @@ def main(argv=None):
     if args.cargo_home is not None and (not args.cargo_home.is_absolute() or not args.cargo_home.is_dir()):
         parser.error("--cargo-home must be an existing absolute directory")
     plan = commands(args.suite, offline=not args.online)
+    freshness = args.suite in FRESHNESS_SUITES
     if args.plan:
-        print(json.dumps({"suite": args.suite, "offline": not args.online, "checks": [
-            {"name": name, "command": command} for name, command in plan]}, indent=2))
+        checks = [{"name": name, "command": command} for name, command in plan]
+        if freshness:
+            checks.insert(0, {"name": "binary-freshness", "command": list(FRESHNESS_ARGV)})
+        print(json.dumps({"suite": args.suite, "offline": not args.online, "checks": checks}, indent=2))
         return 0
     env = {key: value for key, value in os.environ.items()
            if not any(word in key.upper() for word in ("KEY", "SECRET", "TOKEN", "PASSWORD"))}
@@ -156,6 +238,10 @@ def main(argv=None):
         ("rustc-version", ["rustc", "-vV"]), ("cargo-version", ["cargo", "--version"]),
         ("node-version", ["node", "--version"]), ("git-revision", ["git", "rev-parse", "HEAD"]))]
     results = []
+    if freshness:
+        first = run_freshness_check(output)
+        results.append(first)
+        print(f"{first['name']}: {first['status']}", flush=True)
     for name, command in plan:
         print(f"Checking {name}…", flush=True)
         result = run_check(name, command, output, env, args.timeout)

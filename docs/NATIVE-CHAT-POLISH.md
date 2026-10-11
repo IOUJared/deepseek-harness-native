@@ -2,7 +2,7 @@
 
 - Content-sized, right-aligned neutral user bubbles; unboxed assistant replies.
 - No repeated role header on ordinary messages. Live and interrupted responses keep an explicit status line; interrupted status is red.
-- Copy, Edit and Details share a small muted action row. Truncated user previews show Read more. Full reply formatting and reasoning disclosures are unchanged.
+- Copy, Edit and Details share a small muted action row. Truncated user previews show Read more. Full reply formatting and reasoning disclosures are unchanged. An answerless reply (thinking or a recorded tool call, no answer) renders no action row and no empty body.
 - Composer uses a shorter editor and one control row: model, Attach, Stop and Send. Usage and keyboard hints sit quietly below it. Healthy draft-save status no longer occupies a row.
 - Draft failures, loading, uncertain submissions, read-only warnings, attachment review and consent/cancellation remain visible. Enter/Shift+Enter/Ctrl+Enter and explicit file-only Send are unchanged.
 

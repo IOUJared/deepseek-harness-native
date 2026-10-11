@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 SPEC = importlib.util.spec_from_file_location("native_verification", Path(__file__).with_name("verify-native.py"))
 VERIFY = importlib.util.module_from_spec(SPEC)
@@ -109,6 +110,61 @@ class VerificationTests(unittest.TestCase):
         self.assertNotIn("disable-model-invocation: true", entry)
         for path in ("references/upstream.md", "performance.md", "scripts/impeccable", "toolbox/tools.txt", "toolbox/Dockerfile"):
             self.assertTrue((VERIFY.SKILL / path).is_file())
+
+    def test_a_stale_release_artifact_fails_the_guard_and_a_rebuilt_one_passes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "app/src/ui.rs"
+            source.parent.mkdir(parents=True)
+            source.write_text("PUBLIC first-party source\n")
+            artifact = root / "app/target/release/dsh-native-app"
+            artifact.parent.mkdir(parents=True)
+            artifact.write_text("PUBLIC binary\n")
+            logs = root / "logs"
+            logs.mkdir()
+            os.utime(artifact, (1_000_000, 1_000_000))
+            os.utime(source, (2_000_000, 2_000_000))
+            with patch.object(VERIFY, "ROOT", root):
+                built, stale = VERIFY.freshness_findings()
+                self.assertEqual(built, ["app/target/release/dsh-native-app"])
+                self.assertEqual(stale, ["app/target/release/dsh-native-app"])
+                result = VERIFY.run_freshness_check(logs)
+                self.assertEqual(result["status"], "failed")
+                self.assertEqual(result["exitCode"], 1)
+                text = Path(result["log"]).read_text()
+                self.assertIn("older than their first-party sources", text)
+                self.assertIn("cargo build --release", text)
+                self.assertEqual(Path(result["log"]).stat().st_mode & 0o777, 0o600)
+                # A rebuilt artifact of equal or newer age passes.
+                os.utime(artifact, (2_000_000, 2_000_000))
+                self.assertEqual(VERIFY.freshness_findings(), (built, []))
+
+    def test_an_absent_release_artifact_is_not_a_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "app/src/ui.rs"
+            source.parent.mkdir(parents=True)
+            source.write_text("PUBLIC first-party source\n")
+            logs = root / "logs"
+            logs.mkdir()
+            with patch.object(VERIFY, "ROOT", root):
+                self.assertEqual(VERIFY.freshness_findings(), ([], []))
+                result = VERIFY.run_freshness_check(logs)
+                self.assertEqual(result["status"], "passed")
+                self.assertEqual(result["presentArtifacts"], [])
+
+    def test_freshness_guard_is_planned_for_the_reporting_suites_only(self):
+        for suite in VERIFY.FRESHNESS_SUITES:
+            result = subprocess.run([sys.executable, "-B", str(VERIFY.ROOT / "scripts/verify-native.py"),
+                                     "--suite", suite, "--plan"], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0)
+            checks = json.loads(result.stdout)["checks"]
+            self.assertEqual(checks[0]["name"], "binary-freshness")
+            self.assertEqual(checks[0]["command"], list(VERIFY.FRESHNESS_ARGV))
+        result = subprocess.run([sys.executable, "-B", str(VERIFY.ROOT / "scripts/verify-native.py"),
+                                 "--suite", "examples", "--plan"], capture_output=True, text=True)
+        names = [check["name"] for check in json.loads(result.stdout)["checks"]]
+        self.assertNotIn("binary-freshness", names)
 
     def test_ci_runs_examples_and_selected_lints_via_same_runner(self):
         workflow = (VERIFY.ROOT / ".github/workflows/native.yml").read_text()

@@ -25,7 +25,9 @@ python3 -B scripts/verify-native.py --suite test
 - Clippy denies unfinished macros and implicit unsafe operations; other warnings stay visible by policy, and a guard asserts the suite does not deny all baseline warnings. Visible totals measured 2026-10-10: App 211, Core 17, transport 6 — mostly collapsible `if` statements, missing `else`, and large enum variants.
 - Reducing either debt takes one dedicated, reviewed commit per change; do not mix it with feature work.
 
-Reports contain exact commands, outcomes, toolchain details and before/after source hashes. A source change during a run invalidates the combined evidence. This detects drift; it is not an attestation of the complete compiler dependency closure. Output is retained beneath ignored `app/evidence/`; no source or user profile is rewritten.
+Reports contain exact commands, outcomes, toolchain details and before/after source hashes. A source change during a run invalidates the combined evidence. This detects drift; it is not an attestation of the complete compiler dependency closure.
+
+`--suite test` and `--suite all` run one in-process check first, `binary-freshness`: every **present** release artifact (`app/target/release/dsh-native-app`, `app/target/release/examples/layout_smoke`) must be at least as new as the first-party sources that feed it. A stale artifact fails the suite, because a green report describing code you cannot launch is the failure this check exists to prevent; an artifact that was never built is not a failure, so a test-only checkout stays green. The log names the stale artifacts and the rebuild commands. It compares modification times against the worktree, not `HEAD`, so a newer uncommitted edit — including another writer's — re-triggers it, which is intended. Output is retained beneath ignored `app/evidence/`; no source or user profile is rewritten.
 
 ## Failure owners
 
@@ -42,11 +44,13 @@ Reports contain exact commands, outcomes, toolchain details and before/after sou
 
 The fake-wire suite needs the existing `transport/tests` dependencies and `/usr/bin/node`; CI prepares them. The runner does not replace Node or install npm dependencies. Existing tests own their isolated fixtures and cleanup.
 
-## Known test-isolation risk
+## Resolved draft-lock test flake
 
-`ui::draft_store::sidebar_storage_tests` is intermittent and **can fail this gate**. Reproduced 2026-10-10 on the r2 tree: at least three occurrences, each a *different* test (`absent_and_present_empty_are_semantically_equal_and_nonempty_absent_conflicts` twice, `checked_save_retains_intra_operation_bytes_guard` once, both in `Failure::Busy`/`Conflict` assertions), each passes alone, and each re-run of the same binary can pass. Failure rate is roughly one run in three at both default parallelism and `RUST_TEST_THREADS=2`, so `app/.cargo/config.toml`'s thread pin (and this runner's `--test-threads=2`) is **not** a mitigation — it was a wrong first conclusion, retained here as a correction.
+`ui::draft_store::sidebar_storage_tests` used to fail intermittently with `Failure::Busy` in a different test each run, each passing alone (measured 2026-10-10: 7 failures in 1,070 module runs, ~0.7%; one run in three was reported earlier under heavier load). Every failure landed immediately after a completed `Store::save`/`save_checked` (`absent_and_present_...:153`, `checked_save_retains_...:285`, `semantic_cas_...:170`).
 
-The fixture paths are unique per test (`dsh-sidebar-PUBLIC-<pid>-<counter>`), `Store::with_namespace` holds no process-global state, and the lock opens with `CLOEXEC`, so the contention is *inside* the store's own lock lifetime across sequential operations, not across tests. Not root-caused. Treat a `Busy` failure there as a known flake, not proof of a regression — never weaken the assertions to hide it, and re-run once before reporting a red gate. Root cause in `Store` lock lifetime remains open.
+Root cause: an `flock` lock belongs to the open file description, so closing the acquiring descriptor releases it only once every duplicate is closed. `cross_process_sidebar_writer_invalidates_loaded_expected_snapshot` forks this multithreaded test process via `std::process::Command`; the child inherits copies of every lock descriptor open in other threads and holds them until `O_CLOEXEC` closes them at `execve`. During that fork→`execve` window a finished parent operation still looks locked, so the next cooperating `load`/`save` on the same fixture returns `Failure::Busy`. Capture showed `EWOULDBLOCK`, no in-process descriptor for the lock inode except the failing call's own fresh descriptor, and an already-empty `/proc/locks` — a transient out-of-process duplicate, not a retained in-process `Lock`.
+
+Fix: `Lock` implements `Drop` and issues an explicit `flock(LOCK_UN)` in `app/src/draft_store.rs`, ending the critical section with the operation instead of the last inherited descriptor. `Failure::Busy` semantics are unchanged for genuinely live locks. `completed_operation_releases_exclusive_lock_while_a_duplicate_descriptor_remains` reproduces the stranded lock deterministically with `File::try_clone` (the `dup`/`fork` shared open file description): 3/3 failed before, 3/3 pass after. The fixture paths remain unique per test and the thread pin in `app/.cargo/config.toml` was never the mitigation; never weaken these assertions to hide a `Busy` failure.
 
 ## Real native drop (opt-in)
 

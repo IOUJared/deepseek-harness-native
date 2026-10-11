@@ -1,10 +1,11 @@
 # Native chat visibility
 
 - Host-confirmed inbox input appears as **You · sent** before request preparation. Claiming it does not erase it; a matching append-origin user message takes over by message ID, never by text. Multiple inputs in one insertion share one grouped bubble.
-- Chat preserves append-origin conversation and tool activity. Model-context replacements are validated separately and appear only in Session records; they cannot erase human history.
-- Assistant text and backend-supplied reasoning stream into chat, then hand off once to the durable response. No hidden reasoning is requested or fabricated.
-- Preparation errors, interrupted/stopped responses and output limits remain visible. Authentication failures use generic text because provider messages can contain credentials.
-- Exact title and model-selection control events remain absent from both chat modes. Empty paginated views retain Older messages and Reload.
+- Chat preserves append-origin conversation and tool activity. Model-context replacements are validated separately and appear only in Trajectory; they cannot erase human history.
+- Harness context injects are not human history: `runtime-context`, `time-context`, `skill-catalog` and the `system-prompt`/`developer` roles render only in Trajectory. Trajectory also keeps every kind in `known::LOG_EVENTS`, while an unrecognized kind stays in Chat so a future required diagnostic is never lost.
+- Assistant text and backend-supplied reasoning stream into chat, then hand off once to the durable response. No hidden reasoning is requested or fabricated. A recorded tool call is model-internal output, never answer prose: it groups with the thinking under the collapsed **Thoughts** disclosure, and an answerless reply renders that disclosure only.
+- Preparation errors, interrupted/stopped responses and output limits remain visible. `AUTH`, `MISSING_CREDENTIAL` and `INVALID_CREDENTIAL` use short native text instead of the provider's own message, which can quote configuration or a rejected secret: missing points at Settings → DeepSeek, invalid asks for the key again.
+- Exact title and model-selection control events remain absent from Chat and Trajectory. The host's own `model-selection` notice is an inject, so it is Trajectory-only; a human or assistant message that merely names the event stays where it was. Empty paginated views retain Older messages and Reload.
 
 This is presentation only: no prompt replay, queue execution, cancellation, model selection or Send authority is inferred. The retained history window remains bounded; Older messages loads earlier records. Cancellation diagnostics stay visible beside retained submitted input.
 

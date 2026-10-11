@@ -2,7 +2,8 @@
 
 - Bounded plaintext previews use pinned Iced 0.14 native paragraphs: **DejaVu Sans 15px**, advanced shaping, Word wrap, **1.3 line height / 19.5px**.
 - Content-sized right user bubbles; unboxed left assistants. Fixed **24px** read-only Details header; raw slot **87–145px**, four complete lines/**78px** body cap, not earlier partial 75px cap. Stored records stay unchanged.
-- One measured height vector drives virtualization/spacers/rows/prepend. Tools **40px**; opaque metadata **160px**.
+- One measured height vector drives virtualization/spacers/rows/prepend. Tools **36px** (24px line + 12px row); opaque metadata **160px**.
+- An **answerless** assistant reply (thinking or a recorded tool call, no answer) measures to its thoughts disclosure alone: the 20px empty-body minimum and the 22px action row are both omitted, because the view renders no body frame and no Copy/Details for it.
 - [Cache](<../app/src/chat_geometry.rs>): **4097 entries** (4096 durable + live), clears on selection, invalidates role/preview changes. [Later refinement](<NATIVE-HISTORY-PERFORMANCE.md>) stores two recent scalar widths per shared preview, LRU eviction; user/assistant caps **640/800px**, tool/opaque actual widths. Diagnostics omit text. Dynamic fonts would require cache recreation.
 
 ## Qualification scope
