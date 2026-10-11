@@ -35,6 +35,8 @@ mod reducer;
 mod rename;
 #[path = "support/runtime_composed.rs"]
 mod runtime_composed;
+#[path = "../src/secret_input.rs"]
+mod secret_input;
 #[path = "../src/settings.rs"]
 mod settings;
 #[path = "../src/smoke.rs"]

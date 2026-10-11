@@ -248,9 +248,9 @@ impl Output {
             self.dropped = self.dropped.saturating_add(1);
         }
     }
-    /// Whole retained output for a caller that wants it unbounded; the panel
-    /// renders the byte-bounded tail.
-    #[allow(dead_code)]
+    /// Whole retained output, unbounded. The panel renders the byte-bounded
+    /// [`Self::tail`]; only the retention-bound tests read this.
+    #[cfg(test)]
     pub fn text(&self) -> String {
         self.chunks.concat()
     }
@@ -265,23 +265,18 @@ impl Output {
         }
         out
     }
-    /// Raw retained chunks; the panel renders through the bounded accessors.
-    #[allow(dead_code)]
+    /// Raw retained chunks, for the tests that assert the retention bounds.
+    #[cfg(test)]
     pub fn chunks(&self) -> &[String] {
         &self.chunks
     }
     pub fn dropped(&self) -> usize {
         self.dropped
     }
-    /// Retained byte total for callers accounting the buffer directly.
-    #[allow(dead_code)]
+    /// Retained byte total, for the tests that assert the retention bounds.
+    #[cfg(test)]
     pub fn bytes(&self) -> usize {
         self.bytes
-    }
-    /// Empty-buffer probe; the panel checks the rendered tail instead.
-    #[allow(dead_code)]
-    pub fn is_empty(&self) -> bool {
-        self.chunks.is_empty()
     }
 }
 
@@ -446,21 +441,15 @@ impl Terminal {
     pub fn selected(&self) -> Option<&WebTerminalId> {
         self.selected.as_ref()
     }
-    /// Detail lookup for the selected terminal; the panel resolves the row it
-    /// already matched.
-    #[allow(dead_code)]
+    /// Detail lookup for the selected terminal. The panel resolves the row it
+    /// already matched, so only this module's tests read it.
+    #[cfg(test)]
     pub fn selected_info(&self) -> Option<&WebTerminalInfo> {
         let id = self.selected.as_ref()?;
         self.list.iter().find(|info| &info.id == id)
     }
-    /// Selected terminal's attachment identity; the panel reads the row it matched.
-    #[allow(dead_code)]
-    pub fn attachment(&self) -> Option<&TerminalAttachmentId> {
-        self.attachment.as_ref()
-    }
-    /// Selected terminal's live-follow ticket, for a caller that holds the
-    /// selection rather than the row.
-    #[allow(dead_code)]
+    /// Selected terminal's live-follow ticket, for the tests that read it.
+    #[cfg(test)]
     pub fn follow(&self) -> Option<&FollowTicket> {
         self.follow.as_ref()
     }
@@ -479,13 +468,13 @@ impl Terminal {
     pub fn review_close(&self) -> Option<&WebTerminalId> {
         self.close_review.as_ref().map(|review| &review.id)
     }
-    /// Whole-panel pending probe; the composer gates on the specific action.
-    #[allow(dead_code)]
+    /// Whole-panel pending probes. The composer gates on the specific action, so
+    /// only this module's tests read the aggregate slots.
+    #[cfg(test)]
     pub fn create_pending(&self) -> bool {
         self.create_pending.is_some()
     }
-    /// Whole-panel close probe; the composer gates on the specific action.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn close_pending(&self) -> bool {
         self.close_pending.is_some()
     }

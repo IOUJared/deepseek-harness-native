@@ -52,7 +52,7 @@ fn edit(c: &mut Controller, raw: &str) -> DraftTicket {
         c.handle(
             Action::Edit {
                 ticket,
-                input: Input::new(raw.into())
+                input: callback_input(raw.into())
             },
             context()
         )
@@ -129,7 +129,7 @@ fn wrong_attempt_observation_is_ignored() {
         ..authorized()
     });
     assert_eq!(c.draft_ticket(), Some(t));
-    assert_eq!(c.draft.0, "callback-secret");
+    assert_eq!(c.draft.as_str(), "callback-secret");
     assert!(matches!(
         c.metadata.unwrap().phase,
         CodexPhase::WaitingBrowser
@@ -144,7 +144,7 @@ fn prompt_withdrawal_clears_secret_and_review() {
         prompt: None,
         ..waiting()
     });
-    assert!(c.draft.0.is_empty());
+    assert!(c.draft.as_str().is_empty());
     assert!(c.review.is_none());
     assert!(c.draft_ticket().is_none());
     assert!(c.handle(Action::ConfirmCallback(t), context()).is_none());
@@ -157,24 +157,24 @@ fn prompt_replacement_never_retargets_draft() {
         prompt: Some(77),
         ..waiting()
     });
-    assert!(c.draft.0.is_empty());
+    assert!(c.draft.as_str().is_empty());
     assert_ne!(c.draft_ticket(), Some(t));
     assert!(
         c.handle(
             Action::Edit {
                 ticket: t,
-                input: Input::new("old-secret".into())
+                input: callback_input("old-secret".into())
             },
             context()
         )
         .is_none()
     );
-    assert!(c.draft.0.is_empty());
+    assert!(c.draft.as_str().is_empty());
 }
 #[test]
 fn cloned_input_cannot_replay_plaintext() {
     let mut c = checked(waiting());
-    let input = Input::new("secret-once".into());
+    let input = callback_input("secret-once".into());
     let copy = input.clone();
     let t = c.draft_ticket().unwrap();
     c.handle(Action::Edit { ticket: t, input }, context());
@@ -187,12 +187,12 @@ fn cloned_input_cannot_replay_plaintext() {
         context(),
     );
     assert_eq!(c.draft_ticket(), Some(now));
-    assert_eq!(c.draft.0, "secret-once");
+    assert_eq!(c.draft.as_str(), "secret-once");
 }
 #[test]
 fn hidden_input_is_consumed_not_replayable() {
     let mut c = checked(waiting());
-    let input = Input::new("secret-once".into());
+    let input = callback_input("secret-once".into());
     let copy = input.clone();
     let t = c.draft_ticket().unwrap();
     c.handle(
@@ -209,7 +209,7 @@ fn hidden_input_is_consumed_not_replayable() {
         },
         context(),
     );
-    assert!(c.draft.0.is_empty());
+    assert!(c.draft.as_str().is_empty());
 }
 #[test]
 fn invalid_paste_wipes_previous_draft_without_trimming() {
@@ -225,11 +225,11 @@ fn invalid_paste_wipes_previous_draft_without_trimming() {
         c.handle(
             Action::Edit {
                 ticket: t,
-                input: Input::new(raw),
+                input: callback_input(raw),
             },
             context(),
         );
-        assert!(c.draft.0.is_empty());
+        assert!(c.draft.as_str().is_empty());
         assert!(matches!(c.notice, Notice::Invalid));
     }
 }
@@ -239,7 +239,7 @@ fn debug_faces_never_show_secret() {
     let t = edit(&mut c, "private-callback-marker");
     let action = Action::Edit {
         ticket: t,
-        input: Input::new("private-callback-marker".into()),
+        input: callback_input("private-callback-marker".into()),
     };
     for debug in [
         format!("{c:?}"),
@@ -265,7 +265,7 @@ fn callback_requires_review_and_is_consumed_once() {
             ..
         })
     ));
-    assert!(c.draft.0.is_empty());
+    assert!(c.draft.as_str().is_empty());
     assert!(c.review.is_none());
     assert!(c.handle(Action::ConfirmCallback(t), context()).is_none());
     c.completed(c.operation_ticket().unwrap(), Outcome::Confirmed);
@@ -282,7 +282,7 @@ fn stale_editor_review_cannot_confirm_replacement() {
     assert!(c.review.is_none());
     c.handle(Action::ReviewCallback(now), context());
     assert!(c.handle(Action::ConfirmCallback(old), context()).is_none());
-    assert_eq!(c.draft.0, "new-secret");
+    assert_eq!(c.draft.as_str(), "new-secret");
 }
 #[test]
 fn browser_open_requires_current_attempt_and_link() {
@@ -364,7 +364,7 @@ fn leaving_preserves_login_blocking_without_hydrating_new_panel() {
     edit(&mut c, "secret");
     c.leave();
     assert!(c.pending());
-    assert!(c.draft.0.is_empty());
+    assert!(c.draft.as_str().is_empty());
     c.observed(CodexMetadata {
         prompt: Some(55),
         ..waiting()

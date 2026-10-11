@@ -85,8 +85,9 @@ pub struct Submission {
     source: SessionId,
 }
 impl Submission {
-    /// Display/audit accessor for the fork's origin session.
-    #[allow(dead_code)]
+    /// The fork's origin session. Only the tests that assert a receipt names its
+    /// source read this; the panel never displays it.
+    #[cfg(test)]
     pub fn source(&self) -> &SessionId {
         &self.source
     }

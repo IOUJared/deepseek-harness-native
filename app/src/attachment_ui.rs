@@ -419,7 +419,7 @@ impl App {
                     .size(13),
                 )
                 .width(Length::Fill)
-                .style(design::button_style)
+                .style(design::ghost)
                 .padding([6, 9])
                 .on_press_maybe(enabled.then_some(action(Action::Choose(ticket, index)))),
             );
@@ -434,7 +434,7 @@ impl App {
                 label("Choose a file", TEXT).size(18),
                 Space::new().width(Length::Fill),
                 button("Cancel")
-                    .style(design::button_style)
+                    .style(design::ghost)
                     .on_press(action(Action::Close(ticket)))
             ]
             .spacing(10),
@@ -445,17 +445,17 @@ impl App {
             .size(11),
             row![
                 button("Up")
-                    .style(design::button_style)
+                    .style(design::ghost)
                     .on_press_maybe(enabled.then_some(action(Action::Up(ticket)))),
                 button("Home")
-                    .style(design::button_style)
+                    .style(design::ghost)
                     .on_press_maybe(enabled.then_some(action(Action::Home(ticket)))),
                 button(if picker.hidden() {
                     "Hide hidden"
                 } else {
                     "Show hidden"
                 })
-                .style(design::button_style)
+                .style(design::ghost)
                 .on_press_maybe(enabled.then_some(action(Action::Hidden(ticket))))
             ]
             .spacing(6),
@@ -463,16 +463,16 @@ impl App {
                 text_input("Absolute folder", picker.path())
                     .on_input(move |path| Message::FilePicker(Action::Path(ticket, path)))
                     .on_submit(action(Action::Go(ticket)))
-                    .style(design::input_style)
+                    .style(design::field)
                     .padding(8),
                 button("Go")
-                    .style(design::button_style)
+                    .style(design::ghost)
                     .on_press_maybe(enabled.then_some(action(Action::Go(ticket))))
             ]
             .spacing(6),
             scrollable(listing).height(Length::Fill),
             button(label("Enter a file path instead", MUTED).size(11))
-                .style(design::button_style)
+                .style(design::ghost)
                 .on_press(action(Action::Manual(ticket))),
         ]
         .spacing(12)

@@ -25,9 +25,9 @@ Web uses a neutral-bluish scale with a business-blue accent; native keeps standa
 | `xs` | 4 | — |
 | `sm` | 8 | `RADIUS_SM` 9 |
 | `md` | 12 | `RADIUS_MD` 12 |
-| `lg` | 16 | — |
+| `lg` | 16 | `RADIUS_LG` 18 |
 | `xl` | 20 | `RADIUS_XL` 20 |
-| `panel` | 28 | `RADIUS_PANEL` 20 (intentional, tighter) |
+| `panel` | 28 | `RADIUS_XL` 20 (the panel reuses xl; intentional, tighter) |
 
 Native rounds to whole values and uses a tighter panel radius; see remaining differences.
 

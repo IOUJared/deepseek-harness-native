@@ -28,6 +28,8 @@ mod plugins;
 mod reducer;
 #[path = "../src/rename.rs"]
 mod rename;
+#[path = "../src/secret_input.rs"]
+mod secret_input;
 #[path = "../src/settings.rs"]
 mod settings;
 #[path = "../src/smoke.rs"]
@@ -271,7 +273,7 @@ impl Fixture {
                         let (input, _) = ui::fixture_tickets(&self.app);
                         let edit = self.dispatch(settings::Action::Edit {
                             ticket: input,
-                            input: settings::Input::new(PUBLIC_VALUE.into()),
+                            input: settings::key_input(PUBLIC_VALUE.into()),
                         });
                         let (_, operation) = ui::fixture_tickets(&self.app);
                         let review = self.dispatch(settings::Action::Review(operation));
@@ -542,7 +544,7 @@ mod composed_tests {
         let before = ui::fixture_tickets(&fixture.app);
         let _ = fixture.update(Message::Ui(ui::Message::Settings(settings::Action::Edit {
             ticket: before.0,
-            input: settings::Input::new("PUBLIC_MANUAL_ACTION_MUST_DROP".into()),
+            input: settings::key_input("PUBLIC_MANUAL_ACTION_MUST_DROP".into()),
         })));
         let _ = fixture.update(Message::Ui(ui::Message::Settings(
             settings::Action::Confirm(before.1),

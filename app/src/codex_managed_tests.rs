@@ -466,7 +466,7 @@ fn cancel_preempts_callback_ack_and_late_ack_never_resumes_connect() {
     c.handle(
         Action::Edit {
             ticket: draft,
-            input: Input::new("PUBLIC_CALLBACK".into()),
+            input: callback_input("PUBLIC_CALLBACK".into()),
         },
         context(),
     );
@@ -515,7 +515,7 @@ fn hidden_label_actions_never_retain_input_or_submit_and_callback_holder_is_cons
     c.metadata = Some(waiting());
     c.fresh = true;
     let t = c.draft_ticket().unwrap();
-    let input = Input::new("PUBLIC_CALLBACK".into());
+    let input = callback_input("PUBLIC_CALLBACK".into());
     let replay = input.clone();
     c.handle(
         Action::Edit { ticket: t, input },
@@ -531,7 +531,7 @@ fn hidden_label_actions_never_retain_input_or_submit_and_callback_holder_is_cons
         },
         context(),
     );
-    assert!(c.draft.0.is_empty());
+    assert!(c.draft.as_str().is_empty());
 }
 
 #[test]

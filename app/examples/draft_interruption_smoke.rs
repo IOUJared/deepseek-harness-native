@@ -27,6 +27,8 @@ mod plugins;
 mod reducer;
 #[path = "../src/rename.rs"]
 mod rename;
+#[path = "../src/secret_input.rs"]
+mod secret_input;
 #[path = "../src/settings.rs"]
 mod settings;
 #[path = "../src/smoke.rs"]

@@ -484,6 +484,9 @@ fn a_peer_management_flight_blocks_the_panel_and_an_admitted_mcp_write_blocks_th
     }));
     assert!(!app.management.pending());
     assert!(app.mcp_context().enabled);
+    // Positive control: with no write in flight the export flight is admitted, so
+    // the refusal below is the MCP flight and not a disabled preceding condition.
+    assert!(app.export_context_for(app.selected.as_ref()).allowed);
     let _ = app.update(Message::Mcp(Action::BeginDisable {
         ticket: app.mcp.read_ticket(),
         index: 0,
@@ -497,4 +500,8 @@ fn a_peer_management_flight_blocks_the_panel_and_an_admitted_mcp_write_blocks_th
     assert!(!app.rename_context().allowed);
     assert!(!app.fork_context().allowed);
     assert!(!app.terminal_context_for(app.selected.as_ref()).allowed);
+    assert!(
+        !app.export_context_for(app.selected.as_ref()).allowed,
+        "an admitted MCP write must block export, as worker::ExportAdmission already does"
+    );
 }

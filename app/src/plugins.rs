@@ -7,10 +7,6 @@ use dsh_native_transport::plugin::{
 };
 use iced::widget::{Column, button, column, container, row, text_input};
 use iced::{Element, Length};
-use std::sync::{
-    Arc, Mutex,
-    atomic::{Ordering, compiler_fence},
-};
 
 const MAX_INPUT: usize = 4096;
 const MAX_NAMESPACES: usize = 128;
@@ -80,38 +76,13 @@ pub enum Effect {
         value: SettingsScalar,
     },
 }
-struct Editor(String);
-impl Drop for Editor {
-    fn drop(&mut self) {
-        // Owned UTF-8 is overwritten without reading spare capacity; zero preserves UTF-8.
-        unsafe {
-            let bytes = self.0.as_mut_vec();
-            for i in 0..bytes.capacity() {
-                bytes.as_mut_ptr().add(i).write_volatile(0);
-            }
-        }
-        compiler_fence(Ordering::SeqCst);
-    }
-}
-enum InputValue {
-    Valid(Editor),
-    Rejected,
-}
-#[derive(Clone)]
-pub struct Input(Arc<Mutex<Option<InputValue>>>);
-impl Input {
-    pub fn new(raw: String) -> Self {
-        let value = if raw.len() > MAX_INPUT {
-            drop(Editor(raw));
-            InputValue::Rejected
-        } else {
-            InputValue::Valid(Editor(raw))
-        };
-        Self(Arc::new(Mutex::new(Some(value))))
-    }
-    fn take(&self) -> Option<InputValue> {
-        self.0.lock().ok()?.take()
-    }
+/// The one-use draft handle this module's actions carry.
+pub use crate::secret_input::Input;
+use crate::secret_input::{Editor, Value as InputValue};
+/// One edited plugin field value. Any text the Host may store is accepted, so
+/// only its length is bounded; the value is never rendered or logged whole.
+pub fn draft_input(raw: String) -> Input {
+    Input::bounded(raw, MAX_INPUT)
 }
 #[derive(Clone)]
 pub enum Action {
@@ -128,12 +99,7 @@ pub enum Action {
     ToggleInventory(ReadTicket),
     ToggleNamespaces(ReadTicket),
 }
-macro_rules! redacted_debug {
-    ($($ty:ty),*) => { $(impl std::fmt::Debug for $ty {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str("NativePluginSettings([REDACTED])") }
-    })* };
-}
-redacted_debug!(Action, Input, Effect, Snapshot, SaveOutcome, Editor);
+crate::secret_input::redacted_debug!("NativePluginSettings"; Action, Effect, Snapshot, SaveOutcome);
 struct Draft {
     field: usize,
     raw: Editor,
@@ -226,7 +192,7 @@ impl Default for Controller {
             review: None,
             reading: None,
             pending: None,
-            search: Editor(String::new()),
+            search: Editor::new(String::new()),
             inventory_open: false,
             namespaces_open: false,
             notice: Notice::Idle,
@@ -259,7 +225,7 @@ impl Controller {
         self.selected = None;
         self.fresh = false;
         self.reading = None;
-        self.search = Editor(String::new());
+        self.search = Editor::new(String::new());
         self.inventory_open = false;
         self.namespaces_open = false;
         self.notice = Notice::Idle;
@@ -368,7 +334,7 @@ impl Controller {
         }
         match action {
             Action::Search(raw) if raw.len() <= 128 => {
-                self.search = Editor(raw);
+                self.search = Editor::new(raw);
             }
             Action::ToggleInventory(ticket) if ticket == self.read_ticket() => {
                 self.inventory_open = !self.inventory_open;
@@ -430,14 +396,14 @@ impl Controller {
                 self.clear_draft();
                 self.draft = Some(Draft {
                     field,
-                    raw: Editor(raw),
+                    raw: Editor::new(raw),
                 });
             }
             Action::Bool { ticket, value }
                 if self.editable() && self.review.is_none() && self.editor_matches(ticket) =>
             {
                 if matches!(self.field()?.1.kind, SettingsFieldKind::Bool) {
-                    self.draft.as_mut()?.raw = Editor(value.to_string());
+                    self.draft.as_mut()?.raw = Editor::new(value.to_string());
                     self.draft_revision += 1;
                 }
             }
@@ -494,11 +460,11 @@ impl Controller {
     }
     fn proposed(&self) -> Option<SettingsScalar> {
         let (_, field) = self.field()?;
-        let raw = &self.draft.as_ref()?.raw.0;
+        let raw = self.draft.as_ref()?.raw.as_str();
         let value = match field.kind {
             SettingsFieldKind::Bool => SettingsScalar::Bool(raw.parse().ok()?),
             SettingsFieldKind::Number { .. } => SettingsScalar::Number(raw.parse().ok()?),
-            SettingsFieldKind::String { .. } => SettingsScalar::String(raw.clone()),
+            SettingsFieldKind::String { .. } => SettingsScalar::String(raw.to_owned()),
         };
         (safe_field(field) && valid(field, &value) && field.value.as_ref() != Some(&value))
             .then_some(value)
@@ -577,7 +543,7 @@ impl Controller {
         let mut body = column![label("Plugins", TEXT).size(24), label("Installed inventory & live settings", ACCENT).size(16),
             label("Inventory is informational. This panel does not install, enable or disable plugins. Only supported nonsecret live primitive fields can be changed.", MUTED),
             button(if self.reading.is_some() { "Loading…" } else { "Refresh plugins & live settings" })
-                .padding([10,14]).style(design::button_style)
+                .padding([10,14]).style(design::ghost)
                 .on_press_maybe((allowed && self.reading.is_none() && !self.pending()).then_some(Action::Refresh(self.read_ticket()))),
             label(self.notice.text(), if matches!(self.notice,Notice::Conflict|Notice::Indeterminate|Notice::Invalid|Notice::ReadFailed) { DANGER } else { MUTED })
         ].spacing(16);
@@ -604,13 +570,13 @@ impl Controller {
                 ACCENT,
             ))
             .padding([8, 12])
-            .style(design::button_style)
+            .style(design::ghost)
             .on_press_maybe(allowed.then_some(Action::ToggleInventory(self.read_ticket()))),
         );
         if self.inventory_open {
-            let search = text_input("Search installed plugin names", &self.search.0)
+            let search = text_input("Search installed plugin names", self.search.as_str())
                 .padding(10)
-                .style(design::input_style);
+                .style(design::field);
             body = body.push(if allowed {
                 search.on_input(Action::Search)
             } else {
@@ -623,7 +589,7 @@ impl Controller {
                 ),
                 ACCENT,
             ));
-            let query = self.search.0.to_lowercase();
+            let query = self.search.as_str().to_lowercase();
             for entry in snapshot
                 .inventory
                 .entries
@@ -664,7 +630,7 @@ impl Controller {
                 ACCENT,
             ))
             .padding([8, 12])
-            .style(design::button_style)
+            .style(design::ghost)
             .on_press_maybe(
                 (allowed && !self.pending())
                     .then_some(Action::ToggleNamespaces(self.read_ticket())),
@@ -737,30 +703,30 @@ impl Controller {
                         row![
                             button("True")
                                 .padding([8, 12])
-                                .style(design::button_style)
+                                .style(design::ghost)
                                 .on_press_maybe(input_allowed.then_some(Action::Bool {
                                     ticket,
                                     value: true
                                 })),
                             button("False")
                                 .padding([8, 12])
-                                .style(design::button_style)
+                                .style(design::ghost)
                                 .on_press_maybe(input_allowed.then_some(Action::Bool {
                                     ticket,
                                     value: false
                                 })),
-                            label(&draft.raw.0, TEXT)
+                            label(draft.raw.as_str(), TEXT)
                         ]
                         .spacing(12),
                     );
                 } else {
-                    let input = text_input("New field value", &draft.raw.0)
+                    let input = text_input("New field value", draft.raw.as_str())
                         .padding(12)
-                        .style(design::input_style);
+                        .style(design::field);
                     card = card.push(if input_allowed {
                         input.on_input(move |raw| Action::Text {
                             ticket,
-                            input: Input::new(raw),
+                            input: draft_input(raw),
                         })
                     } else {
                         input
@@ -769,13 +735,13 @@ impl Controller {
                 if self.review.is_some() {
                     card = card.push(label(format!("{} / {} · reviewed revision {}", ns.ns, field.path.join(" / "), ns.revision), ACCENT).size(12))
                         .push(label("Confirm this single field write against the loaded namespace revision. Other fields and secret values will not be replaced. Runtime reload success is not implied.",DANGER))
-                        .push(button("Confirm setting write").padding([10,14]).style(design::primary_button).on_press_maybe((allowed && self.editable()).then_some(Action::Confirm(ticket))))
-                        .push(button("Cancel review").padding([8,12]).style(design::button_style).on_press_maybe(allowed.then_some(Action::CancelReview(ticket))));
+                        .push(button("Confirm setting write").padding([10,14]).style(design::primary).on_press_maybe((allowed && self.editable()).then_some(Action::Confirm(ticket))))
+                        .push(button("Cancel review").padding([8,12]).style(design::ghost).on_press_maybe(allowed.then_some(Action::CancelReview(ticket))));
                 } else {
                     card = card.push(
                         button("Review change")
                             .padding([10, 14])
-                            .style(design::primary_button)
+                            .style(design::primary)
                             .on_press_maybe(
                                 (allowed && self.editable() && self.proposed().is_some())
                                     .then_some(Action::Review(ticket)),
@@ -785,7 +751,7 @@ impl Controller {
                 card = card.push(
                     button("Discard draft")
                         .padding([8, 12])
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .on_press_maybe(allowed.then_some(Action::Discard(ticket))),
                 );
             } else {
@@ -801,7 +767,7 @@ impl Controller {
                     .push(
                         button("Edit field")
                             .padding([8, 12])
-                            .style(design::button_style)
+                            .style(design::ghost)
                             .on_press_maybe(
                                 (allowed
                                     && self.editable()

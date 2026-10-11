@@ -22,13 +22,9 @@ mod work_panel_ui;
 const ROW_HEIGHT: f32 = 160.0;
 #[cfg(test)]
 const ACTIVITY_HEIGHT: f32 = 40.0;
-pub(crate) const BASE: Color = Color::from_rgb8(0x19, 0x17, 0x24);
-pub(crate) const SURFACE: Color = Color::from_rgb8(0x1f, 0x1d, 0x2e);
-pub(crate) const OVERLAY: Color = Color::from_rgb8(0x26, 0x23, 0x3a);
-pub(crate) const TEXT: Color = Color::from_rgb8(0xe0, 0xde, 0xf4);
-pub(crate) const MUTED: Color = Color::from_rgb8(0x90, 0x8c, 0xaa);
-pub(crate) const ACCENT: Color = Color::from_rgb8(0xc4, 0xa7, 0xe7);
-pub(crate) const DANGER: Color = Color::from_rgb8(0xeb, 0x6f, 0x92);
+/// The palette is declared in [`crate::design`]; re-exported under this path
+/// because sibling modules import their colours from `crate::ui`.
+pub(crate) use crate::design::{ACCENT, BASE, DANGER, MUTED, OVERLAY, SURFACE, TEXT};
 pub const FONT: iced::Font = iced::Font::with_name("DejaVu Sans");
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Effort {
@@ -332,6 +328,29 @@ enum Close {
     Confirm(String),
     Stopping,
     Failed(String),
+}
+/// The panels that write through the worker's single management flight. Every one
+/// of them refuses while any *other* flight is open or pending, which is the same
+/// exclusivity `worker::Admission` enforces before it dispatches.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Flight {
+    Management,
+    Rename,
+    Fork,
+    Export,
+    Terminal,
+    Mcp,
+}
+impl Flight {
+    /// Every flight, in the order the panels appear in the UI.
+    const ALL: [Self; 6] = [
+        Self::Management,
+        Self::Rename,
+        Self::Fork,
+        Self::Export,
+        Self::Terminal,
+        Self::Mcp,
+    ];
 }
 use crate::worker::prompt_recovery::{self, Pending};
 pub struct App {
@@ -1565,7 +1584,7 @@ impl App {
                             Some(text) if !text.trim().is_empty() => {
                                 Message::Settings(crate::settings::Action::Pasted {
                                     ticket,
-                                    input: crate::settings::Input::pasted(text),
+                                    input: crate::settings::pasted_key_input(text),
                                 })
                             }
                             _ => Message::Settings(crate::settings::Action::PasteUnavailable {
@@ -1578,7 +1597,7 @@ impl App {
                 return iced::clipboard::read().map(move |text| {
                     Message::Settings(crate::settings::Action::Pasted {
                         ticket,
-                        input: crate::settings::Input::pasted(text.unwrap_or_default()),
+                        input: crate::settings::pasted_key_input(text.unwrap_or_default()),
                     })
                 });
             }
@@ -3396,17 +3415,25 @@ impl App {
     fn management_context(&self) -> crate::management::Context {
         self.management_context_for(self.management.target().or(self.selected.as_ref()))
     }
+    /// True when every management flight except `own` is open or pending. Each
+    /// panel passes itself, so a panel never blocks on its own in-flight write —
+    /// the worker's own guard decides that.
+    fn other_flights_idle(&self, own: Flight) -> bool {
+        let open = |flight: Flight| match flight {
+            Flight::Management => self.management.is_open() || self.management.pending(),
+            Flight::Rename => self.rename.is_open() || self.rename.pending().is_some(),
+            Flight::Fork => self.fork.is_open() || self.fork.pending().is_some(),
+            Flight::Export => self.exporter.is_open() || self.exporter.pending().is_some(),
+            Flight::Terminal => self.terminal.busy(),
+            Flight::Mcp => self.mcp.pending(),
+        };
+        Flight::ALL
+            .into_iter()
+            .all(|flight| flight == own || !open(flight))
+    }
     fn management_context_for(&self, target: Option<&SessionId>) -> crate::management::Context {
         let mut context = self.operator_context_for(target);
-        context.allowed = context.allowed
-            && !self.exporter.is_open()
-            && self.exporter.pending().is_none()
-            && !self.rename.is_open()
-            && self.rename.pending().is_none()
-            && !self.fork.is_open()
-            && self.fork.pending().is_none()
-            && !self.terminal.busy()
-            && !self.mcp.pending();
+        context.allowed = context.allowed && self.other_flights_idle(Flight::Management);
         context
     }
     fn rename_context(&self) -> crate::rename::Context {
@@ -3421,15 +3448,7 @@ impl App {
         let context = self.operator_context_for(target);
         crate::rename::Context {
             view: context.view,
-            allowed: context.allowed
-                && !self.management.is_open()
-                && !self.management.pending()
-                && !self.exporter.is_open()
-                && self.exporter.pending().is_none()
-                && !self.fork.is_open()
-                && self.fork.pending().is_none()
-                && !self.terminal.busy()
-                && !self.mcp.pending(),
+            allowed: context.allowed && self.other_flights_idle(Flight::Rename),
         }
     }
     fn fork_context(&self) -> crate::fork::Context {
@@ -3454,15 +3473,7 @@ impl App {
         let context = self.operator_context_for(target);
         crate::fork::Context {
             view: context.view,
-            allowed: context.allowed
-                && !self.management.is_open()
-                && !self.management.pending()
-                && !self.rename.is_open()
-                && self.rename.pending().is_none()
-                && !self.exporter.is_open()
-                && self.exporter.pending().is_none()
-                && !self.terminal.busy()
-                && !self.mcp.pending(),
+            allowed: context.allowed && self.other_flights_idle(Flight::Fork),
         }
     }
     fn export_context(&self) -> crate::exporter::Context {
@@ -3478,14 +3489,7 @@ impl App {
         let context = self.operator_context_for(target);
         crate::exporter::Context {
             view: context.view,
-            allowed: context.allowed
-                && !self.management.is_open()
-                && !self.management.pending()
-                && !self.rename.is_open()
-                && self.rename.pending().is_none()
-                && !self.fork.is_open()
-                && self.fork.pending().is_none()
-                && !self.terminal.busy(),
+            allowed: context.allowed && self.other_flights_idle(Flight::Export),
         }
     }
     /// The terminal panel reads and mutates only the selected Session's Host terminals.
@@ -3502,16 +3506,7 @@ impl App {
         let context = self.operator_context_for(target);
         crate::terminal::Context {
             view: context.view,
-            allowed: context.allowed
-                && !self.management.is_open()
-                && !self.management.pending()
-                && !self.rename.is_open()
-                && self.rename.pending().is_none()
-                && !self.fork.is_open()
-                && self.fork.pending().is_none()
-                && !self.exporter.is_open()
-                && self.exporter.pending().is_none()
-                && !self.mcp.pending(),
+            allowed: context.allowed && self.other_flights_idle(Flight::Terminal),
         }
     }
     /// The MCP panel is app-global: it manages the private home's composition
@@ -3526,15 +3521,7 @@ impl App {
                 && !self.stopped
                 && matches!(self.close, Close::None)
                 && !self.settings.is_open()
-                && !self.management.is_open()
-                && !self.management.pending()
-                && !self.rename.is_open()
-                && self.rename.pending().is_none()
-                && !self.fork.is_open()
-                && self.fork.pending().is_none()
-                && !self.exporter.is_open()
-                && self.exporter.pending().is_none()
-                && !self.terminal.busy()
+                && self.other_flights_idle(Flight::Mcp)
                 && !self.mcp.pending(),
         }
     }
@@ -3565,9 +3552,9 @@ impl App {
             }
         }
     }
-    /// Read-only context for the composed export policy; the mutation path
-    /// assembles its own context where the ticket is minted.
-    #[allow(dead_code)]
+    /// Read-only context for the selected session. The mutation path assembles its
+    /// own context from a ticket, so only the export-policy tests read this.
+    #[cfg(test)]
     fn operator_context(&self) -> crate::management::Context {
         self.operator_context_for(self.selected.as_ref())
     }
@@ -3725,7 +3712,7 @@ impl App {
         let mut body = column![
             row![label("Export session ZIP", TEXT), Space::new().width(Length::Fill),
                 button("Close").on_press(Message::Export(Action::Close(ticket.clone())))
-                    .style(design::button_style).padding([8, 12])].spacing(12),
+                    .style(design::ghost).padding([8, 12])].spacing(12),
             label(target, ACCENT),
             label("Sensitive, unredacted archive: conversation log plus referenced root images and files. It may contain credentials or private paths. Descendant sessions are excluded.", DANGER),
             label("Before downloading, the Host flushes the live log. This can write durable data; cancellation does not undo it. Trusted profile flush hooks may have additional effects.", TEXT),
@@ -3756,13 +3743,13 @@ impl App {
                                 ticket: ticket.clone(),
                                 path: self.exporter.path().to_owned(),
                             })))
-                            .style(design::button_style)
+                            .style(design::ghost)
                             .padding([10, 14]),
                         button("Confirm export and save")
                             .on_press_maybe(
                                 enabled.then_some(Message::Export(Action::Confirm(review.clone())))
                             )
-                            .style(design::button_style)
+                            .style(design::ghost)
                             .padding([10, 14]),
                     ]
                     .spacing(12),
@@ -3784,7 +3771,7 @@ impl App {
                 .push(
                     button("Review export")
                         .on_press_maybe(enabled.then_some(Message::Export(Action::Review(ticket))))
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .padding([10, 14]),
                 );
         }
@@ -3851,7 +3838,7 @@ impl App {
                                 title,
                             })
                         }))
-                        .style(design::input_style)
+                        .style(design::field)
                         .padding(8)
                         .size(13),
                 )
@@ -4031,7 +4018,7 @@ impl App {
                 MUTED
             ),
             button(label("Back · no automatic write", TEXT))
-                .style(design::button_style)
+                .style(design::ghost)
                 .on_press(Message::Management(Action::Close(ticket.clone()))),
             label(
                 format!(
@@ -4101,7 +4088,7 @@ impl App {
                                 operation,
                             }),
                         ))
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .padding([10, 14]),
                 );
             }
@@ -4112,7 +4099,7 @@ impl App {
                     (enabled && !self.management.pending() && self.exporter.pending().is_none())
                         .then_some(Message::ExportSession(ticket.clone())),
                 )
-                .style(design::button_style)
+                .style(design::ghost)
                 .padding([10, 14]),
         );
         body = body.push(label("No forced stop, session deletion, rename, fork, provider/model call or automatic retry. A matching ACK does not replace newer stream state.", MUTED));
@@ -4214,7 +4201,7 @@ impl App {
                 .size(12),
             )
             .on_press_maybe(self.stop_allowed().then_some(Message::Stop))
-            .style(design::danger_button)
+            .style(design::danger)
             .padding([8, 12]),
         )
         .id("native-stop-control")
@@ -4225,7 +4212,7 @@ impl App {
         container(
             button(label("Settings", MUTED).size(if compact { 10 } else { 12 }))
                 .on_press(Message::Settings(crate::settings::Action::Open))
-                .style(design::button_style)
+                .style(design::ghost)
                 .padding(if compact { [12, 2] } else { [10, 10] })
                 .width(Length::Fill),
         )
@@ -4244,13 +4231,13 @@ impl App {
             label("CONVERSATION", MUTED).size(11),
             button(label("Manage & export…", TEXT))
                 .on_press_maybe(manage)
-                .style(design::button_style)
+                .style(design::ghost)
                 .padding([12, 14])
                 .width(Length::Fill),
             label("APPLICATION", MUTED).size(11),
             button(label("Information & diagnostics", TEXT))
                 .on_press(Message::Capabilities)
-                .style(design::button_style)
+                .style(design::ghost)
                 .padding([12, 14])
                 .width(Length::Fill),
             button(label(
@@ -4261,7 +4248,7 @@ impl App {
                 TEXT
             ))
             .on_press(Message::Work(work_panel_ui::Action::Open))
-            .style(design::button_style)
+            .style(design::ghost)
             .padding([12, 14])
             .width(Length::Fill),
             button(label("Terminal · Host shell", TEXT))
@@ -4272,7 +4259,7 @@ impl App {
                         .flatten()
                         .map(|view| Message::Terminal(crate::terminal::Action::Open { view })),
                 )
-                .style(design::button_style)
+                .style(design::ghost)
                 .padding([12, 14])
                 .width(Length::Fill),
             button(label(
@@ -4283,12 +4270,12 @@ impl App {
                 self.layout_controls_enabled()
                     .then_some(Message::Mcp(crate::mcp::Action::Open)),
             )
-            .style(design::button_style)
+            .style(design::ghost)
             .padding([12, 14])
             .width(Length::Fill),
             button(label("Close native Harness…", MUTED))
                 .on_press(Message::Close)
-                .style(design::button_style)
+                .style(design::ghost)
                 .padding([12, 14])
                 .width(Length::Fill)
         ]
@@ -4344,7 +4331,7 @@ impl App {
                 .size(12),
             )
             .on_press(Message::ToggleConversationMenu)
-            .style(design::button_style)
+            .style(design::ghost)
             .padding([8, 10]),
         );
         let mut header = column![actions].spacing(6);
@@ -4404,7 +4391,7 @@ impl App {
                 row![
                     text_input("Absolute file path · up to 4 MiB", path)
                         .on_input(move |path| Message::FilePath(stamp, path))
-                        .style(design::input_style)
+                        .style(design::field)
                         .padding(7)
                         .size(12)
                         .width(Length::Fill),
@@ -4414,14 +4401,14 @@ impl App {
                                 Message::FilePicker(attachment_picker::Action::Open(stamp))
                             )
                         )
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .padding([6, 9]),
                     button(label("Upload", TEXT).size(12))
                         .on_press_maybe(
                             (context.allowed && !path.is_empty())
                                 .then_some(Message::FileUpload(stamp))
                         )
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .padding([6, 9]),
                     button(label("Cancel", MUTED).size(12))
                         .on_press_maybe(
@@ -4429,7 +4416,7 @@ impl App {
                                 .allowed
                                 .then_some(Message::FileCancel(stamp))
                         )
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .padding([6, 9]),
                 ]
                 .spacing(6)
@@ -4438,7 +4425,7 @@ impl App {
             body = body.push(label(attachment_draft::UPLOAD_CONSENT, MUTED).size(10));
             body = body.push(
                 button(label("Preview image", MUTED).size(10))
-                    .style(design::button_style)
+                    .style(design::ghost)
                     .on_press_maybe(
                         (context.allowed && !path.is_empty() && !self.local_files.busy())
                             .then_some(Message::FilePreview(stamp)),
@@ -4497,7 +4484,7 @@ impl App {
                         .allowed
                         .then_some(Message::FileRemove(ticket.clone()))
                 )
-                .style(design::button_style)
+                .style(design::ghost)
                 .padding([6, 9])
         ]
         .spacing(6)
@@ -4664,7 +4651,7 @@ impl App {
         }
         if self.recovered_draft_needs_review() {
             inner=inner.push(column![label("Recovered text may already have been submitted. Check the conversation first.",DANGER).size(11),
-                button(label("Reviewed · enable a new Send",TEXT).size(11)).style(design::button_style)
+                button(label("Reviewed · enable a new Send",TEXT).size(11)).style(design::ghost)
                     .on_press_maybe(self.pending.is_empty().then_some(Message::ReviewRecovered {generation:self.generation,serial:self.draft_serial}))].spacing(3));
         }
         if self.options.smoke.is_none()
@@ -4685,7 +4672,7 @@ impl App {
             if self.draft_state.failure().is_some() {
                 recovery = recovery.push(
                     button(label("Reload drafts", MUTED).size(10))
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .on_press_maybe((!self.draft_state.busy()).then_some(Message::DraftReload)),
                 );
             }
@@ -4698,7 +4685,7 @@ impl App {
                         .size(11)
                         .width(Length::Fill),
                     button(label("Replace draft", TEXT).size(11))
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .on_press_maybe(
                             (self.draft_serial == draft_serial
                                 && self.edit_message_allowed(generation, key))
@@ -4709,7 +4696,7 @@ impl App {
                             })
                         ),
                     button(label("Cancel", MUTED).size(11))
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .on_press(Message::CancelEdit)
                 ]
                 .spacing(6),
@@ -4718,7 +4705,7 @@ impl App {
         if self.observations_lost {
             inner = inner.push(
                 button("Reconnect observations · no session resume")
-                    .style(design::button_style)
+                    .style(design::ghost)
                     .padding([6, 9])
                     .on_press_maybe(
                         (self.ready && !self.rejoin_pending && !self.stopped)
@@ -4733,13 +4720,13 @@ impl App {
                 .expect("owned submission");
             let unknown = self.pending.uncertain();
             inner=inner.push(label(if unknown {"Submission unresolved · original retained; current draft is separate. No resend."} else {"Awaiting admission · original request is frozen."},if unknown {DANGER} else {MUTED}).size(11))
-                .push(row![button("Check submission").style(design::button_style).padding([6,9]).on_press_maybe((unknown && !self.pending.checking() && self.ready && !self.stopped).then_some(Message::CheckSubmission(ticket.clone()))),button(if self.pending.expanded {"Hide original"} else {"Review original"}).style(design::button_style).padding([6,9]).on_press(Message::ReviewSubmission(ticket.clone()))].spacing(6));
+                .push(row![button("Check submission").style(design::ghost).padding([6,9]).on_press_maybe((unknown && !self.pending.checking() && self.ready && !self.stopped).then_some(Message::CheckSubmission(ticket.clone()))),button(if self.pending.expanded {"Hide original"} else {"Review original"}).style(design::ghost).padding([6,9]).on_press(Message::ReviewSubmission(ticket.clone()))].spacing(6));
             if self.selected.as_ref() != Some(&ticket.session)
                 || self.generation != ticket.generation
             {
                 inner = inner.push(
                     button("Stop original session")
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .padding([6, 9])
                         .on_press_maybe(
                             (self.ready && !self.cancel_pending && !self.stopped)
@@ -4817,7 +4804,7 @@ impl App {
                             && !self.local_files.busy())
                         .then_some(Message::FileChoose)
                     )
-                    .style(design::button_style)
+                    .style(design::ghost)
                     .padding([6, 9])
                 )
                 .id("native-file-open"),
@@ -4829,7 +4816,7 @@ impl App {
                             .size(13)
                     )
                     .on_press_maybe(allowed.then_some(Message::Send))
-                    .style(design::primary_button)
+                    .style(design::primary)
                     .padding([8, 14])
                 )
                 .id("native-send-control")
@@ -4897,7 +4884,7 @@ impl App {
                 metadata = metadata.push(
                     button(label(text, ACCENT).size(10))
                         .padding([2, 4])
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .on_press_maybe(
                             (!control.pending && self.composer_visible())
                                 .then_some(Message::TogglePlanMode),
@@ -4928,7 +4915,7 @@ impl App {
                     .size(10),
                 )
                 .padding([2, 4])
-                .style(design::button_style)
+                .style(design::ghost)
                 .on_press(Message::ToggleContextPolicy),
             );
         }
@@ -5012,12 +4999,12 @@ impl App {
                 brand(),
                 button(label("Chats", MUTED).size(11))
                     .on_press(Message::ToggleSidebar)
-                    .style(design::button_style)
+                    .style(design::ghost)
                     .padding([12, 4])
                     .width(Length::Fill),
                 button(label("+ New", TEXT).size(11))
                     .on_press_maybe(self.can_create().then_some(Message::NewSession))
-                    .style(design::button_style)
+                    .style(design::ghost)
                     .padding([12, 4])
                     .width(Length::Fill),
                 Space::new().height(Length::Fill),
@@ -5039,7 +5026,7 @@ impl App {
                 label("Harness", TEXT).size(17).width(Length::Fill),
                 button(label("‹", MUTED).size(22))
                     .on_press(Message::ToggleSidebar)
-                    .style(design::button_style)
+                    .style(design::ghost)
                     .padding([3, 8])
             ]
             .spacing(9)
@@ -5060,7 +5047,7 @@ impl App {
                 .spacing(12)
             )
             .on_press_maybe(self.can_create().then_some(Message::NewSession))
-            .style(design::button_style)
+            .style(design::ghost)
             .padding([11, 10])
             .width(Length::Fill),
             self.session_navigation(),
@@ -5076,7 +5063,7 @@ impl App {
                 .size(12)
             )
             .on_press(Message::WorkspaceControls)
-            .style(design::button_style)
+            .style(design::ghost)
             .padding([8, 10])
             .width(Length::Fill),
             self.workspace_navigation(),
@@ -5295,7 +5282,7 @@ impl App {
                 .padding(10)
                 .size(12)
                 .font(FONT)
-                .style(design::input_style),
+                .style(design::field),
             row![
                 label(
                     if self.show_trash {
@@ -5321,7 +5308,7 @@ impl App {
                     .size(10)
                 )
                 .on_press(Message::ArchivedView)
-                .style(design::button_style),
+                .style(design::ghost),
                 button(label(if self.show_trash { "Recent" } else { "Trash" }, MUTED).size(10))
                     .on_press(Message::Sidebar(sidebar_ui::Action::TrashView))
                     .style(design::ghost)
@@ -5353,7 +5340,7 @@ impl App {
         let mut list = column![
             button(label("All conversations", TEXT).size(12))
                 .on_press(Message::Workspace(None))
-                .style(design::button_style)
+                .style(design::ghost)
                 .width(Length::Fill)
         ]
         .spacing(3);
@@ -5379,7 +5366,7 @@ impl App {
                 .padding(9)
                 .size(11)
                 .font(FONT)
-                .style(design::input_style),
+                .style(design::field),
             button(
                 label(
                     if self.workspace_pending {
@@ -5394,7 +5381,7 @@ impl App {
             .on_press_maybe(
                 (self.ready && !self.workspace_pending).then_some(Message::OpenWorkspace)
             )
-            .style(design::button_style)
+            .style(design::ghost)
             .width(Length::Fill)
         ]
         .spacing(5)
@@ -5407,7 +5394,7 @@ impl App {
             self.stop_button(),
             button(label("Done", TEXT))
                 .on_press(Message::DismissPanel)
-                .style(design::button_style)
+                .style(design::ghost)
         ]
         .spacing(8)
         .align_y(iced::Alignment::Center);
@@ -5421,7 +5408,7 @@ impl App {
                 TEXT
             ))
             .on_press_maybe(self.can_create().then_some(Message::NewSession))
-            .style(design::button_style),
+            .style(design::ghost),
             container(self.session_navigation()).height(210),
             label("WORKSPACES", MUTED).size(11),
             self.workspace_navigation()
@@ -5467,13 +5454,13 @@ impl App {
                     .filter(|_| detail.copy_available())
                     .map(Message::CopyDetailSource),
             )
-            .style(design::button_style);
+            .style(design::ghost);
         #[cfg(feature = "public-layout-fixture")]
         let copy = container(copy).id("native-detail-copy-source");
         toolbar = toolbar.push(copy);
         let back = button(label("Back", MUTED))
             .on_press_maybe(self.detail_back())
-            .style(design::button_style);
+            .style(design::ghost);
         #[cfg(feature = "public-layout-fixture")]
         let back = container(back).id("native-detail-back");
         toolbar = toolbar
@@ -5674,7 +5661,7 @@ impl App {
                         serial,
                         query
                     })
-                    .style(design::input_style)
+                    .style(design::field)
                     .size(13)
                     .width(Length::Fill),
                 label(format!("{current}/{} messages", hits.len()), MUTED).size(11),
@@ -5684,17 +5671,17 @@ impl App {
                         serial,
                         backwards: true
                     }))
-                    .style(design::button_style),
+                    .style(design::ghost),
                 button(label("↓", MUTED))
                     .on_press_maybe((!hits.is_empty()).then_some(Message::SearchNext {
                         generation,
                         serial,
                         backwards: false
                     }))
-                    .style(design::button_style),
+                    .style(design::ghost),
                 button(label("Close", MUTED).size(11))
                     .on_press(Message::SearchClose { generation, serial })
-                    .style(design::button_style)
+                    .style(design::ghost)
             ]
             .spacing(6)
             .align_y(iced::Alignment::Center),
@@ -6055,7 +6042,7 @@ impl App {
                         key: record.key,
                     },
                 ))
-                .style(design::button_style)
+                .style(design::ghost)
                 .padding([0, 8])
                 .width(Length::Fill);
                 let mut activity_column = Column::new().push(compact);
@@ -6112,7 +6099,7 @@ impl App {
                                     key: record.key
                                 }
                             ))
-                            .style(design::button_style)
+                            .style(design::ghost)
                             .padding([1, 2])
                     ]
                     .spacing(6)
@@ -6127,7 +6114,7 @@ impl App {
                                             key: record.key,
                                         }),
                                 )
-                                .style(design::button_style)
+                                .style(design::ghost)
                                 .padding([1, 2]),
                         );
                     }
@@ -6145,7 +6132,7 @@ impl App {
                                 .size(10),
                             )
                             .on_press_maybe(self.detail_request(record.key))
-                            .style(design::button_style)
+                            .style(design::ghost)
                             .padding([1, 2]),
                         );
                     }
@@ -6219,7 +6206,7 @@ impl App {
                     .clip(true),
                     button(label("Read more ▸", MUTED).size(10))
                         .on_press_maybe(self.detail_request(record.key))
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .padding([3, 0])
                 ]
                 .spacing(7);
@@ -6275,13 +6262,13 @@ impl App {
                     && !self.page_pending)
                     .then_some(Message::Older)
             )
-            .style(design::button_style),
+            .style(design::ghost),
             button(label("Reload", MUTED).size(11))
                 .on_press_maybe((self.ready && self.selected.is_some()).then_some(Message::Reload))
-                .style(design::button_style),
+                .style(design::ghost),
             button(label("Find", MUTED).size(11))
                 .on_press(Message::SearchOpen)
-                .style(design::button_style),
+                .style(design::ghost),
             Space::new().width(Length::Fill),
             button(
                 label(
@@ -6295,7 +6282,7 @@ impl App {
                 .size(11)
             )
             .on_press(Message::Bottom)
-            .style(design::button_style)
+            .style(design::ghost)
         ]
         .spacing(4)
         .align_y(iced::Alignment::Center);
@@ -6364,10 +6351,10 @@ impl App {
                         (self.ready && self.follow_ready && !self.page_pending)
                             .then_some(Message::Older)
                     )
-                    .style(design::button_style),
+                    .style(design::ghost),
                     button(label("Reload", MUTED).size(12))
                         .on_press_maybe(self.ready.then_some(Message::Reload))
-                        .style(design::button_style),
+                        .style(design::ghost),
                 ]
                 .spacing(8),
             );
@@ -6376,7 +6363,7 @@ impl App {
             hero = hero.push(
                 button(label(format!("Trajectory · {records} recorded events"), MUTED).size(12))
                     .on_press(Message::ToggleRecords)
-                    .style(design::button_style),
+                    .style(design::ghost),
             );
         }
         if !self.transcript.safe_to_send() {
@@ -6413,7 +6400,7 @@ impl App {
                     MUTED
                 ))
                 .on_press(Message::ToggleInfoDetails(section))
-                .style(design::button_style)
+                .style(design::ghost)
                 .padding([8, 12])
             ]
             .align_y(iced::Alignment::Center)
@@ -6468,7 +6455,7 @@ impl App {
         details = details.push(
             button(label("Back to conversation", TEXT))
                 .on_press(Message::Capabilities)
-                .style(design::button_style),
+                .style(design::ghost),
         );
         scrollable(
             container(
@@ -6544,7 +6531,7 @@ impl App {
         details = details.push(
             button(label("Back to conversation", TEXT))
                 .on_press(Message::Work(work_panel_ui::Action::Close))
-                .style(design::button_style),
+                .style(design::ghost),
         );
         scrollable(
             container(
@@ -6656,7 +6643,7 @@ impl App {
                         ticket: choose,
                         index,
                     })))
-                    .style(design::button_style)
+                    .style(design::ghost)
                     .padding([6, 8]),
                 );
             }
@@ -6751,7 +6738,7 @@ impl App {
                         ticket: select,
                         id: info.id.clone()
                     })))
-                    .style(design::button_style)
+                    .style(design::ghost)
                     .padding([6, 8]),
                     label(
                         format!(
@@ -6770,7 +6757,7 @@ impl App {
                             ticket: close,
                             id: info.id.clone()
                         })))
-                        .style(design::danger_button)
+                        .style(design::danger)
                         .padding([6, 8]),
                 ]
                 .spacing(6)
@@ -6799,7 +6786,7 @@ impl App {
                                 )))
                             ),
                         button("Confirm close")
-                            .style(design::danger_button)
+                            .style(design::danger)
                             .on_press_maybe(
                                 enabled.then_some(Message::Terminal(Action::ConfirmClose(
                                     CloseReview {
@@ -6871,7 +6858,7 @@ impl App {
                                 text,
                             })
                         }))
-                        .style(design::input_style)
+                        .style(design::field)
                         .padding(8)
                         .size(12),
                 )
@@ -7132,7 +7119,7 @@ impl App {
                 "Refresh file & inventory"
             })
             .padding([10, 14])
-            .style(design::button_style)
+            .style(design::ghost)
             // A press while the first read is outstanding is refused by the
             // panel itself; a press with no snapshot answers a lost read.
             .on_press_maybe(
@@ -7204,7 +7191,7 @@ impl App {
         body = body.push(
             button("Add server…")
                 .padding([10, 14])
-                .style(design::primary_button)
+                .style(design::primary)
                 .on_press_maybe(writable.then_some(Message::Mcp(Action::BeginAdd(ticket)))),
         );
         if self.mcp.entries().is_empty() {
@@ -7237,7 +7224,7 @@ impl App {
                 row![
                     button("Edit")
                         .padding([7, 11])
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .on_press_maybe(
                             writable.then_some(Message::Mcp(Action::BeginEdit { ticket, index }))
                         ),
@@ -7247,7 +7234,7 @@ impl App {
                         "Already disabled"
                     })
                     .padding([7, 11])
-                    .style(design::danger_button)
+                    .style(design::danger)
                     .on_press_maybe(
                         (writable && entry.enabled)
                             .then_some(Message::Mcp(Action::BeginDisable { ticket, index }))
@@ -7325,7 +7312,7 @@ impl App {
                     if chosen { ACCENT } else { MUTED },
                 ))
                 .padding([8, 12])
-                .style(design::button_style)
+                .style(design::ghost)
                 .on_press_maybe(
                     input.then_some(Message::Mcp(Action::SetTransport { token, transport })),
                 ),
@@ -7355,7 +7342,7 @@ impl App {
                         row![
                             text_input("argument", arg)
                                 .padding(10)
-                                .style(design::input_style)
+                                .style(design::field)
                                 .width(Length::Fill)
                                 .on_input_maybe(input.then_some(move |value| Message::Mcp(
                                     Action::SetArgument {
@@ -7366,7 +7353,7 @@ impl App {
                                 ))),
                             button("Remove")
                                 .padding([8, 12])
-                                .style(design::button_style)
+                                .style(design::ghost)
                                 .on_press_maybe(input.then_some(Message::Mcp(
                                     Action::RemoveArgument { token, index }
                                 ))),
@@ -7377,7 +7364,7 @@ impl App {
                 body = body.push(
                     button("Add argument")
                         .padding([8, 12])
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .on_press_maybe(input.then_some(Message::Mcp(Action::AddArgument(token)))),
                 );
                 body = body.push(self.mcp_bindings_view(
@@ -7424,7 +7411,7 @@ impl App {
                     if draft.enabled() { ACCENT } else { DANGER }
                 ))
                 .padding([8, 12])
-                .style(design::button_style)
+                .style(design::ghost)
                 .on_press_maybe(input.then_some(Message::Mcp(Action::SetEnabled {
                     token,
                     enabled: !draft.enabled()
@@ -7441,7 +7428,7 @@ impl App {
                     MUTED
                 ))
                 .padding([8, 12])
-                .style(design::button_style)
+                .style(design::ghost)
                 .on_press_maybe(input.then_some(Message::Mcp(Action::SetFailOnStartup {
                     token,
                     value: !draft.fail_on_startup_error()
@@ -7453,11 +7440,11 @@ impl App {
             row![
                 button("Review write")
                     .padding([10, 14])
-                    .style(design::primary_button)
+                    .style(design::primary)
                     .on_press_maybe(input.then_some(Message::Mcp(Action::Review(token)))),
                 button("Cancel")
                     .padding([8, 12])
-                    .style(design::button_style)
+                    .style(design::ghost)
                     .on_press_maybe(input.then_some(Message::Mcp(Action::Cancel(token)))),
             ]
             .spacing(8),
@@ -7474,7 +7461,7 @@ impl App {
     ) -> Element<'_, Message> {
         let input = text_input(placeholder, value)
             .padding(10)
-            .style(design::input_style);
+            .style(design::field);
         if enabled {
             input
                 .on_input(move |value| {
@@ -7505,7 +7492,7 @@ impl App {
             let mut line = row![
                 text_input("name", key)
                     .padding(10)
-                    .style(design::input_style)
+                    .style(design::field)
                     .width(Length::Fill)
                     .on_input_maybe(enabled.then_some(move |value| Message::Mcp(
                         Action::SetBindingKey {
@@ -7522,7 +7509,7 @@ impl App {
                 line = line.push(
                     text_input("new value", value)
                         .padding(10)
-                        .style(design::input_style)
+                        .style(design::field)
                         .width(Length::Fill)
                         .on_input(move |value| {
                             Message::Mcp(Action::SetBindingSecret {
@@ -7537,7 +7524,7 @@ impl App {
                 line = line.push(
                     button("Replace value")
                         .padding([8, 12])
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .on_press_maybe(enabled.then_some(Message::Mcp(
                             Action::ReplaceBindingValue {
                                 token,
@@ -7550,7 +7537,7 @@ impl App {
             line = line.push(
                 button("Remove")
                     .padding([8, 12])
-                    .style(design::button_style)
+                    .style(design::ghost)
                     .on_press_maybe(enabled.then_some(Message::Mcp(Action::RemoveBinding {
                         token,
                         binding,
@@ -7562,7 +7549,7 @@ impl App {
         body = body.push(
             button("Add entry")
                 .padding([8, 12])
-                .style(design::button_style)
+                .style(design::ghost)
                 .on_press_maybe(
                     enabled.then_some(Message::Mcp(Action::AddBinding { token, binding })),
                 ),
@@ -7636,14 +7623,14 @@ impl App {
             row![
                 button("Confirm write")
                     .padding([10, 14])
-                    .style(design::primary_button)
+                    .style(design::primary)
                     .on_press_maybe(
                         (self.mcp.writable() && self.mcp_context().enabled)
                             .then_some(Message::Mcp(Action::Confirm(token)))
                     ),
                 button("Cancel review")
                     .padding([8, 12])
-                    .style(design::button_style)
+                    .style(design::ghost)
                     .on_press_maybe(Some(Message::Mcp(Action::CancelReview(token)))),
             ]
             .spacing(8),
@@ -8444,8 +8431,8 @@ pub(crate) fn native_theme() -> Theme {
             background: BASE,
             text: TEXT,
             primary: ACCENT,
-            success: Color::from_rgb8(0x9c, 0xcf, 0xd8),
-            warning: Color::from_rgb8(0xf6, 0xc1, 0x77),
+            success: design::FOAM,
+            warning: design::GOLD,
             danger: DANGER,
         },
     )
@@ -8977,7 +8964,7 @@ mod tests {
         assert_ne!(app.settings.input_ticket(), old);
         let _ = app.update(Message::Settings(crate::settings::Action::Edit {
             ticket: old,
-            input: crate::settings::Input::new("PUBLIC_MODAL_FAKE_ONLY".into()),
+            input: crate::settings::key_input("PUBLIC_MODAL_FAKE_ONLY".into()),
         }));
         assert!(!app.settings.is_open());
         assert!(receiver.try_recv().is_err());

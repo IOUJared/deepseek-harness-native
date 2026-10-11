@@ -22,7 +22,7 @@ fn edit(state: &mut Settings, text: &str) {
             .handle(
                 Action::Edit {
                     ticket,
-                    input: Input::new(text.into())
+                    input: key_input(text.into())
                 },
                 1,
                 true
@@ -41,7 +41,7 @@ fn submit(state: &mut Settings) -> Ticket {
     };
     assert_eq!(format!("{secret:?}"), "SecretApiKey([REDACTED])");
     drop(secret);
-    assert!(state.edit.editor.0.is_empty());
+    assert!(state.edit.as_str().is_empty());
     ticket
 }
 #[test]
@@ -52,20 +52,20 @@ fn fresh_batched_edits_share_editor_fence_not_operation_serial() {
         state.handle(
             Action::Edit {
                 ticket,
-                input: Input::new(text.into()),
+                input: key_input(text.into()),
             },
             1,
             true,
         );
     }
-    assert_eq!(state.edit.editor.0, "PUBLIC_ABC");
+    assert_eq!(state.edit.as_str(), "PUBLIC_ABC");
     assert_ne!(state.ticket().serial, ticket.serial);
 }
 #[test]
 fn input_holder_clone_is_one_take_and_does_not_replay_old_draft() {
     let mut state = opened();
     let ticket = state.input_ticket();
-    let input = Input::new("PUBLIC_A".into());
+    let input = key_input("PUBLIC_A".into());
     let replay = input.clone();
     assert_eq!(format!("{input:?}"), "SecretInput([REDACTED])");
     state.handle(Action::Edit { ticket, input }, 1, true);
@@ -79,7 +79,7 @@ fn input_holder_clone_is_one_take_and_does_not_replay_old_draft() {
         true,
     );
     assert!(replay.take().is_none());
-    assert_eq!(state.edit.editor.0, "PUBLIC_NEW");
+    assert_eq!(state.edit.as_str(), "PUBLIC_NEW");
 }
 #[test]
 fn rejected_input_clears_old_masked_key_instead_of_submitting_it() {
@@ -92,7 +92,7 @@ fn rejected_input_clears_old_masked_key_instead_of_submitting_it() {
         let mut state = opened();
         edit(&mut state, "PUBLIC_OLD");
         edit(&mut state, &text);
-        assert!(state.edit.editor.0.is_empty());
+        assert!(state.edit.as_str().is_empty());
         assert!(!state.can_save(true));
         assert!(
             state
@@ -107,7 +107,7 @@ fn input_fence_rejects_stale_drafts_after_submit_ack_and_close() {
     let mut state = opened();
     let old = state.input_ticket();
     let saved = submit(&mut state);
-    let input = Input::new("PUBLIC_OLD_REPLAY".into());
+    let input = key_input("PUBLIC_OLD_REPLAY".into());
     state.saved(saved, SaveResult::Confirmed);
     state.handle(
         Action::Edit {
@@ -118,10 +118,10 @@ fn input_fence_rejects_stale_drafts_after_submit_ack_and_close() {
         true,
     );
     assert!(input.take().is_none());
-    assert!(state.edit.editor.0.is_empty());
+    assert!(state.edit.as_str().is_empty());
     state.close();
     assert!(!state.is_open());
-    assert!(state.edit.editor.0.is_empty());
+    assert!(state.edit.as_str().is_empty());
 }
 #[test]
 fn edit_invalidates_old_review_and_requires_new_confirmation() {
@@ -181,7 +181,7 @@ fn metadata_does_not_overwrite_typing_or_make_indeterminate_save_confirmed() {
     };
     edit(&mut state, "PUBLIC_TYPED");
     state.metadata(read, Ok(writable()));
-    assert_eq!(state.edit.editor.0, "PUBLIC_TYPED");
+    assert_eq!(state.edit.as_str(), "PUBLIC_TYPED");
     let saved = submit(&mut state);
     state.saved(saved, SaveResult::Indeterminate);
     let Some(Effect::Read(read)) = state.handle(Action::Refresh(state.ticket()), 1, true) else {
@@ -231,7 +231,7 @@ fn disconnect_ignores_late_success_and_clears_draft() {
         state.save,
         SavePhase::Done(SaveResult::Indeterminate)
     ));
-    assert!(state.edit.editor.0.is_empty());
+    assert!(state.edit.as_str().is_empty());
     assert!(state.metadata.is_none());
     assert_eq!(
         SaveResult::from_core(Err(dsh_native_core::Error::RequestTimeout)),
@@ -240,18 +240,6 @@ fn disconnect_ignores_late_success_and_clears_draft() {
     assert_eq!(SaveResult::from_core(Ok(false)), SaveResult::Refused);
 }
 #[test]
-fn private_owned_editor_wipes_full_allocation_and_debug_is_redacted() {
-    let mut raw = String::with_capacity(128);
-    raw.push_str("PUBLIC_WIPE_FIXTURE");
-    let mut editor = Editor(raw);
-    assert_eq!(format!("{editor:?}"), "SecretEditor([REDACTED])");
-    editor.wipe();
-    // wipe initialized every owned byte, including spare capacity, before this observation.
-    let bytes = unsafe { std::slice::from_raw_parts(editor.0.as_ptr(), editor.0.capacity()) };
-    assert!(bytes.iter().all(|byte| *byte == 0));
-}
-
-#[test]
 fn category_navigation_is_local_and_clears_hidden_secret_edits() {
     let mut state = opened();
     edit(&mut state, "PUBLIC_UNSAVED");
@@ -259,9 +247,9 @@ fn category_navigation_is_local_and_clears_hidden_secret_edits() {
     for page in [Page::General, Page::Codex, Page::Plugins, Page::ApiLogin] {
         assert!(state.handle(Action::SelectPage(page), 1, true).is_none());
         assert_eq!(state.page, page);
-        assert!(state.edit.editor.0.is_empty());
+        assert!(state.edit.as_str().is_empty());
     }
-    let input = Input::new("PUBLIC_STALE_HIDDEN_INPUT".into());
+    let input = key_input("PUBLIC_STALE_HIDDEN_INPUT".into());
     state.handle(
         Action::Edit {
             ticket: stale,
@@ -271,7 +259,7 @@ fn category_navigation_is_local_and_clears_hidden_secret_edits() {
         true,
     );
     assert!(input.take().is_none());
-    assert!(state.edit.editor.0.is_empty());
+    assert!(state.edit.as_str().is_empty());
 }
 
 #[test]
@@ -337,30 +325,30 @@ fn pasted_key_trims_surrounding_whitespace_and_keeps_the_strict_typing_rule() {
             .handle(
                 Action::Pasted {
                     ticket,
-                    input: Input::pasted("  sk-PUBLIC_KEY  \n".into()),
+                    input: pasted_key_input("  sk-PUBLIC_KEY  \n".into()),
                 },
                 1,
                 true,
             )
             .is_none()
     );
-    assert_eq!(state.edit.editor.0, "sk-PUBLIC_KEY");
+    assert_eq!(state.edit.as_str(), "sk-PUBLIC_KEY");
     assert!(state.error.is_none());
     // Typing keeps the strict printable-ASCII rule: whitespace is still rejected.
     edit(&mut state, " sk-PUBLIC ");
-    assert!(state.edit.editor.0.is_empty());
+    assert!(state.edit.as_str().is_empty());
     assert!(state.error.is_some());
     // Multi-line clipboard text is not a key.
     let ticket = state.input_ticket();
     state.handle(
         Action::Pasted {
             ticket,
-            input: Input::pasted("two\nlines".into()),
+            input: pasted_key_input("two\nlines".into()),
         },
         1,
         true,
     );
-    assert!(state.edit.editor.0.is_empty());
+    assert!(state.edit.as_str().is_empty());
     assert!(state.error.unwrap().contains("Clipboard"));
 }
 
@@ -374,12 +362,12 @@ fn paste_is_fenced_by_panel_epoch_and_the_editor_holder_like_typing() {
     state.handle(
         Action::Pasted {
             ticket: stale,
-            input: Input::pasted("PUBLIC_PASTE".into()),
+            input: pasted_key_input("PUBLIC_PASTE".into()),
         },
         1,
         true,
     );
-    assert_eq!(state.edit.editor.0, "");
+    assert_eq!(state.edit.as_str(), "");
     // Epoch, enabled and review gates all fence the clipboard read.
     assert!(state.paste_allowed(state.input_ticket(), 1, true));
     assert!(!state.paste_allowed(state.input_ticket(), 2, true));
@@ -399,7 +387,7 @@ fn unavailable_clipboard_reports_without_touching_the_draft() {
     edit(&mut state, "PUBLIC_A");
     let ticket = state.input_ticket();
     state.handle(Action::PasteUnavailable { ticket }, 1, true);
-    assert_eq!(state.edit.editor.0, "PUBLIC_A");
+    assert_eq!(state.edit.as_str(), "PUBLIC_A");
     assert!(state.error.unwrap().contains("Nothing to paste"));
     // A stale holder cannot overwrite the live panel error.
     edit(&mut state, "in valid");

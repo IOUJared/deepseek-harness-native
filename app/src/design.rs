@@ -1,10 +1,18 @@
 //! Shared native Rosé Pine styles and a finite owned sidebar tween; no idle timer.
-use crate::ui::{ACCENT, DANGER, MUTED, SURFACE, TEXT};
 use iced::widget::{button, container, text_editor, text_input};
 use iced::{Border, Color, Theme};
+// Dark Rosé Pine, declared once. `ui` re-exports these names because most
+// modules spell them `crate::ui::ACCENT` and friends; nothing else may redeclare
+// a palette entry.
 pub const BASE: Color = Color::from_rgb8(0x19, 0x17, 0x24);
+pub const SURFACE: Color = Color::from_rgb8(0x1f, 0x1d, 0x2e);
 pub const OVERLAY: Color = Color::from_rgb8(0x26, 0x23, 0x3a);
+pub const TEXT: Color = Color::from_rgb8(0xe0, 0xde, 0xf4);
+pub const MUTED: Color = Color::from_rgb8(0x90, 0x8c, 0xaa);
+pub const ACCENT: Color = Color::from_rgb8(0xc4, 0xa7, 0xe7);
+pub const DANGER: Color = Color::from_rgb8(0xeb, 0x6f, 0x92);
 pub const FOAM: Color = Color::from_rgb8(0x9c, 0xcf, 0xd8);
+pub const GOLD: Color = Color::from_rgb8(0xf6, 0xc1, 0x77);
 pub const LINE: Color = Color::from_rgb8(0x40, 0x3d, 0x52);
 pub const SIDEBAR: f32 = 260.0;
 pub const RAIL: f32 = 68.0;
@@ -130,20 +138,7 @@ pub fn card(background: Color, radius: f32) -> container::Style {
         ..Default::default()
     }
 }
-// Stable component API; keep the original short names for existing consumers.
-pub fn button_style(theme: &Theme, status: button::Status) -> button::Style {
-    ghost(theme, status)
-}
-pub fn primary_button(theme: &Theme, status: button::Status) -> button::Style {
-    primary(theme, status)
-}
-pub fn danger_button(theme: &Theme, status: button::Status) -> button::Style {
-    danger(theme, status)
-}
-pub fn input_style(theme: &Theme, status: text_input::Status) -> text_input::Style {
-    field(theme, status)
-}
-pub fn picker_style(
+pub fn picker(
     _: &Theme,
     status: iced::widget::pick_list::Status,
 ) -> iced::widget::pick_list::Style {

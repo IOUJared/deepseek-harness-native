@@ -171,8 +171,9 @@ impl Prepared {
             .map_or(0.0, |offset| y + offset)
         }
     }
-    /// Non-search view; the transcript renders through the search-aware one.
-    #[allow(dead_code)]
+    /// Non-search view. The transcript always renders through the search-aware
+    /// one, so only this module's tests read it.
+    #[cfg(test)]
     pub fn view(&self, width: f32, expanded: bool) -> Element<'static, Message> {
         self.view_search(width, expanded, "")
     }
@@ -198,7 +199,7 @@ impl Prepared {
                     .size(12),
                 )
                 .on_press_maybe(self.ticket.map(Message::ToggleThoughts))
-                .style(design::button_style)
+                .style(design::ghost)
                 .padding([3, 0])
                 .height(22),
             );
@@ -333,7 +334,7 @@ fn marked(runs: Vec<Run>, query: &str) -> Vec<Run> {
     }
     let gold = iced::Color {
         a: 0.28,
-        ..iced::Color::from_rgb8(0xf6, 0xc1, 0x77)
+        ..design::GOLD
     };
     let mut result = Vec::new();
     let mut base = 0;
@@ -597,7 +598,7 @@ fn document_view(
                     .width(Length::Fill),
                     button(label("Copy code", MUTED).size(11))
                         .on_press_maybe(ticket.map(|ticket| Message::CopyCode(ticket, index)))
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .padding([2, 4])
                 ]
                 .height(22);
@@ -700,7 +701,7 @@ fn highlight(source: &str, language: Option<&str>) -> Vec<native::Span<'static, 
             {
                 cursor += next.len_utf8();
             }
-            color = iced::Color::from_rgb8(0xf6, 0xc1, 0x77);
+            color = design::GOLD;
         } else if ch.is_alphabetic() || ch == '_' {
             for next in source[cursor..]
                 .chars()

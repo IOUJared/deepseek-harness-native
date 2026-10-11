@@ -653,7 +653,7 @@ fn stale_callback_holder_is_consumed_and_cannot_replace_or_cancel_connect() {
         ..waiting()
     });
     let current = c.draft_ticket().unwrap();
-    let input = Input::new("PUBLIC_FAKE_CALLBACK".into());
+    let input = callback_input("PUBLIC_FAKE_CALLBACK".into());
     let replay = input.clone();
     c.handle(
         Action::Edit {
@@ -670,12 +670,12 @@ fn stale_callback_holder_is_consumed_and_cannot_replace_or_cancel_connect() {
         },
         context(),
     );
-    assert!(c.draft.0.is_empty());
+    assert!(c.draft.as_str().is_empty());
     // A current, actual manual edit does revoke automatic next steps.
     c.handle(
         Action::Edit {
             ticket: current,
-            input: Input::new("PUBLIC_FAKE_CALLBACK".into()),
+            input: callback_input("PUBLIC_FAKE_CALLBACK".into()),
         },
         context(),
     );

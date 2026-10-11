@@ -53,7 +53,7 @@ impl Controller {
                 )
                 .width(Length::Fill)
                 .padding([8, 4])
-                .style(design::button_style)
+                .style(design::ghost)
                 .on_press_maybe(
                     (enabled
                         && mode != preferences.composer_display
@@ -84,7 +84,7 @@ impl Controller {
                 )
                 .width(Length::Fill)
                 .padding([8, 4])
-                .style(design::button_style)
+                .style(design::ghost)
                 .on_press_maybe(
                     (enabled
                         && mode != preferences.usage_alert
@@ -124,7 +124,7 @@ impl Controller {
                     text_input("0–100", &self.usage.threshold)
                         .width(100)
                         .padding(8)
-                        .style(design::input_style),
+                        .style(design::field),
                 ]
                 .spacing(10),
             );
@@ -143,9 +143,9 @@ impl Controller {
             .push(label("OFF takes effect locally immediately. Save opt-outs to persist. Enabling is unavailable; no quota query starts here.", MUTED).size(12))
             .push(label("Quota observer, notifications and retry executor are not yet connected. No usage, reset time or runway is available.", MUTED).size(12))
             .push(row![
-                button("Save opt-outs").padding([8, 12]).style(design::primary_button)
+                button("Save opt-outs").padding([8, 12]).style(design::primary)
                     .on_press_maybe((enabled && self.usage.can_save() && self.usage_surface_action_allowed(&UsageAction::Save)).then_some(action(UsageAction::Save))),
-                button("Refresh preferences").padding([8, 12]).style(design::button_style)
+                button("Refresh preferences").padding([8, 12]).style(design::ghost)
                     .on_press_maybe(enabled.then_some(action(UsageAction::Refresh))),
             ].spacing(8))
             .push(label(storage, MUTED).size(12))
@@ -222,7 +222,7 @@ impl Controller {
                     label(if configured { "ChatGPT model route configured" } else { "ChatGPT model route not confirmed" }, TEXT),
                     label("Choose a model and its supported reasoning, speed and response options in the chat composer. Changing this route does not change your current session model.", MUTED).size(12),
                     button("Review model activation")
-                        .padding([9, 12]).style(design::button_style)
+                        .padding([9, 12]).style(design::ghost)
                         .on_press_maybe((self.allowed(context) && self.ready() && self.may_enable())
                             .then_some(Action::ReviewEnable(ticket))),
                     self.runtime_view(context, false),
@@ -238,11 +238,11 @@ impl Controller {
                 let allowed = self.allowed(context) && self.ready();
                 let mut body = column![
                     button("Refresh connection status")
-                        .padding([9, 12]).style(design::button_style)
+                        .padding([9, 12]).style(design::ghost)
                         .on_press_maybe(allowed.then_some(Action::CheckStatus(ticket))),
                     label("Checks local authorization and model-route metadata; it does not validate a subscription or request a model reply.", MUTED).size(12),
                     button(if self.advanced { "Hide sign-in recovery" } else { "Show sign-in recovery" })
-                        .padding([9, 12]).style(design::button_style)
+                        .padding([9, 12]).style(design::ghost)
                         .on_press_maybe(self.allowed(context).then_some(Action::ToggleAdvanced(ticket))),
                 ].spacing(12);
                 if self.advanced {
@@ -450,7 +450,7 @@ mod tests {
     fn tab_switch_clears_callback_and_review_without_retiring_an_admitted_operation() {
         let mut state = Controller::default();
         state.enter(1);
-        state.draft = Editor("PUBLIC-callback-not-a-credential".into());
+        state.draft = Editor::new("PUBLIC-callback-not-a-credential".into());
         let ticket = state.ticket();
         state.flight = Some(Flight {
             ticket,
@@ -465,7 +465,7 @@ mod tests {
             },
             context(1),
         );
-        assert!(state.draft.0.is_empty());
+        assert!(state.draft.as_str().is_empty());
         assert_eq!(state.flight.as_ref().map(|f| f.ticket), Some(ticket));
         assert_eq!(state.tab, Tab::Models);
         state.leave();

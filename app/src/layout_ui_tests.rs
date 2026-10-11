@@ -266,7 +266,7 @@ fn settings_paste_messages_are_inert_outside_a_live_models_draft() {
     drop(
         app.update(Message::Settings(crate::settings::Action::Pasted {
             ticket,
-            input: crate::settings::Input::pasted("PUBLIC".into()),
+            input: crate::settings::pasted_key_input("PUBLIC".into()),
         })),
     );
     assert!(queue.try_recv().is_err());

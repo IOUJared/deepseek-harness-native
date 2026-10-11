@@ -64,7 +64,7 @@ fn draft(c: &mut Controller) {
     c.handle(
         Action::Text {
             ticket,
-            input: Input::new("PUBLIC_NEW".into()),
+            input: draft_input("PUBLIC_NEW".into()),
         },
         context(),
     );
@@ -210,12 +210,12 @@ fn batched_edits_share_editor_lifetime_but_old_review_does_not() {
         c.handle(
             Action::Text {
                 ticket,
-                input: Input::new(raw.into()),
+                input: draft_input(raw.into()),
             },
             context(),
         );
     }
-    assert_eq!(c.draft.as_ref().unwrap().raw.0, "PUBLIC_B");
+    assert_eq!(c.draft.as_ref().unwrap().raw.as_str(), "PUBLIC_B");
     assert_ne!(c.draft_ticket(), Some(ticket));
     assert!(c.handle(Action::Review(ticket), context()).is_none());
     assert!(c.review.is_none());
@@ -225,7 +225,7 @@ fn one_take_string_holder_is_redacted_and_replay_does_not_restore_draft() {
     let mut c = loaded();
     draft(&mut c);
     let ticket = c.draft_ticket().unwrap();
-    let input = Input::new("PUBLIC_A".into());
+    let input = draft_input("PUBLIC_A".into());
     assert!(!format!("{input:?}").contains("PUBLIC_A"));
     c.handle(
         Action::Text {
@@ -237,7 +237,7 @@ fn one_take_string_holder_is_redacted_and_replay_does_not_restore_draft() {
     c.handle(
         Action::Text {
             ticket,
-            input: Input::new("PUBLIC_B".into()),
+            input: draft_input("PUBLIC_B".into()),
         },
         context(),
     );
@@ -249,7 +249,7 @@ fn one_take_string_holder_is_redacted_and_replay_does_not_restore_draft() {
         context(),
     );
     assert!(input.take().is_none());
-    assert_eq!(c.draft.as_ref().unwrap().raw.0, "PUBLIC_B");
+    assert_eq!(c.draft.as_ref().unwrap().raw.as_str(), "PUBLIC_B");
 }
 #[test]
 fn category_leave_discards_cache_draft_and_stale_input_holder() {
@@ -258,7 +258,7 @@ fn category_leave_discards_cache_draft_and_stale_input_holder() {
     let ticket = c.draft_ticket().unwrap();
     c.leave();
     c.enter(1);
-    let input = Input::new("PUBLIC_OLD".into());
+    let input = draft_input("PUBLIC_OLD".into());
     c.handle(
         Action::Text {
             ticket,
@@ -436,7 +436,7 @@ fn custom_ui_namespace_and_policy_fields_never_edit_or_confirm() {
     // Even a forged preexisting draft/review cannot bypass the namespace opt-out.
     c.draft = Some(Draft {
         field: 0,
-        raw: Editor("PUBLIC_NEW".into()),
+        raw: Editor::new("PUBLIC_NEW".into()),
     });
     let ticket = c.draft_ticket().unwrap();
     c.review = Some(ticket);
@@ -483,7 +483,7 @@ fn oversize_input_clears_old_draft() {
     c.handle(
         Action::Text {
             ticket,
-            input: Input::new("x".repeat(MAX_INPUT + 1)),
+            input: draft_input("x".repeat(MAX_INPUT + 1)),
         },
         context(),
     );

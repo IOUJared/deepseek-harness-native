@@ -29,6 +29,8 @@ mod plugins;
 mod reducer;
 #[path = "../src/rename.rs"]
 mod rename;
+#[path = "../src/secret_input.rs"]
+mod secret_input;
 #[path = "../src/settings.rs"]
 mod settings;
 #[path = "../src/smoke.rs"]
@@ -145,7 +147,7 @@ fn load_public_plugins(settings: &mut settings::Settings, review: bool) {
                 settings,
                 plugins::Action::Text {
                     ticket,
-                    input: plugins::Input::new("PUBLIC_REVIEW_TITLE".into())
+                    input: plugins::draft_input("PUBLIC_REVIEW_TITLE".into())
                 }
             )
             .is_none()
@@ -309,7 +311,7 @@ impl Fixture {
             settings.handle(
                 settings::Action::Edit {
                     ticket: input,
-                    input: settings::Input::new("PUBLIC_FAKE_RENDER_KEY".into()),
+                    input: settings::key_input("PUBLIC_FAKE_RENDER_KEY".into()),
                 },
                 1,
                 true,
@@ -498,7 +500,7 @@ impl Fixture {
                     &mut self.settings,
                     plugins::Action::Text {
                         ticket,
-                        input: plugins::Input::new("64".into()),
+                        input: plugins::draft_input("64".into()),
                     },
                 );
                 let Some(ticket) = self.settings.plugin_draft_ticket() else {

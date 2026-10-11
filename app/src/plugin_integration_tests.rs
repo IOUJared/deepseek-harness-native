@@ -1,5 +1,5 @@
 use super::*;
-use crate::plugins::{self, ReadTicket, WriteTicket};
+use crate::plugins::{self, ReadTicket, WriteTicket, draft_input};
 use dsh_native_transport::plugin::*;
 
 fn snapshot() -> plugins::Snapshot {
@@ -143,7 +143,7 @@ fn key_pending_blocks_plugin_read_without_losing_its_receipt() {
     state.handle(
         Action::Edit {
             ticket: state.input_ticket(),
-            input: Input::new("PUBLIC_DUMMY".into()),
+            input: draft_input("PUBLIC_DUMMY".into()),
         },
         1,
         true,
@@ -181,12 +181,12 @@ fn plugin_pending_survives_navigation_and_blocks_key_input_and_save() {
     state.handle(
         Action::Edit {
             ticket: state.input_ticket(),
-            input: Input::new("PUBLIC_DUMMY".into()),
+            input: draft_input("PUBLIC_DUMMY".into()),
         },
         1,
         true,
     );
-    assert!(state.edit.editor.0.is_empty());
+    assert!(state.edit.as_str().is_empty());
     assert!(!state.can_save(true));
     state.plugin_saved(submitted, plugins::SaveOutcome::NotSent);
     assert!(!state.plugins.pending());

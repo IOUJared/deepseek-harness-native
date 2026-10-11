@@ -85,14 +85,14 @@ fn codex_flight_and_hidden_auth_block_api_and_plugin_mutations() {
         s.handle(
             Action::Edit {
                 ticket: s.input_ticket(),
-                input: Input::new("PUBLIC_NOT_A_KEY".into())
+                input: key_input("PUBLIC_NOT_A_KEY".into())
             },
             1,
             true
         )
         .is_none()
     );
-    assert!(s.edit.editor.0.is_empty());
+    assert!(s.edit.as_str().is_empty());
     assert!(s.handle(Action::Refresh(s.ticket()), 1, true).is_none());
     assert!(
         s.handle(Action::SelectPage(Page::Plugins), 1, true)
@@ -140,7 +140,7 @@ fn stale_callback_confirmation_cannot_cross_settings_categories() {
     s.handle(
         Action::Codex(CodexAction::Edit {
             ticket: draft,
-            input: crate::codex::Input::new("PUBLIC_FAKE_CALLBACK".into()),
+            input: crate::codex::callback_input("PUBLIC_FAKE_CALLBACK".into()),
         }),
         1,
         true,

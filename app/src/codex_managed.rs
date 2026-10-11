@@ -229,7 +229,7 @@ impl Controller {
         let allowed = self.allowed(context) && self.ready();
         let writable = allowed && self.account_epoch().is_some();
         let mut body = column![
-            button("Refresh accounts").padding([8,12]).style(design::button_style)
+            button("Refresh accounts").padding([8,12]).style(design::ghost)
                 .on_press_maybe(allowed.then_some(Action::RefreshAccounts(t))),
             label("Local labels and selection are not verified OAuth identity or entitlement. Quota: Unavailable.", MUTED).size(12),
         ].spacing(10);
@@ -288,7 +288,7 @@ impl Controller {
                     .width(Length::Fill),
                     button("Switch")
                         .padding([6, 8])
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .on_press_maybe(
                             (writable && self.can_select_account(&account.opaque_id)).then_some(
                                 Action::ReviewSelect {
@@ -310,10 +310,10 @@ impl Controller {
         }
         let input = text_input("Local account label", &self.managed.label)
             .padding(10)
-            .style(design::input_style);
+            .style(design::field);
         body = body.push(if writable { input.on_input(move |label| Action::EditLabel { ticket:t, label }) } else { input })
             .push(row![
-                button("Add account").padding([8,12]).style(design::button_style).on_press_maybe((writable && !self.managed.label.is_empty()).then_some(Action::AddAccount(t))),
+                button("Add account").padding([8,12]).style(design::ghost).on_press_maybe((writable && !self.managed.label.is_empty()).then_some(Action::AddAccount(t))),
                 button("Sign out all").padding([8,12]).style(design::danger).on_press_maybe((writable && self.has_accounts()).then_some(Action::ReviewSignOutAll(t))),
             ].spacing(8))
             .push(label("Add stores a grant without selecting it. Local sign-out removes local grants; it does not revoke them at OpenAI.", MUTED).size(12));
@@ -367,7 +367,7 @@ impl Controller {
             row![
                 button("Confirm").padding([8,12]).style(design::danger)
                     .on_press_maybe(writable.then_some(Action::ConfirmAccount(t))),
-                button("Cancel review").padding([8,12]).style(design::button_style)
+                button("Cancel review").padding([8,12]).style(design::ghost)
                     .on_press_maybe(self.allowed(context).then_some(Action::DismissAccount(t))),
             ].spacing(8),
         ].spacing(12).into())

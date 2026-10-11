@@ -296,9 +296,9 @@ fn reading<'a>(
 /// Describe current approximate Host context or the last retained authoritative request.
 /// The caller owns session/epoch/watermark validity; stale projections cannot supply capacity.
 /// Retained records must be a contiguous chronological window, not a whole-log usage aggregate.
-/// The plain label. [`state`] wraps it for the composer; this stays the direct
-/// entry point its unit tests and the fixture build read.
-#[allow(dead_code)]
+/// The composer renders [`state`], which wraps this line; only the tests that
+/// pin the exact wording call it directly.
+#[cfg(test)]
 pub fn describe<'a>(
     projections: &BTreeMap<String, Value>,
     projection_current: bool,

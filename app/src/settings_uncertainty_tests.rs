@@ -19,7 +19,7 @@ fn submitted(settings: &mut Settings) -> Ticket {
     settings.handle(
         Action::Edit {
             ticket: settings.input_ticket(),
-            input: Input::new("PUBLIC_UNCERTAIN_FIXTURE".into()),
+            input: key_input("PUBLIC_UNCERTAIN_FIXTURE".into()),
         },
         1,
         true,
@@ -50,7 +50,7 @@ fn refreshed(settings: &mut Settings, epoch: u64, present: bool) {
 fn blocked(settings: &mut Settings, epoch: u64, receipt: Ticket) {
     assert_eq!(settings.uncertain_save, Some(receipt));
     assert!(!settings.pending());
-    let input = Input::new("PUBLIC_REPLACEMENT_MUST_NOT_ENTER".into());
+    let input = key_input("PUBLIC_REPLACEMENT_MUST_NOT_ENTER".into());
     assert!(
         settings
             .handle(
@@ -64,7 +64,7 @@ fn blocked(settings: &mut Settings, epoch: u64, receipt: Ticket) {
             .is_none()
     );
     assert!(input.take().is_none());
-    assert!(settings.edit.editor.0.is_empty());
+    assert!(settings.edit.as_str().is_empty());
     assert!(!settings.can_save(true));
     assert!(
         settings

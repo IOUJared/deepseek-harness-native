@@ -103,7 +103,7 @@ pub fn setup(settings: &mut settings::Settings, mode: &str) -> Value {
             settings,
             codex::Action::Edit {
                 ticket: edit,
-                input: codex::Input::new(PUBLIC_CALLBACK.into()),
+                input: codex::callback_input(PUBLIC_CALLBACK.into()),
             },
         )
         .is_none();

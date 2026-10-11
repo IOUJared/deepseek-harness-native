@@ -4,10 +4,6 @@ use crate::ui::{ACCENT, DANGER, MUTED, SURFACE, TEXT, label};
 use dsh_native_core::{OnboardingMetadata, SecretApiKey};
 use iced::widget::{button, column, container, row, scrollable, text_input};
 use iced::{Element, Length};
-use std::sync::{
-    Arc, Mutex,
-    atomic::{Ordering, compiler_fence},
-};
 const MAX_DRAFT: usize = 16_384;
 #[path = "cloudflare.rs"]
 pub(crate) mod cloudflare;
@@ -66,71 +62,19 @@ pub struct RouteFacts {
     /// True when the catalog read failed.
     pub failed: bool,
 }
-// The native editor needs a local plaintext value; it is never an Event/String DTO.
-#[derive(Default)]
-struct Editor(String);
-impl Editor {
-    fn wipe(&mut self) {
-        // SAFETY: String owns its complete u8 allocation. Write only, including spare capacity;
-        // zero bytes preserve UTF-8 and the allocation remains live until String drops.
-        unsafe {
-            let bytes = self.0.as_mut_vec();
-            for offset in 0..bytes.capacity() {
-                bytes.as_mut_ptr().add(offset).write_volatile(0);
-            }
-        }
-        compiler_fence(Ordering::SeqCst);
-    }
+use crate::secret_input::Editor;
+/// The one-use key draft the panel hands to the app.
+pub use crate::secret_input::Input;
+use crate::secret_input::Value as InputValue;
+/// A typed API key, bounded by the same printable-ASCII rule the Core frame
+/// enforces on the serialized save.
+pub fn key_input(raw: String) -> Input {
+    Input::ascii(raw, MAX_DRAFT)
 }
-impl Drop for Editor {
-    fn drop(&mut self) {
-        self.wipe();
-    }
-}
-impl std::fmt::Debug for Editor {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("SecretEditor([REDACTED])")
-    }
-}
-struct Edit {
-    editor: Editor,
-}
-enum InputValue {
-    Valid(Edit),
-    Rejected,
-}
-/// Clone duplicates only a one-use holder, never plaintext or SecretApiKey.
-#[derive(Clone)]
-pub struct Input(Arc<Mutex<Option<InputValue>>>);
-impl Input {
-    pub fn new(raw: String) -> Self {
-        Self::validated(raw)
-    }
-    /// Clipboard paste. Copied keys routinely carry a trailing newline or
-    /// surrounding spaces, so those are trimmed before the same
-    /// printable-ASCII rule; the secret itself is unchanged otherwise.
-    pub fn pasted(raw: String) -> Self {
-        Self::validated(raw.trim().to_owned())
-    }
-    fn validated(raw: String) -> Self {
-        let value = if raw.len() > MAX_DRAFT || !raw.bytes().all(|b| (0x21..=0x7e).contains(&b)) {
-            drop(Editor(raw));
-            InputValue::Rejected
-        } else {
-            InputValue::Valid(Edit {
-                editor: Editor(raw),
-            })
-        };
-        Self(Arc::new(Mutex::new(Some(value))))
-    }
-    fn take(&self) -> Option<InputValue> {
-        self.0.lock().ok()?.take()
-    }
-}
-impl std::fmt::Debug for Input {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("SecretInput([REDACTED])")
-    }
+/// Clipboard paste. Copied keys routinely carry a trailing newline or surrounding
+/// spaces, so those are trimmed before that rule; the secret itself is unchanged.
+pub fn pasted_key_input(raw: String) -> Input {
+    key_input(raw.trim().to_owned())
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Page {
@@ -261,7 +205,7 @@ pub struct Settings {
     panel: u64,
     serial: u64,
     editor_generation: u64,
-    edit: Edit,
+    edit: Editor,
     metadata: Option<OnboardingMetadata>,
     reading: Option<Ticket>,
     save: SavePhase,
@@ -286,9 +230,7 @@ impl Default for Settings {
             panel: 0,
             serial: 0,
             editor_generation: 0,
-            edit: Edit {
-                editor: Editor::default(),
-            },
+            edit: Editor::default(),
             metadata: None,
             reading: None,
             save: SavePhase::Idle,
@@ -339,7 +281,7 @@ impl Settings {
             .size(12),
         )
         .padding([6, 8])
-        .style(design::button_style)
+        .style(design::ghost)
         .on_press(Action::ToggleInfo {
             ticket: self.info_ticket(),
             info,
@@ -483,9 +425,7 @@ impl Settings {
     }
     fn clear(&mut self) {
         self.editor_generation += 1;
-        self.edit = Edit {
-            editor: Editor::default(),
-        };
+        self.edit = Editor::default();
     }
     pub fn close(&mut self) {
         self.cloudflare.leave();
@@ -530,7 +470,7 @@ impl Settings {
             && !self.codex.pending()
             && self.reading.is_none()
             && self.metadata.is_some_and(|m| m.writable)
-            && !self.edit.editor.0.is_empty()
+            && !self.edit.as_str().is_empty()
     }
     /// A clipboard paste is a draft edit: the same panel, epoch, draft-holder
     /// and pending fences as [`Action::Edit`], plus the review/save gates.
@@ -550,8 +490,8 @@ impl Settings {
     /// Apply one validated draft value, invalidating any stale review.
     fn apply_input(&mut self, value: Option<InputValue>, rejected: &'static str) {
         match value {
-            Some(InputValue::Valid(edit)) => {
-                self.edit = edit;
+            Some(InputValue::Valid(editor)) => {
+                self.edit = editor;
                 self.next();
                 if matches!(self.save, SavePhase::Confirm(_)) {
                     self.save = SavePhase::Idle;
@@ -691,8 +631,8 @@ impl Settings {
                 return None;
             }
             match value {
-                Some(InputValue::Valid(edit)) => {
-                    self.edit = edit;
+                Some(InputValue::Valid(editor)) => {
+                    self.edit = editor;
                     self.next();
                     if matches!(self.save, SavePhase::Confirm(_)) {
                         self.save = SavePhase::Idle;
@@ -767,7 +707,7 @@ impl Settings {
                 if self.can_save(enabled)
                     && matches!(self.save,SavePhase::Confirm(t) if t==ticket) =>
             {
-                let raw = std::mem::take(&mut self.edit.editor.0);
+                let raw = self.edit.take();
                 let secret = match SecretApiKey::new(raw) {
                     Ok(secret) => secret,
                     Err(_) => {
@@ -822,8 +762,9 @@ impl Settings {
             self.save = SavePhase::EndedElsewhere;
         } // never confirm a different panel/draft.
     }
-    /// Compatibility entrypoint for embedders; the app uses the viewport-fitted variant.
-    #[allow(dead_code)]
+    /// The settings view at its default surface size. The app always renders
+    /// [`Self::view_sized`] with the live viewport, so this is the tests' entry.
+    #[cfg(test)]
     pub fn view(&self, enabled: bool) -> Element<'_, Action> {
         self.view_sized(enabled, 960.0, 700.0, &RouteFacts::default())
     }
@@ -958,7 +899,7 @@ impl Settings {
                     label("Settings", TEXT).size(16).width(Length::Fill),
                     button(label("×", MUTED).size(20))
                         .padding([4, 10])
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .on_press(Action::Close)
                 ]
                 .align_y(iced::Alignment::Center)
@@ -1031,17 +972,17 @@ impl Settings {
                 DANGER,
             ));
         }
-        let input = text_input("Paste or type your API key", &self.edit.editor.0)
+        let input = text_input("Paste or type your API key", self.edit.as_str())
             .padding(14)
             .size(15)
-            .style(design::input_style)
+            .style(design::field)
             .secure(true)
             .id("native-api-key-draft");
         let input = if editable {
             input
                 .on_input(move |raw| Action::Edit {
                     ticket: input_ticket,
-                    input: Input::new(raw),
+                    input: key_input(raw),
                 })
                 // Iced's own paste reads the clipboard itself; on Wayland that
                 // returns nothing and this callback only sees the unchanged
@@ -1054,7 +995,7 @@ impl Settings {
         };
         let paste = button(label("Paste", TEXT).size(13))
             .padding([12, 18])
-            .style(design::button_style)
+            .style(design::ghost)
             .on_press_maybe(editable.then_some(Action::Paste {
                 ticket: input_ticket,
             }));
@@ -1077,7 +1018,7 @@ impl Settings {
                     .width(Length::Fill),
                     button(label("Retry", MUTED).size(12))
                         .padding([5, 9])
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .on_press_maybe(
                             (enabled && !self.pending()).then_some(Action::Refresh(ticket))
                         )
@@ -1147,7 +1088,7 @@ impl Settings {
                     .size(12)
                 )
                 .padding([5, 9])
-                .style(design::button_style)
+                .style(design::ghost)
                 .on_press_maybe(
                     (context.enabled && context.visible && !self.plugins.pending()).then_some(
                         Action::Plugins(crate::plugins::Action::Refresh(
@@ -1179,11 +1120,11 @@ impl Settings {
                         column![
                             button("Save key")
                                 .padding([11, 18])
-                                .style(design::primary_button)
+                                .style(design::primary)
                                 .on_press_maybe(can_save.then_some(Action::Confirm(t))),
                             button("Cancel")
                                 .padding([10, 14])
-                                .style(design::button_style)
+                                .style(design::ghost)
                                 .on_press(Action::CancelReview(t))
                         ]
                         .spacing(10),
@@ -1208,7 +1149,7 @@ impl Settings {
                     .push(
                         button("Save again")
                             .padding([11, 18])
-                            .style(design::primary_button)
+                            .style(design::primary)
                             .on_press_maybe(can_save.then_some(Action::Review(ticket))),
                     );
             }
@@ -1220,7 +1161,7 @@ impl Settings {
                 .push(
                     button("Save again")
                         .padding([11, 18])
-                        .style(design::primary_button)
+                        .style(design::primary)
                         .on_press_maybe(can_save.then_some(Action::Review(ticket))),
                 );
             }
@@ -1228,7 +1169,7 @@ impl Settings {
                 body = body.push(
                     button("Review and save")
                         .padding([11, 18])
-                        .style(design::primary_button)
+                        .style(design::primary)
                         .on_press_maybe(can_save.then_some(Action::Review(ticket))),
                 );
             }
@@ -1471,7 +1412,7 @@ mod disclosure_tests {
         state.handle(
             Action::Edit {
                 ticket: state.input_ticket(),
-                input: Input::new("PUBLIC_FAKE_KEY".into()),
+                input: key_input("PUBLIC_FAKE_KEY".into()),
             },
             1,
             true,
@@ -1485,7 +1426,7 @@ mod disclosure_tests {
             assert_eq!(state.ticket(), operation);
             assert_eq!(state.input_ticket(), input);
             assert!(matches!(state.save, SavePhase::Confirm(t) if t == operation));
-            assert_eq!(state.edit.editor.0, "PUBLIC_FAKE_KEY");
+            assert_eq!(state.edit.as_str(), "PUBLIC_FAKE_KEY");
             assert!(state.reading.is_none());
             assert!(state.can_save(true));
         }

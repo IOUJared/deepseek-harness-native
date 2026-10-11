@@ -65,16 +65,15 @@ pub fn load(path: PathBuf, canceled: impl Fn() -> bool) -> Outcome {
     }
 }
 
-/// Byte-level verifier used by tests and local callers; no extension-based format trust.
-/// Cancellation is sticky and checked at codec I/O boundaries and each thumbnail row.
-/// A codec's CPU-only decode interval is not preemptible; callers must drain owned workers.
-/// Standalone preview decode; the picker drives previews through its own
-/// bounded entry point instead.
-#[allow(dead_code)]
+/// Test entry point for byte-level verification, without extension-based format
+/// trust. Production reaches the same decoder through [`load`].
+#[cfg(test)]
 pub fn decode(bytes: &[u8], canceled: impl Fn() -> bool) -> Outcome {
     decode_inner(bytes, &Cancellation::new(&canceled))
 }
 
+/// Cancellation is sticky and checked at codec I/O boundaries and each thumbnail row.
+/// A codec's CPU-only decode interval is not preemptible; callers must drain owned workers.
 fn decode_inner<F: Fn() -> bool>(bytes: &[u8], cancel: &Cancellation<'_, F>) -> Outcome {
     if cancel.check() {
         return Outcome::Canceled;

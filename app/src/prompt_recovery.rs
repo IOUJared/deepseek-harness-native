@@ -56,16 +56,13 @@ pub(crate) enum Receipt {
     NotSent,
     Unknown,
 }
-macro_rules! redacted {
-    ($($ty:ty),*) => { $(impl std::fmt::Debug for $ty { fn fmt(&self,f:&mut std::fmt::Formatter<'_>)->std::fmt::Result { f.write_str("PromptRecovery([REDACTED])") } })* };
-}
-redacted!(Ticket, CheckTicket, Pending, Controller);
+crate::secret_input::redacted_debug!("PromptRecovery"; Ticket, CheckTicket, Pending, Controller);
 impl Controller {
     pub fn is_empty(&self) -> bool {
         self.pending.is_none()
     }
     /// Test-facing membership probe; production reads through [`Self::get`].
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn contains_key(&self, generation: &u64) -> bool {
         self.get(generation).is_some()
     }

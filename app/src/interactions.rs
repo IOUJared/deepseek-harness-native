@@ -555,7 +555,7 @@ impl Decisions {
                 TEXT
             ))
             .padding([10, 14])
-            .style(design::button_style)
+            .style(design::ghost)
             .on_press(Action::List),
             label(
                 if enabled {
@@ -584,7 +584,7 @@ impl Decisions {
                 container(label("Pending decisions", TEXT).size(26)).width(Length::Fill),
                 button("Back")
                     .padding([10, 14])
-                    .style(design::button_style)
+                    .style(design::ghost)
                     .on_press(Action::Close)
             ]
             .spacing(12);
@@ -598,7 +598,7 @@ impl Decisions {
                 list = list.push(
                     button(text(name).font(crate::ui::FONT))
                         .padding(14)
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .on_press(Action::Open(p.key.clone()))
                         .width(Length::Fill),
                 );
@@ -620,7 +620,7 @@ impl Decisions {
             container(label("Your decision", TEXT).size(26)).width(Length::Fill),
             button("Close panel — keep pending")
                 .padding([10, 14])
-                .style(design::button_style)
+                .style(design::ghost)
                 .on_press(Action::Close)
         ]
         .spacing(12);
@@ -653,7 +653,7 @@ impl Decisions {
                         row![
                             button("Allow once")
                                 .padding([11, 18])
-                                .style(design::primary_button)
+                                .style(design::primary)
                                 .width(Length::Fill)
                                 .on_press_maybe(editable.then(|| Action::Approval(
                                     key.clone(),
@@ -661,7 +661,7 @@ impl Decisions {
                                 ))),
                             button("Reject")
                                 .padding([11, 18])
-                                .style(design::danger_button)
+                                .style(design::danger)
                                 .width(Length::Fill)
                                 .on_press_maybe(editable.then(|| Action::Approval(
                                     key.clone(),
@@ -670,7 +670,7 @@ impl Decisions {
                             button("Cancel request")
                                 .padding([10, 14])
                                 .width(Length::Fill)
-                                .style(design::button_style)
+                                .style(design::ghost)
                                 .on_press_maybe(editable.then(|| {
                                     Action::Approval(key.clone(), ApprovalOutcome::Cancelled)
                                 }))
@@ -712,7 +712,7 @@ impl Decisions {
                         body = body.push(
                             button(text(title).font(crate::ui::FONT))
                                 .padding(14)
-                                .style(design::button_style)
+                                .style(design::ghost)
                                 .on_press_maybe(editable.then(|| Action::Toggle {
                                     key: key.clone(),
                                     question: index,
@@ -726,7 +726,7 @@ impl Decisions {
                     }
                     let input = text_input("Custom answer (2 KiB maximum)", &draft.custom)
                         .padding(14)
-                        .style(design::input_style)
+                        .style(design::field)
                         .width(Length::Fill);
                     body = body.push(if editable {
                         let key = key.clone();
@@ -745,7 +745,7 @@ impl Decisions {
                             "Skip this question explicitly"
                         })
                         .padding([10, 14])
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .on_press_maybe(editable.then(|| Action::Skip {
                             key: key.clone(),
                             question: index,
@@ -765,11 +765,11 @@ impl Decisions {
                         button("Submit complete answer")
                             .padding([11, 18])
                             .width(Length::Fill)
-                            .style(design::primary_button)
+                            .style(design::primary)
                             .on_press_maybe(editable.then(|| Action::Submit(key.clone()))),
                         button("Cancel request")
                             .padding([10, 14])
-                            .style(design::button_style)
+                            .style(design::ghost)
                             .on_press_maybe(editable.then(|| Action::CancelQuestion(key.clone())))
                     ]
                     .spacing(10),

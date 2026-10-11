@@ -73,7 +73,7 @@ impl Controller {
             .padding(8)
             .size(12)
             .width(Length::Fill)
-            .style(design::input_style)
+            .style(design::field)
             .on_input_maybe(editing.then_some(move |value| Action::Runtime {
                 ticket,
                 action: RuntimeAction::Number { field, value },
@@ -136,7 +136,7 @@ impl Controller {
                 .padding(8)
                 .text_size(12)
                 .width(Length::Fill)
-                .style(design::picker_style)
+                .style(design::picker)
                 .menu_style(menu)
                 .into()
             } else {
@@ -159,7 +159,7 @@ impl Controller {
                 .padding(8)
                 .text_size(12)
                 .width(Length::Fill)
-                .style(design::picker_style)
+                .style(design::picker)
                 .menu_style(menu)
                 .into()
             } else {
@@ -231,11 +231,11 @@ impl Controller {
         }
         body = body.push(label("Default / inherit and blank inputs remove the override. Save applies all runtime and image-input draft fields, not just this tab.", MUTED).size(12))
             .push(row![
-                button("Save runtime").padding([8, 12]).style(design::primary_button)
+                button("Save runtime").padding([8, 12]).style(design::primary)
                     .on_press_maybe((ready && self.runtime.can_save()).then_some(action(RuntimeAction::Save))),
-                button("Refresh runtime").padding([8, 12]).style(design::button_style)
+                button("Refresh runtime").padding([8, 12]).style(design::ghost)
                     .on_press_maybe(ready.then_some(action(RuntimeAction::Refresh))),
-                button("Reset to inherited defaults").padding([8, 12]).style(design::button_style)
+                button("Reset to inherited defaults").padding([8, 12]).style(design::ghost)
                     .on_press_maybe(editing.then_some(action(RuntimeAction::Reset))),
             ].spacing(8));
         if let Some(snapshot) = self.runtime.snapshot {

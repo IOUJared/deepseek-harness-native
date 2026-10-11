@@ -72,32 +72,15 @@ pub(super) struct Coordinator {
     last_serial: u64,
 }
 impl Coordinator {
-    /// Whole-coordinator busy probe; the composer gates on the per-slot state
-    /// it already holds rather than this aggregate.
-    #[allow(dead_code)]
+    /// Whole-coordinator busy probe. The composer gates on the per-slot state it
+    /// already holds, so only this module's state-transition tests read it.
+    #[cfg(test)]
     pub fn busy(&self) -> bool {
         self.active.is_some()
     }
-    /// Private staged receipts for the caller's own display model; never exposed to the GUI as bytes.
-    /// Staged receipts for the caller's own display model; the GUI never
-    /// receives bytes, only these identities.
-    #[allow(dead_code)]
-    pub fn staged_tickets(&self) -> impl Iterator<Item = &Ticket> {
-        self.staged.iter().map(|staged| &staged.ticket)
-    }
-    /// Per-stage metadata lookup for the display model above.
-    #[allow(dead_code)]
-    pub fn staged_metadata(&self, ticket: &Ticket) -> Option<Metadata> {
-        self.staged
-            .iter()
-            .find(|staged| &staged.ticket == ticket)
-            .map(|staged| Metadata {
-                name: staged.value.file.name.clone(),
-                bytes: staged.value.file.bytes,
-            })
-    }
-    /// Staged slot count for the display model above.
-    #[allow(dead_code)]
+    /// Staged slot count. Nothing in the app displays it, so only the staged-slot
+    /// assertions in this module read it.
+    #[cfg(test)]
     pub fn staged_count(&self) -> usize {
         self.staged.len()
     }

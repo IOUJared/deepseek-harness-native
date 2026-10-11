@@ -54,7 +54,7 @@ fn enable_requires_free_plan_attestation_account_and_token() {
     state.metadata.as_mut().unwrap().token_configured = false;
     assert!(!state.can_save(true));
     edit(&mut state, |t| {
-        Action::Token(t, Input::new("PUBLIC_FAKE_TOKEN".into()))
+        Action::Token(t, key_input("PUBLIC_FAKE_TOKEN".into()))
     });
     assert!(state.can_save(true));
     edit(&mut state, |t| Action::Free(t, false));
@@ -90,14 +90,14 @@ fn review_is_invalidated_by_edits_and_secret_is_consumed_once() {
     let mut state = ready();
     enable(&mut state);
     edit(&mut state, |t| {
-        Action::Token(t, Input::new("PUBLIC_FAKE_TOKEN".into()))
+        Action::Token(t, key_input("PUBLIC_FAKE_TOKEN".into()))
     });
     edit(&mut state, Action::Review);
     let old = state.ticket();
     edit(&mut state, |t| Action::Browser(t, true));
     assert!(state.handle(Action::Confirm(old), 1, true).is_none());
     let effect = save(&mut state);
-    assert!(state.token.0.is_empty());
+    assert!(state.token.as_str().is_empty());
     assert!(
         state
             .handle(Action::Confirm(state.ticket()), 1, true)
@@ -130,7 +130,7 @@ fn blank_keeps_token_and_navigation_clears_draft_without_request() {
     let pending = state.pending;
     state.leave();
     assert_eq!(state.pending, pending);
-    assert!(state.token.0.is_empty());
+    assert!(state.token.as_str().is_empty());
     state.enter(1);
     assert!(state.metadata.is_none());
     state.completed(pending.unwrap(), Outcome::Snapshot(snapshot()));
@@ -183,11 +183,11 @@ fn not_sent_and_failed_read_are_visible_and_stale_callbacks_cannot_change_drafts
     state.enter(1);
     state.completed(read, Outcome::Snapshot(snapshot()));
     assert!(state.metadata.is_none());
-    let input = Input::new("PUBLIC_FAKE_STALE".into());
+    let input = key_input("PUBLIC_FAKE_STALE".into());
     let replay = input.clone();
     assert!(state.handle(Action::Token(stale, input), 1, true).is_none());
     assert!(replay.take().is_none());
-    assert!(state.token.0.is_empty());
+    assert!(state.token.as_str().is_empty());
 }
 #[test]
 fn disconnect_unknown_settlement_and_replayed_receipt_are_fenced() {

@@ -7,10 +7,6 @@ use dsh_native_core::{
 };
 use iced::widget::{button, column, container, row, text_input};
 use iced::{Element, Length};
-use std::sync::{
-    Arc, Mutex,
-    atomic::{Ordering, compiler_fence},
-};
 
 #[cfg(test)]
 #[path = "codex_connect_tests.rs"]
@@ -52,40 +48,13 @@ pub struct Context {
     pub visible: bool,
     pub enabled: bool,
 }
-#[derive(Default)]
-struct Editor(String);
-impl Drop for Editor {
-    fn drop(&mut self) {
-        // SAFETY: overwrite the live owned allocation, including spare capacity; zeros preserve UTF-8.
-        unsafe {
-            let bytes = self.0.as_mut_vec();
-            for offset in 0..bytes.capacity() {
-                bytes.as_mut_ptr().add(offset).write_volatile(0);
-            }
-        }
-        compiler_fence(Ordering::SeqCst);
-    }
-}
-enum InputValue {
-    Valid(Editor),
-    Rejected,
-}
-/// Clones share a single consuming owner, never a plaintext copy or replayable secret.
-#[derive(Clone)]
-pub struct Input(Arc<Mutex<Option<InputValue>>>);
-impl Input {
-    pub fn new(raw: String) -> Self {
-        let value = if raw.len() > MAX_INPUT || !raw.bytes().all(|b| (0x21..=0x7e).contains(&b)) {
-            drop(Editor(raw));
-            InputValue::Rejected
-        } else {
-            InputValue::Valid(Editor(raw))
-        };
-        Self(Arc::new(Mutex::new(Some(value))))
-    }
-    fn take(&self) -> Option<InputValue> {
-        self.0.lock().ok()?.take()
-    }
+/// The one-use draft handle this module's actions carry.
+pub use crate::secret_input::Input;
+use crate::secret_input::{Editor, Value as InputValue};
+/// A pasted callback, bounded by the same printable non-whitespace ASCII rule the
+/// Core frame enforces, so an invalid draft is refused before it can be reviewed.
+pub fn callback_input(raw: String) -> Input {
+    Input::ascii(raw, MAX_INPUT)
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Tab {
@@ -250,12 +219,7 @@ pub enum Outcome {
     Indeterminate,
     NotSent,
 }
-macro_rules! redacted_debug {
-    ($($ty:ty),*) => { $(impl std::fmt::Debug for $ty {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str("NativeCodex([REDACTED])") }
-    })* };
-}
-redacted_debug!(Editor, Input, Action, Effect, Outcome, Controller);
+crate::secret_input::redacted_debug!("NativeCodex"; Action, Effect, Outcome, Controller);
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Operation {
     Accounts,
@@ -1208,14 +1172,14 @@ impl Controller {
                 });
             }
             Action::ReviewCallback(t)
-                if self.draft_ticket() == Some(t) && !self.draft.0.is_empty() =>
+                if self.draft_ticket() == Some(t) && !self.draft.as_str().is_empty() =>
             {
                 self.review = Some(Review::Callback(t));
             }
             Action::ConfirmCallback(t)
                 if self.draft_ticket() == Some(t) && self.review == Some(Review::Callback(t)) =>
             {
-                let raw = std::mem::take(&mut self.draft.0);
+                let raw = self.draft.take();
                 self.clear_draft();
                 let Ok(secret) = SecretCodexCallback::new(raw) else {
                     self.notice = Notice::Invalid;
@@ -1556,13 +1520,13 @@ impl Controller {
             Review::Callback(ticket) if self.draft_ticket() == Some(ticket) => {
                 body = body
                     .push(label(format!("Review callback · OpenAI attempt {} · prompt {}", ticket.attempt, ticket.prompt), ACCENT))
-                    .push(text_input("Authorization callback", &self.draft.0).secure(true)
-                        .padding(12).style(design::input_style))
+                    .push(text_input("Authorization callback", self.draft.as_str()).secure(true)
+                        .padding(12).style(design::field))
                     .push(label("Submit this masked callback only to this current OpenAI login attempt. Its contents are consumed, never displayed or logged. Acceptance is not sign-in or persistence confirmation.", MUTED))
                     .push(row![
-                        button("Submit callback").padding([10, 14]).style(design::primary_button)
+                        button("Submit callback").padding([10, 14]).style(design::primary)
                             .on_press_maybe(allowed.then_some(Action::ConfirmCallback(ticket))),
-                        button("Cancel review").padding([10, 14]).style(design::button_style)
+                        button("Cancel review").padding([10, 14]).style(design::ghost)
                             .on_press_maybe(allowed.then_some(Action::DismissReview(t)))
                     ].spacing(10))
                     .push(label("Cancel attempt may still race credential persistence. Closing or switching sections clears the draft, not the login.", DANGER))
@@ -1575,9 +1539,9 @@ impl Controller {
                     .push(label("Only a missing native-default route is added with revision checking. Existing configuration is preserved; a changed revision refuses this write.", MUTED))
                     .push(label("This does not load models or send a request. After enabling, explicitly Load models and select a specific model for your session. Subscription plan and provider limits apply.", MUTED))
                     .push(row![
-                        button("Enable GPT models").padding([10, 14]).style(design::primary_button)
+                        button("Enable GPT models").padding([10, 14]).style(design::primary)
                             .on_press_maybe(allowed.then_some(Action::ConfirmEnable(ticket))),
-                        button("Cancel review").padding([10, 14]).style(design::button_style)
+                        button("Cancel review").padding([10, 14]).style(design::ghost)
                             .on_press_maybe(allowed.then_some(Action::DismissReview(t)))
                     ].spacing(10));
             }
@@ -1589,7 +1553,7 @@ impl Controller {
         let allowed = self.allowed(context) && self.ready();
         let t = self.ticket();
         let mut body = column![
-            button("Connect ChatGPT").padding([10, 14]).style(design::primary_button)
+            button("Connect ChatGPT").padding([10, 14]).style(design::primary)
                 .on_press_maybe((allowed && self.connection.is_none()).then_some(Action::Connect(t))),
             label("Opens OpenAI sign-in and connects model access. This chat’s model stays unchanged; credentials may be stored locally.", MUTED)]
             .spacing(14).width(Length::Fill);
@@ -1643,7 +1607,7 @@ impl Controller {
                 .size(12),
             )
             .padding([6, 8])
-            .style(design::button_style)
+            .style(design::ghost)
             .on_press_maybe(self.allowed(context).then_some(Action::ToggleAdvanced(t))),
         );
         if !self.advanced {
@@ -1670,7 +1634,7 @@ impl Controller {
             .push(
                 button("Check sign-in status")
                     .padding([10, 14])
-                    .style(design::button_style)
+                    .style(design::ghost)
                     .on_press_maybe(allowed.then_some(Action::CheckStatus(t))),
             );
         let Some(m) = self.metadata.filter(|_| self.fresh) else {
@@ -1701,7 +1665,7 @@ impl Controller {
                 body = body.push(
                     button("Open OpenAI login page (manual retry)")
                         .padding([10, 14])
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .on_press_maybe(
                             (allowed
                                 && m.browser_available
@@ -1713,31 +1677,34 @@ impl Controller {
                 );
             }
             if let Some(ticket) = self.draft_ticket() {
-                let input = text_input("Optional: paste authorization callback", &self.draft.0)
-                    .secure(true)
-                    .padding(12)
-                    .style(design::input_style);
+                let input = text_input(
+                    "Optional: paste authorization callback",
+                    self.draft.as_str(),
+                )
+                .secure(true)
+                .padding(12)
+                .style(design::field);
                 body = body.push(if allowed && self.review.is_none() {
                     input.on_input(move |raw| Action::Edit {
                         ticket,
-                        input: Input::new(raw),
+                        input: callback_input(raw),
                     })
                 } else {
                     input
                 });
                 if self.review == Some(Review::Callback(ticket)) {
                     body = body.push(label("Submit this masked callback only to the current OpenAI login attempt. Its contents will be consumed, not displayed or logged.", DANGER))
-                        .push(button("Submit callback").padding([10, 14]).style(design::primary_button)
+                        .push(button("Submit callback").padding([10, 14]).style(design::primary)
                             .on_press_maybe(allowed.then_some(Action::ConfirmCallback(ticket))))
-                        .push(button("Cancel review").padding([8, 12]).style(design::button_style)
+                        .push(button("Cancel review").padding([8, 12]).style(design::ghost)
                             .on_press_maybe(allowed.then_some(Action::DismissReview(t))));
                 } else {
                     body = body.push(
                         button("Review callback")
                             .padding([10, 14])
-                            .style(design::button_style)
+                            .style(design::ghost)
                             .on_press_maybe(
-                                (allowed && !self.draft.0.is_empty())
+                                (allowed && !self.draft.as_str().is_empty())
                                     .then_some(Action::ReviewCallback(ticket)),
                             ),
                     );
@@ -1745,7 +1712,7 @@ impl Controller {
                 body = body.push(
                     button("Discard callback")
                         .padding([8, 12])
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .on_press_maybe(allowed.then_some(Action::DiscardCallback(ticket))),
                 );
             }
@@ -1753,7 +1720,7 @@ impl Controller {
             body = body.push(
                 button("Sign in with ChatGPT")
                     .padding([10, 14])
-                    .style(design::primary_button)
+                    .style(design::primary)
                     .on_press_maybe(
                         (allowed && self.may_start() && self.review.is_none())
                             .then_some(Action::Start(t)),
@@ -1765,15 +1732,15 @@ impl Controller {
         } else if self.may_enable() {
             if let Some(Review::Enable { ticket, revision }) = self.review {
                 body = body.push(label(format!("Review: enable openai-codex at settings revision {revision}. Only a missing native-default route is added; existing configuration is not replaced."), ACCENT))
-                    .push(button("Enable GPT models").padding([10, 14]).style(design::primary_button)
+                    .push(button("Enable GPT models").padding([10, 14]).style(design::primary)
                         .on_press_maybe(allowed.then_some(Action::ConfirmEnable(ticket))))
-                    .push(button("Cancel review").padding([8, 12]).style(design::button_style)
+                    .push(button("Cancel review").padding([8, 12]).style(design::ghost)
                         .on_press_maybe(allowed.then_some(Action::DismissReview(t))));
             } else {
                 body = body.push(
                     button("Review enabling GPT models")
                         .padding([10, 14])
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .on_press_maybe(allowed.then_some(Action::ReviewEnable(t))),
                 );
             }

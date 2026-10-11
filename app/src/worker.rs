@@ -511,17 +511,6 @@ async fn next_terminal(
         None => std::future::pending().await,
     }
 }
-/// Per-operation guard retained for the Cloudflare write path; the current
-/// worker settles those operations inline.
-#[allow(dead_code)]
-fn cloudflare_guard(
-    ticket: crate::settings::Ticket,
-    smoke: bool,
-    stopping: bool,
-    busy: bool,
-) -> bool {
-    ticket.epoch == TRANSPORT_EPOCH && !smoke && !stopping && !busy
-}
 fn execute_cloudflare(
     backend: &Backend,
     effect: crate::settings::cloudflare::Effect,
@@ -3079,20 +3068,6 @@ mod tests {
             panel: 3,
             serial: 8,
         };
-        assert!(cloudflare_guard(ticket, false, false, false));
-        for (epoch, smoke, stopping, busy) in [
-            (0, false, false, false),
-            (TRANSPORT_EPOCH, true, false, false),
-            (TRANSPORT_EPOCH, false, true, false),
-            (TRANSPORT_EPOCH, false, false, true),
-        ] {
-            assert!(!cloudflare_guard(
-                crate::settings::Ticket { epoch, ..ticket },
-                smoke,
-                stopping,
-                busy
-            ));
-        }
         let effect = Effect::Save {
             ticket,
             revision: 0,

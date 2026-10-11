@@ -11,6 +11,7 @@ mod mcp;
 mod plugins;
 mod reducer;
 mod rename;
+mod secret_input;
 mod settings;
 mod smoke;
 mod terminal;

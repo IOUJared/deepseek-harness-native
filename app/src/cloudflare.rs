@@ -1,5 +1,5 @@
 //! Explicit local Cloudflare configuration; navigation never dispatches requests.
-use super::{Editor, Input, InputValue, Ticket};
+use super::{Editor, Input, InputValue, Ticket, key_input};
 use crate::{
     design,
     ui::{DANGER, MUTED, TEXT, label},
@@ -98,12 +98,6 @@ impl Effect {
             | Self::CancelLogin { ticket: t, .. }
             | Self::Disconnect { ticket: t, .. } => *t,
         }
-    }
-    /// Classification for callers that must separate a write from a read; the
-    /// worker selects the same split at its own match site.
-    #[allow(dead_code)]
-    pub fn mutation(&self) -> bool {
-        !matches!(self, Self::Read(_) | Self::OpenBrowser { .. })
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -261,7 +255,7 @@ impl Controller {
                 || (!self.account.is_empty()
                     && self.free
                     && (self.metadata.as_ref().is_some_and(|m| m.token_configured)
-                        || !self.token.0.is_empty())))
+                        || !self.token.as_str().is_empty())))
     }
     pub fn handle(&mut self, action: Action, epoch: u64, enabled: bool) -> Option<Effect> {
         // Consume stale/replayed opaque holders too, never retain an invisible secret.
@@ -461,10 +455,10 @@ impl Controller {
                 None
             }
             Action::Confirm(_) if self.review && self.can_save(enabled) => {
-                let token = if self.token.0.is_empty() {
+                let token = if self.token.as_str().is_empty() {
                     None
                 } else {
-                    match SecretApiKey::new(std::mem::take(&mut self.token.0)) {
+                    match SecretApiKey::new(self.token.take()) {
                         Ok(token) => Some(token),
                         Err(_) => {
                             self.warning =
@@ -515,7 +509,7 @@ impl Controller {
             }
             Action::Token(_, _) if self.can_write(enabled) => {
                 match input {
-                    Some(InputValue::Valid(edit)) => self.token = edit.editor,
+                    Some(InputValue::Valid(editor)) => self.token = editor,
                     Some(InputValue::Rejected) => {
                         self.token = Editor::default();
                         self.warning = Some((
@@ -775,7 +769,7 @@ impl Controller {
         let mut body = column![label("Cloudflare", TEXT).size(17),
             label("Use Workers Free. Paid accounts can bill. This app cannot enforce your Cloudflare account plan or global quota.", DANGER),
             label("Open the model selector and choose a Cloudflare model. Saving does not send a request or change this chat’s model. No account probes or automatic catalog switching.", MUTED),
-            button("Read metadata explicitly").style(design::button_style).on_press_maybe((enabled && !self.pending() && self.reading.is_none()).then_some(Action::Read(ticket)))].spacing(14);
+            button("Read metadata explicitly").style(design::ghost).on_press_maybe((enabled && !self.pending() && self.reading.is_none()).then_some(Action::Read(ticket)))].spacing(14);
         if let Some(meta) = &self.metadata {
             body = body.push(label(
                 format!(
@@ -867,7 +861,7 @@ impl Controller {
             } else {
                 "Connect Cloudflare"
             })
-            .style(design::primary_button)
+            .style(design::primary)
             .on_press_maybe(
                 (enabled
                     && if active {
@@ -893,7 +887,7 @@ impl Controller {
         {
             body = body.push(
                 button("Disconnect Cloudflare…")
-                    .style(design::button_style)
+                    .style(design::ghost)
                     .on_press_maybe(
                         (enabled && !self.pending() && !active)
                             .then_some(Action::ReviewDisconnect(ticket)),
@@ -902,7 +896,7 @@ impl Controller {
         }
         if self.disconnect_review {
             body=body.push(label("Disconnect disables both features and deletes the local OAuth grant. Issuer revocation is attempted but cannot be guaranteed.",DANGER))
-            .push(button("Confirm disconnect").style(design::button_style).on_press(Action::ConfirmDisconnect(ticket)))
+            .push(button("Confirm disconnect").style(design::ghost).on_press(Action::ConfirmDisconnect(ticket)))
             .push(button("Cancel review").on_press(Action::Cancel(ticket)));
         }
         body = body.push(
@@ -911,20 +905,20 @@ impl Controller {
             } else {
                 "OAuth client setup…"
             })
-            .style(design::button_style)
+            .style(design::ghost)
             .on_press_maybe((enabled && !self.pending()).then_some(Action::ToggleSetup(ticket))),
         );
         if self.setup_open {
             body=body.push(label("Register your own account-private public OAuth client (no client secret). Enter its exact registered scope IDs. PKCE S256 is automatic. Saving switches to browser authentication; features stay off until reviewed.",MUTED));
             let client = text_input("Public client ID", &self.client_id)
                 .padding(12)
-                .style(design::input_style);
+                .style(design::field);
             let scopes = text_input("Registered scope IDs (space separated)", &self.scopes)
                 .padding(12)
-                .style(design::input_style);
+                .style(design::field);
             let port = text_input("Callback port (default 8977)", &self.port)
                 .padding(12)
-                .style(design::input_style);
+                .style(design::field);
             body = body
                 .push(if editable {
                     client.on_input(move |v| Action::ClientId(ticket, v))
@@ -950,13 +944,13 @@ impl Controller {
                 ))
                 .push(
                     button("Save browser setup")
-                        .style(design::button_style)
+                        .style(design::ghost)
                         .on_press_maybe(editable.then_some(Action::SaveSetup(ticket))),
                 );
         }
         let account = text_input("Account ID (32 lowercase hex)", &self.account)
             .padding(12)
-            .style(design::input_style);
+            .style(design::field);
         body = body.push(if editable {
             account.on_input(move |value| Action::Account(ticket, value))
         } else {
@@ -974,15 +968,18 @@ impl Controller {
                     dsh_native_core::CloudflareAuthMode::Oauth,
                 )
             };
-            body=body.push(button(title).style(design::button_style).on_press_maybe(editable.then_some(Action::UseAuthMode(ticket,mode))))
+            body=body.push(button(title).style(design::ghost).on_press_maybe(editable.then_some(Action::UseAuthMode(ticket,mode))))
                 .push(label("Changing authentication mode turns both features off. A nonblank API token save selects API-token mode; blank preserves the selected mode.",MUTED).size(12));
         }
-        let token = text_input("API token (masked; blank keeps existing)", &self.token.0)
-            .secure(true)
-            .padding(12)
-            .style(design::input_style);
+        let token = text_input(
+            "API token (masked; blank keeps existing)",
+            self.token.as_str(),
+        )
+        .secure(true)
+        .padding(12)
+        .style(design::field);
         body = body.push(if editable {
-            token.on_input(move |value| Action::Token(ticket, Input::new(value)))
+            token.on_input(move |value| Action::Token(ticket, key_input(value)))
         } else {
             token
         });
@@ -1007,17 +1004,17 @@ impl Controller {
                 free
             });
         if self.review {
-            body = body.push(label(format!("Confirm save: account {} · models={} · browser={} · Workers Free attested={}. {}", self.account, self.models, self.browser, self.free, if self.token.0.is_empty() { "Keep existing token." } else { "Replace stored token." }), DANGER))
-                .push(button("Confirm Cloudflare save").style(design::primary_button).on_press_maybe(self.can_save(enabled).then_some(Action::Confirm(ticket))))
+            body = body.push(label(format!("Confirm save: account {} · models={} · browser={} · Workers Free attested={}. {}", self.account, self.models, self.browser, self.free, if self.token.as_str().is_empty() { "Keep existing token." } else { "Replace stored token." }), DANGER))
+                .push(button("Confirm Cloudflare save").style(design::primary).on_press_maybe(self.can_save(enabled).then_some(Action::Confirm(ticket))))
                 .push(button("Cancel review").on_press(Action::Cancel(ticket)));
         } else {
             body = body.push(
                 button("Review Cloudflare save")
-                    .style(design::primary_button)
+                    .style(design::primary)
                     .on_press_maybe(self.can_save(enabled).then_some(Action::Review(ticket))),
             );
         }
-        body = body.push(button("Disable both features").style(design::button_style).on_press_maybe(self.can_write(enabled).then_some(Action::Disable(ticket))))
+        body = body.push(button("Disable both features").style(design::ghost).on_press_maybe(self.can_write(enabled).then_some(Action::Disable(ticket))))
             .push(label("Disabling retains the token. Draft token clears on navigation, close, disconnect and submission. Masking is not memory protection; editor, clipboard, Node and kernel copies are outside owned-buffer wiping.", MUTED).size(12));
         if let Some((warning, attention)) = self.footer() {
             body = body.push(label(warning, if attention { DANGER } else { MUTED }));
