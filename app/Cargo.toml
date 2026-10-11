@@ -19,6 +19,10 @@ png = "=0.18.0"
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg"] }
 pulldown-cmark = { version = "=0.13.4", default-features = false }
 rustix = { version = "=1.1.5", features = ["fs"] }
+# Wayland clipboard reads: Iced's bundled smithay-clipboard backend needs a
+# focused-seat event and returns "no events received on any seat" for an
+# ordinary paste, so text is read through wl-clipboard-rs on its own connection.
+wl-clipboard-rs = "=0.9.4"
 
 [features]
 public-layout-fixture = []

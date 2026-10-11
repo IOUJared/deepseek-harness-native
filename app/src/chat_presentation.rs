@@ -9,9 +9,12 @@ pub(super) fn submitted_text(data: &Value, recorded: &BTreeSet<&str>) -> Option<
     let text = messages
         .iter()
         .filter(|message| {
-            message["id"]
-                .as_str()
-                .is_some_and(|id| !recorded.contains(id))
+            // An injected context message is not human history, so a splice that
+            // carries only injects stays out of Chat and lives in Trajectory.
+            presentation::human_message(&message["source"])
+                && message["id"]
+                    .as_str()
+                    .is_some_and(|id| !recorded.contains(id))
         })
         .map(|message| content(&message["content"]))
         .collect::<Vec<_>>()
@@ -25,19 +28,32 @@ pub(super) fn turn_notice(data: &Value) -> Option<String> {
         Some("completed" | "forked") => return None,
         Some("error") => {
             let error = &reason["error"];
-            // AUTH errors may echo credentials in the provider's message string.
-            if error["code"] == "AUTH" {
-                "Authentication failed. Check API login or Codex in Settings.".to_owned()
-            } else {
-                let code = error["code"].as_str().unwrap_or("UNKNOWN");
-                let message = error["message"]
-                    .as_str()
-                    .unwrap_or("The agent could not complete the request.");
-                format!(
-                    "Agent error ({}): {}",
-                    bounded(code, 64),
-                    bounded(message, MAX_DISPLAY_BYTES - 128)
-                )
+            // AUTH and credential errors may echo the provider's own message,
+            // which can quote configuration or a rejected secret. Each known
+            // code gets its own short, actionable line instead.
+            match error["code"].as_str() {
+                Some("AUTH") => {
+                    "Authentication failed. Check API login or Codex in Settings.".to_owned()
+                }
+                Some("MISSING_CREDENTIAL") => {
+                    "No API key stored for this model route. Add one in Settings → DeepSeek."
+                        .to_owned()
+                }
+                Some("INVALID_CREDENTIAL") => {
+                    "The stored API key was rejected. Re-enter it in Settings → DeepSeek."
+                        .to_owned()
+                }
+                _ => {
+                    let code = error["code"].as_str().unwrap_or("UNKNOWN");
+                    let message = error["message"]
+                        .as_str()
+                        .unwrap_or("The agent could not complete the request.");
+                    format!(
+                        "Agent error ({}): {}",
+                        bounded(code, 64),
+                        bounded(message, MAX_DISPLAY_BYTES - 128)
+                    )
+                }
             }
         }
         Some("blocked") => {

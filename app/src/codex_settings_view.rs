@@ -69,10 +69,16 @@ impl Controller {
                 text_input("0–100", &self.usage.threshold).width(100).padding(8).style(design::input_style),
             ].spacing(10));
         }
-        let storage = self.usage.snapshot.as_ref().map_or("Not read".to_owned(), |snapshot| {
-            if snapshot.persisted { format!("Last read/saved revision {}", snapshot.revision) }
-            else { "Unwritten defaults · revision 0 · not persisted".to_owned() }
-        });
+        let storage = if self
+            .usage
+            .snapshot
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.persisted)
+        {
+            "Saved on this device"
+        } else {
+            "Defaults · not saved"
+        };
         body = body.push(retry).push(consent)
             .push(label("OFF takes effect locally immediately. Save opt-outs to persist. Enabling is unavailable; no quota query starts here.", MUTED).size(12))
             .push(label("Quota observer, notifications and retry executor are not yet connected. No usage, reset time or runway is available.", MUTED).size(12))

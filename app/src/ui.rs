@@ -7,8 +7,8 @@ use crate::{
 use dsh_native_core::{Inspection, PublicEvent, StopResult};
 use dsh_native_transport::dto::*;
 use iced::widget::{
-    Column, Space, button, column, container, pick_list, row, scrollable, text, text_editor,
-    text_input,
+    Column, Space, button, column, container, pick_list, rich_text, row, scrollable, span, text,
+    text_editor, text_input,
 };
 use iced::{Color, Element, Length, Subscription, Task, Theme, keyboard, window};
 use std::collections::BTreeMap;
@@ -93,6 +93,13 @@ mod draft_store;
 mod draft_recovery;
 #[path = "draft_recovery_ui.rs"]
 mod draft_recovery_ui;
+#[path = "sidebar_organization.rs"]
+mod sidebar_organization;
+#[path = "sidebar_ui.rs"]
+mod sidebar_ui;
+#[cfg(test)]
+#[path = "sidebar_ui_tests.rs"]
+mod sidebar_ui_tests;
 #[path = "model_controls.rs"]
 mod model_controls;
 #[path = "anchored_popup.rs"]
@@ -152,6 +159,9 @@ pub enum Message {
     ExportSession(crate::management::Ticket),
     Export(crate::exporter::Action),
     ArchivedView,
+    Sidebar(sidebar_ui::Action),
+    SidebarLoaded { ticket:u64, result:Result<draft_store::Drafts,draft_store::Failure> },
+    SidebarSaved { ticket:u64, result:Result<(),draft_store::Failure> },
     Interaction(crate::interactions::Action),
     Worker(Event),
     CheckSubmission(prompt_recovery::Ticket),
@@ -161,6 +171,9 @@ pub enum Message {
     Editor(text_editor::Action),
     Send,
     KeyboardSend,
+    /// Wayland composer paste: read the clipboard off the UI thread.
+    PasteComposer,
+    PasteComposerText(Option<String>),
     ModelControls(model_controls::Action),
     Stop,
     Select(SessionId),
@@ -193,6 +206,11 @@ pub enum Message {
     HideDetails(detail_panel::Stamp),
     CopyDetailSource(detail_panel::Stamp),
     ToggleThoughts(conversation_content::Ticket),
+    /// Expand or collapse one tool row's recorded body inside the conversation.
+    ToggleActivity {
+        generation: u64,
+        key: u64,
+    },
     CopyCode(conversation_content::Ticket, usize),
     CopyMessage { generation: u64, key: u64 },
     EditMessage { generation: u64, key: u64 },
@@ -257,6 +275,9 @@ pub struct App {
     files: attachment_draft::Draft,
     local_files: attachment_ui::LocalFiles,
     show_archived: bool,
+    show_trash: bool,
+    sidebar_organization: sidebar_organization::State,
+    sidebar_store: Option<std::sync::Arc<std::sync::Mutex<draft_store::Store>>>,
     workspace_path: String,
     workspace_controls: bool,
     filter: String,
@@ -312,6 +333,7 @@ pub struct App {
     chat_geometry: chat_geometry::Cache,
     reply_content: conversation_content::Cache,
     thoughts_expanded: std::collections::BTreeSet<u64>,
+    activity_expanded: std::collections::BTreeSet<u64>,
     edit_review: Option<(u64, u64, u64)>,
     search_open: bool,
     search_query: String,
@@ -331,6 +353,7 @@ pub struct App {
 impl App {
     pub fn boot(options: Options, handle: Handle, feed: Feed) -> (Self, Task<Message>) {
         let draft_store=if options.smoke.is_none() {draft_store::Store::new(options.backend.native_home.clone()).ok().map(|store|std::sync::Arc::new(std::sync::Mutex::new(store)))}else{None};
+        let sidebar_store=if options.smoke.is_none() {draft_store::Store::sidebar(options.backend.native_home.clone()).ok().map(|store|std::sync::Arc::new(std::sync::Mutex::new(store)))}else{None};
         let workspace_path = options
             .backend
             .working_directory
@@ -369,6 +392,9 @@ impl App {
                 files: attachment_draft::Draft::default(),
                 local_files: Default::default(),
                 show_archived: false,
+                show_trash: false,
+                sidebar_organization: Default::default(),
+                sidebar_store,
                 workspace_path,
                 workspace_controls: false,
                 filter: String::new(),
@@ -427,6 +453,7 @@ impl App {
                 chat_geometry: Default::default(),
                 reply_content: Default::default(),
                 thoughts_expanded: Default::default(),
+                activity_expanded: Default::default(),
                 edit_review: None,
                 search_open: false,
                 search_query: String::new(),
@@ -466,15 +493,19 @@ impl App {
                 }
                 _ => None,
             }),
-            keyboard::listen().with(self.detail_escape_ticket()).filter_map(|(ticket,event)| match event {
-                keyboard::Event::KeyPressed {
-                    key,
-                    modifiers,
-                    repeat: false,
-                    ..
-                } => panel_shortcut(&key, modifiers, ticket),
-                _ => None,
-            }),
+            keyboard::listen()
+                .with((self.detail_escape_ticket(), self.settings_paste_ticket()))
+                .filter_map(|((ticket, paste), event)| match event {
+                    keyboard::Event::KeyPressed {
+                        key,
+                        modifiers,
+                        repeat: false,
+                        ..
+                    } => panel_shortcut(&key, modifiers, ticket).or_else(|| {
+                        settings_paste_message(wayland_session(), paste, &key, modifiers)
+                    }),
+                    _ => None,
+                }),
             animation,
             if self.draft_state.ready() && self.draft_state.dirty() && !self.draft_state.busy() && self.draft_state.failure().is_none() && matches!(self.close,Close::None) {
                 iced::time::every(Duration::from_millis(750)).map(|_|Message::DraftFlush)
@@ -492,6 +523,28 @@ impl App {
     }
     fn compact(&self) -> bool {
         self.layout_size().width < design::BREAKPOINT
+    }
+    /// Shared transcript/composer column width. The conversation pane is the
+    /// window minus the animated sidebar; the web then clamps the content to
+    /// `clamp(680, 64% of the pane, 920)` and never exceeds the pane's padded
+    /// content box. Geometry and rendered `max_width` must use this one value.
+    fn chat_lane(&self) -> f32 {
+        let column = (self.layout_size().width - self.sidebar_motion.value()).max(0.0);
+        (column - 40.0).min(design::chat_width(column)).max(0.0)
+    }
+    /// Composer editor height. The web InputBar grows its draft up to 14 lines
+    /// (`--dsh-composer-text-max-height: 336px`) over a 36px minimum. Native
+    /// counts logical lines at 15px/1.3 (19.5px) plus the editor's 24px vertical
+    /// padding, keeps the existing resting size, and uses a shorter cap in a
+    /// short window. Wrapped visual lines are not counted; beyond the cap the
+    /// editor scrolls internally.
+    fn composer_editor_height(&self) -> f32 {
+        const LINE: f32 = 19.5;
+        const CHROME: f32 = 24.0;
+        let short = self.layout_size().height < 620.0;
+        let (min_rows, max_rows) = if short { (2.0, 8.0) } else { (3.0, 14.0) };
+        let rows = self.editor.text().lines().count().max(1) as f32;
+        (rows.clamp(min_rows, max_rows) * LINE + CHROME).round()
     }
     fn sidebar_target(&self) -> f32 {
         if !self.compact() && self.sidebar_expanded {
@@ -520,6 +573,7 @@ impl App {
             && !self.settings.is_open()
             && !self.decisions.is_open()
             && !self.management.is_open()
+            && !self.sidebar_organization.is_open()
             && !self.exporter.is_open()
     }
     fn animation_active(&self) -> bool {
@@ -535,6 +589,7 @@ impl App {
             && !self.conversation_menu
             && self.detail.is_none()
             && !self.sidebar_sheet
+            && !self.selected.as_ref().is_some_and(|id| self.sidebar_organization.trashed(id))
     }
     fn detail_visible(&self) -> bool {
         self.layout_controls_enabled() && !self.capabilities && !self.conversation_menu
@@ -654,6 +709,10 @@ impl App {
                     self.exporter
                         .finish(&submission.receipt, crate::exporter::Outcome::NotSent);
                 }
+                Command::Cloudflare(effect) => {
+                    let ticket=effect.ticket(); drop(effect);
+                    self.settings.cloudflare_completed(ticket,crate::settings::cloudflare::Outcome::NotSent);
+                }
                 Command::KeyMetadata(ticket) => self.settings.metadata(ticket, Err(())),
                 Command::SaveKey { ticket, secret } => {
                     drop(secret);
@@ -714,6 +773,7 @@ impl App {
         self.editor =
             text_editor::Content::with_text(self.drafts.get(&session).map_or("", String::as_str));
         self.management.dismiss();
+        self.sidebar_organization.dismiss();
         self.exporter.dismiss();
         self.selected = Some(session.clone());
         self.generation += 1;
@@ -721,6 +781,7 @@ impl App {
         self.chat_geometry = Default::default();
         self.reply_content = Default::default();
         self.thoughts_expanded.clear();
+        self.activity_expanded.clear();
         self.edit_review = None;
         self.draft_review=None;
         self.search_open = false;
@@ -795,6 +856,7 @@ impl App {
     }
     fn send_allowed(&self) -> bool {
         self.pending.is_empty() && self.draft_serial!=u64::MAX
+            && !self.sidebar_organization.busy() && self.sidebar_organization.failure().is_none()
             && !self.local_files.picker.is_open()
             && !self.model_controls.is_open()
             && self.options.smoke.is_none()
@@ -828,7 +890,7 @@ impl App {
         self.draft_exit_requested=true;
         self.pending.disconnect();
         self.files.invalidate();
-        self.management.disconnect();
+        self.management.disconnect();self.sidebar_organization.dismiss();
         self.exporter.disconnect();
         self.settings.disconnect();
         self.settings.close();
@@ -843,12 +905,23 @@ impl App {
         match message {
             Message::FilePickerRead(result) => return self.picker_completed(result),
             Message::FilePreviewRead(stamp, result) => return self.complete_file_preview(stamp, result),
+            Message::SidebarLoaded {ticket,result} => {
+                self.sidebar_organization.loaded(ticket,result);
+                return if self.draft_exit_requested {self.finish_draft_exit()}else{Task::none()};
+            }
+            Message::SidebarSaved {ticket,result} => {
+                self.sidebar_organization.saved(ticket,result);
+                return if self.draft_exit_requested {self.finish_draft_exit()}else{Task::none()};
+            }
             _ => {}
         }
         if self.local_files.picker.is_open()
             && (background_message(&message) || matches!(&message,Message::Settings(_)))
             && !matches!(&message, Message::FilePicker(_)) { return Task::none(); }
         if (self.observations_lost || !self.pending.is_empty()) && matches!(&message,Message::Send|Message::KeyboardSend|Message::NewSession|Message::OpenWorkspace|Message::Model(_)|Message::Effort(_)|Message::ModelControls(_)|Message::Reload|Message::Select(_)|Message::FileUpload(_)|Message::FileRemove(_)|Message::ExportSession(_)) {return Task::none();}
+        if ((self.sidebar_organization.busy() || self.sidebar_organization.failure().is_some())
+            && matches!(&message,Message::Select(_)))
+            || matches!(&message,Message::Select(id) if self.sidebar_organization.trashed(id)) {return Task::none();}
         if matches!(&message, Message::WorkingTick) {
             if self.working_animation_active() {
                 self.working_phase = (self.working_phase + 1) % working_indicator::PHASES;
@@ -875,6 +948,9 @@ impl App {
         {
             return Task::none();
         }
+        if self.sidebar_organization.is_open()
+            && ((background_message(&message) && !matches!(&message,Message::Sidebar(_)))
+                || matches!(&message,Message::Settings(_))) {return Task::none();}
         let was_active = self.transcript_active();
         let geometry_change = matches!(
             &message,
@@ -909,6 +985,10 @@ impl App {
             self.model_controls.dismiss();
         }
         match message {
+            Message::Sidebar(action) => return self.sidebar_action(action),
+            Message::DismissPanel if self.sidebar_organization.is_open() => {
+                self.sidebar_organization.dismiss();
+            }
             Message::DismissPanel if self.search_open && self.composer_visible() => {
                 return self.update(Message::SearchClose {generation:self.generation,serial:self.search_serial});
             }
@@ -966,6 +1046,7 @@ impl App {
             }
             Message::ArchivedView if self.layout_controls_enabled() => {
                 self.show_archived = !self.show_archived;
+                self.show_trash = false;
             }
             Message::DismissPanel
                 if self.management.is_open()
@@ -991,7 +1072,7 @@ impl App {
                 {
                     if let Some(view) = context.view {
                         self.management.dismiss();
-                        let context = self.export_context();
+                        let context = self.export_context_for(Some(&view.target));
                         self.exporter
                             .apply(crate::exporter::Action::Open(view), &context);
                     }
@@ -1049,10 +1130,52 @@ impl App {
                 // Stateless composer/old subscription dismissals never close Details.
                 // The visible Details Escape subscription carries its opening ticket.
             }
+            Message::Settings(crate::settings::Action::Paste { ticket })
+                if self.settings.paste_allowed(
+                    ticket,
+                    self.transport_epoch,
+                    self.settings_enabled(),
+                ) =>
+            {
+                if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+                    // Iced's Wayland clipboard backend selects a seat only from
+                    // key/pointer serials, so a plain Paste click reads nothing.
+                    // Read on a detached thread; the UI thread never blocks and
+                    // the text enters a one-use holder, never the message.
+                    return Task::perform(
+                        async {
+                            let (sender, receiver) = tokio::sync::oneshot::channel();
+                            std::thread::spawn(move || {
+                                let _ = sender.send(native_clipboard::read_text());
+                            });
+                            receiver.await.ok().flatten()
+                        },
+                        move |text| match text {
+                            Some(text) if !text.trim().is_empty() => {
+                                Message::Settings(crate::settings::Action::Pasted {
+                                    ticket,
+                                    input: crate::settings::Input::pasted(text),
+                                })
+                            }
+                            _ => Message::Settings(crate::settings::Action::PasteUnavailable {
+                                ticket,
+                            }),
+                        },
+                    );
+                }
+                // X11 has no Wayland seat; Iced's own clipboard read is usable.
+                return iced::clipboard::read().map(move |text| {
+                    Message::Settings(crate::settings::Action::Pasted {
+                        ticket,
+                        input: crate::settings::Input::pasted(text.unwrap_or_default()),
+                    })
+                });
+            }
             Message::Settings(action) => {
                 let enabled = self.settings_enabled();
                 if let Some(effect) = self.settings.handle(action, self.transport_epoch, enabled) {
                     self.command(match effect {
+                        crate::settings::Effect::Cloudflare(effect) => Command::Cloudflare(effect),
                         crate::settings::Effect::Codex(effect) => Command::Codex(effect),
                         crate::settings::Effect::Plugins(effect) => match effect {
                             crate::plugins::Effect::Read(ticket) => Command::PluginsRead(ticket),
@@ -1180,6 +1303,30 @@ impl App {
             }
             Message::KeyboardSend if !self.editor.text().trim().is_empty() => {
                 return self.update(Message::Send);
+            }
+            Message::PasteComposer if !self.model_controls.is_open() && self.composer_visible() => {
+                return Task::perform(
+                    async {
+                        let (sender, receiver) = tokio::sync::oneshot::channel();
+                        std::thread::spawn(move || {
+                            let _ = sender.send(native_clipboard::read_text());
+                        });
+                        receiver.await.ok().flatten()
+                    },
+                    Message::PasteComposerText,
+                );
+            }
+            Message::PasteComposerText(Some(text))
+                if !self.model_controls.is_open()
+                    && self.composer_visible()
+                    && !text.is_empty() =>
+            {
+                self.draft_serial = self.draft_serial.saturating_add(1);
+                self.edit_review = None;
+                self.editor.perform(text_editor::Action::Edit(
+                    text_editor::Edit::Paste(std::sync::Arc::new(text)),
+                ));
+                self.touch_draft();
             }
             Message::StopSubmission(ticket) if self.ready && !self.stopped && !self.cancel_pending && ticket.epoch==self.transport_epoch && self.pending.ticket().as_ref()==Some(&ticket) && self.composer_visible()=>{self.cancel_pending=true;self.cancel_generation=Some(ticket.generation);self.command(Command::Cancel{generation:ticket.generation,session:ticket.session});}
             Message::RejoinObservations if self.ready && self.observations_lost && !self.rejoin_pending && !self.stopped=>{self.rejoin_pending=true;self.command(Command::RejoinObservations{epoch:self.transport_epoch});}
@@ -1423,6 +1570,24 @@ impl App {
                     if !self.thoughts_expanded.remove(&ticket.key) { self.thoughts_expanded.insert(ticket.key); }
                 }
             }
+            // One tool row expands in place: the conversation never leaves for a
+            // separate page, and no request, read or write is started. Like a
+            // thought disclosure, the row heights refresh on the next view.
+            Message::ToggleActivity { generation, key }
+                if generation == self.generation && self.composer_visible() =>
+            {
+                let has_body = self
+                    .transcript
+                    .rows()
+                    .iter()
+                    .find(|row| row.key == key)
+                    .is_some_and(|row| !activity_body_source(row).is_empty());
+                if has_body && !self.activity_expanded.remove(&key) {
+                    self.activity_expanded.insert(key);
+                } else if !has_body {
+                    self.activity_expanded.remove(&key);
+                }
+            }
             Message::CopyCode(ticket, index) if ticket.generation == self.generation && self.composer_visible() => {
                 if let Some(reply) = self.reply_parts(ticket.key).filter(|reply| reply.ticket == Some(ticket))
                     && let Some(source) = reply.code(index).filter(|source| !source.is_empty()) {
@@ -1565,8 +1730,9 @@ impl App {
                 }
                 self.status = format!("Owned Core {version}; authenticated native transport ready");
                 self.request_catalog();
-                if !self.stopped && matches!(self.close,Close::None) {return self.load_drafts(false);}
+                if !self.stopped && matches!(self.close,Close::None) {return Task::batch([self.load_drafts(false),self.load_sidebar(false)]);}
             }
+            Event::Core(PublicEvent::CloudflareAuth(status)) => {self.settings.cloudflare_observed(status);self.continue_cloudflare_connection();}
             Event::Core(PublicEvent::Codex(metadata)) => {
                 self.settings.codex_observed(metadata);
                 self.continue_codex_connection();
@@ -1596,7 +1762,7 @@ impl App {
             Event::Core(PublicEvent::Exited(result)) => {
                 self.pending.disconnect();
                 self.files.disconnect();
-                self.management.disconnect();
+                self.management.disconnect();self.sidebar_organization.dismiss();
                 self.exporter.disconnect();
                 self.settings.disconnect();
                 self.account = "Account metadata unavailable (disconnected)".into();
@@ -1665,6 +1831,7 @@ impl App {
             }
             Event::Workspace(frame) => match frame {
                 WorkspaceFollowFrame::Baseline { value } => {
+                    self.sidebar_organization.dismiss();
                     self.workspaces = value.items;
                     if !self
                         .management
@@ -1674,6 +1841,7 @@ impl App {
                     }
                 }
                 WorkspaceFollowFrame::Upsert { workspace } => {
+                    self.sidebar_organization.dismiss();
                     if let Some(existing) = self
                         .workspaces
                         .iter_mut()
@@ -1687,6 +1855,7 @@ impl App {
                     }
                 }
                 WorkspaceFollowFrame::Remove { workspace_id } => {
+                    self.sidebar_organization.dismiss();
                     self.workspaces.retain(|w| w.workspace_id != workspace_id);
                     if self.workspace.as_ref() == Some(&workspace_id) {
                         self.workspace = None;
@@ -1701,12 +1870,14 @@ impl App {
                 WorkspaceFollowFrame::Archived {
                     archived_session_ids,
                 } => {
+                    self.sidebar_organization.dismiss();
                     if !self.management.archives(archived_session_ids) {
                         self.status =
                             "Registry archive feed not authoritative; management disabled".into();
                     }
                 }
                 WorkspaceFollowFrame::Pinned { pinned_session_ids } => {
+                    self.sidebar_organization.dismiss();
                     if !self.management.pins(pinned_session_ids) {
                         self.status =
                             "Registry pin feed not authoritative; management disabled".into();
@@ -1730,7 +1901,11 @@ impl App {
                 }
             }
             Event::Selected { generation, frame } if generation == self.generation => {
-                if matches!(&frame,SessionFollowFrame::Snapshot {..}) { self.reply_content.clear(); self.thoughts_expanded.clear(); }
+                if matches!(&frame, SessionFollowFrame::Snapshot { .. }) {
+                    self.reply_content.clear();
+                    self.thoughts_expanded.clear();
+                    self.activity_expanded.clear();
+                }
                 if matches!(&frame,SessionFollowFrame::AssistantStream {..}) { self.reply_content.clear_live(); }
                 let snapshot = matches!(&frame, SessionFollowFrame::Snapshot { .. });
                 let title_change = match &frame {
@@ -1913,7 +2088,7 @@ impl App {
             }
             Event::ObservationsLost=>{
                 self.catalog_read.retire();
-                self.observations_lost=true;self.rejoin_pending=false;self.root_ready=false;self.follow_ready=false;self.pending.disconnect();self.files.invalidate();self.management.disconnect();self.decisions.disconnect();self.model_controls.dismiss();
+                self.observations_lost=true;self.rejoin_pending=false;self.root_ready=false;self.follow_ready=false;self.pending.disconnect();self.files.invalidate();self.management.disconnect();self.sidebar_organization.dismiss();self.decisions.disconnect();self.model_controls.dismiss();
                 self.status="Observation connection lost; original Host identity not re-verified. Check/reconnect explicitly; no automatic restart or session resume.".into();
             }
             Event::ObservationsRejoined{epoch,result} if epoch==self.transport_epoch && self.ready=>{
@@ -2000,12 +2175,13 @@ impl App {
             }
             Event::PluginsLoaded { ticket, result } => self.settings.plugins_loaded(ticket, result),
             Event::PluginSaved { ticket, result } => self.settings.plugin_saved(ticket, result),
+            Event::CloudflareCompleted { ticket, outcome } => {self.settings.cloudflare_completed(ticket,outcome);self.continue_cloudflare_connection();},
             Event::KeyMetadata { ticket, result } => self.settings.metadata(ticket, result),
             Event::KeySaved { ticket, result } => self.settings.saved(ticket, result),
             Event::Fault(error) => {
                 self.pending.disconnect();
                 self.files.disconnect();
-                self.management.disconnect();
+                self.management.disconnect();self.sidebar_organization.dismiss();
                 self.exporter.disconnect();
                 self.settings.disconnect();
                 self.account = "Account metadata unavailable (disconnected)".into();
@@ -2016,7 +2192,7 @@ impl App {
             }
             Event::NoBackendStarted => {
                 self.files.disconnect();
-                self.management.disconnect();
+                self.management.disconnect();self.sidebar_organization.dismiss();
                 self.exporter.disconnect();
                 self.settings.disconnect();
                 self.account = "Account metadata unavailable (disconnected)".into();
@@ -2030,7 +2206,7 @@ impl App {
             Event::Stopped(result) => {
                 self.pending.disconnect();
                 self.files.disconnect();
-                self.management.disconnect();
+                self.management.disconnect();self.sidebar_organization.dismiss();
                 self.exporter.disconnect();
                 self.settings.disconnect();
                 self.account = "Account metadata unavailable (disconnected)".into();
@@ -2208,25 +2384,32 @@ impl App {
         }
     }
     fn management_context(&self) -> crate::management::Context {
-        let mut context = self.operator_context();
+        self.management_context_for(self.management.target().or(self.selected.as_ref()))
+    }
+    fn management_context_for(&self, target:Option<&SessionId>) -> crate::management::Context {
+        let mut context = self.operator_context_for(target);
         context.allowed =
             context.allowed && !self.exporter.is_open() && self.exporter.pending().is_none();
         context
     }
     fn export_context(&self) -> crate::exporter::Context {
-        let context = self.operator_context();
+        let ticket=self.exporter.ticket();
+        self.export_context_for(ticket.as_ref().map(|ticket|&ticket.target).or(self.selected.as_ref()))
+    }
+    fn export_context_for(&self, target:Option<&SessionId>) -> crate::exporter::Context {
+        let context = self.operator_context_for(target);
         crate::exporter::Context {
             view: context.view,
             allowed: context.allowed && !self.management.is_open() && !self.management.pending(),
         }
     }
     fn operator_context(&self) -> crate::management::Context {
-        let observed = self.selected.as_ref().and_then(|id| self.sessions.get(id));
+        self.operator_context_for(self.selected.as_ref())
+    }
+    fn operator_context_for(&self, target:Option<&SessionId>) -> crate::management::Context {
+        let observed = target.and_then(|id| self.sessions.get(id));
         crate::management::Context {
-            view: self
-                .selected
-                .as_ref()
-                .map(|target| crate::management::View {
+            view: target.map(|target| crate::management::View {
                     epoch: self.transport_epoch,
                     generation: self.generation,
                     target: target.clone(),
@@ -2248,6 +2431,10 @@ impl App {
             && self.root_ready
             && matches!(self.close, Close::None)
     }
+    fn continue_cloudflare_connection(&mut self) {
+        let enabled=self.settings_enabled();
+        if let Some(effect)=self.settings.cloudflare_continue(enabled) {self.command(Command::Cloudflare(effect));}
+    }
     fn continue_codex_connection(&mut self) {
         let enabled = self.settings_enabled();
         if let Some(effect) = self.settings.codex_continue(enabled) {
@@ -2262,6 +2449,36 @@ impl App {
             && !self.stopped
             && matches!(self.close, Close::None)
     }
+    /// Panel ticket for a Wayland Ctrl+V on the Models key field, when the live
+    /// draft accepts a paste. `None` keeps the shortcut out of the subscription.
+    fn settings_paste_ticket(&self) -> Option<crate::settings::Ticket> {
+        let ticket = self.settings.input_ticket();
+        self.settings
+            .paste_allowed(ticket, self.transport_epoch, self.settings_enabled())
+            .then_some(ticket)
+    }
+    /// DeepSeek route facts the Settings page renders. Read-only projection of
+    /// the real catalog read; never invents a model or an endpoint.
+    fn settings_route_facts(&self) -> crate::settings::RouteFacts {
+        let active = self.effective_model_selection();
+        let mut models: Vec<(String, String, bool)> = self
+            .models
+            .iter()
+            .filter(|model| deepseek_route(model))
+            .map(|model| {
+                let is_active = active.is_some_and(|selection| {
+                    selection.provider == model.provider && selection.model == model.id
+                });
+                (model.name.clone(), model.id.clone(), is_active)
+            })
+            .collect();
+        models.sort();
+        crate::settings::RouteFacts {
+            models,
+            loading: self.catalog_read.pending(),
+            failed: self.model_controls.catalog_is_failed(),
+        }
+    }
     pub fn view(&self) -> Element<'_, Message> {
         // Modal priority and worker fences stay independent of presentation.
         if !matches!(self.close, Close::None) {
@@ -2269,9 +2486,10 @@ impl App {
         }
         if self.settings_modal_visible() {
             let size = settings_modal_size(self.layout_size());
+            let route = self.settings_route_facts();
             let card = self
                 .settings
-                .view_sized(self.settings_enabled(), size.width, size.height)
+                .view_sized(self.settings_enabled(), size.width, size.height, &route)
                 .map(Message::Settings);
             return settings_overlay(
                 self.presentation_shell(true),
@@ -2292,6 +2510,10 @@ impl App {
                 self.management_view(),
                 Message::Management(crate::management::Action::Close(ticket)),
             );
+        }
+        if let Some(stamp) = self.sidebar_organization.stamp() {
+            return settings_overlay(self.presentation_shell(false), self.sidebar_panel(),
+                Message::Sidebar(sidebar_ui::Action::Close(stamp)));
         }
         if let Some(dialog) = self.decisions.dialog(self.decision_replies_enabled()) {
             return dialog.map(Message::Interaction);
@@ -2500,6 +2722,30 @@ impl App {
     fn settings_modal_visible(&self) -> bool {
         matches!(self.close, Close::None) && self.settings.is_open()
     }
+    /// Chat is the clean conversation; Trajectory is the complete recorded log,
+    /// which is where the system prompt, harness context injects, session logs
+    /// and unknown event kinds live.
+    fn transcript_tabs(&self) -> Element<'_, Message> {
+        let expanded = self.records_expanded;
+        let tab = move |text: &'static str, active: bool| {
+            button(label(text, if active { ACCENT } else { MUTED }).size(12))
+                .padding([5, 12])
+                .style(move |theme, status| design::navigation(theme, status, active))
+                .on_press_maybe(
+                    (self.layout_controls_enabled() && !active).then_some(Message::ToggleRecords),
+                )
+        };
+        row![tab("Chat", !expanded), tab("Trajectory", expanded)]
+            .spacing(6)
+            .padding([2, 28])
+            .into()
+    }
+    fn transcript_tabs_visible(&self) -> bool {
+        self.selected.is_some()
+            && !self.conversation_menu
+            && !self.capabilities
+            && self.detail.is_none()
+    }
     fn presentation_shell(&self, include_composer: bool) -> Element<'_, Message> {
         let main: Element<'_, Message> = if self.sidebar_sheet && !include_composer {
             self.navigation_sheet()
@@ -2513,7 +2759,11 @@ impl App {
             } else {
                 self.transcript_view()
             };
-            let mut content = column![self.header(), body].spacing(4).height(Length::Fill);
+            let mut content = column![self.header()].spacing(4).height(Length::Fill);
+            if self.transcript_tabs_visible() {
+                content = content.push(self.transcript_tabs());
+            }
+            content = content.push(body);
             if include_composer {
                 content = content.push(self.composer());
             }
@@ -2650,6 +2900,11 @@ impl App {
         if !routine_status(&self.status) {
             header = header.push(label(&self.status, MUTED).size(11));
         }
+        if let Some(id)=self.selected.as_ref().filter(|id|self.sidebar_organization.trashed(id)) {
+            header=header.push(row![label("In Trash · history retained; background work may continue",DANGER).size(11).width(Length::Fill),
+                button(label("Restore…",TEXT).size(11)).style(design::ghost)
+                    .on_press_maybe(self.sidebar_target_allowed(id).then(||self.sidebar_open_message(id)))].spacing(6));
+        }
         if self.decisions.len() > 0 {
             header = header.push(
                 scrollable(
@@ -2660,11 +2915,17 @@ impl App {
                 .height(94),
             );
         }
-        container(header)
-            .id("native-header")
-            .padding([14, 20])
-            .width(Length::Fill)
-            .into()
+        container(column![
+            container(header)
+                .id("native-header")
+                .padding([14, 20])
+                .width(Length::Fill),
+            // Conversation header seam: the web's 0.5px `border-l3` rule
+            // drawn at one native device pixel (docs/NATIVE-UI-PARITY.md).
+            container(Space::new().height(1).width(Length::Fill)).style(|_| panel(design::LINE))
+        ])
+        .width(Length::Fill)
+        .into()
     }
     fn file_controls(&self) -> Element<'_, Message> {
         let context = self.file_context();
@@ -2759,11 +3020,10 @@ impl App {
     fn composer(&self) -> Element<'_, Message> {
         let allowed = self.send_allowed() && self.composer_visible();
         let keyboard_allowed = allowed && !self.editor.text().trim().is_empty();
-        let small = self.layout_size().height < 620.0;
         let editor = text_editor(&self.editor)
             .placeholder("Message DeepSeek Harness… or drop a file")
             .on_action(Message::Editor)
-            .height(if small { 70 } else { 96 })
+            .height(self.composer_editor_height())
             .padding(12)
             .font(FONT)
             .size(15)
@@ -2774,12 +3034,16 @@ impl App {
             .values()
             .any(|p| Some(&p.session) == self.selected.as_ref());
         let mut inner = column![editor].spacing(4);
+        if self.sidebar_organization.failure().is_some() {
+            inner=inner.push(row![label("Sidebar organization not confirmed · sending paused",DANGER).size(11).width(Length::Fill),
+                button(label("Reload",MUTED).size(11)).style(design::ghost).on_press_maybe((!self.sidebar_organization.busy()).then_some(Message::Sidebar(sidebar_ui::Action::Reload)))]);
+        }
         if self.recovered_draft_needs_review() {
             inner=inner.push(column![label("Recovered text may already have been submitted. Check the conversation first.",DANGER).size(11),
                 button(label("Reviewed · enable a new Send",TEXT).size(11)).style(design::button_style)
                     .on_press_maybe(self.pending.is_empty().then_some(Message::ReviewRecovered {generation:self.generation,serial:self.draft_serial}))].spacing(3));
         }
-        if self.options.smoke.is_none() && (self.draft_state.ready() || self.draft_state.is_loading() || self.draft_state.failure().is_some()) {
+        if self.options.smoke.is_none() && (self.draft_state.is_loading() || self.draft_state.failure().is_some()) {
             let mut recovery=row![label(self.draft_state.status(),if self.draft_state.failure().is_some(){DANGER}else{MUTED}).size(10).width(Length::Fill)];
             if self.draft_state.failure().is_some() {recovery=recovery.push(button(label("Reload drafts",MUTED).size(10)).style(design::button_style).on_press_maybe((!self.draft_state.busy()).then_some(Message::DraftReload)));}
             inner=inner.push(recovery);
@@ -2811,21 +3075,10 @@ impl App {
         let usage = chat_usage::describe(&self.projections,
             self.follow_ready && self.transcript.safe_to_send() && !self.model_pending && !self.observations_lost
                 && self.transcript.cursor() == self.transcript.opening_cursor(), self.transcript.records());
-        inner = inner.push(row![label(usage,MUTED).size(10).width(Length::Fill),self.model_control()].align_y(iced::Alignment::Center));
         inner = inner.push(
             row![
-                label(
-                    if self.options.smoke.is_some() {
-                        "Keyless smoke · sending disabled"
-                    } else if self.compact() {
-                        "Enter · send"
-                    } else {
-                        "Enter to send · Shift+Enter for a new line"
-                    },
-                    MUTED
-                )
-                .size(10)
-                .width(Length::Fill),
+                self.model_control(),
+                Space::new().width(Length::Fill),
                 container(
                     button(label("+ Attach", MUTED).size(11))
                         .on_press_maybe(
@@ -2869,11 +3122,24 @@ impl App {
         let card = container(inner)
             .padding(10)
             .width(Length::Fill)
-            .style(|_| design::card(SURFACE, 20.0));
-        container(container(card).max_width(design::CHAT).width(Length::Fill))
-            .center_x(Length::Fill)
-            .padding([10, 20])
-            .into()
+            .style(|_| design::card(SURFACE, design::RADIUS_XL));
+        let hint = if self.options.smoke.is_some() {
+            "Keyless preview · sending disabled"
+        } else if self.compact() {
+            "Shift+Enter · new line"
+        } else {
+            "Enter to send · Shift+Enter for a new line"
+        };
+        let metadata = row![label(usage, MUTED).size(10).width(Length::Fill), label(hint, MUTED).size(10)]
+            .spacing(8).align_y(iced::Alignment::Center);
+        container(
+            container(column![card, container(metadata).padding([0, 8])].spacing(5))
+                .max_width(self.chat_lane())
+                .width(Length::Fill),
+        )
+        .center_x(Length::Fill)
+        .padding([10, 20])
+        .into()
     }
     fn sidebar(&self) -> Element<'_, Message> {
         let width = self.sidebar_motion.value();
@@ -2996,8 +3262,13 @@ impl App {
         let filter = self.filter.to_lowercase();
         let mut membership = workspace_membership::Membership::new(ids);
         self.sessions.values().filter(move |s| {
-                self.management.registry.archived(&s.session_id) == self.show_archived
-                    && membership.contains(&s.session_id)
+                self.sidebar_organization.trashed(&s.session_id) == self.show_trash
+                    && (self.show_trash || self.management.registry.archived(&s.session_id) == self.show_archived)
+                    && (self.show_trash || match self.sidebar_organization.location(&s.session_id) {
+                        sidebar_organization::Location::Original => membership.contains(&s.session_id),
+                        sidebar_organization::Location::Workspace(id) => ids.is_none() || self.workspace.as_ref()==Some(&id),
+                        sidebar_organization::Location::Ungrouped => ids.is_none(),
+                    })
                     && (filter.is_empty()
                         || s.session_id.as_str().to_lowercase().contains(&filter)
                         || self.session_title(s).to_lowercase().contains(&filter))
@@ -3005,7 +3276,7 @@ impl App {
     }
     fn navigation_sessions(&self) -> Vec<&SessionSummary> {
         let ids = self.navigation_workspace_ids();
-        if ids.is_some_and(|ids| ids.is_empty()) { return Vec::new(); }
+        if ids.is_some_and(|ids| ids.is_empty()) && !self.show_trash && self.sidebar_organization.data.is_empty() { return Vec::new(); }
         let capacity = if self.filter.is_empty() {
             ids.map_or(self.sessions.len(), |ids| ids.len().min(self.sessions.len()))
         } else { 0 };
@@ -3037,16 +3308,24 @@ impl App {
             if self.management.registry.pinned(&session.session_id) {
                 content = content.push(label("•", design::FOAM).size(10));
             }
-            list = list.push(
+            list = list.push(row![
                 button(content)
                 .on_press_maybe(
-                    (self.ready && !self.observations_lost && self.pending.is_empty())
+                    (self.ready && !self.observations_lost && self.pending.is_empty() && !self.show_trash
+                        && !self.sidebar_organization.busy() && self.sidebar_organization.failure().is_none())
                         .then_some(Message::Select(session.session_id.clone())),
                 )
                 .style(move |theme, status| design::navigation(theme, status, active))
-                .padding([11, 10])
-                .width(Length::Fill),
-            );
+                .padding([11, 10]).width(Length::Fill),
+                button(label("⋯", MUTED).size(16)).style(design::ghost).padding([9, 5])
+                    .on_press_maybe(self.sidebar_target_allowed(&session.session_id)
+                        .then(||self.sidebar_open_message(&session.session_id)))
+            ].spacing(2).align_y(iced::Alignment::Center));
+        }
+        if self.sidebar_organization.failure().is_some() {
+            list=list.push(label("Organization not confirmed",DANGER).size(11))
+                .push(button(label("Reload organization",MUTED).size(11)).style(design::ghost)
+                    .on_press_maybe((!self.sidebar_organization.busy()).then_some(Message::Sidebar(sidebar_ui::Action::Reload))));
         }
         if count == 0 {
             list = list.push(
@@ -3073,7 +3352,9 @@ impl App {
                 .style(design::input_style),
             row![
                 label(
-                    if self.show_archived {
+                    if self.show_trash {
+                        "TRASH"
+                    } else if self.show_archived {
                         "ARCHIVED"
                     } else {
                         "RECENT"
@@ -3094,7 +3375,9 @@ impl App {
                     .size(10)
                 )
                 .on_press(Message::ArchivedView)
-                .style(design::button_style)
+                .style(design::button_style),
+                button(label(if self.show_trash { "Recent" } else { "Trash" },MUTED).size(10))
+                    .on_press(Message::Sidebar(sidebar_ui::Action::TrashView)).style(design::ghost)
             ]
             .align_y(iced::Alignment::Center),
             scrollable(list).height(Length::Fill),
@@ -3238,7 +3521,7 @@ impl App {
         ].spacing(12).height(Length::Fill);
         container(
             container(content)
-                .max_width(design::CHAT)
+                .max_width(self.chat_lane())
                 .width(Length::Fill)
                 .height(Length::Fill),
         )
@@ -3301,7 +3584,7 @@ impl App {
             let width=(geometries[index].width-28.0).max(1.0);
             let inside=if let Some(reply)=self.reply_parts(key) {reply.first_match_offset(width,self.thoughts_expanded.contains(&key),self.active_search())}
                 else {conversation_content::plain_first_match_offset(&rows[index].text,width,15.0,self.active_search())};
-            self.offset=(geometries[..index].iter().map(|geometry|geometry.height).sum::<f32>()+49.0+inside-12.0).max(0.0);
+            self.offset=(geometries[..index].iter().map(|geometry|geometry.height).sum::<f32>()+chat_geometry::body_top(&rows[index].role)+inside-12.0).max(0.0);
             self.follow_bottom=false;
         }
         self.invalidate_scroll(); self.position_transcript()
@@ -3318,24 +3601,42 @@ impl App {
             button(label("Close",MUTED).size(11)).on_press(Message::SearchClose {generation,serial}).style(design::button_style)]
             .spacing(6).align_y(iced::Alignment::Center)).padding([4,20]).into()
     }
+    /// True only while this tool row is expanded and actually has a recorded body.
+    fn activity_is_expanded(&self, row: &DisplayRow) -> bool {
+        self.activity_expanded.contains(&row.key) && !activity_body_source(row).is_empty()
+    }
     fn row_geometry(&self, row: &DisplayRow, lane: f32) -> chat_geometry::Geometry {
         if let Some(reply) = self.reply_parts(row.key) {
-            let width = (lane - 8.0).clamp(37.0, 800.0);
+            // Formatted assistant replies share the content column, never wider
+            // than the web's 920 cap (the lane never exceeds it).
+            let width = (lane - 8.0).clamp(37.0, design::MAX_CHAT);
             let body_height = reply.body_height(width - 28.0, self.thoughts_expanded.contains(&row.key));
-            return chat_geometry::Geometry { width, body_height, height: 67.0 + body_height + 22.0 };
+            // An answerless reply keeps only its thoughts disclosure, so it has
+            // no action row and must not reserve one.
+            let actions = if reply.has_answer() { 22.0 } else { 0.0 };
+            return chat_geometry::Geometry { width, body_height, height: chat_geometry::chrome_height(&row.role) + body_height + actions };
         }
         let mut geometry = self.chat_geometry.geometry(row.key, &row.role, &excerpt(&row.text), lane);
         if self.search_expands_user(row) {
             geometry.body_height=conversation_content::plain_height(&row.text,geometry.width-28.0,15.0,FONT,false).max(20.0);
-            geometry.height=67.0+geometry.body_height;
+            geometry.height=chat_geometry::chrome_height(&row.role)+geometry.body_height;
         }
         if row.role == "You" || row.role.starts_with("Assistant") || row.role == "Interrupted assistant attempt" { geometry.height += 22.0; }
+        if self.activity_is_expanded(row) {
+            // The compact line stays; the recorded body sits beneath it in the
+            // same conversation row, so expanding never leaves this chat.
+            geometry.body_height = chat_geometry::TOOL_LINE_HEIGHT
+                + conversation_content::tool_body_height(
+                    activity_body_source(row),
+                    geometry.width - 28.0,
+                );
+            geometry.height = geometry.body_height + chat_geometry::ROW_CHROME;
+        }
         geometry
     }
     fn row_geometries(&self, rows: &[&DisplayRow]) -> Vec<chat_geometry::Geometry> {
         // Match the real sidebar animation and centered padded scroll lane.
-        let lane =
-            (self.layout_size().width - self.sidebar_motion.value() - 40.0).min(design::CHAT);
+        let lane = self.chat_lane();
         let cache = &self.chat_geometry;
         // Keep the one cache-only live entry across durable anchor measurements.
         cache.retain_keys(
@@ -3356,8 +3657,7 @@ impl App {
             .iter()
             .map(|g| g.height)
             .collect();
-        let lane =
-            (self.layout_size().width - self.sidebar_motion.value() - 40.0).min(design::CHAT);
+        let lane = self.chat_lane();
         let trailing = self.transcript.partial().map_or(0.0, |text| {
             self.row_geometry(&DisplayRow { key:u64::MAX, role:"Assistant · live".into(), text, time:0, surface:false },lane).height
         });
@@ -3535,67 +3835,107 @@ impl App {
                     "▤"
                 };
                 let target = activity.target.as_deref().unwrap_or("Details available");
+                let target_limit = if self.layout_size().width < 700.0 {
+                    28
+                } else if self.compact() {
+                    42
+                } else {
+                    80
+                };
+                // The web gives tool-row file links a grey dotted affordance;
+                // Iced draws the same resting affordance as a solid MUTED
+                // underline. Commands and generic labels stay plain.
+                let target_element: Element<'_, Message> =
+                    if matches!(verb, "Read" | "Edit" | "Write") {
+                        rich_text([span::<(), iced::Font>(short(target, target_limit))
+                            .color(MUTED)
+                            .underline(true)])
+                        .font(FONT)
+                        .size(12)
+                        .width(Length::Fill)
+                        .into()
+                    } else {
+                        label(short(target, target_limit), MUTED)
+                            .size(12)
+                            .width(Length::Fill)
+                            .into()
+                    };
                 let mut line = row![
                     label(icon, MUTED).size(12),
                     label(short(verb, 24), MUTED).size(12),
                     label("·", MUTED).size(12),
-                    label(
-                        short(
-                            target,
-                            if self.layout_size().width < 700.0 {
-                                28
-                            } else if self.compact() {
-                                42
-                            } else {
-                                80
-                            }
-                        ),
-                        MUTED
-                    )
-                    .size(12)
-                    .width(Length::Fill)
+                    target_element
                 ]
                 .spacing(7)
                 .align_y(iced::Alignment::Center);
+                // Edit size rides after the target, like the web's diff stat.
+                if let Some((added, removed)) = activity.edits {
+                    line = line.push(
+                        row![
+                            label(format!("+{added}"), design::FOAM).size(10),
+                            label(format!("−{removed}"), DANGER).size(10),
+                        ]
+                        .spacing(3),
+                    );
+                }
                 // Suffix stays outside the clipped label; output cannot look like a new call.
                 if activity.failed {
                     line = line.push(label("Recorded error", DANGER).size(10));
                 } else if record.role == "Tool result" {
                     line = line.push(label("Output", MUTED).size(10));
                 }
-                line = line.push(label("▸", MUTED).size(12));
-                button(container(line).height(24).clip(true))
-                    .on_press_maybe(self.detail_request(record.key))
-                    .style(design::button_style)
-                    .padding([0, 8])
-                    .width(Length::Fill)
-                    .into()
+                // The recorded body expands in place; a row with nothing recorded
+                // keeps no affordance and starts no request.
+                let activity_body = activity_body_source(record);
+                let expandable = !activity_body.is_empty();
+                let expanded = self.activity_is_expanded(record);
+                if expandable {
+                    line = line.push(label(if expanded { "▾" } else { "▸" }, MUTED).size(12));
+                }
+                let compact = button(
+                    container(line)
+                        .height(chat_geometry::TOOL_LINE_HEIGHT)
+                        .clip(true),
+                )
+                .on_press_maybe((expandable && self.composer_visible()).then_some(
+                    Message::ToggleActivity {
+                        generation: self.generation,
+                        key: record.key,
+                    },
+                ))
+                .style(design::button_style)
+                .padding([0, 8])
+                .width(Length::Fill);
+                let mut activity_column = Column::new().push(compact);
+                if expanded {
+                    let body_width = geometries[index].width - 16.0;
+                    activity_column = activity_column.push(Space::new().height(4)).push(
+                        conversation_content::tool_body_view(
+                            activity_body,
+                            conversation_content::tool_body_height(activity_body, body_width),
+                        ),
+                    );
+                }
+                activity_column.into()
             } else if human || assistant {
                 let geometry = geometries[index];
-                let header = row![
-                    label(
-                        if self.transcript.submitted_input(record.key) { "You · sent".into() } else { record.role.clone() },
-                        if assistant { design::FOAM } else { ACCENT }
-                    )
-                    .size(12)
-                    .width(Length::Fill),
-                    button(
-                        label(
-                            if geometry.body_height >= 75.0 || excerpt(&record.text) != record.text
-                            {
-                                "More ▸"
-                            } else {
-                                "▸"
-                            },
-                            MUTED
-                        )
-                        .size(12)
-                    )
-                    .on_press_maybe(self.detail_request(record.key))
-                    .style(design::button_style)
-                    .padding([2, 4])
-                ]
-                .align_y(iced::Alignment::Center);
+                let reply = self.reply_parts(record.key);
+                let answerless =
+                    assistant && reply.as_ref().is_some_and(|reply| !reply.has_answer());
+                if let (true, Some(reply)) = (answerless, reply) {
+                    // Thinking or a recorded tool call with no answer keeps its
+                    // disclosure alone: the empty body and the Copy/Details row
+                    // used to be left behind underneath it.
+                    container(reply.view_search(
+                        geometry.width - 28.0,
+                        self.thoughts_expanded.contains(&record.key),
+                        self.active_search(),
+                    ))
+                    .padding([10, 14])
+                    .width(geometry.width)
+                    .style(|_| panel(BASE))
+                    .into()
+                } else {
                 let body: Element<'_,Message> = if let Some(reply) = self.reply_parts(record.key) {
                     reply.view_search(geometry.width - 28.0,self.thoughts_expanded.contains(&record.key),self.active_search())
                 } else {
@@ -3609,19 +3949,32 @@ impl App {
                     footer=footer.push(button(label("Edit",MUTED).size(10)).on_press_maybe(self.edit_message_allowed(self.generation,record.key)
                         .then_some(Message::EditMessage {generation:self.generation,key:record.key})).style(design::button_style).padding([1,2]));
                 }
-                let card = column![container(header).height(24).clip(true),Space::new().height(7),
-                    container(body).height(geometry.body_height).clip(true),Space::new().height(4),footer];
+                if assistant || excerpt(&record.text) != record.text {
+                    footer = footer.push(button(label(
+                        if human { "Read more ▸" } else { "Details ▸" },
+                        MUTED).size(10)).on_press_maybe(self.detail_request(record.key))
+                        .style(design::button_style).padding([1,2]));
+                }
+                let mut card = Column::new();
+                if chat_geometry::status_header(&record.role) {
+                    card = card.push(container(label(record.role.clone(),
+                        if record.role == "Interrupted assistant attempt" { DANGER } else { MUTED }).size(12))
+                        .height(24).clip(true)).push(Space::new().height(7));
+                }
+                let card = card.push(container(body).height(geometry.body_height).clip(true))
+                    .push(Space::new().height(4)).push(footer);
                 container(card)
                     .padding([10, 14])
                     .width(geometry.width)
                     .style(move |_| {
                         if human {
-                            design::card(OVERLAY, 18.0)
+                            design::card(OVERLAY, design::RADIUS_LG)
                         } else {
                             panel(BASE)
                         }
                     })
                     .into()
+                }
             } else {
                 let card = column![
                     label(
@@ -3653,11 +4006,11 @@ impl App {
                     .width(Length::Fill)
                     .style(move |_| {
                         if human {
-                            design::card(OVERLAY, 18.0)
+                            design::card(OVERLAY, design::RADIUS_LG)
                         } else if assistant {
                             panel(BASE)
                         } else {
-                            design::card(SURFACE, 12.0)
+                            design::card(SURFACE, design::RADIUS_MD)
                         }
                     })
                     .into()
@@ -3671,7 +4024,7 @@ impl App {
                 } else {
                     iced::alignment::Horizontal::Left
                 })
-                .padding([8, 4])
+                .padding([6, 4])
                 .height(geometries[index].height)
                 .width(Length::Fill)
                 .clip(true);
@@ -3704,19 +4057,6 @@ impl App {
             button(label("Reload", MUTED).size(11))
                 .on_press_maybe((self.ready && self.selected.is_some()).then_some(Message::Reload))
                 .style(design::button_style),
-            button(
-                label(
-                    if self.records_expanded {
-                        "Conversation"
-                    } else {
-                        "Session records"
-                    },
-                    MUTED
-                )
-                .size(11)
-            )
-            .on_press(Message::ToggleRecords)
-            .style(design::button_style),
             button(label("Find",MUTED).size(11)).on_press(Message::SearchOpen).style(design::button_style),
             Space::new().width(Length::Fill),
             button(
@@ -3738,7 +4078,7 @@ impl App {
         let generation = self.generation;
         let revision = self.scroll_revision;
         let lane = container(contents)
-            .max_width(design::CHAT)
+            .max_width(self.chat_lane())
             .width(Length::Fill);
         let mut chat=column![container(controls).padding([2,20])];
         if self.search_open {chat=chat.push(self.search_bar());}
@@ -3789,7 +4129,7 @@ impl App {
         }
         if records > 0 {
             hero = hero.push(
-                button(label(format!("Show {records} session records"), MUTED).size(12))
+                button(label(format!("Trajectory · {records} recorded events"), MUTED).size(12))
                     .on_press(Message::ToggleRecords)
                     .style(design::button_style),
             );
@@ -3885,7 +4225,7 @@ impl App {
         scrollable(
             container(
                 container(details)
-                    .max_width(design::CHAT)
+                    .max_width(self.chat_lane())
                     .width(Length::Fill),
             )
             .center_x(Length::Fill)
@@ -3901,7 +4241,7 @@ impl App {
             container(content)
                 .padding(28)
                 .max_width(760)
-                .style(|_| design::card(SURFACE, 20.0)),
+                .style(|_| design::card(SURFACE, design::RADIUS_XL)),
         )
         .center_x(Length::Fill)
         .center_y(Length::Fill)
@@ -3928,6 +4268,74 @@ pub(crate) fn panel(color: Color) -> container::Style {
         background: Some(color.into()),
         text_color: Some(TEXT),
         ..Default::default()
+    }
+}
+/// Wayland clipboard text reads for paste.
+///
+/// Iced's bundled `window_clipboard`/`smithay-clipboard` backend selects a seat
+/// only from key/pointer serials and otherwise fails with "no events received on
+/// any seat", so an ordinary Paste click reads nothing. `wl-clipboard-rs` owns
+/// its own connection and needs no focused seat. Defined here (not as a crate
+/// module) because every example compiles this file directly.
+mod native_clipboard {
+    use std::io::Read;
+    use std::time::Duration;
+
+    /// Longest clipboard text this module returns; the API-key draft cap is far
+    /// smaller and this only stops a pathological clipboard owning memory.
+    pub const MAX_TEXT_BYTES: usize = 256 * 1024;
+    /// Bound on how long a clipboard owner may take before paste reports nothing.
+    pub const READ_TIMEOUT: Duration = Duration::from_millis(1500);
+
+    /// Reads clipboard text, bounded by [`READ_TIMEOUT`] and [`MAX_TEXT_BYTES`].
+    /// Blocks only its own thread; returns `None` when nothing usable arrives.
+    pub fn read_text() -> Option<String> {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(read_wayland_text());
+        });
+        receiver.recv_timeout(READ_TIMEOUT).ok().flatten()
+    }
+
+    fn read_wayland_text() -> Option<String> {
+        let (pipe, _mime) = wl_clipboard_rs::paste::get_contents(
+            wl_clipboard_rs::paste::ClipboardType::Regular,
+            wl_clipboard_rs::paste::Seat::Unspecified,
+            wl_clipboard_rs::paste::MimeType::Text,
+        )
+        .ok()?;
+        let mut text = String::new();
+        pipe.take(MAX_TEXT_BYTES as u64 + 1)
+            .read_to_string(&mut text)
+            .ok()?;
+        (text.len() <= MAX_TEXT_BYTES).then_some(text)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn clipboard_read_returns_within_its_bound_without_a_wayland_session() {
+            // A session may or may not serve text; the contract under test is
+            // that the call always returns inside its bound and never panics.
+            let start = std::time::Instant::now();
+            let observed = read_text();
+            println!(
+                "native_clipboard observed bytes = {:?}",
+                observed.as_ref().map(String::len)
+            );
+            if let Some(text) = observed {
+                assert!(text.len() <= MAX_TEXT_BYTES);
+            }
+            assert!(start.elapsed() < READ_TIMEOUT + Duration::from_secs(2));
+        }
+
+        #[test]
+        fn clipboard_caps_are_bounded_and_cover_the_api_key_draft() {
+            assert!(MAX_TEXT_BYTES >= 16_384);
+            assert!(READ_TIMEOUT <= Duration::from_secs(3));
+        }
     }
 }
 pub(crate) fn label<'a>(
@@ -3991,7 +4399,7 @@ fn brand<'a>() -> Element<'a, Message> {
         .height(36)
         .center_x(36)
         .center_y(36)
-        .style(|_| design::card(OVERLAY, 12.0))
+        .style(|_| design::card(OVERLAY, design::RADIUS_MD))
         .into()
 }
 /// A settings dialog over the existing native shell, never another OS window.
@@ -4094,6 +4502,7 @@ fn background_message(message: &Message) -> bool {
             | Message::ExportSession(_)
             | Message::Export(_)
             | Message::ArchivedView
+            | Message::Sidebar(_)
     )
 }
 
@@ -4421,8 +4830,55 @@ fn composer_binding(
         if let Some(message) = layout_shortcut(&event.key, event.modifiers) {
             return Some(text_editor::Binding::Custom(message));
         }
+        if wayland_session() && paste_shortcut(&event.key, event.modifiers) {
+            // Iced's own Ctrl+V goes through the unusable Wayland clipboard
+            // backend; read on a worker thread instead (see native_clipboard).
+            return Some(text_editor::Binding::Custom(Message::PasteComposer));
+        }
     }
     text_editor::Binding::from_key_press(event)
+}
+/// True on a Wayland session, where Iced's bundled clipboard read fails.
+fn wayland_session() -> bool {
+    std::env::var_os("WAYLAND_DISPLAY").is_some()
+}
+/// Ctrl/Command+V without Alt/Shift, matching Iced's own paste binding scope.
+fn paste_shortcut(key: &keyboard::Key, modifiers: keyboard::Modifiers) -> bool {
+    !modifiers.alt()
+        && !modifiers.shift()
+        && modifiers.command()
+        && matches!(key, keyboard::Key::Character(value) if value.eq_ignore_ascii_case("v"))
+}
+/// Panel-level Ctrl+V for the Models key field on Wayland. Iced's secure
+/// `text_input` pastes through the unusable Wayland clipboard backend, so the
+/// panel reads instead and replaces the draft; other stores are unaffected.
+fn settings_paste_message(
+    wayland: bool,
+    paste: Option<crate::settings::Ticket>,
+    key: &keyboard::Key,
+    modifiers: keyboard::Modifiers,
+) -> Option<Message> {
+    if !wayland || !paste_shortcut(key, modifiers) {
+        return None;
+    }
+    paste.map(|ticket| Message::Settings(crate::settings::Action::Paste { ticket }))
+}
+/// Recorded body shown when a tool row expands. The compact line already names
+/// the tool, so a call drops that first line; a result is shown whole. Only the
+/// text this app already retained for the row is ever surfaced.
+fn activity_body_source(row: &DisplayRow) -> &str {
+    let text = row.text.trim();
+    if row.role == "Tool call" {
+        text.split_once('\n').map_or("", |(_, body)| body.trim())
+    } else {
+        text
+    }
+}
+/// True for catalog rows the backend reports for its DeepSeek route. Matched
+/// case-insensitively so a renamed route or an id-only row still appears.
+pub(crate) fn deepseek_route(model: &Model) -> bool {
+    model.provider.to_ascii_lowercase().contains("deepseek")
+        || model.id.to_ascii_lowercase().contains("deepseek")
 }
 fn title(session: &SessionSummary) -> String {
     projected_title(session, session.projections.as_ref().and_then(|p| p.values.get("title")))
@@ -4573,23 +5029,31 @@ mod tests {
         }
     }
     #[test]
-    fn chat_filter_hides_only_three_exact_metadata_roles() {
+    fn chat_filter_hides_known_internals_and_keeps_conversation_and_unknown_rows() {
         let roles = [
+            // Trajectory-only: the system prompt, developer injects, model-only
+            // context and known bookkeeping/telemetry kinds.
             "permission/preset",
             "sandbox/mode",
             "approval/policy",
+            "System",
+            "Developer",
+            "Model context update",
+            "Injected context",
+            "session-log-deepseek/delivery-accepted",
+            // Chat keeps the conversation, and every unrecognized kind stays
+            // visible so a future required diagnostic is never lost.
             "You",
             "Assistant",
             "Assistant · live",
             "Interrupted assistant attempt",
             "Tool call",
             "Tool result",
-            "System",
-            "Developer",
             "approval/policy-changed",
             "Permission/preset",
             "future/required",
         ];
+        let hidden = 8;
         let rows: Vec<_> = roles
             .iter()
             .enumerate()
@@ -4601,9 +5065,9 @@ mod tests {
                 .iter()
                 .map(|row| row.role.as_str())
                 .collect::<Vec<_>>(),
-            roles[3..]
+            roles[hidden..]
         );
-        assert_eq!(chat_row_count(&rows), roles.len() - 3);
+        assert_eq!(chat_row_count(&rows), roles.len() - hidden);
         assert_eq!(rows.len(), roles.len()); // Presentation does not discard durable records.
     }
     #[test]
@@ -4762,19 +5226,24 @@ mod tests {
         assert!(receiver.try_recv().is_err());
     }
     #[test]
-    fn tool_system_unknown_roles_never_trigger_metadata_only_welcome() {
+    fn tool_and_unknown_roles_never_trigger_metadata_only_welcome() {
         for role in [
             "Tool result",
             "Tool call",
-            "System",
-            "Developer",
             "future/required",
             "Permission/preset",
         ] {
             assert!(chat_role(role));
         }
-        for role in ["permission/preset", "sandbox/mode", "approval/policy"] {
-            assert!(!chat_role(role));
+        for role in [
+            "System",
+            "Developer",
+            "permission/preset",
+            "sandbox/mode",
+            "approval/policy",
+            "session-log-deepseek/delivery-accepted",
+        ] {
+            assert!(!chat_role(role), "{role}");
         }
     }
     #[test]
@@ -4811,6 +5280,82 @@ mod tests {
         let mut unfocused = enter(keyboard::Modifiers::empty());
         unfocused.status = text_editor::Status::Active;
         assert!(!matches!(composer_binding(unfocused,true),Some(text_editor::Binding::Custom(Message::KeyboardSend))));
+    }
+    #[test]
+    fn paste_shortcut_matches_only_unmodified_ctrl_or_command_v() {
+        let lower = keyboard::Key::Character("v".into());
+        let upper = keyboard::Key::Character("V".into());
+        assert!(paste_shortcut(&lower, keyboard::Modifiers::CTRL));
+        assert!(paste_shortcut(&upper, keyboard::Modifiers::CTRL));
+        for modifiers in [
+            keyboard::Modifiers::empty(),
+            keyboard::Modifiers::SHIFT,
+            keyboard::Modifiers::ALT,
+            keyboard::Modifiers::CTRL | keyboard::Modifiers::SHIFT,
+        ] {
+            assert!(!paste_shortcut(&lower, modifiers));
+        }
+        assert!(!paste_shortcut(
+            &keyboard::Key::Character("c".into()),
+            keyboard::Modifiers::CTRL
+        ));
+    }
+    #[test]
+    fn deepseek_route_matches_route_or_model_id_case_insensitively() {
+        let model = |provider: &str, id: &str| Model {
+            provider: provider.into(),
+            id: id.into(),
+            name: "PUBLIC".into(),
+            label: "PUBLIC".into(),
+            efforts: Vec::new(),
+            default_effort: None,
+            service_tiers: Vec::new(),
+            verbosity_levels: Vec::new(),
+        };
+        assert!(deepseek_route(&model(
+            "deepseek-official",
+            "deepseek-flash"
+        )));
+        assert!(deepseek_route(&model("DEEPSEEK-OFFICIAL", "x")));
+        assert!(deepseek_route(&model("other", "deepseek-v4-pro")));
+        assert!(!deepseek_route(&model("openai-codex", "gpt-6")));
+    }
+    #[test]
+    fn settings_paste_shortcut_needs_a_wayland_session_a_draft_and_ctrl_v() {
+        let ticket = crate::settings::Ticket {
+            epoch: 1,
+            panel: 0,
+            serial: 7,
+        };
+        let v = keyboard::Key::Character("v".into());
+        // No live Models draft: the shortcut stays out of the subscription.
+        assert!(settings_paste_message(true, None, &v, keyboard::Modifiers::CTRL).is_none());
+        // Non-Wayland sessions keep Iced's own clipboard path.
+        assert!(
+            settings_paste_message(false, Some(ticket), &v, keyboard::Modifiers::CTRL).is_none()
+        );
+        for modifiers in [
+            keyboard::Modifiers::empty(),
+            keyboard::Modifiers::SHIFT,
+            keyboard::Modifiers::ALT,
+        ] {
+            assert!(settings_paste_message(true, Some(ticket), &v, modifiers).is_none());
+        }
+        assert!(
+            settings_paste_message(
+                true,
+                Some(ticket),
+                &keyboard::Key::Character("c".into()),
+                keyboard::Modifiers::CTRL
+            )
+            .is_none()
+        );
+        match settings_paste_message(true, Some(ticket), &v, keyboard::Modifiers::CTRL) {
+            Some(Message::Settings(crate::settings::Action::Paste { ticket: got })) => {
+                assert_eq!(got, ticket);
+            }
+            _ => panic!("expected a Models paste action"),
+        }
     }
     #[test]
     fn modal_and_nonconversation_panels_cannot_submit_stale_editor() {

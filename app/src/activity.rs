@@ -14,6 +14,10 @@ pub struct Summary {
     pub target: Option<String>,
     /// True only for an exact recorded message.isError boolean true.
     pub failed: bool,
+    /// Line totals `(added, removed)` for an `edit` call whose contiguous
+    /// old→new replacement is small enough to diff. Counts only; the strings
+    /// never leave this module.
+    pub edits: Option<(u32, u32)>,
 }
 
 pub(super) fn summarize<'a>(
@@ -55,6 +59,7 @@ pub(super) fn summarize<'a>(
                     title: "Tool result".into(),
                     target: None,
                     failed,
+                    edits: None,
                 },
                 |call| text_summary_label(&call.data, true, failed),
             ))
@@ -71,6 +76,7 @@ fn text_summary_label(data: &Value, result: bool, failed: bool) -> Summary {
             title: if result { "Tool result" } else { "Tool call" }.into(),
             target: None,
             failed,
+            edits: None,
         };
     }
     let verb = match name {
@@ -86,6 +92,7 @@ fn text_summary_label(data: &Value, result: bool, failed: bool) -> Summary {
         "{verb} · {display_name}{}",
         if result { " · result" } else { "" }
     );
+    let mut edits = None;
     let target = parse_args(data).map_or_else(
         || Some(ARGUMENTS_AVAILABLE.into()),
         |args| {
@@ -103,6 +110,9 @@ fn text_summary_label(data: &Value, result: bool, failed: bool) -> Summary {
                 }
                 _ => None,
             };
+            if verb == "Edit" {
+                edits = edit_totals(&args);
+            }
             let label = match picked {
                 Some(value) if sensitive_text(value) => ARGUMENTS_AVAILABLE.into(),
                 Some(value) if matches!(verb, "Read" | "Edit" | "Write") => path_label(value),
@@ -120,7 +130,54 @@ fn text_summary_label(data: &Value, result: bool, failed: bool) -> Summary {
         title,
         target,
         failed,
+        edits,
     }
+}
+
+/// Line totals for an `edit` call's contiguous old→new replacement. Only the
+/// two counts escape; the strings are never stored, cached or surfaced.
+/// Oversized inputs decline counts rather than spend unbounded work.
+fn edit_totals(args: &Map<String, Value>) -> Option<(u32, u32)> {
+    let old = args.get("old_string")?.as_str()?;
+    let new = args.get("new_string")?.as_str()?;
+    line_diff_totals(old, new)
+}
+
+const MAX_DIFF_LINES: usize = 256;
+
+fn line_diff_totals(old: &str, new: &str) -> Option<(u32, u32)> {
+    let old_lines: Vec<&str> = old.lines().collect();
+    let new_lines: Vec<&str> = new.lines().collect();
+    if old_lines.len() > MAX_DIFF_LINES || new_lines.len() > MAX_DIFF_LINES {
+        return None;
+    }
+    let common = lcs_len(&old_lines, &new_lines);
+    let added = u32::try_from(new_lines.len().checked_sub(common)?).ok()?;
+    let removed = u32::try_from(old_lines.len().checked_sub(common)?).ok()?;
+    Some((added, removed))
+}
+
+/// Rolling two-row longest-common-subsequence length over lines; memory is
+/// O(min(a, b)) and time O(a·b) within `MAX_DIFF_LINES`.
+fn lcs_len(a: &[&str], b: &[&str]) -> usize {
+    if a.is_empty() || b.is_empty() {
+        return 0;
+    }
+    let (short, long) = if a.len() <= b.len() { (a, b) } else { (b, a) };
+    let mut previous = vec![0usize; short.len() + 1];
+    let mut current = vec![0usize; short.len() + 1];
+    for line in long {
+        for index in 1..=short.len() {
+            current[index] = if short[index - 1] == *line {
+                previous[index - 1] + 1
+            } else {
+                previous[index].max(current[index - 1])
+            };
+        }
+        std::mem::swap(&mut previous, &mut current);
+        current.fill(0);
+    }
+    previous[short.len()]
 }
 
 fn parse_args(data: &Value) -> Option<Map<String, Value>> {
@@ -568,5 +625,131 @@ mod tests {
         ] {
             assert!(summarize(&event(9, kind, json!({})), std::iter::empty()).is_none());
         }
+    }
+
+    #[test]
+    fn edit_calls_report_bounded_line_totals_without_content() {
+        // Single contiguous replacement: one line added, one removed.
+        let summary = label(&call(
+            0,
+            "a",
+            "edit",
+            json!({"file_path":"/workspace/app/src/ui.rs","old_string":"let a = 1;\nlet b = 2;","new_string":"let a = 1;\nlet c = 3;"}),
+        ));
+        assert_eq!(summary.edits, Some((1, 1)));
+        assert_eq!(summary.title, "Edit · edit");
+        assert_eq!(
+            summary.target.as_deref(),
+            Some("ui.rs · /workspace/app/src/")
+        );
+        // Insertion and deletion only.
+        assert_eq!(
+            label(&call(
+                0,
+                "a",
+                "edit",
+                json!({"path":"x.rs","old_string":"one","new_string":"one\ntwo"}),
+            ))
+            .edits,
+            Some((1, 0))
+        );
+        assert_eq!(
+            label(&call(
+                0,
+                "a",
+                "functions.edit",
+                json!({"path":"x.rs","old_string":"one\ntwo","new_string":"one"}),
+            ))
+            .edits,
+            Some((0, 1))
+        );
+        // Multiple separated hunks inside one replacement stay exact.
+        assert_eq!(
+            label(&call(
+                0,
+                "a",
+                "edit",
+                json!({"path":"x.rs","old_string":"a\nb\nc\nd","new_string":"a\nX\nc\nY"}),
+            ))
+            .edits,
+            Some((2, 2))
+        );
+        // A re-derived result keeps the same call totals.
+        let edit_call = call(
+            0,
+            "e",
+            "edit",
+            json!({"path":"x.rs","old_string":"a\nb","new_string":"a\nc"}),
+        );
+        let summary = summarize(&result(1, "e", json!(false)), [&edit_call].into_iter()).unwrap();
+        assert_eq!(summary.title, "Edit · edit · result");
+        assert_eq!(summary.edits, Some((1, 1)));
+    }
+
+    #[test]
+    fn edit_totals_decline_unknown_oversized_and_sensitive_inputs() {
+        // Missing half of the replacement, or unavailable arguments.
+        assert_eq!(
+            label(&call(
+                0,
+                "a",
+                "edit",
+                json!({"path":"x.rs","old_string":"a"})
+            ))
+            .edits,
+            None
+        );
+        assert_eq!(label(&call(0, "a", "edit", json!({}))).edits, None);
+        // Oversized line counts decline instead of running an unbounded diff.
+        let oversized = "line\n".repeat(MAX_DIFF_LINES + 1);
+        assert_eq!(
+            label(&call(
+                0,
+                "a",
+                "edit",
+                json!({"path":"x.rs","old_string":oversized,"new_string":"one"}),
+            ))
+            .edits,
+            None
+        );
+        // A sensitive sibling field suppresses totals with the label.
+        let summary = label(&call(
+            0,
+            "a",
+            "edit",
+            json!({"path":"x.rs","old_string":"a","new_string":"b","token":"PRIVATE"}),
+        ));
+        assert_eq!(summary.edits, None);
+        assert_eq!(summary.target.as_deref(), Some(ARGUMENTS_AVAILABLE));
+        // Non-edit verbs never fabricate totals from edit-shaped fields.
+        for (name, args) in [
+            (
+                "read",
+                json!({"file_path":"x.rs","old_string":"a","new_string":"b"}),
+            ),
+            ("bash", json!({"command":"echo a"})),
+            ("write", json!({"path":"x.rs","content":"a\nb"})),
+        ] {
+            assert_eq!(label(&call(0, "a", name, args)).edits, None);
+        }
+        // Counts are integers, so diagnostics never echo the edited text.
+        let summary = label(&call(
+            0,
+            "a",
+            "edit",
+            json!({"path":"x.rs","old_string":"PRIVATE OLD","new_string":"PRIVATE NEW"}),
+        ));
+        assert_eq!(summary.edits, Some((1, 1)));
+        assert!(!format!("{summary:?}").contains("PRIVATE"));
+    }
+
+    #[test]
+    fn line_diff_totals_handle_empty_identical_and_unicode_lines() {
+        assert_eq!(line_diff_totals("", ""), Some((0, 0)));
+        assert_eq!(line_diff_totals("", "new"), Some((1, 0)));
+        assert_eq!(line_diff_totals("old", ""), Some((0, 1)));
+        assert_eq!(line_diff_totals("same\nsame", "same\nsame"), Some((0, 0)));
+        assert_eq!(line_diff_totals("世界\ncafé", "世界\ncafe"), Some((1, 1)));
+        assert_eq!(line_diff_totals("a\nb\nc", "c\nb\na"), Some((2, 2)));
     }
 }

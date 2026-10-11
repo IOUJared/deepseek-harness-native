@@ -16,6 +16,8 @@ mod managed_accounts;
 mod usage_preferences;
 #[path = "runtime_preferences_fixture.rs"]
 mod runtime_preferences;
+#[path = "cloudflare_fixture.rs"]
+mod cloudflare;
 
 pub const PRESETS: &[&str] = &[
     "wide-welcome",
@@ -29,6 +31,7 @@ pub const PRESETS: &[&str] = &[
     "model-submenu-tiny", "effort-submenu-tiny", "model-submenu-empty",
     "warnings",
     "conversation",
+    "sidebar-options", "sidebar-options-tiny", "sidebar-trash-review", "sidebar-trash", "sidebar-moved",
     "title-controls", "title-controls-expanded",
     "model-metadata", "model-metadata-expanded",
     "working-conversation", "working-phase-6", "working-narrow",
@@ -37,7 +40,16 @@ pub const PRESETS: &[&str] = &[
     "collapsed-wide",
     "tiny-long-model",
     "navigation-tiny",
+    "settings-cloudflare-oauth-setup",
+    "settings-cloudflare-oauth-waiting",
+    "settings-cloudflare-oauth-connected",
+    "settings-cloudflare-oauth-indeterminate",
+    "settings-cloudflare-review",
+    "settings-cloudflare-unknown",
+    "settings-general-cloudflare-pending",
+    "settings-general-cloudflare-unknown",
     "settings-general",
+    "settings-models",
     "settings-codex",
     "settings-codex-managed",
     "settings-codex-usage",
@@ -59,6 +71,11 @@ pub const PRESETS: &[&str] = &[
     "tool-activity-narrow",
     "tool-activity-tiny",
     "tool-activity-details",
+    "tool-activity-expanded",
+    "context-injects",
+    "assistant-tool-call",
+    "assistant-tool-call-expanded",
+    "context-injects-trajectory",
     "assistant-details-source", "assistant-details-formatted", "assistant-details-narrow", "assistant-details-fallback",
     "chat-density",
     "file-path-review", "file-path-tiny", "file-ready", "file-unknown", "inbox-canceled",
@@ -72,13 +89,17 @@ pub const PUBLIC_EFFORT_ID: &str = "PUBLIC-layout-effort-exact-id-世界-é-α";
 /// Requested App frame, not an independently measured compositor or pixel viewport.
 pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
     match preset {
+        "sidebar-options" | "sidebar-trash-review" | "sidebar-trash" | "sidebar-moved" => Some((Size::new(1040.0,900.0),1.0)),
+        "sidebar-options-tiny" => Some((Size::new(608.0,448.0),1.25)),
         "file-picker" | "file-preview" => Some((Size::new(1040.0,900.0),1.0)),
         "file-preview-narrow" => Some((Size::new(760.0,560.0),1.0)),
-        "settings-codex" | "settings-codex-managed" | "settings-codex-usage" | "settings-codex-usage-unknown" | "settings-general-usage-unknown" | "settings-general-usage-pending" | "settings-codex-runtime-models" | "settings-codex-runtime-images" | "settings-codex-runtime-unknown" | "settings-codex-review" | "settings-codex-unknown" | "settings-codex-models" | "settings-codex-images" | "settings-codex-maintenance" | "settings-presets" => Some((Size::new(1024.0, 900.0), 1.0)),
+        "settings-cloudflare-oauth-setup" | "settings-cloudflare-oauth-waiting" | "settings-cloudflare-oauth-connected" | "settings-cloudflare-oauth-indeterminate" | "settings-cloudflare-review" | "settings-cloudflare-unknown" | "settings-general-cloudflare-pending" | "settings-general-cloudflare-unknown" | "settings-models" | "settings-codex" | "settings-codex-managed" | "settings-codex-usage" | "settings-codex-usage-unknown" | "settings-general-usage-unknown" | "settings-general-usage-pending" | "settings-codex-runtime-models" | "settings-codex-runtime-images" | "settings-codex-runtime-unknown" | "settings-codex-review" | "settings-codex-unknown" | "settings-codex-models" | "settings-codex-images" | "settings-codex-maintenance" | "settings-presets" => Some((Size::new(1024.0, 900.0), 1.0)),
         "assistant-details-source" | "assistant-details-formatted" | "assistant-details-fallback" => Some((Size::new(1040.0,900.0),1.0)),
         "assistant-details-narrow" => Some((Size::new(760.0,840.0),1.0)),
         "chat-search-narrow" => Some((Size::new(760.0,840.0),1.5)),
-        "tool-activity" => Some((Size::new(1040.0, 1040.0), 1.0)),
+        "tool-activity" | "tool-activity-expanded" => Some((Size::new(1040.0, 1040.0), 1.0)),
+        "context-injects" | "context-injects-trajectory" => Some((Size::new(1040.0, 900.0), 1.0)),
+        "assistant-tool-call" | "assistant-tool-call-expanded" => Some((Size::new(1040.0, 760.0), 1.0)),
         "chat-density" => Some((Size::new(1040.0, 1000.0), 1.0)),
         "tool-activity-narrow" => Some((Size::new(760.0, 840.0), 1.0)),
         "tool-activity-tiny" => Some((Size::new(608.0, 448.0), 1.25)),
@@ -105,7 +126,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
 fn public_chat_records(preset: &str) -> Vec<Value> {
     if matches!(preset,"chat-markdown"|"chat-thoughts"|"chat-edit-review"|"chat-search"|"chat-recovered"|"chat-edited"|"chat-search-narrow") {
         return vec![
-            json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,"surfaceOp":"append","data":{"id":"PUBLIC-user","role":"user","source":{"kind":"human"},"content":[{"type":"text","text":"PUBLIC show a native formatted response."}]}}}),
+            json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,"surfaceOp":"append","data":{"id":"PUBLIC-user","role":"user","source":{"kind":"user"},"content":[{"type":"text","text":"PUBLIC show a native formatted response."}]}}}),
             json!({"type":"event","event":{"type":"assistant/message","seq":1,"time":1001,"surfaceOp":"append","data":{"turn":1,"step":1,"usage":{"inputTokens":100,"cacheReadTokens":40,"cacheWriteTokens":10,"outputTokens":20,"reasoningTokens":8,"totalTokens":170},"stream":[
                 {"type":"reasoning-chunks","time0":1001,"index":0,"dt":[],"texts":["PUBLIC backend-supplied thoughts. This disclosure is separate from the final response. No model ran."]},
                 {"type":"text-chunks","time0":1001,"index":1,"dt":[],"texts":["## Native Markdown\n\n**Bold**, *italic*, and `inline code`.\n\n- PUBLIC native text\n- No webview or code execution\n\n```rust\n// PUBLIC example; not executed.\nfn main() {\n    let answer = 42;\n    println!(\"{answer}\");\n}\n```"]}
@@ -147,7 +168,7 @@ fn public_tool_records() -> Vec<Value> {
         0,
         "user/message",
         json!({
-            "role":"user", "id":"PUBLIC-activity-user", "source":{"kind":"human"},
+            "role":"user", "id":"PUBLIC-activity-user", "source":{"kind":"user"},
             "content":[{"type":"text", "text":"PUBLIC conversation · compare user, compact tool activity and assistant. No tools were executed."}]
         }),
     )];
@@ -171,6 +192,60 @@ fn public_tool_records() -> Vec<Value> {
         "stream":[{"type":"text-chunks", "time0":1007, "index":0, "dt":[],
             "texts":["PUBLIC synthetic assistant text · tool summaries describe recorded metadata, not executed work. Open full Details in production to inspect stored text."]}]
     })));
+    records
+}
+
+/// The record shapes a real session stores: the system prompt, the harness
+/// context injects, one human prompt, a delivery log and the assistant reply.
+/// Every string is synthetic PUBLIC metadata; no model request was made.
+fn public_context_records() -> Vec<Value> {
+    let event = |seq: u64, kind: &str, data: Value| {
+        json!({"type":"event", "event":{
+            "type":kind, "seq":seq, "time":1000+seq, "data":data, "surfaceOp":"append"
+        }})
+    };
+    let injected = |seq: u64, kind: &str, form: &str, text: &str| {
+        event(seq, "user/message", json!({
+            "role":"user",
+            "source":{"kind":kind, "form":form},
+            "content":[{"type":"text","text":text}]
+        }))
+    };
+    vec![
+        event(0, "system/message", json!({"message":{"role":"system","content":[{"type":"text","text":"PUBLIC system prompt · You are an AI agent powered by DeepSeek Harness."}]}})),
+        injected(1, "runtime-context", "snapshot", "Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nPUBLIC file policy line."),
+        injected(2, "time-context", "snapshot", "Time sampled while preparing turn 1, step 1: PUBLIC timestamp[UTC]"),
+        injected(3, "skill-catalog", "catalog", "<system-reminder>\nA skill is a reusable set of task-specific instructions.\n</system-reminder>"),
+        event(4, "user/message", json!({
+            "role":"user",
+            "source":{"kind":"user","rpcId":"PUBLIC-rpc","promptFingerprint":"PUBLIC-fingerprint"},
+            "content":[{"type":"text","text":"PUBLIC real question · only this stays in Chat with the answer."}]
+        })),
+        event(5, "session-log-deepseek/delivery-accepted", json!({"sessionFormatVersion":4,"sessionId":"PUBLIC-session","throughSeq":15})),
+        event(6, "assistant/message", json!({"turn":1,"step":1,
+            "stream":[{"type":"text-chunks","time0":1006,"index":0,"dt":[],
+                "texts":["PUBLIC assistant answer · the conversation this app actually shows."]}]
+        })),
+    ]
+}
+
+/// One real session's settled assistant stream: thinking and a Bash tool call,
+/// with no answer prose at all. The tool call must group with the thinking, never render as
+/// prose. Built on the known-good tool fixture so only the stream differs.
+/// Every string is synthetic PUBLIC metadata; nothing was executed.
+fn public_tool_call_records() -> Vec<Value> {
+    let mut records = public_tool_records();
+    // The last record is the settled assistant message (seq 7).
+    if let Some(last) = records.last_mut() {
+        *last = json!({"type":"event", "event":{
+            "type":"assistant/message", "seq":7, "time":1007, "surfaceOp":"append",
+            "data":{"turn":1, "step":2, "stream":[
+                {"type":"reasoning-chunks", "time0":1000, "index":0, "dt":[], "texts":["PUBLIC thinking about the request."]},
+                {"type":"tool-call-chunks", "time0":1001, "index":1, "id":"PUBLIC-bash-call", "name":"bash", "dt":[],
+                    "args":["{\"description\":\"Show current date and time\",\"command\":\"date -u\"}"]}
+            ]}
+        }});
+    }
     records
 }
 
@@ -247,6 +322,10 @@ pub fn build(
         vec![json!({"type":"event","event":{"type":"assistant/message","seq":0,"time":1001,"surfaceOp":"append","data":{"turn":1,"step":1,"stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],"texts":[source]}]}}})]
     } else if preset.starts_with("tool-activity") || preset.starts_with("title-controls") {
         public_tool_records()
+    } else if preset.starts_with("assistant-tool-call") {
+        public_tool_call_records()
+    } else if preset.starts_with("context-injects") {
+        public_context_records()
     } else if preset.starts_with("model-metadata") {
         let mut records = public_tool_records();
         for seq in 8..10 {
@@ -273,7 +352,7 @@ pub fn build(
     } else if preset == "conversation" || preset.starts_with("working-") {
         vec![
             json!({"type":"event", "event":{"type":"user/message", "seq":0, "time":1000,
-                "data":{"role":"user", "id":"PUBLIC-user-message", "source":{"kind":"human"},
+                "data":{"role":"user", "id":"PUBLIC-user-message", "source":{"kind":"user"},
                     "content":[{"type":"text", "text":"PUBLIC layout note · café · 世界\nCompare the real conversation bubbles and composer without sending a prompt."}]},
                 "surfaceOp":"append"}}),
             json!({"type":"event", "event":{"type":"assistant/message", "seq":1, "time":1001,
@@ -296,6 +375,11 @@ pub fn build(
         frame: snapshot,
     })));
     assert!(app.follow_ready && app.smoke_evidence.snapshot_valid && app.transcript.safe_to_send());
+    if preset == "assistant-tool-call-expanded" {
+        let ticket = app.reply_parts(7).unwrap().ticket.unwrap();
+        drop(app.update(Message::ToggleThoughts(ticket)));
+        assert!(app.thoughts_expanded.contains(&7));
+    }
     if preset == "chat-thoughts" {
         let ticket=app.reply_parts(1).unwrap().ticket.unwrap();
         drop(app.update(Message::ToggleThoughts(ticket)));
@@ -368,7 +452,7 @@ pub fn build(
         }
         "menu" => app.conversation_menu = true,
         "navigation" | "navigation-tiny" => app.sidebar_sheet = true,
-        "settings-general" | "settings-codex" | "settings-codex-managed" | "settings-codex-usage" | "settings-codex-usage-unknown" | "settings-general-usage-unknown" | "settings-general-usage-pending" | "settings-codex-runtime-models" | "settings-codex-runtime-images" | "settings-codex-runtime-unknown" | "settings-codex-review" | "settings-codex-unknown" | "settings-codex-models" | "settings-codex-images" | "settings-codex-maintenance" | "settings-presets" => {
+        "settings-cloudflare-oauth-setup" | "settings-cloudflare-oauth-waiting" | "settings-cloudflare-oauth-connected" | "settings-cloudflare-oauth-indeterminate" | "settings-cloudflare-review" | "settings-cloudflare-unknown" | "settings-general-cloudflare-pending" | "settings-general-cloudflare-unknown" | "settings-general" | "settings-models" | "settings-codex" | "settings-codex-managed" | "settings-codex-usage" | "settings-codex-usage-unknown" | "settings-general-usage-unknown" | "settings-general-usage-pending" | "settings-codex-runtime-models" | "settings-codex-runtime-images" | "settings-codex-runtime-unknown" | "settings-codex-review" | "settings-codex-unknown" | "settings-codex-models" | "settings-codex-images" | "settings-codex-maintenance" | "settings-presets" => {
             use crate::settings::{Action, Page};
             // Default ApiLogin would read metadata. Seed General locally with disabled effects,
             // then exercise actual App Open/navigation. No production defaults/guards change.
@@ -388,14 +472,91 @@ pub fn build(
             );
             app.settings.close();
             drop(app.update(Message::Settings(Action::Open)));
-            let page = if preset.starts_with("settings-codex") || preset.starts_with("settings-general-usage") {
+            let page = if preset.starts_with("settings-cloudflare") || preset.starts_with("settings-general-cloudflare") {
+                Page::Cloudflare
+            } else if preset.starts_with("settings-codex") || preset.starts_with("settings-general-usage") {
                 Page::Codex
             } else if preset == "settings-presets" {
                 Page::AgentPresets
+            } else if preset == "settings-models" {
+                Page::ApiLogin
             } else {
                 Page::General
             };
             drop(app.update(Message::Settings(Action::SelectPage(page))));
+            if preset == "settings-models" {
+                // Exercise a real read request and supply its reply locally, so
+                // the Models page renders its ready state without a Host.
+                let ticket = app.settings.ticket();
+                if app
+                    .settings
+                    .handle(Action::Refresh(ticket), app.transport_epoch, true)
+                    .is_some()
+                {
+                    let reading = app.settings.ticket();
+                    app.settings.metadata(
+                        reading,
+                        Ok(dsh_native_core::OnboardingMetadata {
+                            logged_in: false,
+                            has_api_key: false,
+                            writable: true,
+                        }),
+                    );
+                }
+                // PUBLIC DeepSeek catalog rows: the page renders real route
+                // facts instead of an invented endpoint or model.
+                let row = |id: &str, name: &str| Model {
+                    provider: "deepseek-official".into(),
+                    id: id.into(),
+                    name: name.into(),
+                    label: name.into(),
+                    efforts: Vec::new(),
+                    default_effort: None,
+                    service_tiers: Vec::new(),
+                    verbosity_levels: Vec::new(),
+                };
+                app.models = vec![
+                    row("deepseek-flash", "DeepSeek-V41-Flash"),
+                    row("deepseek-v4-pro", "DeepSeek-V4-Pro"),
+                ];
+                // PUBLIC live-settings snapshot for the one namespace the
+                // DeepSeek page renders. No endpoint or credential is invented.
+                use dsh_native_transport::plugin::{
+                    PluginInventorySnapshot, SettingsDescribeValue, SettingsField,
+                    SettingsFieldKind, SettingsNamespaceView, SettingsScalar,
+                };
+                let field = |path: &str, value: &str| SettingsField {
+                    path: vec![path.into()],
+                    label: path.into(),
+                    kind: SettingsFieldKind::String { max_length: 200 },
+                    value: Some(SettingsScalar::String(value.into())),
+                    overridden: false,
+                };
+                let ticket = app.settings.plugin_read_ticket();
+                app.settings.plugins_loaded(
+                    ticket,
+                    Ok(crate::plugins::Snapshot {
+                        inventory: PluginInventorySnapshot {
+                            entries: Vec::new(),
+                            management_available: false,
+                        },
+                        settings: SettingsDescribeValue {
+                            writable: true,
+                            namespaces: vec![SettingsNamespaceView {
+                                ns: "llm-deepseek".into(),
+                                revision: 3,
+                                auto_generate: true,
+                                unsupported_fields: 1,
+                                secret_fields: 0,
+                                fields: vec![
+                                    field("baseURL", "https://api.deepseek.com/anthropic"),
+                                    field("reasoningEffort", "high"),
+                                ],
+                            }],
+                        },
+                    }),
+                );
+            }
             if preset.starts_with("settings-codex") || preset.starts_with("settings-general-usage") {
                 use crate::codex::Tab;
                 let tab = match preset {
@@ -420,6 +581,12 @@ pub fn build(
                     if preset == "settings-codex-runtime-unknown" {
                         runtime_preferences::fail_save(&mut app);
                     }
+                }
+            }
+            if preset.starts_with("settings-cloudflare") || preset.starts_with("settings-general-cloudflare") {
+                cloudflare::seed(&mut app, preset);
+                if preset.starts_with("settings-general-cloudflare") {
+                    drop(app.update(Message::Settings(Action::SelectPage(Page::General))));
                 }
             }
             if preset.starts_with("settings-general-usage") {
@@ -459,6 +626,16 @@ pub fn build(
                     .as_ref()
                     .is_some_and(|detail| detail.source.contains("PUBLIC old text"))
             );
+        }
+        "tool-activity-expanded" => {
+            // The recorded Bash call expands inside the conversation; the detail
+            // panel stays closed and no tool is executed.
+            drop(app.update(Message::ToggleActivity {
+                generation: app.generation,
+                key: 5,
+            }));
+            assert!(app.activity_expanded.contains(&5));
+            assert!(app.detail.is_none() && app.composer_visible());
         }
         "long-model" | "tiny-long-model" => {
             let effort = Effort {
@@ -522,6 +699,11 @@ pub fn build(
         if let Some(section)=submenu {let stamp=app.model_controls.stamp().unwrap();drop(app.update(Message::ModelControls(super::model_controls::Action::Browse(stamp,Some(section)))));}
         assert!(app.model_controls.is_open());
     }
+    if preset.starts_with("context-injects") {
+        // Chat is the default clean view; the trajectory variant shows the log.
+        app.records_expanded = preset.ends_with("trajectory");
+        assert!(app.transcript.rows().len() >= 7);
+    }
     if preset.starts_with("model-metadata") {
         app.records_expanded = preset.ends_with("expanded");
         let effort = Effort { id: PUBLIC_EFFORT_ID.into(), name: "Medium".into() };
@@ -542,6 +724,26 @@ pub fn build(
         let background = dsh_native_transport::dto::SessionId::new("PUBLIC-layout-notes").unwrap();
         app.sessions.get_mut(&background).unwrap().running = true;
         assert!(app.working_animation_active());
+    }
+    if preset.starts_with("sidebar-") {
+        use super::sidebar_organization::{Location, Mutation};
+        let io=app.sidebar_organization.start_load(false).unwrap();
+        app.sidebar_organization.loaded(io,Ok(Default::default()));
+        let target=dsh_native_transport::dto::SessionId::new("PUBLIC-layout-notes").unwrap();
+        app.workspaces.push(serde_json::from_value(json!({"workspaceId":"PUBLIC-sidebar-group","path":"/PUBLIC-other-directory",
+            "title":"PUBLIC sidebar group","sessionIds":[],"createdAt":"1970-01-01T00:00:00Z","updatedAt":"1970-01-01T00:00:00Z"})).unwrap());
+        app.sidebar_organization.open(app.transport_epoch,app.generation,target);
+        if matches!(preset,"sidebar-trash-review"|"sidebar-trash") {
+            let stamp=app.sidebar_organization.stamp().unwrap();app.sidebar_organization.review(&stamp);
+            if preset=="sidebar-trash" {
+                let stamp=app.sidebar_organization.stamp().unwrap();let write=app.sidebar_organization.propose(&stamp,Mutation::Trash).unwrap();
+                app.sidebar_organization.saved(write.ticket,Ok(()));app.sidebar_organization.dismiss();app.show_trash=true;
+            }
+        } else if preset=="sidebar-moved" {
+            let group=dsh_native_transport::dto::WorkspaceId::new("PUBLIC-sidebar-group").unwrap();
+            let stamp=app.sidebar_organization.stamp().unwrap();let write=app.sidebar_organization.propose(&stamp,Mutation::Move(Location::Workspace(group.clone()))).unwrap();
+            app.sidebar_organization.saved(write.ticket,Ok(()));app.sidebar_organization.dismiss();app.workspace=Some(group);
+        }
     }
     app.status = if preset == "warnings" {
         "PUBLIC local warning simulation · sequence gap after valid snapshot; read-only until reload · no Host exists".into()
@@ -577,7 +779,8 @@ pub fn metadata(app: &App, preset: &str) -> Value {
     let settings_expected = preset.starts_with("settings-");
     let info_expected = matches!(preset, "information" | "information-expanded");
     let picker_expected = preset == "file-picker";
-    let composer_expected = !settings_expected && !picker_expected
+    let sidebar_expected=matches!(preset,"sidebar-options"|"sidebar-options-tiny"|"sidebar-trash-review");
+    let composer_expected = !settings_expected && !picker_expected && !sidebar_expected
         && !info_expected && !preset.starts_with("assistant-details")
         && !matches!(
             preset,
@@ -602,18 +805,21 @@ pub fn metadata(app: &App, preset: &str) -> Value {
         "registryReady":app.management.registry.ready(),
         "composerExpected":composer_expected,
         "composerStateMatchesPreset":app.composer_visible() == composer_expected,
-        "settingsEntryExpected":!settings_expected && !picker_expected,
-        "stopExpected":!settings_expected && !picker_expected,
+        "settingsEntryExpected":!settings_expected && !picker_expected && !sidebar_expected,
+        "stopExpected":!settings_expected && !picker_expected && !sidebar_expected,
+        "sidebarOptionsExpected":sidebar_expected,
+        "sidebarOrganizationSimulated":preset.starts_with("sidebar-"),
+        "sidebarStoreIoExecuted":false,
         "modelControlsExpected":composer_expected,
         "reasoningControlExpected":app.model_controls.is_open() && (app.model_controls.section().is_none() || app.layout_size().width >= 720.0),
-        "headerExpected":!settings_expected && !picker_expected && !matches!(preset, "navigation" | "navigation-tiny"),
+        "headerExpected":!settings_expected && !picker_expected && !sidebar_expected && !matches!(preset, "navigation" | "navigation-tiny"),
         "settingsStateMatchesPreset":app.settings.is_open() == settings_expected,
         "informationStateMatchesPreset":app.capabilities == info_expected
             && app.info_expanded == if preset == "information-expanded" { 3 } else { 0 },
         "informationExpandedBits":app.info_expanded,
         "settingsModalExpected":settings_expected,
         "settingsSeedWithoutEffects":settings_expected,
-        "modalBackgroundOperationExcludedExpected":settings_expected || picker_expected,
+        "modalBackgroundOperationExcludedExpected":settings_expected || picker_expected || sidebar_expected,
         "filePickerExpected":picker_expected,
         "filePickerStateMatchesPreset":app.local_files.picker.is_open()==picker_expected,
         "localPreviewSnapshotSimulated":preset.starts_with("file-preview"),
@@ -632,6 +838,7 @@ pub fn metadata(app: &App, preset: &str) -> Value {
     let local_metadata = json!({
         "managedAccountMetadataSimulated":matches!(preset, "settings-codex-managed" | "settings-codex-usage" | "settings-codex-usage-unknown" | "settings-general-usage-unknown" | "settings-general-usage-pending" | "settings-codex-review" | "settings-codex-unknown"),
         "usagePreferencesSimulated":matches!(preset, "settings-codex-usage" | "settings-codex-usage-unknown" | "settings-general-usage-unknown" | "settings-general-usage-pending"),
+        "cloudflareConfigurationSimulated":preset.contains("cloudflare"),
         "runtimePreferencesSimulated":matches!(preset, "settings-codex-runtime-models" | "settings-codex-runtime-images" | "settings-codex-runtime-unknown"),
         "accountWritesDispatched":false,
         "accountIdentityOrEntitlementVerified":false,
@@ -729,6 +936,15 @@ mod tests {
                 matches!(preset, "navigation" | "navigation-tiny")
             );
             assert_eq!(app.conversation_menu, preset == "menu");
+            let sidebar_modal=matches!(preset,"sidebar-options"|"sidebar-options-tiny"|"sidebar-trash-review");
+            assert_eq!(app.sidebar_organization.is_open(),sidebar_modal);
+            assert_eq!(report["sidebarOptionsExpected"],sidebar_modal);
+            assert_eq!(report["modalBackgroundOperationExcludedExpected"],preset.starts_with("settings-")||preset=="file-picker"||sidebar_modal);
+            if sidebar_modal {
+                assert_eq!(report["headerExpected"],false);
+                assert_eq!(report["settingsEntryExpected"],false);
+                assert_eq!(report["stopExpected"],false);
+            }
             assert_eq!(report["composerStateMatchesPreset"], true);
             assert_eq!(report["settingsStateMatchesPreset"], true);
             assert_eq!(report["informationStateMatchesPreset"], true);

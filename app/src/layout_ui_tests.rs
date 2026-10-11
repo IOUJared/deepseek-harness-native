@@ -209,3 +209,127 @@ fn settings_constructor_has_one_semantic_registration_source_guard() {
         1
     );
 }
+#[test]
+fn conversation_column_is_adaptive_and_fits_the_padded_pane() {
+    let (mut app, mut queue) = app();
+    for (width, height) in [
+        (760.0, 560.0),
+        (1200.0, 800.0),
+        (1980.0, 1319.0),
+        (2560.0, 1440.0),
+    ] {
+        drop(app.update(Message::Resized(iced::Size::new(width, height))));
+        let sidebar = app.sidebar_motion.value();
+        let pane = width - sidebar;
+        let lane = app.chat_lane();
+        let expected = (pane - 40.0).min(design::chat_width(pane));
+        assert!(
+            (lane - expected).abs() < 0.001,
+            "width {width}: lane {lane} != expected {expected}"
+        );
+        assert!(
+            lane <= pane - 40.0 + 0.001,
+            "width {width}: lane {lane} must fit the padded pane {pane}"
+        );
+        assert!(lane <= design::MAX_CHAT + 0.001);
+        // The rendered view uses the same lane, so its virtual row heights agree.
+        drop(app.view());
+    }
+    assert!(queue.try_recv().is_err());
+}
+#[test]
+fn composer_editor_grows_with_the_draft_up_to_the_web_line_cap() {
+    let (mut app, mut queue) = app();
+    drop(app.update(Message::Resized(iced::Size::new(1200.0, 800.0))));
+    // The resting editor keeps roughly its previous fixed height.
+    app.editor = text_editor::Content::with_text("one line");
+    assert_eq!(app.composer_editor_height(), 83.0);
+    // Multi-line drafts grow one line at a time (5 * 19.5 + 24, rounded).
+    app.editor = text_editor::Content::with_text("a\nb\nc\nd\ne");
+    assert_eq!(app.composer_editor_height(), 122.0);
+    // The web 14-line cap holds; a short window keeps a smaller cap.
+    app.editor = text_editor::Content::with_text(&"line\n".repeat(40));
+    assert_eq!(app.composer_editor_height(), 297.0);
+    drop(app.update(Message::Resized(iced::Size::new(760.0, 560.0))));
+    assert_eq!(app.composer_editor_height(), 180.0);
+    // Empty and whitespace-only drafts never drop below the resting size.
+    app.editor = text_editor::Content::new();
+    assert_eq!(app.composer_editor_height(), 63.0);
+    drop(app.view());
+    assert!(queue.try_recv().is_err());
+}
+#[test]
+fn settings_paste_messages_are_inert_outside_a_live_models_draft() {
+    let (mut app, mut queue) = app();
+    let ticket = app.settings.input_ticket();
+    drop(app.update(Message::Settings(crate::settings::Action::Paste { ticket })));
+    drop(
+        app.update(Message::Settings(crate::settings::Action::Pasted {
+            ticket,
+            input: crate::settings::Input::pasted("PUBLIC".into()),
+        })),
+    );
+    assert!(queue.try_recv().is_err());
+}
+#[test]
+fn settings_paste_availability_messages_are_inert_outside_a_live_models_draft() {
+    let (mut app, mut queue) = app();
+    let ticket = app.settings.input_ticket();
+    drop(app.update(Message::Settings(
+        crate::settings::Action::PasteUnavailable { ticket },
+    )));
+    assert!(queue.try_recv().is_err());
+}
+#[test]
+fn paste_composer_text_lands_in_the_draft_only_for_a_visible_composer() {
+    let (mut app, mut queue) = app();
+    app.ready = true;
+    app.root_ready = true;
+    app.follow_ready = true;
+    app.selected = Some(SessionId::new("fixture").unwrap());
+    assert!(app.composer_visible());
+    drop(app.update(Message::PasteComposerText(Some("PUBLIC paste".into()))));
+    assert_eq!(app.editor.text(), "PUBLIC paste");
+    // A composer hidden behind another panel ignores a late paste result.
+    app.capabilities = true;
+    drop(app.update(Message::PasteComposerText(Some("PUBLIC late".into()))));
+    assert_eq!(app.editor.text(), "PUBLIC paste");
+    // Empty and missing clipboard text never touch the draft.
+    app.capabilities = false;
+    drop(app.update(Message::PasteComposerText(None)));
+    drop(app.update(Message::PasteComposerText(Some(String::new()))));
+    assert_eq!(app.editor.text(), "PUBLIC paste");
+    assert!(queue.try_recv().is_err());
+}
+#[test]
+fn settings_route_facts_project_deepseek_catalog_rows_without_inventing_models() {
+    let (mut app, mut queue) = app();
+    let model = |provider: &str, id: &str, name: &str| Model {
+        provider: provider.into(),
+        id: id.into(),
+        name: name.into(),
+        label: name.into(),
+        efforts: Vec::new(),
+        default_effort: None,
+        service_tiers: Vec::new(),
+        verbosity_levels: Vec::new(),
+    };
+    app.models = vec![
+        model("deepseek-official", "deepseek-flash", "DeepSeek-V41-Flash"),
+        model("openai-codex", "gpt-6", "GPT-6"),
+        model("deepseek-official", "deepseek-v4-pro", "DeepSeek-V4-Pro"),
+    ];
+    let facts = app.settings_route_facts();
+    assert_eq!(facts.models.len(), 2, "only DeepSeek rows are reported");
+    assert!(
+        facts
+            .models
+            .iter()
+            .any(|(name, id, _)| name == "DeepSeek-V41-Flash" && id == "deepseek-flash")
+    );
+    assert_eq!(facts.loading, app.catalog_read.pending());
+    // The DeepSeek page renders real route facts and dispatches nothing.
+    drop(app.update(Message::Settings(crate::settings::Action::Open)));
+    drop(app.view());
+    assert!(queue.try_recv().is_err());
+}

@@ -177,7 +177,9 @@ fn projected_mixed_4096_rows_preserve_spacers_and_bounded_widgets_in_both_modes(
         let total: f32 = heights.iter().sum();
         for offset in [0.0, 50_000.0, 500_000.0] {
             let range = height_range(&heights, offset, 600.0);
-            assert!(range.len() <= 25);
+            // Overscan spans 2 rows above plus 3 below a 600px viewport; the
+            // 12px-gap rows fit two more widgets than the earlier 16px rows.
+            assert!(range.len() <= 27, "range {} offset {offset}", range.len());
             let sum: f32 = heights[..range.start]
                 .iter()
                 .chain(&heights[range.clone()])

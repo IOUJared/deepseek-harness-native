@@ -122,7 +122,7 @@ impl App {
         if self.options.smoke.is_some() {
             return iced::exit();
         }
-        if self.draft_state.busy() || self.local_files.busy() {
+        if self.draft_state.busy() || self.local_files.busy() || self.sidebar_organization.busy() {
             return Task::none();
         }
         // A completed draft save cannot acknowledge an uncertain backend stop.
@@ -130,8 +130,8 @@ impl App {
         if self.draft_discard_on_exit && self.stopped {
             return iced::exit();
         }
-        if self.draft_state.failure().is_some() {
-            self.close=Close::Failed("Draft recovery failed or save was not durably confirmed. Stay to reconcile, or explicitly exit without saving. Closing is not rollback.".into());
+        if self.draft_state.failure().is_some() || self.sidebar_organization.failure().is_some() {
+            self.close=Close::Failed("Draft or sidebar persistence failed or was not durably confirmed. Stay to reconcile, or explicitly exit without saving. Closing is not rollback.".into());
             return Task::none();
         }
         if self.draft_state.needs_flush() {

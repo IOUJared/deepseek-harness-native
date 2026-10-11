@@ -29,6 +29,8 @@ mod export_worker_tests;
 #[path = "plugin_worker_tests.rs"]
 mod plugin_worker_tests;
 use codex_worker::{CodexCoordinator, codex_ticket, execute_codex};
+#[path = "cloudflare_worker.rs"]
+mod cloudflare_worker;
 #[path = "prompt_worker.rs"]
 mod prompt_worker;
 #[path = "prompt_recovery.rs"]
@@ -41,6 +43,7 @@ mod decision_worker;
 pub(crate) mod file_intake;
 use decision_worker::{Admission as DecisionAdmission, DecisionCoordinator};
 pub enum Command {
+    Cloudflare(crate::settings::cloudflare::Effect),
     StageFile(attachments::Submission),
     DiscardFile(attachments::Ticket),
     PromptFile {
@@ -96,6 +99,7 @@ pub enum Command {
 }
 #[derive(Clone)]
 pub enum Event {
+    CloudflareCompleted { ticket: crate::settings::Ticket, outcome: crate::settings::cloudflare::Outcome },
     FileStaged {
         ticket: attachments::Ticket,
         outcome: attachments::Outcome,
@@ -207,7 +211,7 @@ impl Handle {
             self.shutdown.send_replace(true);
             return Ok(());
         }
-        let lane=if prompt_worker::priority(&command) { &self.priority } else { &self.commands };
+        let lane=if matches!(&command,Command::Cloudflare(crate::settings::cloudflare::Effect::CancelLogin {..})) || prompt_worker::priority(&command) { &self.priority } else { &self.commands };
         lane.try_send(command).map_err(|e| e.into_inner())
     }
 }
@@ -344,9 +348,55 @@ async fn next_selected(
         None => std::future::pending().await,
     }
 }
+fn cloudflare_guard(ticket: crate::settings::Ticket, smoke: bool, stopping: bool, busy: bool) -> bool {
+    ticket.epoch == TRANSPORT_EPOCH && !smoke && !stopping && !busy
+}
+fn execute_cloudflare(backend: &Backend, effect: crate::settings::cloudflare::Effect) -> crate::settings::cloudflare::Outcome {
+    use crate::settings::cloudflare::{Effect, Outcome};
+    let timeout=Duration::from_secs(10);
+    let result=match effect {
+        Effect::AuthMode {revision,mode,..}=>backend.request(CoreCommand::CloudflareAuthModeSave {expected_revision:revision,auth_mode:mode},timeout).and_then(cloudflare_reply).and_then(|snapshot| {
+            if snapshot.auth_status.auth_mode==mode && !snapshot.models_enabled && !snapshot.browser_enabled && (revision..=revision+1).contains(&snapshot.revision) {Ok(snapshot)} else {Err(dsh_native_core::Error::Protocol)}
+        }),
+        Effect::Setup {revision,setup,..}=>{
+            let expected=setup.clone();backend.request(CoreCommand::CloudflareSetupSave {expected_revision:revision,setup},timeout).and_then(cloudflare_reply).and_then(|snapshot| {
+                if snapshot.oauth_setup==expected && snapshot.auth_status.auth_mode==dsh_native_core::CloudflareAuthMode::Oauth && !snapshot.models_enabled && !snapshot.browser_enabled && (revision..=revision+1).contains(&snapshot.revision) {Ok(snapshot)} else {Err(dsh_native_core::Error::Protocol)}
+            })
+        },
+        Effect::Start {revision,permit,..}=>{
+            if !permit.load(std::sync::atomic::Ordering::Acquire) {return Outcome::NotSent;}
+            backend.start_cloudflare(revision,&permit,timeout)
+        }
+        Effect::OpenBrowser {attempt,permit,..}=>return match backend.open_cloudflare_browser(&attempt,&permit) {Ok(())=>Outcome::BrowserOpened,Err(_)=>Outcome::Unknown},
+        Effect::CancelLogin {attempt,..}=>{
+            backend.revoke_cloudflare_browser();
+            let Some(attempt_id)=attempt else {return Outcome::NotSent;};
+            backend.request(CoreCommand::CloudflareOauthCancel {attempt_id},timeout).and_then(cloudflare_reply)
+        }
+        Effect::Disconnect {revision,revoke,..}=>backend.request(CoreCommand::CloudflareOauthDisconnect {expected_revision:revision,revoke},timeout).and_then(cloudflare_reply),
+        Effect::Read(_) => backend.request(CoreCommand::CloudflareRead,timeout).and_then(|reply| match reply {PublicReply::Cloudflare(value)=>Ok(value),_=>Err(dsh_native_core::Error::Protocol)}),
+        Effect::Save{revision,account,models,browser,free,token,..} => backend.save_cloudflare(revision,&account,models,browser,free,token,timeout),
+        Effect::Disable{revision,..} => backend.request(CoreCommand::CloudflareDisable{expected_revision:revision},timeout).and_then(|reply| match reply {
+            PublicReply::Cloudflare(value) if !value.models_enabled && !value.browser_enabled && (revision..=revision+1).contains(&value.revision)=>Ok(value),
+            _=>Err(dsh_native_core::Error::Protocol),
+        }),
+    };
+    match result {
+        Ok(snapshot)=>Outcome::Snapshot(snapshot),
+        Err(dsh_native_core::Error::InvalidCommand | dsh_native_core::Error::Starting | dsh_native_core::Error::Stopping | dsh_native_core::Error::WriterBusy | dsh_native_core::Error::TooManyRequests | dsh_native_core::Error::CommandTooLarge)=>Outcome::NotSent,
+        Err(_)=>Outcome::Unknown,
+    }
+}
+fn cloudflare_reply(reply:PublicReply)->Result<dsh_native_core::CloudflareSnapshot,dsh_native_core::Error> {
+    match reply {PublicReply::Cloudflare(value)=>Ok(value),_=>Err(dsh_native_core::Error::Protocol)}
+}
 fn rejected(command: Command) -> Event {
     let error = "Native concurrent operation limit reached; retry explicitly".to_owned();
     match command {
+        Command::Cloudflare(effect) => {
+            let ticket = effect.ticket(); drop(effect);
+            Event::CloudflareCompleted { ticket, outcome: crate::settings::cloudflare::Outcome::NotSent }
+        }
         Command::StageFile(submission) => Event::FileStaged {
             ticket: submission.ticket,
             outcome: attachments::Outcome::NotSent,
@@ -954,6 +1004,7 @@ async fn run(
     let mut selected_file_target: Option<SessionId> = None;
     let mut generation = 0;
     let mut key_saving: Option<crate::settings::Ticket> = None;
+    let mut cloudflare = cloudflare_worker::Coordinator::default();
     let mut plugins_active: Option<PluginOperation> = None;
     let mut codex = CodexCoordinator::default();
     let mut management_active: Option<crate::management::Submission> = None;
@@ -1008,7 +1059,7 @@ async fn run(
                         } else if !publish(&events,Event::Cancel{generation:stop_generation,result:Err("Stop not admitted: stale target or another Stop is pending; no cancellation sent".into())}){break Some("Native UI delivery queue overflow".into());}
                         continue;
                     },
-                    command if (!observations_live || submissions.busy()) && matches!(&command,Command::Prompt{..}|Command::PromptFile{..}|Command::StageFile(_)|Command::SaveKey{..}|Command::PluginSave{..}|Command::Export(_)|Command::Manage(_)|Command::SelectModel{..}|Command::Create{..}|Command::OpenWorkspace(_)|Command::Codex(crate::codex::Effect::RuntimeSave{..}|crate::codex::Effect::UsageSave{..}|crate::codex::Effect::StartLogin{..}|crate::codex::Effect::AddAccount{..}|crate::codex::Effect::SelectAccount{..}|crate::codex::Effect::SignOutAccount{..}|crate::codex::Effect::SignOutAll{..}|crate::codex::Effect::EnableModels{..}|crate::codex::Effect::SubmitCallback{..}))=>{if !publish(&events,rejected(command)){break Some("Native UI delivery queue overflow".into());}continue;},
+                    command if (!observations_live || submissions.busy()) && matches!(&command,Command::Prompt{..}|Command::PromptFile{..}|Command::StageFile(_)|Command::SaveKey{..}|Command::Cloudflare(crate::settings::cloudflare::Effect::Save{..}|crate::settings::cloudflare::Effect::Disable{..}|crate::settings::cloudflare::Effect::AuthMode{..}|crate::settings::cloudflare::Effect::Setup{..}|crate::settings::cloudflare::Effect::Start{..}|crate::settings::cloudflare::Effect::Disconnect{..})|Command::PluginSave{..}|Command::Export(_)|Command::Manage(_)|Command::SelectModel{..}|Command::Create{..}|Command::OpenWorkspace(_)|Command::Codex(crate::codex::Effect::RuntimeSave{..}|crate::codex::Effect::UsageSave{..}|crate::codex::Effect::StartLogin{..}|crate::codex::Effect::AddAccount{..}|crate::codex::Effect::SelectAccount{..}|crate::codex::Effect::SignOutAccount{..}|crate::codex::Effect::SignOutAll{..}|crate::codex::Effect::EnableModels{..}|crate::codex::Effect::SubmitCallback{..}))=>{if !publish(&events,rejected(command)){break Some("Native UI delivery queue overflow".into());}continue;},
                     Command::DiscardFile(ticket) => { files.discard(&ticket); continue; },
                     Command::StageFile(submission) => {
                         let enabled = !smoke && !*closing.borrow() && !events.is_closed() && operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()) < MAX_OPERATIONS;
@@ -1081,7 +1132,7 @@ async fn run(
                     },
                     Command::Codex(effect)=>{
                         let ticket=codex_ticket(&effect);
-                        if codex.admit(&effect,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),key_saving.is_some()||plugins_active.is_some()||export_active.is_some()) {
+                        if codex.admit(&effect,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),key_saving.is_some()||cloudflare.busy()||plugins_active.is_some()||export_active.is_some()) {
                             let backend=backend.clone();
                             tasks.spawn_blocking(move||Event::CodexCompleted{ticket,outcome:execute_codex(&backend,effect)});
                         } else {
@@ -1095,7 +1146,7 @@ async fn run(
                         if admit_export(&mut export_active,&receipt,ExportAdmission {
                             smoke,stopping:*closing.borrow() || events.is_closed(),
                             operations:tasks.len(),generation,target:selected_target.as_ref(),
-                            key_saving:key_saving.is_some()||codex.busy(),plugins_active:plugins_active.is_some(),management_active:management_active.is_some(),
+                            key_saving:key_saving.is_some()||cloudflare.busy()||codex.busy(),plugins_active:plugins_active.is_some(),management_active:management_active.is_some(),
                         }) {
                             export_download=Some(tokio::spawn(download_export(client.clone(),destination,receipt.ticket.target.clone())));
                         } else {
@@ -1105,13 +1156,13 @@ async fn run(
                         continue;
                     },
                     Command::PluginsRead(ticket)=>{
-                        if admit_plugin(&mut plugins_active,PluginOperation::Read(ticket),smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),key_saving.is_some()||export_active.is_some()||codex.busy()) {
+                        if admit_plugin(&mut plugins_active,PluginOperation::Read(ticket),smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),key_saving.is_some()||cloudflare.busy()||export_active.is_some()||codex.busy()) {
                             tasks.spawn(read_plugins(client.clone(),ticket));
                         } else if !publish(&events,Event::PluginsLoaded{ticket,result:Err(crate::plugins::ReadFailure::Unavailable)}) {break Some("Native UI delivery queue overflow".into());}
                         continue;
                     },
                     Command::PluginSave{ticket,namespace,field,value}=>{
-                        if admit_plugin(&mut plugins_active,PluginOperation::Save(ticket),smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),key_saving.is_some()||export_active.is_some()||codex.busy()) {
+                        if admit_plugin(&mut plugins_active,PluginOperation::Save(ticket),smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),key_saving.is_some()||cloudflare.busy()||export_active.is_some()||codex.busy()) {
                             tasks.spawn(save_plugin(client.clone(),ticket,namespace,field,value));
                         } else if !publish(&events,Event::PluginSaved{ticket,result:crate::plugins::SaveOutcome::NotSent}) {break Some("Native UI delivery queue overflow".into());}
                         continue;
@@ -1133,8 +1184,26 @@ async fn run(
                         }));
                         continue;
                     },
+                    Command::Cloudflare(effect)=>{
+                        let ticket=effect.ticket();
+                        let cancel=matches!(&effect,crate::settings::cloudflare::Effect::CancelLogin {..});
+                        if cancel {backend.revoke_cloudflare_browser();}
+                        let allowed=cloudflare.admit(&effect,smoke,*closing.borrow() || events.is_closed(),
+                            operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),
+                            key_saving.is_some() || plugins_active.is_some() || codex.busy() || export_active.is_some());
+                        if !allowed {if !publish(&events,rejected(Command::Cloudflare(effect))){break Some("Native UI delivery queue overflow".into());}}
+                        else if cloudflare.defer_cancel(&effect) {cloudflare_worker::dispatch_cancel(&mut cloudflare,&backend,&mut tasks);}
+                        else {
+                            let backend=backend.clone();let closing_at_poll=closing.clone();let events_at_poll=events.clone();
+                            tasks.spawn_blocking(move||{
+                                if *closing_at_poll.borrow() || closing_at_poll.has_changed().is_err() || events_at_poll.is_closed() {return rejected(Command::Cloudflare(effect));}
+                                Event::CloudflareCompleted {ticket,outcome:execute_cloudflare(&backend,effect)}
+                            });
+                        }
+                        continue;
+                    },
                     Command::KeyMetadata(ticket)=>{let backend=backend.clone();tasks.spawn_blocking(move||Event::KeyMetadata{ticket,result:if key_guard(ticket,smoke){key_metadata(&backend)}else{Err(())}});continue;},
-                    Command::SaveKey{ticket,secret}=>{if codex.busy()||!key_save_guard(ticket,smoke,key_saving.is_some(),plugins_active.is_some(),export_active.is_some()){drop(secret);if !publish(&events,Event::KeySaved{ticket,result:crate::settings::SaveResult::NotSent}){break Some("Native UI delivery queue overflow".into());}}else{key_saving=Some(ticket);let backend=backend.clone();tasks.spawn_blocking(move||save_key(&backend,ticket,secret,smoke));}continue;},
+                    Command::SaveKey{ticket,secret}=>{if codex.busy()||cloudflare.busy()||!key_save_guard(ticket,smoke,key_saving.is_some(),plugins_active.is_some(),export_active.is_some()){drop(secret);if !publish(&events,Event::KeySaved{ticket,result:crate::settings::SaveResult::NotSent}){break Some("Native UI delivery queue overflow".into());}}else{key_saving=Some(ticket);let backend=backend.clone();tasks.spawn_blocking(move||save_key(&backend,ticket,secret,smoke));}continue;},
                     command=>command,
                 };
                 if matches!(command,Command::Inspect){let backend=backend.clone();tasks.spawn_blocking(move||Event::Inspection(match backend.request(CoreCommand::Inspect,Duration::from_secs(5)){Ok(PublicReply::Inspection(value))=>Ok(value),Ok(_)=>Err("Invalid Core inspection reply".into()),Err(e)=>Err(format!("Core inspection: {e}"))}));continue;}
@@ -1147,7 +1216,7 @@ async fn run(
                     Command::Prompt{..}|Command::CheckSubmission(_)|Command::RejoinObservations{..}=>Event::Fault("Prompt bypassed worker ownership".into()),
                     Command::Cancel{..}=>Event::Fault("Cancellation bypassed priority dispatch".into()),
                     Command::Page{generation,request}=>Event::Page{generation,result:client.session_page(request).await.map_err(|e|format!("History page: {e}"))},
-                    Command::PromptFile{..}|Command::StageFile(_)|Command::DiscardFile(_)|Command::Codex(_)|Command::Export(_)|Command::PluginsRead(_)|Command::PluginSave{..}|Command::Manage(_)|Command::KeyMetadata(_)|Command::SaveKey{..}|Command::Inspect|Command::Shutdown|Command::Select{..}=>Event::Fault("Invalid native command state".into()),
+                    Command::Cloudflare(_)|Command::PromptFile{..}|Command::StageFile(_)|Command::DiscardFile(_)|Command::Codex(_)|Command::Export(_)|Command::PluginsRead(_)|Command::PluginSave{..}|Command::Manage(_)|Command::KeyMetadata(_)|Command::SaveKey{..}|Command::Inspect|Command::Shutdown|Command::Select{..}=>Event::Fault("Invalid native command state".into()),
                 }});
             }
             event=next_root(&mut root),if root.is_some()=>match event {
@@ -1168,7 +1237,7 @@ async fn run(
             },
             event=next_workspaces(&mut workspaces),if workspaces.is_some()=>match event {Some(Ok(event))=>if !publish(&events,Event::Workspace(event)){break Some("Native UI delivery queue overflow".into());},Some(Err(_))|None=>{drop_observations(&mut root,&mut workspaces,&mut selected,&mut mux).await;observations_live=false;files.invalidate();selected_file_target=None;selected_target=None;for key in live_decisions.drain(..){decisions.cancel(&key.event_id);}if !publish(&events,Event::ObservationsLost){break Some("Native UI delivery queue overflow".into());}}},
             event=next_selected(&mut selected)=>match event {Some(Ok(frame))=>{if let SessionFollowFrame::Snapshot{header,..}=&frame {selected_file_target=file_receiver(header,selected_target.as_ref());if selected_file_target.is_none(){files.invalidate();}}if !publish(&events,Event::Selected{generation,frame}){break Some("Native UI delivery queue overflow".into());}},Some(Err(e))=>{files.invalidate();selected_file_target=None;selected=None;selected_target=None;if !publish(&events,Event::FollowError{generation,error:format!("Session stream: {e}")}){break Some("Native UI delivery queue overflow".into());}},None=>{files.invalidate();selected_file_target=None;selected=None;selected_target=None;if !publish(&events,Event::FollowError{generation,error:"Session stream closed; reload session".into()}){break Some("Native UI delivery queue overflow".into());}}},
-            event=core_rx.recv()=>match event {Some(event)=>{if let PublicEvent::Codex(metadata)=&event {codex.observe(*metadata);}let exited=matches!(&event,PublicEvent::Exited(_));if !publish(&events,Event::Core(event)){break Some("Native UI delivery queue overflow".into());}if exited {break Some("Owned Core exited".into());}},None=>break Some("Core event stream closed".into())},
+            event=core_rx.recv()=>match event {Some(event)=>{if let PublicEvent::Codex(metadata)=&event {codex.observe(*metadata);}if let PublicEvent::CloudflareAuth(status)=&event {cloudflare.observe(status.clone());cloudflare_worker::dispatch_cancel(&mut cloudflare,&backend,&mut tasks);}let exited=matches!(&event,PublicEvent::Exited(_));if !publish(&events,Event::Core(event)){break Some("Native UI delivery queue overflow".into());}if exited {break Some("Owned Core exited".into());}},None=>break Some("Core event stream closed".into())},
             download=next_download(&mut export_download),if export_download.is_some()=>{
                 export_download.take();
                 let Some(receipt)=export_active.clone() else {break Some("Native export ownership lost".into());};
@@ -1218,7 +1287,7 @@ async fn run(
                 }
             },
             stopped=stop_tasks.join_next(),if !stop_tasks.is_empty()=>if let Some(result)=stopped {match result {Ok(event)=>{submissions.settle(&event);if !publish(&events,event){break Some("Native UI delivery queue overflow".into());}},Err(_)=>break Some("Reserved Stop worker failed".into())}},
-            task=tasks.join_next(),if !tasks.is_empty()=>if let Some(task)=task {match task {Ok(event)=>{submissions.settle(&event);if let Event::FilePrompt{ticket,request_id,..}=&event {if !files.settle_prompt(ticket,request_id) {break Some("Native file prompt ownership lost".into());}}if let Event::DecisionResult{submission,result}=&event{decisions.settle(submission,result.is_ok());if result.is_ok(){live_decisions.retain(|key|key!=&submission.key);}}if let Event::CodexCompleted{ticket,outcome}=&event{codex.settle(*ticket,outcome.clone());}settle_plugin(&mut plugins_active,&event);settle_management(&mut management_active,&event);if let Event::KeySaved{ticket,..}=&event{if key_saving==Some(*ticket){key_saving=None;}}if !publish(&events,event){break Some("Native UI delivery queue overflow".into());}},Err(_)=>break Some("Native operation worker failed".into())}},
+            task=tasks.join_next(),if !tasks.is_empty()=>if let Some(task)=task {match task {Ok(event)=>{submissions.settle(&event);if let Event::FilePrompt{ticket,request_id,..}=&event {if !files.settle_prompt(ticket,request_id) {break Some("Native file prompt ownership lost".into());}}if let Event::DecisionResult{submission,result}=&event{decisions.settle(submission,result.is_ok());if result.is_ok(){live_decisions.retain(|key|key!=&submission.key);}}if let Event::CodexCompleted{ticket,outcome}=&event{codex.settle(*ticket,outcome.clone());}if let Event::CloudflareCompleted{ticket,outcome}=&event{cloudflare.settle(*ticket,outcome);cloudflare_worker::dispatch_cancel(&mut cloudflare,&backend,&mut tasks);}settle_plugin(&mut plugins_active,&event);settle_management(&mut management_active,&event);if let Event::KeySaved{ticket,..}=&event{if key_saving==Some(*ticket){key_saving=None;}}if !publish(&events,event){break Some("Native UI delivery queue overflow".into());}},Err(_)=>break Some("Native operation worker failed".into())}},
         }
     };
     // Revoke private control authority and request owned stop before awaiting
@@ -1696,6 +1765,29 @@ mod tests {
         assert!(
             matches!(handle.send(Command::Manage(submission.clone())), Err(Command::Manage(returned)) if returned == submission)
         );
+    }
+    #[test]
+    fn cloudflare_worker_admission_and_rejection_preserve_ticket_not_secret() {
+        use crate::settings::cloudflare::{Effect, Outcome};
+        let ticket=crate::settings::Ticket { epoch: TRANSPORT_EPOCH, panel: 3, serial: 8 };
+        assert!(cloudflare_guard(ticket,false,false,false));
+        for (epoch,smoke,stopping,busy) in [(0,false,false,false),(TRANSPORT_EPOCH,true,false,false),(TRANSPORT_EPOCH,false,true,false),(TRANSPORT_EPOCH,false,false,true)] {
+            assert!(!cloudflare_guard(crate::settings::Ticket{epoch,..ticket},smoke,stopping,busy));
+        }
+        let effect=Effect::Save { ticket, revision: 0, account: String::new(), models: false, browser: false, free: false,
+            token: Some(dsh_native_core::SecretApiKey::new("PUBLIC_FAKE_CLOUDFLARE".into()).unwrap()) };
+        assert!(prompt_worker::normal_capacity_rejects(&Command::Cloudflare(effect),MAX_OPERATIONS));
+        for effect in [Effect::Read(ticket),Effect::Disable{ticket,revision:0},Effect::Save { ticket, revision: 0, account: String::new(), models: false, browser: false, free: false,
+            token: Some(dsh_native_core::SecretApiKey::new("PUBLIC_FAKE_CLOUDFLARE".into()).unwrap()) }] {
+            let event=rejected(Command::Cloudflare(effect));
+            assert!(!format!("{event:?}").contains("PUBLIC_FAKE"));
+            assert!(matches!(event,Event::CloudflareCompleted{ticket:received,outcome:Outcome::NotSent} if received==ticket));
+        }
+        let (handle, _, receiver, _, closing)=test_channels();
+        for _ in 0..32 { assert!(handle.send(Command::Inspect).is_ok()); }
+        let returned=handle.send(Command::Cloudflare(Effect::Disable{ticket,revision:0}));
+        assert!(matches!(returned,Err(Command::Cloudflare(Effect::Disable{ticket:received,..})) if received==ticket));
+        assert!(handle.send(Command::Shutdown).is_ok()); assert!(*closing.borrow()); drop(receiver);
     }
     #[test]
     fn key_commands_are_epoch_smoke_fenced_and_rejection_is_metadata_only() {

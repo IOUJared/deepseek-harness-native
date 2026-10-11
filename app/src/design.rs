@@ -9,7 +9,26 @@ pub const LINE: Color = Color::from_rgb8(0x40, 0x3d, 0x52);
 pub const SIDEBAR: f32 = 260.0;
 pub const RAIL: f32 = 68.0;
 pub const CHAT: f32 = 800.0;
+pub const MIN_CHAT: f32 = 680.0;
+pub const MAX_CHAT: f32 = 920.0;
 pub const BREAKPOINT: f32 = 1000.0;
+/// Web transcript column: `clamp(680px, 64% of the conversation column, 920px)`
+/// (ui-conversation `ConversationRoot`). `column` is the conversation pane
+/// width before its horizontal padding. Malformed input falls back to `CHAT`.
+pub fn chat_width(column: f32) -> f32 {
+    if !column.is_finite() || column <= 0.0 {
+        return CHAT;
+    }
+    (column * 0.64).clamp(MIN_CHAT, MAX_CHAT)
+}
+// Native radius scale, mapped to the web unified scale (docs/NATIVE-UI-PARITY.md):
+// sm≈8, md=12, lg=16, xl=20. Native rounds sm to 9 and lg to 18; panel stays a
+// tighter 20 than the web 28. Keep these stable — the parity skill forbids
+// arbitrary redesigns.
+pub const RADIUS_SM: f32 = 9.0;
+pub const RADIUS_MD: f32 = 12.0;
+pub const RADIUS_LG: f32 = 18.0;
+pub const RADIUS_XL: f32 = 20.0;
 fn border(radius: f32, color: Color, width: f32) -> Border {
     Border {
         radius: radius.into(),
@@ -26,7 +45,7 @@ pub fn ghost(_: &Theme, status: button::Status) -> button::Style {
         } else {
             TEXT
         },
-        border: border(9.0, Color::TRANSPARENT, 0.0),
+        border: border(RADIUS_SM, Color::TRANSPARENT, 0.0),
         ..Default::default()
     }
 }
@@ -42,7 +61,7 @@ pub fn primary(_: &Theme, status: button::Status) -> button::Style {
     button::Style {
         background: Some(color.into()),
         text_color: if disabled { MUTED } else { BASE },
-        border: border(12.0, Color::TRANSPARENT, 0.0),
+        border: border(RADIUS_MD, Color::TRANSPARENT, 0.0),
         ..Default::default()
     }
 }
@@ -60,7 +79,7 @@ pub fn danger(_: &Theme, status: button::Status) -> button::Style {
         background: matches!(status, button::Status::Hovered | button::Status::Pressed)
             .then_some(OVERLAY.into()),
         text_color: if disabled { MUTED } else { DANGER },
-        border: border(9.0, Color::TRANSPARENT, 0.0),
+        border: border(RADIUS_SM, Color::TRANSPARENT, 0.0),
         ..Default::default()
     }
 }
@@ -90,7 +109,7 @@ pub fn editor(_: &Theme, status: text_editor::Status) -> text_editor::Style {
     text_editor::Style {
         background: SURFACE.into(),
         border: border(
-            12.0,
+            RADIUS_MD,
             if matches!(status, text_editor::Status::Focused { .. }) {
                 ACCENT
             } else {
@@ -134,7 +153,7 @@ pub fn picker_style(
         handle_color: MUTED,
         background: OVERLAY.into(),
         border: border(
-            9.0,
+            RADIUS_SM,
             if matches!(
                 status,
                 iced::widget::pick_list::Status::Hovered
@@ -280,5 +299,22 @@ mod tests {
             primary(&Theme::Dark, button::Status::Disabled).text_color,
             MUTED
         );
+    }
+    #[test]
+    fn chat_width_matches_the_web_clamp_with_a_bounded_fallback() {
+        // Narrow columns sit on the 680 floor, wide ones on the 920 cap.
+        assert_eq!(chat_width(780.0), MIN_CHAT);
+        assert_eq!(chat_width(2300.0), MAX_CHAT);
+        // 64% governs the middle band.
+        let middle = chat_width(1180.0);
+        assert!(middle > MIN_CHAT && middle < MAX_CHAT);
+        assert!((middle - 755.2).abs() < 0.05, "mid-band width {middle}");
+        // Boundaries: the floor ends at 680/0.64 and the cap at 920/0.64.
+        assert_eq!(chat_width(1062.0), MIN_CHAT);
+        assert_eq!(chat_width(1438.0), MAX_CHAT);
+        // Malformed or non-positive columns fall back to the shipped default.
+        for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 0.0, -1.0] {
+            assert_eq!(chat_width(value), CHAT, "column {value}");
+        }
     }
 }

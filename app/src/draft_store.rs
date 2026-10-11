@@ -5,7 +5,12 @@
 //! be cancelled after filesystem admission. Atomic rename protects the previous document before
 //! commit; directory-sync failure is indeterminate. Partial private temporary files may remain
 //! after an I/O failure. Cooperating writers share a nonblocking advisory lock; this is not
-//! containment against an uncooperative same-UID process or root, nor a global revision CAS.
+//! containment against an uncooperative same-UID process or root.
+//! Store::new retains the native-drafts.v1 namespace and unchecked snapshot saves. Store::sidebar
+//! selects fixed native-sidebar.v1.json and native-sidebar.v1.lock names with the same version-1
+//! drafts wrapper and limits; its values are caller-validated Entry JSON, never transcript text.
+//! save_checked compares the semantic disk map (absent means empty) under the exclusive lock
+//! before creating a temporary file; stale snapshots conflict rather than overwrite.
 use dsh_native_transport::dto::SessionId;
 use rustix::fs::{
     AtFlags, FileType, FlockOperation, Mode, OFlags, Stat, flock, fstat, open, openat, renameat,
@@ -30,6 +35,33 @@ pub const MAX_TOTAL_TEXT_BYTES: usize = 256 * 1024;
 pub const MAX_DOCUMENT_BYTES: usize = 2 * 1024 * 1024;
 const DOCUMENT: &str = "native-drafts.v1.json";
 const LOCK: &str = "native-drafts.v1.lock";
+
+/// Closed namespaces: callers cannot choose filesystem names.
+#[derive(Clone, Copy)]
+enum Namespace {
+    Drafts,
+    Sidebar,
+}
+impl Namespace {
+    fn document(self) -> &'static str {
+        match self {
+            Self::Drafts => DOCUMENT,
+            Self::Sidebar => "native-sidebar.v1.json",
+        }
+    }
+    fn lock(self) -> &'static str {
+        match self {
+            Self::Drafts => LOCK,
+            Self::Sidebar => "native-sidebar.v1.lock",
+        }
+    }
+    fn temporary_prefix(self) -> &'static str {
+        match self {
+            Self::Drafts => ".native-drafts",
+            Self::Sidebar => ".native-sidebar",
+        }
+    }
+}
 const MAX_KEY_BYTES: usize = 128;
 static TEMP_SERIAL: AtomicU64 = AtomicU64::new(1);
 
@@ -86,6 +118,7 @@ pub type SaveObserver = std::sync::Arc<dyn Fn(SaveCheckpoint) -> io::Result<()> 
 /// Inert configuration, deliberately without Debug or serialization.
 pub struct Store {
     home: PathBuf,
+    namespace: Namespace,
     #[cfg(any(test, feature = "public-layout-fixture"))]
     save_observer: Option<SaveObserver>,
 }
@@ -216,6 +249,7 @@ fn file_flags() -> OFlags {
     OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK
 }
 struct Directory {
+    namespace: Namespace,
     parent: File,
     name: OsString,
     file: File,
@@ -223,7 +257,7 @@ struct Directory {
     uid: u32,
 }
 impl Directory {
-    fn open(home: &Path) -> Result<Option<Self>, Failure> {
+    fn open(home: &Path, namespace: Namespace) -> Result<Option<Self>, Failure> {
         // Matches the native Linux configuration owner's fixed procfs UID observation.
         let uid = std::fs::metadata("/proc/self")
             .map_err(|_| Failure::Unavailable)?
@@ -259,6 +293,7 @@ impl Directory {
             return Err(Failure::Unavailable);
         }
         let directory = Self {
+            namespace,
             parent,
             name: name.to_os_string(),
             file,
@@ -288,20 +323,20 @@ impl Directory {
     fn lock(&self, create: bool) -> Result<Option<Lock>, Failure> {
         self.guard()?;
         let flags = OFlags::RDWR | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK;
-        let file = match openat(&self.file, LOCK, flags, Mode::empty()) {
+        let file = match openat(&self.file, self.namespace.lock(), flags, Mode::empty()) {
             Ok(fd) => File::from(fd),
             Err(rustix::io::Errno::NOENT) if !create => return Ok(None),
             Err(rustix::io::Errno::NOENT) => {
                 let (fd, created) = match openat(
                     &self.file,
-                    LOCK,
+                    self.namespace.lock(),
                     flags | OFlags::CREATE | OFlags::EXCL,
                     Mode::RUSR | Mode::WUSR,
                 ) {
                     Ok(fd) => (fd, true),
                     // Another cooperating writer won creation. Never truncate or remove its lock.
                     Err(rustix::io::Errno::EXIST) => (
-                        openat(&self.file, LOCK, flags, Mode::empty())
+                        openat(&self.file, self.namespace.lock(), flags, Mode::empty())
                             .map_err(|_| Failure::Unavailable)?,
                         false,
                     ),
@@ -321,7 +356,11 @@ impl Directory {
         if !private_regular(&stamp, self.uid) || stamp.st_size != 0 {
             return Err(Failure::Unavailable);
         }
-        let lock = Lock { file, stamp };
+        let lock = Lock {
+            name: self.namespace.lock(),
+            file,
+            stamp,
+        };
         lock.guard(self)?;
         flock(
             &lock.file,
@@ -337,7 +376,11 @@ impl Directory {
     }
     fn read(&self) -> Result<Option<Snapshot>, Failure> {
         self.guard()?;
-        let before = match statat(&self.file, DOCUMENT, AtFlags::SYMLINK_NOFOLLOW) {
+        let before = match statat(
+            &self.file,
+            self.namespace.document(),
+            AtFlags::SYMLINK_NOFOLLOW,
+        ) {
             Ok(stat) => stat,
             Err(rustix::io::Errno::NOENT) => return Ok(None),
             Err(_) => return Err(Failure::Unavailable),
@@ -346,8 +389,13 @@ impl Directory {
             return Err(Failure::Unavailable);
         }
         let mut file = File::from(
-            openat(&self.file, DOCUMENT, file_flags(), Mode::empty())
-                .map_err(|_| Failure::Unavailable)?,
+            openat(
+                &self.file,
+                self.namespace.document(),
+                file_flags(),
+                Mode::empty(),
+            )
+            .map_err(|_| Failure::Unavailable)?,
         );
         let opened = fstat(&file).map_err(|_| Failure::Unavailable)?;
         if !same_stamp(&before, &opened) {
@@ -355,8 +403,12 @@ impl Directory {
         }
         let bytes = bounded_read(&mut file).map_err(|_| Failure::Unavailable)?;
         let after = fstat(&file).map_err(|_| Failure::Unavailable)?;
-        let named = statat(&self.file, DOCUMENT, AtFlags::SYMLINK_NOFOLLOW)
-            .map_err(|_| Failure::Conflict)?;
+        let named = statat(
+            &self.file,
+            self.namespace.document(),
+            AtFlags::SYMLINK_NOFOLLOW,
+        )
+        .map_err(|_| Failure::Conflict)?;
         if !same_stamp(&opened, &after)
             || !same_stamp(&after, &named)
             || bytes.len() as i64 != after.st_size
@@ -382,6 +434,7 @@ fn bounded_read(file: &mut File) -> io::Result<Vec<u8>> {
     Ok(bytes)
 }
 struct Lock {
+    name: &'static str,
     file: File,
     stamp: Stat,
 }
@@ -389,7 +442,7 @@ impl Lock {
     fn guard(&self, directory: &Directory) -> Result<(), Failure> {
         directory.guard()?;
         let opened = fstat(&self.file).map_err(|_| Failure::Conflict)?;
-        let named = statat(&directory.file, LOCK, AtFlags::SYMLINK_NOFOLLOW)
+        let named = statat(&directory.file, self.name, AtFlags::SYMLINK_NOFOLLOW)
             .map_err(|_| Failure::Conflict)?;
         if private_regular(&opened, directory.uid)
             && opened.st_size == 0
@@ -433,7 +486,8 @@ impl<'a> Temporary<'a> {
             .map_err(|_| Failure::NotSaved)?;
         let random: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
         let name = format!(
-            ".native-drafts-{}-{serial}-{random}.tmp",
+            "{}-{}-{serial}-{random}.tmp",
+            directory.namespace.temporary_prefix(),
             std::process::id()
         );
         let fd = openat(
@@ -493,6 +547,13 @@ impl Store {
     /// Validate an explicit native-home pathname without opening or creating anything.
     /// Save requires Core to have already established this current-UID, exact-mode-0700 home.
     pub fn new(native_home: PathBuf) -> Result<Self, Failure> {
+        Self::with_namespace(native_home, Namespace::Drafts)
+    }
+    /// Separate bounded sidebar customization storage; Entry validation belongs to the caller.
+    pub fn sidebar(native_home: PathBuf) -> Result<Self, Failure> {
+        Self::with_namespace(native_home, Namespace::Sidebar)
+    }
+    fn with_namespace(native_home: PathBuf, namespace: Namespace) -> Result<Self, Failure> {
         let text = native_home.to_str().ok_or(Failure::InvalidHome)?;
         if !native_home.is_absolute()
             || text.len() > 4096
@@ -511,6 +572,7 @@ impl Store {
         }
         Ok(Self {
             home: native_home,
+            namespace,
             #[cfg(any(test, feature = "public-layout-fixture"))]
             save_observer: None,
         })
@@ -542,7 +604,7 @@ impl Store {
     /// Read a validated bounded complete map. A missing home/document is empty, not an ACK.
     /// No directories or lock files are created; malformed existing files are not overwritten.
     pub fn load(&mut self) -> Result<Drafts, Failure> {
-        let Some(directory) = Directory::open(&self.home)? else {
+        let Some(directory) = Directory::open(&self.home, self.namespace)? else {
             return Ok(Drafts::new());
         };
         let lock = directory.lock(false)?;
@@ -559,15 +621,38 @@ impl Store {
     pub fn save(&mut self, drafts: &Drafts) -> Result<(), Failure> {
         self.save_with(drafts, |file, bytes| file.write_all(bytes))
     }
+    /// Compare semantic current data under the exclusive lock before any temporary creation.
+    /// A missing document matches an empty expected map. Conflict never replaces the document;
+    /// intra-operation inode/byte guards and Indeterminate reconciliation still apply.
+    pub fn save_checked(&mut self, data: &Drafts, expected: &Drafts) -> Result<(), Failure> {
+        self.save_operation(data, Some(expected), |file, bytes| file.write_all(bytes))
+    }
     fn save_with(
         &mut self,
         drafts: &Drafts,
         write: impl FnOnce(&mut File, &[u8]) -> io::Result<()>,
     ) -> Result<(), Failure> {
+        self.save_operation(drafts, None, write)
+    }
+    fn save_operation(
+        &mut self,
+        drafts: &Drafts,
+        expected: Option<&Drafts>,
+        write: impl FnOnce(&mut File, &[u8]) -> io::Result<()>,
+    ) -> Result<(), Failure> {
         let bytes = encode(drafts)?;
-        let directory = Directory::open(&self.home)?.ok_or(Failure::Unavailable)?;
+        let directory = Directory::open(&self.home, self.namespace)?.ok_or(Failure::Unavailable)?;
         let lock = directory.lock(true)?.ok_or(Failure::Unavailable)?;
         let original = directory.read()?;
+        if let Some(expected) = expected {
+            let matches = original.as_ref().map_or_else(
+                || expected.is_empty(),
+                |snapshot| &snapshot.drafts == expected,
+            );
+            if !matches {
+                return Err(Failure::Conflict);
+            }
+        }
         let mut temporary = Temporary::create(&directory)?;
         #[cfg(any(test, feature = "public-layout-fixture"))]
         self.checkpoint(SaveCheckpoint::BeforeTempWrite)?;
@@ -612,7 +697,7 @@ impl Store {
             &directory.file,
             temporary.name.as_str(),
             &directory.file,
-            DOCUMENT,
+            directory.namespace.document(),
         )
         .map_err(|_| Failure::Indeterminate)?;
         #[cfg(any(test, feature = "public-layout-fixture"))]
@@ -638,6 +723,10 @@ impl Store {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "sidebar_storage_tests.rs"]
+mod sidebar_storage_tests;
 
 #[cfg(test)]
 mod tests {
@@ -773,7 +862,10 @@ mod tests {
                     Failure::NotSaved
                 })
             );
-            assert_eq!(observed.lock().unwrap().as_slice(), &SAVE_CHECKPOINTS[..=index]);
+            assert_eq!(
+                observed.lock().unwrap().as_slice(),
+                &SAVE_CHECKPOINTS[..=index]
+            );
             let expected = if replaced { &new } else { &old };
             assert!(fixture.store().load().unwrap() == *expected);
             assert_eq!(
@@ -988,7 +1080,9 @@ mod tests {
         let stat = fstat(&File::open(owned.path.join(DOCUMENT)).unwrap()).unwrap();
         assert!(private_regular(&stat, stat.st_uid));
         assert!(!private_regular(&stat, stat.st_uid.wrapping_add(1)));
-        let directory = Directory::open(&owned.path).unwrap().unwrap();
+        let directory = Directory::open(&owned.path, Namespace::Drafts)
+            .unwrap()
+            .unwrap();
         assert!(!private_directory(
             &directory.stamp,
             directory.uid.wrapping_add(1)
@@ -1074,7 +1168,9 @@ mod tests {
         let fixture = Fixture::new();
         let mut store = fixture.store();
         store.save(&drafts("KEEP PUBLIC")).unwrap();
-        let directory = Directory::open(&fixture.path).unwrap().unwrap();
+        let directory = Directory::open(&fixture.path, Namespace::Drafts)
+            .unwrap()
+            .unwrap();
         let held = directory.lock(true).unwrap().unwrap();
         assert_eq!(store.save(&drafts("NEW PUBLIC")), Err(Failure::Busy));
         assert_eq!(store.load().err(), Some(Failure::Busy));

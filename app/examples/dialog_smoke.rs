@@ -716,7 +716,7 @@ impl Fixture {
             ui::settings_overlay(
                 background,
                 self.settings
-                    .view_sized(true, 900.0, 650.0)
+                    .view_sized(true, 900.0, 650.0, &settings::RouteFacts::default())
                     .map(Message::Settings),
                 Message::Settings(settings::Action::Close),
             )

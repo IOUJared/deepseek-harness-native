@@ -3,6 +3,9 @@ use crate::plugins::{self, ReadTicket, WriteTicket};
 use dsh_native_transport::plugin::*;
 
 fn snapshot() -> plugins::Snapshot {
+    snapshot_named("PUBLIC-fixture")
+}
+fn snapshot_named(ns: &str) -> plugins::Snapshot {
     plugins::Snapshot {
         inventory: PluginInventorySnapshot {
             entries: vec![],
@@ -11,7 +14,7 @@ fn snapshot() -> plugins::Snapshot {
         settings: SettingsDescribeValue {
             writable: true,
             namespaces: vec![SettingsNamespaceView {
-                ns: "PUBLIC-fixture".into(),
+                ns: ns.into(),
                 revision: 0,
                 auto_generate: true,
                 unsupported_fields: 0,
@@ -249,4 +252,47 @@ fn plugin_queue_refusal_and_disconnect_never_retry_or_confirm_new_panel() {
             )
             .is_none()
     );
+}
+
+#[test]
+fn deepseek_page_renders_only_the_loaded_llm_deepseek_namespace() {
+    let mut state = Settings::default();
+    let _ = state.handle(Action::Open, 1, true);
+    assert_eq!(state.page, Page::ApiLogin);
+    // Nothing is rendered before a read returns the namespace.
+    assert!(
+        state
+            .plugins
+            .view_namespace(state.plugin_context(true), "llm-deepseek")
+            .is_none()
+    );
+    let rendered = state.plugin_read_ticket();
+    let Some(Effect::Plugins(plugins::Effect::Read(ticket))) =
+        state.handle(Action::Plugins(plugins::Action::Refresh(rendered)), 1, true)
+    else {
+        panic!("explicit plugin refresh required")
+    };
+    assert!(
+        state
+            .plugins
+            .view_namespace(state.plugin_context(true), "llm-deepseek")
+            .is_none()
+    );
+    state
+        .plugins
+        .loaded(ticket, Ok(snapshot_named("llm-deepseek")));
+    assert!(
+        state
+            .plugins
+            .view_namespace(state.plugin_context(true), "llm-deepseek")
+            .is_some()
+    );
+    // A different namespace is never rendered on the DeepSeek page.
+    assert!(
+        state
+            .plugins
+            .view_namespace(state.plugin_context(true), "PUBLIC-other")
+            .is_none()
+    );
+    let _: Element<'_, Action> = state.view_sized(true, 960.0, 700.0, &RouteFacts::default());
 }

@@ -6,11 +6,31 @@ pub fn ui_control_event(kind: &str) -> bool {
         "session/title" | "session/title-llm-request" | "model/selection"
     )
 }
+/// Roles the Chat view presents. The system prompt, developer injects, model-only
+/// context and harness bookkeeping belong to Trajectory. The exclusion is
+/// deliberately a known list rather than an allowlist: an event kind this build
+/// does not recognize stays visible, so a future required diagnostic is never
+/// silently dropped (`future/required` is the standing case).
 pub fn conversation_role(role: &str) -> bool {
-    !matches!(
+    if matches!(
         role,
-        "permission/preset" | "sandbox/mode" | "approval/policy"
-    )
+        "System" | "Developer" | "Model context update" | "Injected context"
+    ) {
+        return false;
+    }
+    // A cancellation or inbox outcome shares the splice kind, so that one keeps
+    // its own routine filter instead of the blanket bookkeeping exclusion.
+    role == "agent/inbox/spliced" || !crate::known::LOG_EVENTS.contains(&role)
+}
+/// True when a logged message is human history rather than a harness inject.
+/// `MessageSourceMap` is merge-extensible, but every producer declares its `kind`
+/// on the wire: a real session records the human prompt as `user` and each
+/// context inject as its own kind (`runtime-context`, `time-context`,
+/// `skill-catalog`, `session-reference`, …). A message carrying no kind is
+/// therefore not a recognized inject, and Chat keeps it rather than risk hiding
+/// a real user message. Trajectory keeps every kind, including unknown ones.
+pub fn human_message(source: &Value) -> bool {
+    matches!(source["kind"].as_str(), Some("user") | None)
 }
 pub fn routine_inbox(data: &Value) -> bool {
     let Some(object) = data.as_object() else {
@@ -175,7 +195,9 @@ mod tests {
         }
     }
     #[test]
-    fn unknown_roles_and_model_tool_system_messages_remain_primary() {
+    fn chat_keeps_conversation_and_unknown_roles_but_moves_known_internals_to_trajectory() {
+        // Conversation, tool activity and the splice kind (cancellation and inbox
+        // outcomes carry their own routine filter) stay in Chat.
         for role in [
             "You",
             "Assistant",
@@ -183,16 +205,34 @@ mod tests {
             "Interrupted assistant attempt",
             "Tool call",
             "Tool result",
-            "System",
-            "Developer",
+            "Agent notice",
+            "Agent error",
             "agent/inbox/spliced",
-            "permission/preset-changed",
-            "future/required",
         ] {
             assert!(conversation_role(role));
         }
-        for role in ["permission/preset", "sandbox/mode", "approval/policy"] {
-            assert!(!conversation_role(role));
+        // A kind this build does not recognize stays visible: a future required
+        // diagnostic must never be silently dropped.
+        for role in ["future/required", "Permission/preset", "approval/policy-changed"] {
+            assert!(conversation_role(role));
+        }
+        // The system prompt, developer injects, model-only context and every
+        // known bookkeeping or telemetry event belong to Trajectory.
+        for role in [
+            "System",
+            "Developer",
+            "Model context update",
+            "Injected context",
+            "permission/preset",
+            "sandbox/mode",
+            "approval/policy",
+            "session-log-deepseek/delivery-accepted",
+            "model/selection",
+            "command/run",
+            "todo/write",
+            "subagent/catalog",
+        ] {
+            assert!(!conversation_role(role), "{role}");
         }
     }
 }

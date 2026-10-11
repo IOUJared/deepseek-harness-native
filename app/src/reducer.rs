@@ -546,6 +546,11 @@ impl Transcript {
                     "agent/inbox/spliced" if submitted.is_some() => "You",
                     "turn/end" if event.data["reason"]["kind"] == "error" => "Agent error",
                     "turn/end" => "Agent notice",
+                    // Harness context injects share the user role on the wire; only the
+                    // `user` producer is human history. Trajectory keeps the rest.
+                    "user/message" if !presentation::human_message(&event.data["source"]) => {
+                        "Injected context"
+                    }
                     "user/message" => "You",
                     "assistant/message" => "Assistant",
                     "assistant/attempt" => "Interrupted assistant attempt",
@@ -737,7 +742,10 @@ fn fold_chunk(blocks: &mut BTreeMap<u64, Block>, chunk: &Value) -> Result<(), Re
             let kind = match value["type"].as_str() {
                 Some("reasoning") if value["text"].is_string() => Some(Kind::Reasoning),
                 Some("text") if value["text"].is_string() => Some(Kind::Answer),
-                Some("tool-call" | "image" | "file") => Some(Kind::Answer),
+                // A tool call is model-internal output like reasoning; it must
+                // never become answer prose. Attachments stay answer content.
+                Some("tool-call") => Some(Kind::Reasoning),
+                Some("image" | "file") => Some(Kind::Answer),
                 _ => None,
             };
             blocks.insert(
@@ -755,12 +763,12 @@ fn fold_chunk(blocks: &mut BTreeMap<u64, Block>, chunk: &Value) -> Result<(), Re
             let new = !blocks.contains_key(&index);
             let block = blocks.entry(index).or_insert_with(|| Block {
                 text: format!("Tool {}: ", chunk["name"].as_str().unwrap_or("call")),
-                kind: Some(Kind::Answer),
+                kind: Some(Kind::Reasoning),
             });
             if block.text.len() + value.len() > MAX_DISPLAY_BYTES {
                 return Err(ReduceError::RetentionLimit);
             }
-            block.append_kind(Kind::Answer, new);
+            block.append_kind(Kind::Reasoning, new);
             block.text.push_str(value);
         }
         Some("block-start" | "usage" | "finish") => {}
@@ -838,7 +846,7 @@ mod tests {
         )
     }
     fn user(seq: u64, text: &str) -> Value {
-        json!({"type":"event","event":{"type":"user/message","seq":seq,"time":1000,"data":{"role":"user","id":"m1","source":{"kind":"human"},"content":[{"type":"text","text":text}]},"surfaceOp":"append"}})
+        json!({"type":"event","event":{"type":"user/message","seq":seq,"time":1000,"data":{"role":"user","id":"m1","source":{"kind":"user"},"content":[{"type":"text","text":text}]},"surfaceOp":"append"}})
     }
     #[test]
     fn snapshot_append_replace_and_source_citations() {

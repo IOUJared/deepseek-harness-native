@@ -414,7 +414,7 @@ mod tests {
     }
 
     #[test]
-    fn tool_compact_summaries_stay_answer_compatible() {
+    fn a_recorded_tool_call_stays_internal_and_never_joins_the_answer() {
         let stream = vec![
             packed(0, true, "PUBLIC thought"),
             json!({"type":"tool-call-chunks","time0":1000,"index":1,"id":"PUBLIC-call","name":"read","dt":[1],"args":["{", "}"]}),
@@ -422,10 +422,13 @@ mod tests {
         ];
         let mut transcript = opening();
         apply(&mut transcript, assistant("assistant/attempt", 0, stream));
-        assert_eq!(
-            transcript.assistant_parts(0),
-            parts("PUBLIC thought", "Tool read: {}")
-        );
+        let parts = transcript.assistant_parts(0).expect("parts");
+        // A tool call is model-internal output: it groups with the thinking
+        // rather than rendering as the assistant's prose answer.
+        assert_eq!(parts.answer, "");
+        assert!(parts.reasoning.contains("PUBLIC thought"), "{:?}", parts.reasoning);
+        assert!(parts.reasoning.contains("Tool read: "), "{:?}", parts.reasoning);
+        // Retention is unchanged: the recorded text still carries it for Trajectory.
         assert_eq!(transcript.rows()[0].text, "PUBLIC thought\nTool read: {}");
     }
 
@@ -550,5 +553,33 @@ mod tests {
         // The new semantic API does not rewrite the legacy partial on a failed fold.
         assert!(transcript.partial().unwrap().len() > MAX_DISPLAY_BYTES);
         assert!(!transcript.safe_to_send());
+    }
+
+    #[test]
+    fn a_tool_call_never_becomes_answer_prose() {
+        // A tool call is model-internal output: the recorded stream still holds
+        // it for Trajectory, but the answer body must not render `Tool …: {}`.
+        let mut transcript = Transcript::new(1);
+        let value = json!({"type":"chunk","time":1000,"chunk":{"type":"block-end","index":0,
+            "block":{"type":"tool-call","id":"PUBLIC-call","name":"bash",
+                "arguments":"{\"command\":\"date -u\"}"}}});
+        // A stored tool call is a `tool-call-chunks` record whose members live
+        // under `args`, exactly as a real session records them.
+        let tool_call = json!({"type":"tool-call-chunks","time0":1000,"index":0,"id":"PUBLIC-call",
+            "name":"bash","dt":[],"args":["{\"command\":\"date -u\"}"]});
+        let fixture: SessionFollowFrame = serde_json::from_value(json!({"type":"snapshot",
+            "records":[assistant("assistant/message", 0, vec![tool_call, value])],
+            "cursor":0,"hasMore":false,
+            "header":{"version":4,"id":"PUBLIC-session","createdAt":1000,"isSeeded":false},
+            "projections":{"asOfSeq":0,"values":{}},"assistantStream":{"revision":0}}))
+        .unwrap();
+        transcript.apply(1, fixture).unwrap();
+        let parts = transcript.assistant_parts(0).expect("parts");
+        assert_eq!(parts.answer, "", "a tool call is not an answer");
+        assert!(parts.reasoning.contains("Tool bash: "), "{:?}", parts.reasoning);
+        assert!(parts.reasoning.contains("date -u"), "{:?}", parts.reasoning);
+        // The recorded text is untouched, so Trajectory still shows it.
+        let row = transcript.rows().iter().find(|r| r.key == 0).unwrap();
+        assert!(row.text.contains("Tool bash: "), "{:?}", row.text);
     }
 }

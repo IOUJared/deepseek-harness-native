@@ -2,16 +2,33 @@
 //!
 //! The caller must supply the same bounded preview it renders, and render its body at
 //! `width - 28` by `body_height`, with DejaVu Sans / 15px / Advanced / default
-//! line-height / Word wrapping. The 24px header, 7px gap, inner 10px vertical
-//! padding and outer 8px vertical padding account for the remaining 67px.
-//! Fonts must remain stable after bootstrap; recreate the cache if fonts change.
+//! line-height / Word wrapping. Routine messages have no role header; live and
+//! interrupted responses retain a 24px status plus 7px gap. Inner and outer
+//! padding account for 32px (20 card + 12 row, i.e. a 12px gap between rows,
+//! the web's assistant-response flow gap). The App adds the 22px action row and
+//! gap. Fonts must remain stable after bootstrap; recreate the cache if fonts change.
 use iced::advanced::text::{self, Paragraph as _};
 use iced::{Font, Pixels, Size, alignment};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 
+pub(crate) fn status_header(role: &str) -> bool {
+    role == "Assistant · live" || role == "Interrupted assistant attempt"
+}
+
+pub(crate) fn chrome_height(role: &str) -> f32 {
+    32.0 + if status_header(role) { 31.0 } else { 0.0 }
+}
+
+pub(crate) fn body_top(role: &str) -> f32 {
+    16.0 + if status_header(role) { 31.0 } else { 0.0 }
+}
+
 const MAX_ENTRIES: usize = 4097;
+/// The compact tool line, and the outer vertical padding every row carries.
+pub(crate) const TOOL_LINE_HEIGHT: f32 = 24.0;
+pub(crate) const ROW_CHROME: f32 = 12.0;
 const MIN_LANE: f32 = 37.0; // Outer 8 + inner 28 + at least 1px of body width.
 const MAX_LANE: f32 = 4096.0;
 const MALFORMED_LANE: f32 = 104.0; // Outer 8 + ordinary minimum bubble 96.
@@ -70,10 +87,15 @@ impl Cache {
         let lane = lane_width_checked(lane_width);
         let human = role == "You";
         let assistant = role.starts_with("Assistant") || role == "Interrupted assistant attempt";
-        // Extra empty lane width above the chat cap cannot change paragraph metrics.
-        // Fixed-height tools/opaque rows still need their actual lane for card width.
-        let measurement_width = if human || assistant {
-            (lane - 8.0).min(if human { 640.0 } else { 800.0 })
+        // The web user bubble is capped at 640 native px (≈70.2% of the widest
+        // content column); the unboxed assistant column spans the full shared
+        // content width. Fixed-height tools/opaque rows still need their actual
+        // lane for card width. The fixed user cap keeps extra empty lane width
+        // from re-measuring ordinary user rows during a resize.
+        let measurement_width = if human {
+            (lane - 8.0).min(640.0)
+        } else if assistant {
+            lane - 8.0
         } else {
             lane
         };
@@ -105,14 +127,14 @@ impl Cache {
             if role == "Tool call" || role == "Tool result" {
                 Geometry {
                     width: lane - 8.0,
-                    body_height: 24.0,
-                    height: 40.0,
+                    body_height: TOOL_LINE_HEIGHT,
+                    height: TOOL_LINE_HEIGHT + ROW_CHROME,
                 }
             } else if !human && !assistant {
                 Geometry {
                     width: lane - 8.0,
                     body_height: 75.0,
-                    height: 160.0,
+                    height: 156.0,
                 }
             } else {
                 let max_width = measurement_width;
@@ -156,7 +178,7 @@ impl Cache {
                 Geometry {
                     width,
                     body_height,
-                    height: 67.0 + body_height,
+                    height: chrome_height(role) + body_height,
                 }
             };
 
@@ -223,6 +245,26 @@ mod tests {
     }
 
     #[test]
+    fn routine_headers_are_absent_but_live_and_interrupted_status_keep_their_space() {
+        let cache = Cache::default();
+        for role in ["You", "Assistant", "Assistant · live", "Interrupted assistant attempt"] {
+            let geometry = cache.geometry(1, role, "PUBLIC", 700.0);
+            let status = matches!(role, "Assistant · live" | "Interrupted assistant attempt");
+            assert_eq!(status_header(role), status);
+            assert_eq!(body_top(role), if status { 47.0 } else { 16.0 });
+            assert_eq!(
+                geometry.height - geometry.body_height,
+                if status { 63.0 } else { 32.0 }
+            );
+            // App adds 4px gap + 18px actions; no action/header overlaps the body.
+            assert_eq!(
+                geometry.height + 22.0,
+                body_top(role) + geometry.body_height + 38.0
+            );
+        }
+    }
+
+    #[test]
     fn two_recent_widths_reuse_actual_native_geometry_without_more_shapes() {
         let cache = Cache::default();
         let text = "PUBLIC native wide words ".repeat(6);
@@ -268,20 +310,27 @@ mod tests {
         assert!(cache.entries.borrow().is_empty());
     }
     #[test]
-    fn capped_chat_measurement_width_ignores_only_extra_empty_lane_width() {
+    fn user_cap_ignores_extra_lane_width_while_the_assistant_column_follows_it() {
         let cache = Cache::default();
+        // Above the 640 user cap, extra empty lane width cannot re-measure a
+        // user row, so the cached geometry is reused without a new shape.
         let human = cache.geometry(1, "You", "PUBLIC", 740.0);
         assert_eq!(cache.geometry(1, "You", "PUBLIC", 4096.0), human);
         assert_eq!(cache.shapes.get(), 1);
+        // The unboxed assistant column tracks the shared content width.
         let assistant = cache.geometry(2, "Assistant", "PUBLIC", 850.0);
-        assert_eq!(cache.geometry(2, "Assistant", "PUBLIC", 4096.0), assistant);
-        assert_eq!(cache.shapes.get(), 2);
+        assert_eq!(assistant.width, 842.0);
+        assert_eq!(
+            cache.geometry(2, "Assistant", "PUBLIC", 1200.0).width,
+            1192.0
+        );
+        assert_eq!(cache.shapes.get(), 3);
         let tool = cache.geometry(3, "Tool call", "PUBLIC", 740.0);
         assert_ne!(
             cache.geometry(3, "Tool call", "PUBLIC", 800.0).width,
             tool.width
         );
-        assert_eq!(cache.shapes.get(), 2);
+        assert_eq!(cache.shapes.get(), 3);
     }
     #[test]
     fn cached_geometry_matches_fresh_native_oracle_across_caps_roles_and_unicode() {
@@ -348,7 +397,7 @@ mod tests {
     fn same_key_hits_reuse_shapes_and_preview_role_width_changes_invalidate() {
         let cache = Cache::default();
         let first = cache.geometry(7, "You", "Hi", 600.0);
-        assert_eq!(first.height, 87.0);
+        assert_eq!(first.height, 52.0);
         for _ in 0..8 {
             assert_eq!(cache.geometry(7, "You", "Hi", 600.0), first);
         }
@@ -393,7 +442,7 @@ mod tests {
                 Geometry {
                     width: 692.0,
                     body_height: 24.0,
-                    height: 40.0
+                    height: 36.0
                 }
             );
         }
@@ -409,7 +458,7 @@ mod tests {
                 Geometry {
                     width: 692.0,
                     body_height: 75.0,
-                    height: 160.0
+                    height: 156.0
                 }
             );
         }
@@ -473,7 +522,7 @@ mod tests {
                     assert!(
                         geometry.width >= 29.0 && (20.0..=78.0).contains(&geometry.body_height)
                     );
-                    assert_eq!(geometry.height, 67.0 + geometry.body_height);
+                    assert_eq!(geometry.height, chrome_height(role) + geometry.body_height);
                 }
             }
         }
@@ -497,17 +546,18 @@ mod tests {
             Geometry {
                 width: 96.0,
                 body_height: 20.0,
-                height: 87.0
+                height: 52.0
             }
         );
         let long = "PUBLIC words ".repeat(80);
         assert!(cache.geometry(4, "You", &long, 1000.0).width <= 640.0);
-        assert_eq!(cache.geometry(5, "Assistant", "Hi", 1000.0).width, 800.0);
+        // The unboxed assistant column spans the lane less its outer padding.
+        assert_eq!(cache.geometry(5, "Assistant", "Hi", 1000.0).width, 992.0);
         assert_eq!(
             cache
                 .geometry(6, "Interrupted assistant attempt", "Hi", 1000.0)
                 .width,
-            800.0
+            992.0
         );
     }
 

@@ -242,15 +242,14 @@ impl Controller {
             body = body.push(
                 label(
                     format!(
-                        "Last read revision {} · {} · {}",
-                        snapshot.revision,
+                        "{} · {}",
                         if snapshot.configured {
-                            "configured"
+                            "Saved settings"
                         } else {
-                            "inherited configuration"
+                            "Inherited defaults"
                         },
                         if snapshot.writable {
-                            "writable"
+                            "editable"
                         } else {
                             "read-only"
                         }

@@ -58,7 +58,6 @@ impl State {
     pub(super) fn catalog_failed(&mut self, failed: bool) {
         self.catalog_error = failed;
     }
-    #[cfg(test)]
     pub(super) fn catalog_is_failed(&self) -> bool {
         self.catalog_error
     }

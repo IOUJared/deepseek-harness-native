@@ -90,10 +90,10 @@ fn measured_chat_heights_drive_ranges_spacers_and_resize_consistently() {
                     .height
             })
             .collect();
-        assert_eq!(heights[0], 87.0);
-        assert_eq!(heights[1], 40.0);
-        assert_eq!(heights[2], 87.0);
-        assert_eq!(heights[3], 160.0);
+        assert_eq!(heights[0], 52.0);
+        assert_eq!(heights[1], 36.0);
+        assert_eq!(heights[2], 52.0);
+        assert_eq!(heights[3], 156.0);
         let total: f32 = heights.iter().sum();
         for offset in [0.0, 87.0, 1000.0, 50_000.0, 1_000_000.0] {
             let range = height_range(&heights, offset, 600.0);
@@ -200,5 +200,164 @@ fn older_page_anchor_uses_real_compact_activity_height_not_record_count() {
     drop(app.update(Message::ToggleConversationMenu));
     drop(app.update(app.detail_request(1).unwrap()));
     assert!(app.detail.is_none());
+    assert!(queue.try_recv().is_err());
+}
+
+#[test]
+fn a_tool_row_expands_its_recorded_body_in_place_without_opening_the_detail_panel() {
+    let (handle, feed, mut queue, _, _) = worker::test_channels();
+    let options = crate::config::parse(
+        [
+            "--runtime",
+            "/explicit-fork/apps/cli",
+            "--expected-version",
+            "0.2.1-alpha.1",
+            "--home",
+            "/PUBLIC-native-home",
+            "--user-home",
+            "/PUBLIC-user-home",
+            "--cwd",
+            "/tmp",
+        ]
+        .map(str::to_owned),
+    )
+    .unwrap()
+    .unwrap();
+    let (mut app, task) = App::boot(options, handle, feed);
+    drop(task);
+    let event = |seq, kind: &str, data| serde_json::json!({"type":"event","event":{"type":kind,"seq":seq,"time":1000,"data":data,"surfaceOp":"append"}});
+    let records = vec![
+        event(
+            0,
+            "tool/call",
+            serde_json::json!({"name":"Bash","arguments":"cd repo && cat Cargo.toml"}),
+        ),
+        event(
+            1,
+            "tool/result",
+            serde_json::json!({"message":{"content":[{"type":"text","text":"PUBLIC recorded output"}]}}),
+        ),
+        event(
+            2,
+            "tool/call",
+            serde_json::json!({"name":"Bash","arguments":""}),
+        ),
+    ];
+    let snapshot: SessionFollowFrame = serde_json::from_value(serde_json::json!({
+        "type":"snapshot","records":records,"cursor":2,"hasMore":false,
+        "header":{"version":4,"id":"s1","createdAt":1000,"isSeeded":false},
+        "projections":{"asOfSeq":2,"values":{}},"assistantStream":{"revision":0}
+    }))
+    .unwrap();
+    app.transcript.apply(0, snapshot).unwrap();
+    let rows: Vec<DisplayRow> = app.transcript.display_rows(false).cloned().collect();
+    assert_eq!(rows.len(), 3);
+    let heights = |app: &App| {
+        let refs: Vec<&DisplayRow> = rows.iter().collect();
+        app.row_geometries(&refs)
+            .iter()
+            .map(|g| g.height)
+            .collect::<Vec<_>>()
+    };
+    let collapsed = heights(&app);
+    // Every tool row starts as a quiet single line with no expanded body.
+    assert!(app.activity_expanded.is_empty());
+    drop(app.update(Message::ToggleActivity {
+        generation: app.generation,
+        key: 0,
+    }));
+    assert!(
+        app.detail.is_none(),
+        "expanding a tool row must not leave the conversation for the detail panel"
+    );
+    assert!(app.activity_expanded.contains(&0));
+    let expanded = heights(&app);
+    assert!(expanded[0] > collapsed[0]);
+    // Only the clicked row changes; the rest of the conversation is untouched.
+    for index in 1..rows.len() {
+        assert_eq!(expanded[index], collapsed[index]);
+    }
+    assert_eq!(expanded[1], collapsed[1], "a result row stays collapsed");
+    // Collapsing restores exactly the compact geometry.
+    drop(app.update(Message::ToggleActivity {
+        generation: app.generation,
+        key: 0,
+    }));
+    assert_eq!(heights(&app), collapsed);
+    // A row with nothing recorded keeps no expansion and no affordance.
+    assert!(activity_body_source(&rows[2]).is_empty());
+    drop(app.update(Message::ToggleActivity {
+        generation: app.generation,
+        key: 2,
+    }));
+    assert!(!app.activity_expanded.contains(&2));
+    assert_eq!(heights(&app), collapsed);
+    assert!(queue.try_recv().is_err());
+    // Switching conversations clears every expansion.
+    drop(app.update(Message::ToggleActivity {
+        generation: app.generation,
+        key: 1,
+    }));
+    assert!(app.activity_expanded.contains(&1));
+    app.choose(SessionId::new("PUBLIC-other-session").unwrap());
+    assert!(app.activity_expanded.is_empty());
+}
+
+#[test]
+fn an_answerless_tool_call_row_keeps_only_its_disclosure_without_an_action_row() {
+    let (handle, feed, mut queue, _, _) = worker::test_channels();
+    let options = crate::config::parse(
+        [
+            "--runtime",
+            "/explicit-fork/apps/cli",
+            "--expected-version",
+            "0.2.1-alpha.1",
+            "--home",
+            "/PUBLIC-native-home",
+            "--user-home",
+            "/PUBLIC-user-home",
+            "--cwd",
+            "/tmp",
+        ]
+        .map(str::to_owned),
+    )
+    .unwrap()
+    .unwrap();
+    let (mut app, task) = App::boot(options, handle, feed);
+    drop(task);
+    // The recorded stream from a real session: thinking plus a Bash tool call,
+    // and no answer prose.
+    let stream = serde_json::json!([
+        {"type":"reasoning-chunks","time0":1000,"index":0,"dt":[],"texts":["PUBLIC thought"]},
+        {"type":"tool-call-chunks","time0":1001,"index":1,"id":"PUBLIC-call","name":"bash","dt":[],
+         "args":["{\"command\":\"date -u\"}"]}
+    ]);
+    let snapshot: SessionFollowFrame = serde_json::from_value(serde_json::json!({
+        "type":"snapshot","cursor":0,"hasMore":false,
+        "records":[{"type":"event","event":{"type":"assistant/message","seq":0,"time":1000,
+            "surfaceOp":"append","data":{"turn":1,"step":1,"stream":stream}}}],
+        "header":{"version":4,"id":"s1","createdAt":1000,"isSeeded":false},
+        "projections":{"asOfSeq":0,"values":{}},"assistantStream":{"revision":0}
+    }))
+    .unwrap();
+    app.transcript.apply(0, snapshot).unwrap();
+    let reply = app.reply_parts(0).expect("parts");
+    assert!(!reply.has_answer(), "a tool call is not an answer");
+    let rows: Vec<DisplayRow> = app.transcript.display_rows(false).cloned().collect();
+    let refs: Vec<&DisplayRow> = rows.iter().collect();
+    let geometry = app.row_geometries(&refs);
+    let index = rows.iter().position(|row| row.key == 0).unwrap();
+    let measured = geometry[index];
+    // No 22px action row is reserved, because the view renders no Copy/Details.
+    assert_eq!(
+        measured.height,
+        chat_geometry::chrome_height(&rows[index].role) + measured.body_height
+    );
+    assert_eq!(
+        measured.body_height,
+        reply.body_height(measured.width - 28.0, false)
+    );
+    // The disclosure alone, without the empty answer bubble it used to leave.
+    assert!(measured.body_height < 60.0, "{}", measured.body_height);
     assert!(queue.try_recv().is_err());
 }

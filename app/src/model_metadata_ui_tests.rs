@@ -95,29 +95,40 @@ fn historical_model_metadata_is_hidden_without_changing_current_menu_selection()
     assert!(queue.try_recv().is_err());
 }
 #[test]
-fn literal_model_event_names_and_generated_model_switch_notices_remain_messages() {
+fn literal_model_event_names_stay_messages_while_the_switch_inject_is_trajectory_only() {
     let records = vec![
         record(
             0,
             "model/selection",
             json!({"provider":"PUBLIC","model":"PUBLIC"}),
         ),
+        // The host's own model-switch notice is a producer inject, not history.
         record(
             1,
             "user/message",
             json!({"source":{"kind":"model-selection"},"content":[{"type":"text","text":"model/selection · PUBLIC model-switch notice"}]}),
         ),
+        // A human message that merely mentions the event name is still history.
         record(
             2,
+            "user/message",
+            json!({"source":{"kind":"user","rpcId":"PUBLIC-rpc","promptFingerprint":"PUBLIC-fingerprint"},"content":[{"type":"text","text":"Explain model/selection to me"}]}),
+        ),
+        record(
+            3,
             "assistant/message",
             json!({"turn":1,"step":1,"stream":[{"type":"text-chunks","time0":0,"index":0,"dt":[],"texts":["Discuss model/selection literally"]}]}),
         ),
     ];
-    let (mut app, mut queue) = app(records, 2);
-    for expanded in [false, true] {
-        app.records_expanded = expanded;
-        assert_eq!(app.scroll_projection().0, vec![1, 2]);
-    }
+    let (mut app, mut queue) = app(records, 3);
+    // Chat: the control event and the host inject are filtered; the human
+    // message and the assistant text that name the event stay exactly as they
+    // were, because a literal name is not a control event.
+    app.records_expanded = false;
+    assert_eq!(app.scroll_projection().0, vec![2, 3]);
+    // Trajectory keeps the inject, and never renders the control event itself.
+    app.records_expanded = true;
+    assert_eq!(app.scroll_projection().0, vec![1, 2, 3]);
     assert!(queue.try_recv().is_err());
 }
 #[test]

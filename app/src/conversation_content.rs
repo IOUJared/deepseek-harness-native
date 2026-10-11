@@ -32,6 +32,12 @@ impl Prepared {
             _ => None,
         }
     }
+    /// True when this reply renders an answer, not only thinking or a recorded
+    /// tool call. An answerless reply keeps its disclosure and nothing else.
+    /// An empty answer parses to an empty document, so the text is the test.
+    pub fn has_answer(&self) -> bool {
+        !self.answer.trim().is_empty()
+    }
     pub fn body_height(&self, width: f32, expanded: bool) -> f32 {
         let width = bounded_width(width);
         if let Some((_, _, height)) = self
@@ -42,6 +48,7 @@ impl Prepared {
         {
             return *height;
         }
+        let has_answer = self.has_answer();
         let mut height = if let Some(document) = &self.document {
             document_height(document, width)
         } else {
@@ -53,7 +60,9 @@ impl Prepared {
                 height += plain_height(&self.reasoning, width, 14.0, FONT, false) + 8.0;
             }
         }
-        let height = height.max(20.0);
+        // Only real answer content reserves the minimum bubble height; reserving
+        // it for an answerless reply leaves a blank gap under the disclosure.
+        let height = if has_answer { height.max(20.0) } else { height };
         let mut widths = self.widths.borrow_mut();
         if widths.len() >= 4 {
             widths.remove(0);
@@ -200,6 +209,9 @@ impl Prepared {
                 body = body.push(iced::widget::Space::new().height(8));
             }
             body = body.push(iced::widget::Space::new().height(8));
+        }
+        if !self.has_answer() {
+            return body.into();
         }
         if let Some(document) = &self.document {
             body = body.push(document_view(document, width, self.ticket, query));
@@ -391,6 +403,34 @@ pub fn plain_view(
         .wrapping(text::Wrapping::Word)
         .width(Length::Fill)
         .into()
+}
+
+/// Measured height of a tool row's recorded body, shown inline when expanded.
+/// Mono 13px and word-wrapped: a collapsed chat row cannot scroll sideways, so
+/// wrapping keeps the whole recorded command or output reachable. The cap keeps
+/// one long output from owning the viewport.
+pub fn tool_body_height(source: &str, width: f32) -> f32 {
+    plain_height(source, width, 13.0, MONO, false).min(TOOL_BODY_MAX)
+}
+/// Longest inline tool body, in native px; the render clips to it too.
+pub const TOOL_BODY_MAX: f32 = 320.0;
+
+/// Recorded tool body for the same inline expansion. Inert text only. The
+/// horizontal padding matches the compact line; it adds no vertical height, so
+/// the caller's measured body height stays exact.
+pub fn tool_body_view(source: &str, height: f32) -> Element<'static, Message> {
+    container(
+        rich_text(vec![span::<(), Font>(source.to_owned()).color(TEXT)])
+            .font(MONO)
+            .size(13)
+            .line_height(1.3)
+            .wrapping(text::Wrapping::Word)
+            .width(Length::Fill),
+    )
+    .padding([0, 8])
+    .height(height)
+    .clip(true)
+    .into()
 }
 
 fn first_offset(

@@ -326,3 +326,84 @@ fn readonly_category_navigation_never_opens_closed_settings_or_reads_backend() {
     assert_eq!(state.page, Page::Plugins);
     assert!(state.reading.is_none());
 }
+
+#[test]
+fn pasted_key_trims_surrounding_whitespace_and_keeps_the_strict_typing_rule() {
+    let mut state = opened();
+    let ticket = state.input_ticket();
+    // Copied keys routinely carry a trailing newline or surrounding spaces.
+    assert!(
+        state
+            .handle(
+                Action::Pasted {
+                    ticket,
+                    input: Input::pasted("  sk-PUBLIC_KEY  \n".into()),
+                },
+                1,
+                true,
+            )
+            .is_none()
+    );
+    assert_eq!(state.edit.editor.0, "sk-PUBLIC_KEY");
+    assert!(state.error.is_none());
+    // Typing keeps the strict printable-ASCII rule: whitespace is still rejected.
+    edit(&mut state, " sk-PUBLIC ");
+    assert!(state.edit.editor.0.is_empty());
+    assert!(state.error.is_some());
+    // Multi-line clipboard text is not a key.
+    let ticket = state.input_ticket();
+    state.handle(
+        Action::Pasted {
+            ticket,
+            input: Input::pasted("two\nlines".into()),
+        },
+        1,
+        true,
+    );
+    assert!(state.edit.editor.0.is_empty());
+    assert!(state.error.unwrap().contains("Clipboard"));
+}
+
+#[test]
+fn paste_is_fenced_by_panel_epoch_and_the_editor_holder_like_typing() {
+    let mut state = opened();
+    let stale = state.input_ticket();
+    // An invalid draft resets the editor generation, so the earlier holder is stale.
+    edit(&mut state, "in valid");
+    assert_ne!(state.input_ticket(), stale);
+    state.handle(
+        Action::Pasted {
+            ticket: stale,
+            input: Input::pasted("PUBLIC_PASTE".into()),
+        },
+        1,
+        true,
+    );
+    assert_eq!(state.edit.editor.0, "");
+    // Epoch, enabled and review gates all fence the clipboard read.
+    assert!(state.paste_allowed(state.input_ticket(), 1, true));
+    assert!(!state.paste_allowed(state.input_ticket(), 2, true));
+    assert!(!state.paste_allowed(state.input_ticket(), 1, false));
+    edit(&mut state, "PUBLIC_A");
+    let ticket = state.ticket();
+    state.handle(Action::Review(ticket), 1, true);
+    assert!(matches!(state.save, SavePhase::Confirm(_)));
+    assert!(!state.paste_allowed(state.input_ticket(), 1, true));
+    state.close();
+    assert!(!state.paste_allowed(state.input_ticket(), 1, true));
+}
+
+#[test]
+fn unavailable_clipboard_reports_without_touching_the_draft() {
+    let mut state = opened();
+    edit(&mut state, "PUBLIC_A");
+    let ticket = state.input_ticket();
+    state.handle(Action::PasteUnavailable { ticket }, 1, true);
+    assert_eq!(state.edit.editor.0, "PUBLIC_A");
+    assert!(state.error.unwrap().contains("Nothing to paste"));
+    // A stale holder cannot overwrite the live panel error.
+    edit(&mut state, "in valid");
+    assert_ne!(state.input_ticket(), ticket);
+    state.handle(Action::PasteUnavailable { ticket }, 1, true);
+    assert!(state.error.unwrap().contains("printable ASCII"));
+}

@@ -47,6 +47,7 @@ const BANNER_HEIGHT: f32 = 32.0;
 const KNOWN_IDS: &[&str] = &[
     "fixture-frame",
     "native-settings-entry",
+    "native-api-key-draft",
     "native-stop-control",
     "native-send-control",
     "native-model-controls",
@@ -60,6 +61,7 @@ const KNOWN_IDS: &[&str] = &[
     "native-detail-source",
     "native-detail-back",
     "native-detail-copy-source",
+    "native-sidebar-options",
 ];
 
 #[derive(Clone)]
@@ -247,7 +249,8 @@ impl LayoutObservation {
                 .filter(|(name, _)| **name != "fixture-frame")
                 .all(|(_, rects)| rects.iter().all(|r| inside(r, frame)))
         });
-        let counts = self.count("native-settings-entry")
+        let counts = self.count("native-sidebar-options") == usize::from(metadata["sidebarOptionsExpected"] == true)
+            && self.count("native-settings-entry")
             == usize::from(metadata["settingsEntryExpected"] == true)
             && self.count("native-stop-control") == usize::from(metadata["stopExpected"] == true)
             && self.count("native-send-control") == usize::from(composer)
@@ -397,6 +400,7 @@ impl Fixture {
                 worker::Command::DiscardFile(_) => "DiscardFile",
                 worker::Command::PromptFile { .. } => "PromptFile",
                 worker::Command::Codex(_) => "Codex",
+                worker::Command::Cloudflare(_) => "Cloudflare",
                 worker::Command::Export(_) => "Export",
                 worker::Command::PluginsRead(_) => "PluginsRead",
                 worker::Command::PluginSave { .. } => "PluginSave",

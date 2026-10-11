@@ -9,6 +9,8 @@ use std::sync::{
     atomic::{Ordering, compiler_fence},
 };
 const MAX_DRAFT: usize = 16_384;
+#[path = "cloudflare.rs"]
+pub(crate) mod cloudflare;
 #[cfg(test)]
 #[path = "codex_integration_tests.rs"]
 mod codex_integration_tests;
@@ -21,7 +23,7 @@ mod tests;
 #[cfg(test)]
 #[path = "settings_uncertainty_tests.rs"]
 mod uncertainty_tests;
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Ticket {
     pub epoch: u64,
     pub panel: u64,
@@ -44,18 +46,25 @@ impl SaveResult {
     }
     fn text(self) -> &'static str {
         match self {
-            Self::Confirmed => {
-                "Host confirmed API-key persistence. No account sign-in or model validation performed."
-            }
-            Self::Refused => "Host refused persistence. No confirmed save; no automatic retry.",
+            Self::Confirmed => "Saved. This does not sign in or validate the key.",
+            Self::Refused => "The local backend refused the save. Nothing was written.",
             Self::Indeterminate => {
-                "Save outcome indeterminate: the Host may already have persisted the key. No automatic retry; metadata cannot confirm this attempt."
+                "Save outcome unknown: the key may have been written. No automatic retry."
             }
-            Self::NotSent => {
-                "Save was not sent: the worker, queue, permission metadata or lifecycle did not permit it. Draft cleared; re-enter only explicitly."
-            }
+            Self::NotSent => "Not sent. Re-enter the key to try again.",
         }
     }
+}
+/// Backend-reported DeepSeek route facts for the Models page. Display only; the
+/// App owns the catalog read and the active selection.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RouteFacts {
+    /// `(display name, model id, active)` rows the backend reports for the route.
+    pub models: Vec<(String, String, bool)>,
+    /// True while the catalog read is still pending.
+    pub loading: bool,
+    /// True when the catalog read failed.
+    pub failed: bool,
 }
 // The native editor needs a local plaintext value; it is never an Event/String DTO.
 struct Editor(String);
@@ -99,6 +108,15 @@ enum InputValue {
 pub struct Input(Arc<Mutex<Option<InputValue>>>);
 impl Input {
     pub fn new(raw: String) -> Self {
+        Self::validated(raw)
+    }
+    /// Clipboard paste. Copied keys routinely carry a trailing newline or
+    /// surrounding spaces, so those are trimmed before the same
+    /// printable-ASCII rule; the secret itself is unchanged otherwise.
+    pub fn pasted(raw: String) -> Self {
+        Self::validated(raw.trim().to_owned())
+    }
+    fn validated(raw: String) -> Self {
         let value = if raw.len() > MAX_DRAFT || !raw.bytes().all(|b| (0x21..=0x7e).contains(&b)) {
             drop(Editor(raw));
             InputValue::Rejected
@@ -126,14 +144,16 @@ pub enum Page {
     Codex,
     Plugins,
     AgentPresets,
+    Cloudflare,
 }
 impl Page {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::General,
         Self::ApiLogin,
         Self::Plugins,
         Self::Codex,
         Self::AgentPresets,
+        Self::Cloudflare,
     ];
     fn title(self) -> &'static str {
         match self {
@@ -142,6 +162,7 @@ impl Page {
             Self::Codex => "Codex",
             Self::Plugins => "Built-in plugins",
             Self::AgentPresets => "Agent presets",
+            Self::Cloudflare => "Cloudflare",
         }
     }
     fn glyph(self) -> &'static str {
@@ -151,6 +172,7 @@ impl Page {
             Self::Plugins => "☷",
             Self::Codex => "✧",
             Self::AgentPresets => "⌘",
+            Self::Cloudflare => "☁",
         }
     }
 }
@@ -175,10 +197,21 @@ pub enum Action {
     Close,
     SelectPage(Page),
     ToggleInfo { ticket: Ticket, info: Info },
+    Cloudflare(cloudflare::Action),
     Plugins(crate::plugins::Action),
     Codex(crate::codex::Action),
     Refresh(Ticket),
     Edit { ticket: Ticket, input: Input },
+    /// Clipboard read request; the App performs the read and replies with
+    /// [`Action::Pasted`]. Reads no secret until the reply carries one.
+    Paste { ticket: Ticket },
+    /// Clipboard result as a one-use holder, so no plaintext enters the
+    /// message or action. The App trims and validates before sending it.
+    Pasted { ticket: Ticket, input: Input },
+    /// The clipboard read returned nothing usable; no draft is touched.
+    PasteUnavailable {
+        ticket: Ticket,
+    },
     Review(Ticket),
     CancelReview(Ticket),
     Confirm(Ticket),
@@ -189,6 +222,7 @@ impl std::fmt::Debug for Action {
     }
 }
 pub enum Effect {
+    Cloudflare(cloudflare::Effect),
     Plugins(crate::plugins::Effect),
     Codex(crate::codex::Effect),
     Read(Ticket),
@@ -211,6 +245,7 @@ pub struct Settings {
     details_open: bool,
     shortcuts_open: bool,
     api_help_open: bool,
+    cloudflare: cloudflare::Controller,
     plugins: crate::plugins::Controller,
     codex: crate::codex::Controller,
     epoch: u64,
@@ -234,6 +269,7 @@ impl Default for Settings {
             details_open: false,
             shortcuts_open: false,
             api_help_open: false,
+            cloudflare: cloudflare::Controller::default(),
             plugins: crate::plugins::Controller::default(),
             codex: crate::codex::Controller::default(),
             epoch: 0,
@@ -292,16 +328,31 @@ impl Settings {
     fn plugin_context(&self, enabled: bool) -> crate::plugins::Context {
         crate::plugins::Context {
             epoch: self.epoch,
-            visible: self.open && self.page == Page::Plugins,
-            enabled: enabled && !self.pending() && !self.codex.pending(),
+            // The DeepSeek page renders the one `llm-deepseek` namespace, so it
+            // needs the same live-settings authority as the plugin panel.
+            visible: self.open && matches!(self.page, Page::Plugins | Page::ApiLogin),
+            enabled: enabled && !self.pending() && !self.codex.pending() && !self.cloudflare.pending(),
         }
     }
     fn codex_context(&self, enabled: bool) -> crate::codex::Context {
         crate::codex::Context {
             epoch: self.epoch,
             visible: self.open && self.page == Page::Codex,
-            enabled: enabled && !self.pending() && !self.plugins.pending(),
+            enabled: enabled && !self.pending() && !self.plugins.pending() && !self.cloudflare.pending(),
         }
+    }
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn cloudflare_ticket(&self) -> Ticket { self.cloudflare.ticket() }
+    pub(crate) fn cloudflare_completed(&mut self, ticket: Ticket, outcome: cloudflare::Outcome) {
+        self.cloudflare.completed(ticket, outcome);
+    }
+    pub(crate) fn cloudflare_observed(&mut self,status:dsh_native_core::CloudflareAuthStatus) {self.cloudflare.observed(status);}
+    pub(crate) fn cloudflare_continue(&mut self,enabled:bool)->Option<cloudflare::Effect> {
+        let enabled=self.cloudflare_enabled(enabled)&&self.open&&self.page==Page::Cloudflare;
+        self.cloudflare.continue_connection(self.epoch,enabled)
+    }
+    fn cloudflare_enabled(&self, enabled: bool) -> bool {
+        enabled && !self.pending() && !self.plugins.pending() && !self.codex.pending()
     }
     pub(crate) fn codex_completed(
         &mut self,
@@ -377,6 +428,7 @@ impl Settings {
     /// Startup readiness can arrive after the user opened this panel. Rebind safely;
     /// never read or write automatically, and never restore an old draft/confirmation.
     pub fn adopt_epoch(&mut self, epoch: u64) {
+        self.cloudflare.adopt_epoch(epoch);
         self.plugins.adopt_epoch(epoch);
         self.codex.adopt_epoch(epoch);
         if self.epoch == epoch {
@@ -404,6 +456,7 @@ impl Settings {
         };
     }
     pub fn close(&mut self) {
+        self.cloudflare.leave();
         self.plugins.leave();
         self.codex.leave();
         self.clear();
@@ -419,6 +472,7 @@ impl Settings {
         }
     }
     pub fn disconnect(&mut self) {
+        self.cloudflare.disconnect();
         self.plugins.disconnect();
         self.codex.disconnect();
         self.clear();
@@ -432,18 +486,56 @@ impl Settings {
         } else if matches!(self.save, SavePhase::Confirm(_)) {
             self.save = SavePhase::Idle;
         }
-        self.error = Some("Owned backend unavailable; settings are read-only.");
+        self.error = Some("The local backend is unavailable.");
     }
     fn can_save(&self, enabled: bool) -> bool {
         enabled
             && self.open
             && !self.pending()
             && self.uncertain_save.is_none()
+            && !self.cloudflare.pending()
             && !self.plugins.pending()
             && !self.codex.pending()
             && self.reading.is_none()
             && self.metadata.is_some_and(|m| m.writable)
             && !self.edit.editor.0.is_empty()
+    }
+    /// A clipboard paste is a draft edit: the same panel, epoch, draft-holder
+    /// and pending fences as [`Action::Edit`], plus the review/save gates.
+    pub fn paste_allowed(&self, ticket: Ticket, epoch: u64, enabled: bool) -> bool {
+        enabled
+            && self.open
+            && self.epoch == epoch
+            && self.page == Page::ApiLogin
+            && ticket == self.input_ticket()
+            && !self.pending()
+            && self.uncertain_save.is_none()
+            && !self.cloudflare.pending()
+            && !self.plugins.pending()
+            && !self.codex.pending()
+            && !matches!(self.save, SavePhase::Confirm(_))
+    }
+    /// Apply one validated draft value, invalidating any stale review.
+    fn apply_input(&mut self, value: Option<InputValue>, rejected: &'static str) {
+        match value {
+            Some(InputValue::Valid(edit)) => {
+                self.edit = edit;
+                self.next();
+                if matches!(self.save, SavePhase::Confirm(_)) {
+                    self.save = SavePhase::Idle;
+                }
+                self.error = None;
+            }
+            Some(InputValue::Rejected) => {
+                self.clear();
+                self.next();
+                if matches!(self.save, SavePhase::Confirm(_)) {
+                    self.save = SavePhase::Idle;
+                }
+                self.error = Some(rejected);
+            }
+            None => {}
+        }
     }
     fn read(&mut self) -> Effect {
         let ticket = self.next();
@@ -461,7 +553,8 @@ impl Settings {
             self.close();
             self.open = true;
             self.epoch = epoch;
-            if self.page == Page::Plugins {
+            if self.page == Page::Cloudflare { self.cloudflare.enter(epoch); }
+            if matches!(self.page, Page::Plugins | Page::ApiLogin) {
                 self.plugins.enter(epoch);
             }
             if self.page == Page::Codex {
@@ -469,6 +562,7 @@ impl Settings {
             }
             if enabled
                 && self.page == Page::ApiLogin
+                && !self.cloudflare.pending()
                 && !self.plugins.pending()
                 && !self.codex.pending()
             {
@@ -484,17 +578,19 @@ impl Settings {
                     self.save = SavePhase::Idle;
                     self.next(); // Previously rendered confirmation can no longer write.
                 }
-                if self.page == Page::Plugins {
+                if self.page == Page::Cloudflare { self.cloudflare.leave(); }
+                if matches!(self.page, Page::Plugins | Page::ApiLogin) {
                     self.plugins.leave();
                 }
                 if self.page == Page::Codex {
                     self.codex.leave();
                 }
                 self.page = page;
+                if self.page == Page::Cloudflare { self.cloudflare.enter(epoch); }
                 if self.page == Page::Codex {
                     self.codex.enter(epoch);
                 }
-                if self.page == Page::Plugins {
+                if matches!(self.page, Page::Plugins | Page::ApiLogin) {
                     self.plugins.enter(epoch);
                 }
             }
@@ -515,6 +611,10 @@ impl Settings {
                 *expanded = !*expanded;
             }
             return None;
+        }
+        if let Action::Cloudflare(action) = action {
+            let enabled = self.cloudflare_enabled(enabled) && self.open && self.page == Page::Cloudflare;
+            return self.cloudflare.handle(action, epoch, enabled).map(Effect::Cloudflare);
         }
         if let Action::Codex(action) = action {
             if let crate::codex::Action::Usage { action, .. } = &action {
@@ -537,6 +637,7 @@ impl Settings {
                 || self.epoch != epoch
                 || !self.open
                 || self.page != Page::ApiLogin
+                || self.cloudflare.pending()
                 || self.plugins.pending()
                 || self.codex.pending()
                 || *ticket != self.input_ticket()
@@ -562,10 +663,28 @@ impl Settings {
                         self.save = SavePhase::Idle;
                     }
                     self.error = Some(
-                        "Use at most 16384 printable, non-whitespace ASCII bytes. Draft cleared; enter a new valid key.",
+                        "API keys are printable ASCII. Draft cleared; enter or paste a valid key.",
                     );
                 }
                 None => {}
+            }
+            return None;
+        }
+        if let Action::Pasted { ticket, input } = &action {
+            let value = input.take(); // stale/replayed holders also lose their secret immediately.
+            if !self.paste_allowed(*ticket, epoch, enabled) {
+                drop(value);
+                return None;
+            }
+            self.apply_input(
+                value,
+                "Clipboard text is not a usable API key. Draft cleared; paste a single printable-ASCII key.",
+            );
+            return None;
+        }
+        if let Action::PasteUnavailable { ticket } = &action {
+            if self.paste_allowed(*ticket, epoch, enabled) {
+                self.error = Some("Nothing to paste, or the clipboard is unavailable.");
             }
             return None;
         }
@@ -579,6 +698,7 @@ impl Settings {
         if !enabled
             || self.epoch != epoch
             || self.page != Page::ApiLogin
+            || self.cloudflare.pending()
             || self.plugins.pending()
             || self.codex.pending()
             || !self.current(ticket)
@@ -610,7 +730,7 @@ impl Settings {
                     Err(_) => {
                         self.clear();
                         self.save = SavePhase::Idle;
-                        self.error = Some("Invalid key input; draft cleared, no write attempted.");
+                        self.error = Some("Invalid key; draft cleared. Nothing was saved.");
                         return None;
                     }
                 };
@@ -638,9 +758,10 @@ impl Settings {
                     self.error = None;
                 }
                 Err(()) => {
+                    // The Models page renders its own short status plus Retry;
+                    // no duplicate error line.
                     self.metadata = None;
-                    self.error =
-                        Some("Metadata unavailable; Save disabled. Refresh only explicitly.");
+                    self.error = None;
                 }
             }
         }
@@ -661,9 +782,15 @@ impl Settings {
     /// Compatibility entrypoint for embedders; the app uses the viewport-fitted variant.
     #[allow(dead_code)]
     pub fn view(&self, enabled: bool) -> Element<'_, Action> {
-        self.view_sized(enabled, 960.0, 700.0)
+        self.view_sized(enabled, 960.0, 700.0, &RouteFacts::default())
     }
-    pub fn view_sized(&self, enabled: bool, width: f32, height: f32) -> Element<'_, Action> {
+    pub fn view_sized(
+        &self,
+        enabled: bool,
+        width: f32,
+        height: f32,
+        route: &RouteFacts,
+    ) -> Element<'_, Action> {
         let navigation = Page::ALL
             .into_iter()
             .fold(column![].spacing(6), |nav, page| {
@@ -688,8 +815,12 @@ impl Settings {
             });
         let body: Element<'_, Action> = match self.page {
             Page::ApiLogin => {
-                self.api_view(enabled && !self.plugins.pending() && !self.codex.pending())
+                self.api_view(
+                    enabled && !self.plugins.pending() && !self.codex.pending() && !self.cloudflare.pending(),
+                    route,
+                )
             }
+            Page::Cloudflare => self.cloudflare.view(self.cloudflare_enabled(enabled)).map(Action::Cloudflare),
             Page::General => self.general_view(),
             Page::Codex => self
                 .codex
@@ -751,23 +882,36 @@ impl Settings {
                 .height(Length::Fill)
                 .into()
         };
-        let footer = if self.pending() {
-            "API-key write submitted; closing or switching pages cannot undo it. Awaiting acknowledgment."
+        // The footer carries only live status; routine hints stay out of the way.
+        let mut footer = column![].spacing(4);
+        let mut has_footer = false;
+        if self.pending() {
+            footer = footer.push(
+                label("API-key save submitted; closing does not undo it.", MUTED).size(11),
+            );
+            has_footer = true;
         } else if self.plugins.pending() {
-            "Plugin setting write submitted; closing or switching pages cannot undo it. Awaiting acknowledgment."
+            footer = footer.push(
+                label("Plugin setting submitted; closing does not undo it.", MUTED).size(11),
+            );
+            has_footer = true;
         } else if self.codex.pending() {
-            "Codex operation pending; return to Codex for status. Closing does not undo admitted writes."
-        } else {
-            "Closing does not undo submitted changes. Usage drafts are retained."
-        };
-        let mut footer = column![label(footer, MUTED).size(11)].spacing(4);
+            footer = footer.push(label("Codex operation pending.", MUTED).size(11));
+            has_footer = true;
+        }
+        if let Some((status, attention)) = self.cloudflare.footer() {
+            footer = footer.push(label(status, if attention { DANGER } else { MUTED }).size(11));
+            has_footer = true;
+        }
         if let Some((status, attention)) = self.codex.runtime_footer() {
             footer = footer.push(label(status, if attention { DANGER } else { MUTED }).size(11));
+            has_footer = true;
         }
         if let Some((status, attention)) = self.codex.usage_footer() {
             footer = footer.push(label(status, if attention { DANGER } else { MUTED }).size(11));
+            has_footer = true;
         }
-        container(column![
+        let mut shell = column![
             container(
                 row![
                     label("Settings", TEXT).size(16).width(Length::Fill),
@@ -780,110 +924,222 @@ impl Settings {
             )
             .padding([12, 16]),
             sections,
-            container(footer).padding([10, 16])
-        ])
-        .width(width.max(1.0))
-        .height(height.max(1.0))
-        .style(|_| design::card(SURFACE, 20.0))
-        .clip(true)
-        .into()
+        ];
+        if has_footer {
+            shell = shell.push(container(footer).padding([10, 16]));
+        }
+        container(shell)
+            .width(width.max(1.0))
+            .height(height.max(1.0))
+            .style(|_| design::card(SURFACE, 20.0))
+            .clip(true)
+            .into()
     }
     fn general_view(&self) -> Element<'_, Action> {
         let mut body = column![
             label("General", TEXT).size(17),
-            label("Appearance", ACCENT).size(16),
-            label("Dark Rosé Pine · DejaVu Sans 14 · read-only", TEXT),
+            label(
+                "Native Iced interface over the local Harness backend, in the fixed dark Rosé Pine theme.",
+                MUTED,
+            ),
             self.info_button(Info::Details, "Details", self.details_open),
         ]
         .spacing(14);
         if self.details_open {
-            body = body
-                .push(label("Native Iced / wgpu interface; no embedded browser or webview. Appearance is fixed, not an editable preference.", MUTED))
-                .push(label("API login saves a key after Review and Confirm. Codex connects ChatGPT in one click; Advanced provides manual recovery. Plugins use explicit Refresh and schema-defined settings with Review and Confirm.", MUTED));
+            body = body.push(label(
+                "No embedded browser or webview, and no editable appearance preferences.",
+                MUTED,
+            ));
         }
         body = body.push(self.info_button(Info::Shortcuts, "Shortcuts", self.shortcuts_open));
         if self.shortcuts_open {
-            body = body.push(label("Ctrl+B · navigation\nEnter · send non-empty text in the focused composer (Ctrl+Enter also works)\nShift+Enter · new line\nEscape · close settings and clear unsaved drafts", TEXT));
+            body = body.push(label("Ctrl+B · navigation\nCtrl+F · find in conversation\nEnter · send non-empty text (Ctrl+Enter also works)\nShift+Enter · new line\nEscape · close settings and panels", TEXT));
         }
         body.into()
     }
-    fn api_view(&self, enabled: bool) -> Element<'_, Action> {
+    fn api_view(&self, enabled: bool, route: &RouteFacts) -> Element<'_, Action> {
         let ticket = self.ticket();
+        let input_ticket = self.input_ticket();
         let can_save = self.can_save(enabled);
-        let editable = enabled
-            && !self.pending()
-            && self.uncertain_save.is_none()
-            && !matches!(self.save, SavePhase::Confirm(_));
+        let editable = self.paste_allowed(input_ticket, self.epoch, enabled);
         let mut body = column![
-            label("Models", TEXT).size(17),
+            label("DeepSeek", TEXT).size(17),
             label("API key", ACCENT).size(16),
             label(
-                "Saving may replace credentials; no sign-in or key validation.",
-                MUTED
+                "Paste the DeepSeek API key the local Harness backend should use. Nothing is saved until you review and confirm.",
+                MUTED,
             )
         ]
-        .spacing(18);
+        .spacing(14);
         if self.uncertain_save.is_some() {
             body = body.push(label(
-                "An earlier API-key save is still uncertain. Further API-key writes are disabled for this app lifetime. Metadata cannot confirm that receipt. Restart only after the owned backend has fully stopped; restarting does not undo or verify the write.",
+                "A previous API-key save is unresolved, so saving stays disabled until the app restarts.",
                 DANGER,
             ));
         }
-        if let Some(meta) = self.metadata {
-            body = body.push(label(
-                format!(
-                    "Read-only metadata: logged in={} · key stored={} · settings writable={}",
-                    meta.logged_in, meta.has_api_key, meta.writable
-                ),
-                TEXT,
-            ));
+        let input = text_input("Paste or type your API key", &self.edit.editor.0)
+            .padding(14)
+            .size(15)
+            .style(design::input_style)
+            .secure(true)
+            .id("native-api-key-draft");
+        let input = if editable {
+            input
+                .on_input(move |raw| Action::Edit {
+                    ticket: input_ticket,
+                    input: Input::new(raw),
+                })
+                // Iced's own paste reads the clipboard itself; on Wayland that
+                // returns nothing and this callback only sees the unchanged
+                // field. Ask the App to read through the working reader instead.
+                .on_paste(move |_| Action::Paste {
+                    ticket: input_ticket,
+                })
         } else {
+            input
+        };
+        let paste = button(label("Paste", TEXT).size(13))
+            .padding([12, 18])
+            .style(design::button_style)
+            .on_press_maybe(editable.then_some(Action::Paste {
+                ticket: input_ticket,
+            }));
+        body = body.push(
+            row![input.width(Length::Fill), paste]
+                .spacing(8)
+                .align_y(iced::Alignment::Center),
+        );
+        // One quiet status line; raw backend metadata is never rendered.
+        if self.reading.is_some() {
+            body = body.push(label("Checking the local backend…", MUTED).size(12));
+        } else if self.metadata.is_none() {
+            body = body.push(
+                row![
+                    label(
+                        "Couldn't check the local backend, so saving is disabled.",
+                        MUTED
+                    )
+                    .size(12)
+                    .width(Length::Fill),
+                    button(label("Retry", MUTED).size(12))
+                        .padding([5, 9])
+                        .style(design::button_style)
+                        .on_press_maybe(
+                            (enabled && !self.pending()).then_some(Action::Refresh(ticket))
+                        )
+                ]
+                .spacing(8)
+                .align_y(iced::Alignment::Center),
+            );
+        } else if self.metadata.is_some_and(|meta| !meta.writable) {
             body = body.push(label(
-                if self.reading.is_some() {
-                    "Reading nonsecret onboarding metadata…"
+                "This backend is read-only, so saving is disabled.",
+                DANGER,
+            ));
+        }
+        // Models the backend actually reports for the DeepSeek route. Read-only:
+        // the composer owns the active model, reasoning and speed selection.
+        body = body.push(label("Models", ACCENT).size(16));
+        if route.models.is_empty() {
+            body = body.push(label(
+                if route.loading {
+                    "Loading the DeepSeek model catalog…"
+                } else if route.failed {
+                    "The backend did not report a DeepSeek model catalog. Open the model picker in the composer to retry."
                 } else {
-                    "Metadata unknown; Save disabled until explicit Refresh."
+                    "No DeepSeek models reported yet."
                 },
                 MUTED,
             ));
-        }
-        body = body.push(
-            button("Refresh nonsecret metadata")
-                .padding([10, 14])
-                .style(design::button_style)
-                .on_press_maybe((enabled && !self.pending()).then_some(Action::Refresh(ticket))),
-        );
-        let input_ticket = self.input_ticket();
-        let input = text_input(
-            "API key (masked, maximum 16384 ASCII bytes)",
-            &self.edit.editor.0,
-        )
-        .padding(14)
-        .size(15)
-        .style(design::input_style)
-        .secure(true)
-        .id("native-api-key-draft");
-        body = body.push(if editable {
-            input.on_input(move |raw| Action::Edit {
-                ticket: input_ticket,
-                input: Input::new(raw),
-            })
         } else {
-            input
-        });
-        body = body.push(
-            label(
-                "Draft clears on submission or close. Masking is not memory protection.",
+            let mut rows = column![].spacing(4);
+            for (name, id, active) in &route.models {
+                rows = rows.push(
+                    row![
+                        label(if *active { "✓" } else { "" }, ACCENT)
+                            .size(12)
+                            .width(14),
+                        label(name.clone(), if *active { TEXT } else { MUTED }).size(13),
+                        label(id.clone(), MUTED).size(11).width(Length::Fill),
+                    ]
+                    .spacing(8)
+                    .align_y(iced::Alignment::Center),
+                );
+            }
+            body = body.push(rows);
+            body = body.push(label(
+                "Choose the model, reasoning and speed in the composer before sending.",
                 MUTED,
-            )
-            .size(12),
+            ));
+        }
+        // Provider options come from the backend's own `llm-deepseek` namespace,
+        // rendered through the shared live-settings editor. Nothing is shown
+        // until a read actually returns it.
+        let context = self.plugin_context(enabled);
+        body = body.push(
+            row![
+                label("Provider options", ACCENT)
+                    .size(16)
+                    .width(Length::Fill),
+                button(
+                    label(
+                        if self.plugins.has_snapshot() {
+                            "Refresh"
+                        } else {
+                            "Load"
+                        },
+                        MUTED,
+                    )
+                    .size(12)
+                )
+                .padding([5, 9])
+                .style(design::button_style)
+                .on_press_maybe(
+                    (context.enabled && context.visible && !self.plugins.pending()).then_some(
+                        Action::Plugins(crate::plugins::Action::Refresh(
+                            self.plugins.read_ticket()
+                        ))
+                    ),
+                ),
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center),
         );
+        match self.plugins.view_namespace(context, "llm-deepseek") {
+            Some(editor) => body = body.push(editor.map(Action::Plugins)),
+            None => {
+                body = body.push(label(
+                    "Load the DeepSeek endpoint, model catalog and reasoning settings from the local backend.",
+                    MUTED,
+                ))
+            }
+        }
         match self.save {
             SavePhase::Confirm(t) => {
-                body=body.push(label("Confirm persistence to this owned Host's configured credential provider. Default isolated profile uses native-home credentials; trusted custom providers may write elsewhere. Existing credentials may be replaced. This does not validate the key or sign in.",DANGER)).push(column![button("Confirm Save API key").padding([11, 18]).style(design::primary_button).on_press_maybe(can_save.then_some(Action::Confirm(t))),button("Cancel write").padding([10, 14]).style(design::button_style).on_press(Action::CancelReview(t))].spacing(10));
+                body = body
+                    .push(label(
+                        "Confirm saving this key to the local backend? It replaces any stored key and does not validate it or sign in.",
+                        DANGER,
+                    ))
+                    .push(
+                        column![
+                            button("Save key")
+                                .padding([11, 18])
+                                .style(design::primary_button)
+                                .on_press_maybe(can_save.then_some(Action::Confirm(t))),
+                            button("Cancel")
+                                .padding([10, 14])
+                                .style(design::button_style)
+                                .on_press(Action::CancelReview(t))
+                        ]
+                        .spacing(10),
+                    );
             }
             SavePhase::Pending(_) => {
-                body=body.push(label("Write submitted; awaiting actual persistence acknowledgment. Draft cleared. Closing does not undo a write already submitted.",MUTED));
+                body = body.push(label(
+                    "Save submitted; waiting for the backend to confirm. Closing does not undo it.",
+                    MUTED,
+                ));
             }
             SavePhase::Done(result) => {
                 body = body
@@ -896,18 +1152,27 @@ impl Settings {
                         },
                     ))
                     .push(
-                        button("Review explicit Save")
+                        button("Save again")
                             .padding([11, 18])
                             .style(design::primary_button)
                             .on_press_maybe(can_save.then_some(Action::Review(ticket))),
                     );
             }
             SavePhase::EndedElsewhere => {
-                body=body.push(label("An earlier closed-panel attempt returned; its outcome is not applied here. It may have persisted; this draft was not submitted. Refresh explicitly; no automatic retry.",DANGER)).push(button("Review explicit Save").padding([11, 18]).style(design::primary_button).on_press_maybe(can_save.then_some(Action::Review(ticket))));
+                body = body.push(label(
+                    "An earlier save returned after this panel closed; its outcome is unknown. Check the conversation, then save again if needed.",
+                    DANGER,
+                ))
+                .push(
+                    button("Save again")
+                        .padding([11, 18])
+                        .style(design::primary_button)
+                        .on_press_maybe(can_save.then_some(Action::Review(ticket))),
+                );
             }
             SavePhase::Idle => {
                 body = body.push(
-                    button("Review explicit Save")
+                    button("Review and save")
                         .padding([11, 18])
                         .style(design::primary_button)
                         .on_press_maybe(can_save.then_some(Action::Review(ticket))),
@@ -915,7 +1180,10 @@ impl Settings {
             }
         }
         if !enabled {
-            body=body.push(label("Read-only: unavailable/stopped/closing backend or real keyless smoke. No key save allowed.",DANGER));
+            body = body.push(label(
+                "Read-only: the local backend is unavailable.",
+                DANGER,
+            ));
         }
         if let Some(error) = self.error {
             body = body.push(label(error, DANGER));
@@ -923,9 +1191,8 @@ impl Settings {
         body = body.push(self.info_button(Info::ApiHelp, "Help & privacy", self.api_help_open));
         if self.api_help_open {
             body = body
-                .push(label("API login only persists a key to the owned Host. No browser sign-in, provider catalog, account probe or model validation. Metadata is not proof that a key works.", MUTED))
-                .push(label("No key is read back from Core. The owned draft is consumed on submission and wiped on close. Do not paste real secrets into test fixtures or artifacts.", MUTED))
-                .push(label("Privacy limit: this app wipes its owned draft/holder and Core wipes its owned input/frame. Iced editor/render copies, clipboard, allocator/kernel/Node copies and swap cannot be guaranteed wiped; masking is not memory protection.", MUTED));
+                .push(label("The key is written only to the local Harness backend. No browser sign-in, provider catalog, account probe or model validation.", MUTED))
+                .push(label("The draft is cleared on save or close. Masking is not memory protection: this app wipes its owned draft, but clipboard, editor/render, allocator, kernel, Node and swap copies cannot be guaranteed wiped.", MUTED));
         }
         body.into()
     }
@@ -1011,7 +1278,8 @@ mod disclosure_tests {
         for page in Page::ALL {
             assert!(state.handle(Action::SelectPage(page), 1, true).is_none());
             assert_eq!(state.codex.usage_footer(), Some(pending));
-            let _: Element<'_, Action> = state.view_sized(true, 960.0, 700.0);
+            let _: Element<'_, Action> =
+                state.view_sized(true, 960.0, 700.0, &RouteFacts::default());
         }
         state.codex_completed(ticket, crate::codex::Outcome::Indeterminate);
         let warning = state.codex.usage_footer().unwrap();
@@ -1019,7 +1287,8 @@ mod disclosure_tests {
         for page in Page::ALL {
             assert!(state.handle(Action::SelectPage(page), 1, false).is_none());
             assert_eq!(state.codex.usage_footer(), Some(warning));
-            let _: Element<'_, Action> = state.view_sized(false, 960.0, 700.0);
+            let _: Element<'_, Action> =
+                state.view_sized(false, 960.0, 700.0, &RouteFacts::default());
         }
         state.close();
         state.handle(Action::Open, 1, false);

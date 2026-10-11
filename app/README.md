@@ -28,14 +28,15 @@ cargo build --locked --release -j2
 | Sidebar | Create, select, filter and manage sessions |
 | Chat | Collapsible supplied thoughts, native Markdown/code, Copy/Edit; compact tool details |
 | Composer | Send, stop, model/effort popup; Attach opens the native file picker |
-| Settings | General, Models, Built-in plugins, Codex and Agent presets |
+| Settings | General, Models, Built-in plugins, Codex, Cloudflare and Agent presets |
 | More | Manage, export and information |
 | Enter / Ctrl+Enter | Send non-whitespace text; file-only drafts require Send button |
 | Shift+Enter | Newline |
 | Ctrl+F | Find in loaded messages, with native highlights |
 | Ctrl+B / Escape | Toggle navigation / close auxiliary views |
 
-- Navigation shows at most 200 matching sessions in pin/update order. Large-workspace lookup indexes borrow IDs and last only for the current iteration.
+- [Sidebar options](<../docs/NATIVE-SIDEBAR.md>): row-targeted pin/archive, local ordering/workspace grouping and recoverable Trash. Grouping never changes the agent working directory; Trash never stops work or erases history.
+- Navigation shows at most 200 matching sessions in pin/manual/update order. Large-workspace lookup indexes borrow IDs and last only for the current iteration.
 - [Title events](<../docs/NATIVE-TITLE-CONTROLS.md>) update labels, never chat rows; raw history stays retained.
 - Unknown required events disable Send. Reconnect observations explicitly only after Core verifies the same owned Host; no automatic restart or session follow. Saved sessions require explicit resume and may run queued input.
 - Lost Send ACK freezes original text, file ownership, IDs and payload; new draft stays separate. **Check submission** is read-only; unknown/missing/malformed results never permit resend. Frozen recovery is in-memory; exiting is not rollback.
@@ -65,6 +66,7 @@ cargo build --locked --release -j2
 - Account switch/local sign-out require Review → Confirm at the committed epoch; consent replaces the connection/account list. Local sign-out does not revoke OpenAI authorization; legacy grants are never imported. Unknown writes require explicit reconciliation, never automatic retry.
 - [Codex usage preferences](<../docs/NATIVE-CODEX-USAGE-POLICY.md>) save locally with revision checks. Local quota opt-out fences immediately; quota display, notifications and reset retry remain unavailable.
 - [Codex Models/Images](<../docs/NATIVE-CODEX-USAGE-POLICY.md#remaining-supported-controls>) edit transport, cache retention, timeouts and image-input limits through revision-checked Save. Refresh reconciles uncertainty; Reset edits the shared draft only. Critical runtime status stays in the fixed modal footer.
+- [Cloudflare](<../docs/NATIVE-CLOUDFLARE.md>): Workers AI models and Browser Run tools, [Connect Cloudflare](<../docs/NATIVE-CLOUDFLARE-OAUTH.md>) with one-time own-client setup, reserved Cancel, Disconnect and explicit saved API-token selection. Workers Free confirmation remains mandatory; no paid fallback, automatic credential downgrade or model selection. Plan/global quotas are not verified.
 - Settings deactivate the background. Closing/category changes never roll back submitted writes; runtime/usage drafts and local opt-out remain retained.
 - Transcript: 4,096 records/16 MiB; Details: 32 KiB. Limits fail explicitly, without silently dropping history.
 

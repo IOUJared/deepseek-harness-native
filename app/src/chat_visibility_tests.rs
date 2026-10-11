@@ -547,3 +547,116 @@ fn backend_provided_reasoning_and_output_stream_then_commit_once() {
         1
     );
 }
+
+#[test]
+fn credential_failures_name_the_native_fix_instead_of_the_provider_message() {
+    // The backend's own text mentions the web Models page and the credential
+    // reference; the native notice must be short and point at the native page.
+    for (code, expected) in [
+        (
+            "MISSING_CREDENTIAL",
+            "No API key stored for this model route. Add one in Settings → DeepSeek.",
+        ),
+        (
+            "INVALID_CREDENTIAL",
+            "The stored API key was rejected. Re-enter it in Settings → DeepSeek.",
+        ),
+    ] {
+        let transcript = opening(vec![event(
+            0,
+            "turn/end",
+            json!({"turn":1,"reason":{"kind":"error","error":{
+                "code":code,
+                "message":"llm-deepseek: no API key for provider route \"deepseek-official\"; store DEEPSEEK_API_KEY through the credentials service"
+            }}}),
+        )]);
+        let rows = displayed(&transcript, false);
+        assert!(rows.contains(expected), "{code} notice missing: {rows:?}");
+        assert!(!rows.contains("DEEPSEEK_API_KEY"));
+        assert!(!rows.contains("credentials service"));
+        assert!(transcript.safe_to_send());
+    }
+}
+
+#[test]
+fn an_unrecognized_error_code_still_reports_its_code_and_message() {
+    let transcript = opening(vec![event(
+        0,
+        "turn/end",
+        json!({"turn":1,"reason":{"kind":"error","error":{"code":"RATE_LIMIT","message":"PUBLIC_OTHER"}}}),
+    )]);
+    let rows = displayed(&transcript, false);
+    assert!(rows.contains("Agent error (RATE_LIMIT): PUBLIC_OTHER"), "{rows:?}");
+}
+
+#[test]
+fn chat_hides_harness_context_injects_that_trajectory_keeps() {
+    // Shapes taken from a real recorded session: the human prompt is the only
+    // `user` source, while the runtime snapshot, time sample, skill catalog and
+    // system prompt are producer-owned and belong to Trajectory.
+    let transcript = opening(vec![
+        event(
+            0,
+            "system/message",
+            json!({"message":{"content":[{"type":"text","text":"PUBLIC system prompt"}]}}),
+        ),
+        event(
+            1,
+            "user/message",
+            json!({"source":{"kind":"runtime-context","form":"snapshot"},"content":[{"type":"text","text":"PUBLIC runtime context snapshot"}]}),
+        ),
+        event(
+            2,
+            "user/message",
+            json!({"source":{"kind":"time-context","form":"snapshot"},"content":[{"type":"text","text":"PUBLIC time sampled while preparing"}]}),
+        ),
+        event(
+            3,
+            "user/message",
+            json!({"source":{"kind":"skill-catalog","form":"catalog","entries":[]},"content":[{"type":"text","text":"PUBLIC system-reminder skill catalog"}]}),
+        ),
+        event(
+            4,
+            "user/message",
+            json!({"source":{"kind":"user","rpcId":"PUBLIC-rpc","promptFingerprint":"PUBLIC-fingerprint"},"content":[{"type":"text","text":"PUBLIC real question"}]}),
+        ),
+        event(
+            5,
+            "session-log-deepseek/delivery-accepted",
+            json!({"sessionFormatVersion":4,"throughSeq":15}),
+        ),
+        append_assistant(6, "PUBLIC answer"),
+    ]);
+    let chat: Vec<String> = transcript
+        .display_rows(false)
+        .map(|row| row.text.clone())
+        .collect();
+    assert_eq!(chat, ["PUBLIC real question", "PUBLIC answer"]);
+    // Nothing internal reaches the clean conversation.
+    for hidden in [
+        "PUBLIC system prompt",
+        "PUBLIC runtime context snapshot",
+        "PUBLIC time sampled while preparing",
+        "PUBLIC system-reminder skill catalog",
+    ] {
+        assert!(!chat.iter().any(|text| text.contains(hidden)), "{hidden}");
+    }
+    // Trajectory still retains every one of them.
+    let trajectory: Vec<String> = transcript
+        .display_rows(true)
+        .map(|row| row.text.clone())
+        .collect();
+    for kept in [
+        "PUBLIC system prompt",
+        "PUBLIC runtime context snapshot",
+        "PUBLIC time sampled while preparing",
+        "PUBLIC system-reminder skill catalog",
+    ] {
+        assert!(
+            trajectory.iter().any(|text| text.contains(kept)),
+            "{kept} missing from trajectory: {trajectory:?}"
+        );
+    }
+    // Retained records are never discarded, only presented elsewhere.
+    assert_eq!(transcript.rows().len(), 7);
+}
