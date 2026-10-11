@@ -51,8 +51,8 @@ const server = http.createServer(async (request, response) => {
       if (mode.startsWith('claim-') && envelope.method === 'session/cancel') endClaims(); // Fixture-only explicit end barrier, not claim behavior.
       value = { accepted: true }; break;
     case 'commands/list': {
-      const expected = { request: { sessionId: 'session / opaque:%' } };
-      // Full envelope equality: a list carries no authority beyond the session.
+      // The Host takes one flat named argument (`agentId`), never a wrapped request.
+      const expected = { agentId: 'session / opaque:%' };
       if (request.method !== 'POST'
           || !isDeepStrictEqual(envelope, { type: 'client-request', rpcId: envelope.rpcId, method: 'commands/list', payload: { args: expected } })) {
         response.writeHead(400); response.end(); return;
@@ -72,7 +72,7 @@ const server = http.createServer(async (request, response) => {
       break;
     }
     case 'commands/execute': {
-      const expected = { request: { sessionId: 'session / opaque:%', line: '/plan' } };
+      const expected = { agentId: 'session / opaque:%', line: '/plan', submittedAttachments: [] };
       if (request.method !== 'POST'
           || !isDeepStrictEqual(envelope, { type: 'client-request', rpcId: envelope.rpcId, method: 'commands/execute', payload: { args: expected } })) {
         response.writeHead(400); response.end(); return;

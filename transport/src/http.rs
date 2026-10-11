@@ -548,10 +548,14 @@ impl NativeClient {
     /// name is blank or carries a slash is not a command this app can address, so
     /// it is rejected rather than shown as invokable.
     pub async fn commands_list(&self, session_id: &SessionId) -> Result<Vec<CommandDescriptor>> {
+        // Host contract: `commands/list: (agentId: SessionId)` — one flat named
+        // argument, not a wrapped request object. Agent authority is resolved from
+        // the registered Session; sending a differently shaped payload (for example
+        // `{"request":{"sessionId":…}}`) is refused as gateway/arguments-invalid.
         let value: Vec<CommandDescriptor> = self
             .invoke(
                 Endpoint::CommandsList,
-                request_args(serde_json::json!({ "sessionId": session_id }))?,
+                serde_json::json!({ "agentId": session_id }),
             )
             .await?;
         // A bounded list of non-empty names. Nothing here may reject a command
@@ -573,8 +577,17 @@ impl NativeClient {
         if request.line.trim().is_empty() || request.line.len() > MAX_COMMAND_LINE {
             return Err(Error::InvalidDto);
         }
+        // Host contract: `commands/execute: (agentId, line, submittedAttachments)` —
+        // flat named arguments, not a wrapped request object.
         let value: Option<CommandExecution> = self
-            .invoke(Endpoint::CommandsExecute, request_args(request)?)
+            .invoke(
+                Endpoint::CommandsExecute,
+                serde_json::json!({
+                    "agentId": request.session_id,
+                    "line": request.line,
+                    "submittedAttachments": request.submitted_attachments,
+                }),
+            )
             .await?;
         if let Some(execution) = &value
             && let CommandResult::Error { text } = &execution.result
