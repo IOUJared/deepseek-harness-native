@@ -35,6 +35,14 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 /// Bounds measured from the widget tree, keyed by published node.
 pub(crate) type Bounds = BTreeMap<NodeId, Rectangle>;
 
+/// One measurement pass: where each exposed widget is, and which one holds focus.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Measured {
+    pub bounds: Bounds,
+    /// The exposed widget the window has focused, if any.
+    pub focus: Option<NodeId>,
+}
+
 // Node identities are fixed so a client's cached tree survives an update.
 pub(crate) const ROOT: NodeId = NodeId(1);
 pub(crate) const COMPOSER: NodeId = NodeId(2);
@@ -254,6 +262,8 @@ pub(crate) struct Snapshot<'a> {
     pub status: Option<String>,
     /// Bounds measured from the widget tree in the last pass.
     pub bounds: &'a Bounds,
+    /// The exposed widget that holds focus, if any.
+    pub focus: Option<NodeId>,
 }
 
 /// Build the full tree. A control with no measured bounds is left out, so the
@@ -323,6 +333,13 @@ pub(crate) fn tree(snapshot: &Snapshot<'_>) -> TreeUpdate {
         node.set_bounds(rect);
         push(STATUS, node);
     }
+    // A client is told which control holds focus, which is what lets it echo
+    // typing in the composer. A focused widget that is not published cannot be
+    // named, so the root answers for "no specific node is focused".
+    let focus = match snapshot.focus {
+        Some(node) if children.contains(&node) => node,
+        _ => ROOT,
+    };
     let mut root = Node::new(Role::Window);
     root.set_label(WINDOW_NAME);
     root.set_children(children);
@@ -336,10 +353,7 @@ pub(crate) fn tree(snapshot: &Snapshot<'_>) -> TreeUpdate {
             toolkit_version: None,
         }),
         tree_id: TreeId::ROOT,
-        // No node claims keyboard focus yet: this build does not track which
-        // widget holds it, and the root is the honest answer for "no specific
-        // node is focused".
-        focus: ROOT,
+        focus,
     }
 }
 
@@ -389,16 +403,16 @@ fn bounds(snapshot: &Snapshot<'_>, id: NodeId) -> Option<Rect> {
 /// Measure the exposed widgets in the live layout. The operation visits every
 /// descendant that reports an id; `finish` hands the collected bounds back once.
 pub(crate) fn measure<M: Send + 'static>(
-    on_measured: impl FnOnce(Bounds) -> M + Send + 'static,
+    on_measured: impl FnOnce(Measured) -> M + Send + 'static,
 ) -> Task<M> {
     iced::advanced::widget::operate(Collect {
-        found: BTreeMap::new(),
+        found: Measured::default(),
         on_measured: Mutex::new(Some(on_measured)),
     })
 }
 
 struct Collect<F> {
-    found: Bounds,
+    found: Measured,
     // `finish` takes `&self`; consume this one-use callback without cloning it.
     on_measured: Mutex<Option<F>>,
 }
@@ -414,10 +428,23 @@ impl<F> Collect<F> {
         };
         // A later duplicate of the same id never replaces the first match, the
         // same rule the scroll restore uses.
-        self.found.entry(node).or_insert(bounds);
+        self.found.bounds.entry(node).or_insert(bounds);
+    }
+    fn record_focus(&mut self, id: Option<&Id>, focused: bool) {
+        let Some(node) = id.and_then(|id| {
+            EXPOSED
+                .iter()
+                .find(|(_, widget)| id == &Id::new(*widget))
+                .map(|(node, _)| *node)
+        }) else {
+            return;
+        };
+        if focused {
+            self.found.focus = Some(node);
+        }
     }
 }
-impl<M, F: FnOnce(Bounds) -> M + Send> Operation<M> for Collect<F> {
+impl<M, F: FnOnce(Measured) -> M + Send> Operation<M> for Collect<F> {
     fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation<M>)) {
         operate(self);
     }
@@ -428,9 +455,10 @@ impl<M, F: FnOnce(Bounds) -> M + Send> Operation<M> for Collect<F> {
         &mut self,
         id: Option<&Id>,
         bounds: Rectangle,
-        _state: &mut dyn operation::Focusable,
+        state: &mut dyn operation::Focusable,
     ) {
         self.record(id, bounds);
+        self.record_focus(id, state.is_focused());
     }
     fn text_input(
         &mut self,
@@ -544,6 +572,7 @@ mod tests {
             model: Some("PUBLIC model".to_owned()),
             status: Some("PUBLIC status".to_owned()),
             bounds: &bounds,
+            focus: None,
         };
         let tree = tree(&snapshot);
         // Composer, Send and Settings were measured; Stop, Attach, model and
@@ -592,6 +621,7 @@ mod tests {
             model: Some("Choose model".to_owned()),
             status: None,
             bounds: &bounds,
+            focus: None,
         };
         let tree = tree(&snapshot);
         let send = &tree.nodes.iter().find(|(id, _)| *id == SEND).unwrap().1;
@@ -618,6 +648,7 @@ mod tests {
             model: None,
             status: None,
             bounds: &bounds,
+            focus: None,
         };
         let tree = tree(&snapshot);
         let (_, run) = tree
@@ -643,6 +674,27 @@ mod tests {
     }
 
     #[test]
+    fn the_focused_control_is_the_one_a_client_is_told_about() {
+        let bounds = bounds_map(&[(COMPOSER, 10.0), (SEND, 40.0)]);
+        let focused = |focus| Snapshot {
+            composer: Some("PUBLIC draft".to_owned()),
+            send: true,
+            stop: false,
+            attach: false,
+            model: None,
+            status: None,
+            bounds: &bounds,
+            focus,
+        };
+        assert_eq!(tree(&focused(Some(SEND))).focus, SEND);
+        assert_eq!(tree(&focused(Some(COMPOSER))).focus, COMPOSER);
+        // Nothing focused, and a focused control that is not published, both fall
+        // back to the root: a client is never pointed at a node it cannot see.
+        assert_eq!(tree(&focused(None)).focus, ROOT);
+        assert_eq!(tree(&focused(Some(STOP))).focus, ROOT);
+    }
+
+    #[test]
     fn an_empty_or_oversized_draft_publishes_no_text_run() {
         let bounds = bounds_map(&[(COMPOSER, 10.0)]);
         for draft in [String::new(), "x".repeat(4097)] {
@@ -654,6 +706,7 @@ mod tests {
                 model: None,
                 status: None,
                 bounds: &bounds,
+                focus: None,
             };
             let tree = tree(&snapshot);
             assert!(
@@ -702,6 +755,7 @@ mod tests {
                 model: None,
                 status: None,
                 bounds: &bounds,
+                focus: None,
             };
             let tree = tree(&snapshot);
             assert_eq!(tree.nodes.len(), 1, "only the root remains");

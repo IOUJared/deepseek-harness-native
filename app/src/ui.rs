@@ -321,8 +321,8 @@ pub enum Message {
     },
     /// One AT-SPI request: activation, deactivation or an action on a node.
     Accessibility(accessibility::Request),
-    /// Widget bounds measured for the accessible tree.
-    AccessibilityBounds(accessibility::Bounds),
+    /// One accessibility measurement: widget bounds and the focused control.
+    AccessibilityMeasured(accessibility::Measured),
     /// Poll the exposed state while a client is connected.
     AccessibilityTick,
 }
@@ -759,18 +759,18 @@ impl App {
             return Task::none();
         }
         self.accessibility_measuring = true;
-        accessibility::measure(Message::AccessibilityBounds)
+        accessibility::measure(Message::AccessibilityMeasured)
     }
     /// Publish only what changed: a client is told about a new state, not about
     /// every frame. The bounds are part of the comparison, so a resize or a panel
     /// change republishes even when no exposed sentence changed.
-    fn accessibility_measured(&mut self, bounds: accessibility::Bounds) -> Task<Message> {
+    fn accessibility_measured(&mut self, measured: accessibility::Measured) -> Task<Message> {
         self.accessibility_measuring = false;
-        let fingerprint = self.accessibility_fingerprint(&bounds);
+        let fingerprint = self.accessibility_fingerprint(&measured);
         if self.accessibility_published == Some(fingerprint) {
             return Task::none();
         }
-        let snapshot = self.accessibility_snapshot(&bounds);
+        let snapshot = self.accessibility_snapshot(&measured);
         let tree = accessibility::tree(&snapshot);
         if let Some(bridge) = &mut self.accessibility {
             bridge.publish(tree);
@@ -785,7 +785,7 @@ impl App {
     /// screen, which is also what keeps the API-key draft out of the tree.
     fn accessibility_snapshot<'a>(
         &'a self,
-        bounds: &'a accessibility::Bounds,
+        measured: &'a accessibility::Measured,
     ) -> accessibility::Snapshot<'a> {
         let composer = self.composer_visible().then(|| self.editor.text());
         let model = composer.as_ref().map(|_| self.model_caption());
@@ -797,10 +797,11 @@ impl App {
             attach: self.file_context().allowed,
             model,
             status,
-            bounds,
+            bounds: &measured.bounds,
+            focus: measured.focus,
         }
     }
-    fn accessibility_fingerprint(&self, bounds: &accessibility::Bounds) -> u64 {
+    fn accessibility_fingerprint(&self, measured: &accessibility::Measured) -> u64 {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         self.editor.text().hash(&mut hasher);
@@ -810,7 +811,8 @@ impl App {
         self.composer_visible().hash(&mut hasher);
         self.model_caption().hash(&mut hasher);
         self.status.hash(&mut hasher);
-        for (node, rectangle) in bounds {
+        measured.focus.hash(&mut hasher);
+        for (node, rectangle) in &measured.bounds {
             node.hash(&mut hasher);
             for value in [rectangle.x, rectangle.y, rectangle.width, rectangle.height] {
                 value.to_bits().hash(&mut hasher);
@@ -1329,7 +1331,9 @@ impl App {
         // Joined local callbacks must settle even behind another modal or during shutdown.
         match message {
             Message::Accessibility(request) => return self.accessibility_request(request),
-            Message::AccessibilityBounds(bounds) => return self.accessibility_measured(bounds),
+            Message::AccessibilityMeasured(measured) => {
+                return self.accessibility_measured(measured);
+            }
             Message::AccessibilityTick => return self.accessibility_tick(),
             Message::FilePickerRead(result) => return self.picker_completed(result),
             Message::FilePreviewRead(stamp, result) => {
