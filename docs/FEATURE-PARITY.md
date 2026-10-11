@@ -1,6 +1,6 @@
 # Native Linux feature status
 
-Development port, **not Windows/macOS parity**. Source audits/scripted fixtures are not live official-desktop comparisons. [Qualification](<NATIVE-APP-QUALIFICATION.md>) · [Run instructions](<../app/README.md>).
+Development port, **not Windows/macOS parity**. Source audits/scripted fixtures are not live official-desktop comparisons. [Qualification](<NATIVE-APP-QUALIFICATION.md>) · [Run instructions](<../app/README.md>) · [Web UI parity mapping](<NATIVE-UI-PARITY.md>).
 
 | Area | Implemented / evidence | Remaining |
 | --- | --- | --- |
@@ -9,7 +9,7 @@ Development port, **not Windows/macOS parity**. Source audits/scripted fixtures 
 | Registry | Real creation/feeds; [reviewed pin/unpin/archive/restore](<NATIVE-REGISTRY-CONTROLS.md>), six scripted ACKs plus ordered global feeds | Active-work/cross-client/input; rename/fork/workspace UX/import; no session-delete BFF |
 | ZIP export | [Review/Confirm, 4 MiB, exclusive 0600 save](<NATIVE-SESSION-EXPORT.md>); two Host runs, independent ZIP checks/no-overwrite | Rich/large exports, sync/shutdown/input; sensitive root attachments/live flush; no rollback/extraction/retry/full identity proof |
 | History/presentation | Bounded typed follow/page; [native Markdown/code/search and supplied thoughts](<NATIVE-CHAT-FEATURES.md>), [compact tool layout](<NATIVE-CONTROL-LAYOUT.md>), [quiet disclosed records](<NATIVE-RECORDS-PROJECTION.md>), [content-aware geometry](<NATIVE-CHAT-GEOMETRY.md>) and [bounded Details](<NATIVE-FORMATTED-DETAILS.md>) | Real model streams/representative scrolling, inline diffs/path navigation; not Web clone |
-| Models/Send/Stop | [Owned startup/picker catalog reads](<NATIVE-CATALOG-OWNERSHIP.md>), explicit model/reasoning/request controls and typed prompt/cancel | Catalog reads may contact providers; generation untested and prompts remain explicit |
+| Models/Send/Stop | [Owned startup/picker catalog reads](<NATIVE-CATALOG-OWNERSHIP.md>), explicit model/reasoning/request controls and typed prompt/cancel; [native DeepSeek page](<NATIVE-DEEPSEEK.md>) (key + route models) | Routes other than the backend's DeepSeek catalog; catalog reads may contact providers; live generation unverified |
 | API key | Masked consuming Review/Confirm; [sticky unknown-save block](<NATIVE-SAVE-UNCERTAINTY.md>); [real PUBLIC-dummy App→provider persistence](<NATIVE-COMPOSED-SETTINGS.md>) | Physical input/real-key validity; trusted custom paths not confined; ACK/metadata is not validation |
 | ChatGPT/GPT | [One-click Codex browser flow](<NATIVE-CODEX.md>), masked fallback, revision-CAS route activation; [managed accounts/select/local sign-out](<NATIVE-MANAGED-CODEX.md>) with PUBLIC Loader checks | Real OAuth/identity/entitlement/generation; device login and remote authorization revocation |
 | Codex runtime/usage | [Native transport/cache/timeouts/image-input controls](<NATIVE-CODEX-USAGE-POLICY.md#remaining-supported-controls>), shared retained drafts, explicit CAS save/reconciliation; actual Rust pipe and frozen native paint/release; local usage preferences persist | Official quota/reset observation, actual alerts/reset retry, image generation/sketch; live-account/input and cross-platform qualification |
@@ -20,7 +20,7 @@ Development port, **not Windows/macOS parity**. Source audits/scripted fixtures 
 | Settings/plugins/skills/MCP | Recognized policy/tool/plugin records; unknown required events disable Send | Broader native editing/secret/preset/management compatibility |
 | Terminal/browser/Office/docs | Backend audit only, no native guest | Linux providers and lazy isolated guest lifecycle/resources |
 | Goals/todos/subagents/schedules | Bounded known read-only records | Dedicated controls/live qualification |
-| Desktop integration | Own native window, no desktop-service changes | Open-with/notifications/clipboard/file associations/tray/shortcuts |
+| Desktop integration | Own native window; [native Wayland clipboard paste](<NATIVE-CLIPBOARD.md>) | Open-with/notifications/file associations/tray/shortcuts; X11 paste |
 | Install/update | [Frozen external-runtime development archives](<NATIVE-DEVELOPMENT-PACKAGE.md>); extracted launchers qualified | Not installer; Host/Node closure, older Linux, licenses, integration/update/rollback |
 | Performance | Corrected idle regression; short keyless full-tree CPU/RSS/PSS observations | Long-chat/startup/input/scroll repeats; no universal toolkit superiority |
 

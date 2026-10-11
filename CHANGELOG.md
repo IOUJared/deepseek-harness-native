@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- [Sidebar organization](<docs/NATIVE-SIDEBAR.md>): per-row options without selecting/resuming, confirmed pin/archive/restore, native-local manual order and workspace grouping, recoverable Trash, private compare-and-save metadata and joined shutdown. No working-directory relocation, permanent history deletion, automatic cancellation or Web synchronization.
+
+- [Native chat polish](<docs/NATIVE-CHAT-POLISH.md>): remove repeated message headers, preserve explicit live/interrupted status, compact message actions and combine composer controls; keep routine usage/keyboard hints outside the composer and all recovery/error controls visible. Shared geometry keeps virtual scrolling and search aligned.
+
+- [Cloudflare](<docs/NATIVE-CLOUDFLARE.md>): Workers AI models and Browser Run Markdown/screenshot tools; [Connect Cloudflare](<docs/NATIVE-CLOUDFLARE-OAUTH.md>) uses own-client PKCE, private grant storage/refresh and reserved cancellation. Explicit saved API-token selection, Workers Free confirmation and revision-checked writes; no paid fallback or automatic model switch. Matching Core/App/backend rebuild required for the extended private metadata; live registration/login remain unverified.
+
 ## 2026.10.10-r1 — Native Linux development release
 
 October 10, 2026, America/Chicago. Calendar versions use `year.month.day-rN`; `N` is the release number for that day. This release collects the current frontend, Core, transport and companion-backend changes—not only the last Settings fix. [Release checks and limits](<RELEASES/2026.10.10-r1.md>).
