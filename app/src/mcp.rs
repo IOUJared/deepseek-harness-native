@@ -29,9 +29,9 @@ use std::{
     io::{Read, Write},
     os::unix::fs::PermissionsExt,
     path::{Component, Path, PathBuf},
-    sync::atomic::{Ordering, compiler_fence},
     time::{SystemTime, UNIX_EPOCH},
 };
+use zeroize::Zeroize;
 
 /// Host plugin package every managed row mounts.
 pub const PLUGIN_NAME: &str = "@deepseek-ai/dsh-mcp-client";
@@ -115,17 +115,18 @@ impl std::fmt::Debug for Secret {
         f.write_str("NativeMcpSecret([REDACTED])")
     }
 }
+impl Secret {
+    /// Zero the complete allocation, spare capacity included. `Drop` calls this;
+    /// the fixture reads it before the drop to observe the guarantee while the
+    /// allocation is still live.
+    fn wipe(&mut self) {
+        self.0.zeroize();
+    }
+}
 impl Drop for Secret {
     fn drop(&mut self) {
-        // SAFETY: this overwrites the string's own allocation with zero bytes.
-        // Zero is valid UTF-8, and every byte written lies inside `capacity`.
-        unsafe {
-            let bytes = self.0.as_mut_vec();
-            for i in 0..bytes.capacity() {
-                bytes.as_mut_ptr().add(i).write_volatile(0);
-            }
-        }
-        compiler_fence(Ordering::SeqCst);
+        // An environment or header value; the whole allocation goes with it.
+        self.wipe();
     }
 }
 

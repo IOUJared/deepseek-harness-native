@@ -1,5 +1,5 @@
 use crate::{Error, protocol::MAX_LINE};
-use std::sync::atomic::{Ordering, compiler_fence};
+use zeroize::Zeroize;
 
 const MAX_API_KEY_BYTES: usize = 16_384;
 
@@ -188,8 +188,9 @@ pub(crate) fn cloudflare_frame(
     Ok(frame)
 }
 
-// No zeroize crate is available in the required offline shared cache. Keep the fallback local,
-// non-serializable and non-Debug; volatile stores plus a compiler fence prevent dead-store removal.
+// The complete allocation is zeroed on drop, spare capacity included. This type stays private,
+// non-serializable and non-Debug whatever the wipe does: the wipe cannot reach a copy the caller,
+// the kernel, Node or the clipboard already made.
 pub(crate) struct SecretBytes(Vec<u8>);
 impl SecretBytes {
     pub(crate) fn new(bytes: Vec<u8>) -> Self {
@@ -199,14 +200,7 @@ impl SecretBytes {
         &self.0
     }
     fn wipe(&mut self) {
-        for offset in 0..self.0.capacity() {
-            // Vec owns every byte in its allocation, including spare capacity. Write only;
-            // never read uninitialized spare bytes. The allocation remains live until Drop ends.
-            unsafe {
-                self.0.as_mut_ptr().add(offset).write_volatile(0);
-            }
-        }
-        compiler_fence(Ordering::SeqCst);
+        self.0.zeroize();
     }
 }
 impl std::io::Write for SecretBytes {

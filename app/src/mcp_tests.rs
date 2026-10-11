@@ -107,6 +107,18 @@ fn http(name: &str, url: &str) -> ServerEntry {
 // ---- validation per transport ----
 
 #[test]
+fn secret_wipes_its_full_allocation_and_never_prints_its_value() {
+    let mut raw = String::with_capacity(64);
+    raw.push_str("PUBLIC_FAKE_MCP_TOKEN");
+    let mut secret = secret(raw);
+    assert_eq!(format!("{secret:?}"), "NativeMcpSecret([REDACTED])");
+    secret.wipe();
+    // wipe zeroed every allocated byte, so observing the spare capacity is safe now.
+    let bytes = unsafe { std::slice::from_raw_parts(secret.0.as_ptr(), secret.0.capacity()) };
+    assert!(bytes.iter().all(|byte| *byte == 0));
+}
+
+#[test]
 fn stdio_validation_requires_a_command_and_bounds_every_field() {
     assert_eq!(validate(&[stdio("alpha", "npx")]), Ok(()));
 

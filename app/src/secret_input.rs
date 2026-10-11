@@ -9,8 +9,8 @@
 //! Wiping covers owned Rust allocations only; widget, Node, kernel, clipboard and
 //! swap copies are outside this guarantee.
 
-use std::sync::atomic::{Ordering, compiler_fence};
 use std::sync::{Arc, Mutex};
+use zeroize::Zeroize;
 
 /// A redacted `Debug` for every type that can transitively hold a secret.
 macro_rules! redacted_debug {
@@ -37,16 +37,12 @@ impl Editor {
     pub fn take(&mut self) -> String {
         std::mem::take(&mut self.0)
     }
+    /// Zero the complete allocation, spare capacity included: `zeroize` wipes the
+    /// uninitialized tail before the initialized bytes, so no byte of the draft
+    /// survives the drop. `Drop` calls this; the fixture reads it before the drop
+    /// to observe the guarantee while the allocation is still live.
     fn wipe(&mut self) {
-        // SAFETY: String owns its complete u8 allocation. Write only, including spare
-        // capacity; zero bytes preserve UTF-8 and the allocation stays live until Drop ends.
-        unsafe {
-            let bytes = self.0.as_mut_vec();
-            for offset in 0..bytes.capacity() {
-                bytes.as_mut_ptr().add(offset).write_volatile(0);
-            }
-        }
-        compiler_fence(Ordering::SeqCst);
+        self.0.zeroize();
     }
 }
 impl Drop for Editor {

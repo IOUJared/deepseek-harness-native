@@ -1074,8 +1074,13 @@ impl Flights {
 
 /// Commands that change Host or app-owned state. While observation is lost or an
 /// admitted submission is still busy, none of them may start and each is answered
-/// with its own refusal; the reads, `DiscardFile` and the MCP composition write are
-/// absent from this list and still run.
+/// with its own refusal.
+///
+/// The reads, `DiscardFile` and `Command::McpWrite` are deliberately absent and
+/// still run. An MCP write needs neither the observation stream nor a submission
+/// slot: it rewrites the app-owned patch file through its own reviewed,
+/// atomic, backed-up replacement, and the Host reads that file at its next start
+/// rather than during the running turn this fence protects.
 fn mutates_host_state(command: &Command) -> bool {
     match command {
         Command::Prompt { .. }
