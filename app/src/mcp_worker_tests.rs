@@ -28,7 +28,7 @@ fn admission(other: Flights) -> Admission {
 fn holding_mcp() -> Flights {
     Flights {
         mcp: true,
-        ..Flights::NONE
+        ..Flights::default()
     }
 }
 
@@ -37,27 +37,27 @@ fn mcp_write_admission_is_epoch_smoke_shutdown_capacity_and_single_flight_fenced
     let mut active = None;
     let flight = ticket(1);
     for (candidate, context, expected) in [
-        (ticket(1), admission(Flights::NONE), true),
+        (ticket(1), admission(Flights::default()), true),
         (
             ticket(1),
-            Admission::new(true, false, 0, Flights::NONE),
+            Admission::new(true, false, 0, Flights::default()),
             false,
         ),
         (
             ticket(1),
-            Admission::new(false, true, 0, Flights::NONE),
+            Admission::new(false, true, 0, Flights::default()),
             false,
         ),
         (
             ticket(1),
-            Admission::new(false, false, MAX_OPERATIONS, Flights::NONE),
+            Admission::new(false, false, MAX_OPERATIONS, Flights::default()),
             false,
         ),
         (
             ticket(1),
             admission(Flights {
                 rename: true,
-                ..Flights::NONE
+                ..Flights::default()
             }),
             false,
         ),
@@ -73,13 +73,21 @@ fn mcp_write_admission_is_epoch_smoke_shutdown_capacity_and_single_flight_fenced
     // A stale transport generation never reserves the flight.
     let mut stale = ticket(1);
     stale.epoch = TRANSPORT_EPOCH + 1;
-    assert!(!admit_mcp(&mut active, &stale, &admission(Flights::NONE)));
+    assert!(!admit_mcp(
+        &mut active,
+        &stale,
+        &admission(Flights::default())
+    ));
     // One MCP write at a time, even for a different target revision.
-    assert!(admit_mcp(&mut active, &flight, &admission(Flights::NONE)));
+    assert!(admit_mcp(
+        &mut active,
+        &flight,
+        &admission(Flights::default())
+    ));
     assert!(!admit_mcp(
         &mut active,
         &ticket(2),
-        &admission(Flights::NONE)
+        &admission(Flights::default())
     ));
 }
 
@@ -89,23 +97,23 @@ fn mcp_write_excludes_every_other_management_flight() {
     for peer in [
         Flights {
             management: true,
-            ..Flights::NONE
+            ..Flights::default()
         },
         Flights {
             rename: true,
-            ..Flights::NONE
+            ..Flights::default()
         },
         Flights {
             fork: true,
-            ..Flights::NONE
+            ..Flights::default()
         },
         Flights {
             export: true,
-            ..Flights::NONE
+            ..Flights::default()
         },
         Flights {
             terminal: true,
-            ..Flights::NONE
+            ..Flights::default()
         },
     ] {
         assert!(!admit_mcp(&mut None, &ticket(1), &admission(peer)));
@@ -114,7 +122,7 @@ fn mcp_write_excludes_every_other_management_flight() {
     // another MCP write, through the same table.
     assert!(admission(holding_mcp()).refused());
     assert!(!admit_mcp(&mut None, &ticket(1), &admission(holding_mcp())));
-    assert!(!admission(Flights::NONE).refused());
+    assert!(!admission(Flights::default()).refused());
 }
 
 #[test]

@@ -1862,90 +1862,7 @@ impl App {
             {
                 self.pending.expanded = !self.pending.expanded;
             }
-            Message::Send if self.send_allowed() => {
-                let session = self.selected.clone().unwrap();
-                let value = self.editor.text();
-                let Some(serial) = self.prompt_serial.checked_add(1) else {
-                    self.status =
-                        "Native prompt authority exhausted; restart before sending".into();
-                    return Task::none();
-                };
-                self.prompt_serial = serial;
-                let request_id = SessionRequestId::new(format!(
-                    "native-{}-{}-{}-{}",
-                    std::process::id(),
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map_or(0, |d| d.as_nanos()),
-                    self.generation,
-                    serial
-                ))
-                .unwrap();
-                let context = self.file_context();
-                let file_tickets = if self.files.has_file(&context) {
-                    match self.files.begin_prompt(&context, request_id.clone()) {
-                        Some(tickets) => Some(tickets),
-                        None => {
-                            self.status = "Attachment authority changed; prompt not sent".into();
-                            return Task::none();
-                        }
-                    }
-                } else {
-                    None
-                };
-                let request = SessionPromptRequest {
-                    request_id: request_id.clone(),
-                    session_id: session.clone(),
-                    mode: PromptMode::Queue,
-                    content: if value.is_empty() {
-                        Vec::new()
-                    } else {
-                        vec![PromptContentPart::Text {
-                            text: value.clone(),
-                        }]
-                    },
-                    client_time_zone: Some("UTC".into()),
-                };
-                let captured = self.pending.insert(
-                    self.generation,
-                    Pending {
-                        session,
-                        text: value,
-                        draft_serial: self.draft_serial,
-                        file_request_id: file_tickets.as_ref().map(|_| request_id),
-                        epoch: self.transport_epoch,
-                        file: self.files.metadata_all(),
-                        file_ticket: file_tickets.clone().unwrap_or_default(),
-                        request: request.clone(),
-                    },
-                );
-                if !captured {
-                    if let Some(tickets) = &file_tickets {
-                        let context = self.file_context();
-                        for ticket in tickets {
-                            self.files.prompt_complete(
-                                ticket,
-                                &request.request_id,
-                                worker::attachments::PromptOutcome::NotSent,
-                                &context,
-                            );
-                        }
-                    }
-                    self.status =
-                        "Original intent could not be captured; no prompt dispatched.".into();
-                    return Task::none();
-                }
-                self.touch_draft(); // Scrub this owned original from the next private snapshot.
-                self.status = "Sending prompt; awaiting Host inbox acceptance…".into();
-                if let Some(tickets) = file_tickets {
-                    self.command(Command::PromptFile { tickets, request });
-                } else {
-                    self.command(Command::Prompt {
-                        generation: self.generation,
-                        request,
-                    });
-                }
-            }
+            Message::Send if self.send_allowed() => self.send_prompt(),
             Message::Stop if self.stop_allowed() => {
                 self.cancel_pending = true;
                 self.status = "Requesting cancellation…".into();
@@ -2356,6 +2273,92 @@ impl App {
             self.position_transcript()
         } else {
             Task::none()
+        }
+    }
+
+    /// Capture one reviewed prompt - the composer text and, when one is staged,
+    /// the exact file set - and dispatch it. Each refusal states why and leaves
+    /// the transcript unchanged; the send button already checked `send_allowed`.
+    fn send_prompt(&mut self) {
+        let session = self.selected.clone().unwrap();
+        let value = self.editor.text();
+        let Some(serial) = self.prompt_serial.checked_add(1) else {
+            self.status = "Native prompt authority exhausted; restart before sending".into();
+            return;
+        };
+        self.prompt_serial = serial;
+        let request_id = SessionRequestId::new(format!(
+            "native-{}-{}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos()),
+            self.generation,
+            serial
+        ))
+        .unwrap();
+        let context = self.file_context();
+        let file_tickets = if self.files.has_file(&context) {
+            match self.files.begin_prompt(&context, request_id.clone()) {
+                Some(tickets) => Some(tickets),
+                None => {
+                    self.status = "Attachment authority changed; prompt not sent".into();
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+        let request = SessionPromptRequest {
+            request_id: request_id.clone(),
+            session_id: session.clone(),
+            mode: PromptMode::Queue,
+            content: if value.is_empty() {
+                Vec::new()
+            } else {
+                vec![PromptContentPart::Text {
+                    text: value.clone(),
+                }]
+            },
+            client_time_zone: Some("UTC".into()),
+        };
+        let captured = self.pending.insert(
+            self.generation,
+            Pending {
+                session,
+                text: value,
+                draft_serial: self.draft_serial,
+                file_request_id: file_tickets.as_ref().map(|_| request_id),
+                epoch: self.transport_epoch,
+                file: self.files.metadata_all(),
+                file_ticket: file_tickets.clone().unwrap_or_default(),
+                request: request.clone(),
+            },
+        );
+        if !captured {
+            if let Some(tickets) = &file_tickets {
+                let context = self.file_context();
+                for ticket in tickets {
+                    self.files.prompt_complete(
+                        ticket,
+                        &request.request_id,
+                        worker::attachments::PromptOutcome::NotSent,
+                        &context,
+                    );
+                }
+            }
+            self.status = "Original intent could not be captured; no prompt dispatched.".into();
+            return;
+        }
+        self.touch_draft(); // Scrub this owned original from the next private snapshot.
+        self.status = "Sending prompt; awaiting Host inbox acceptance…".into();
+        if let Some(tickets) = file_tickets {
+            self.command(Command::PromptFile { tickets, request });
+        } else {
+            self.command(Command::Prompt {
+                generation: self.generation,
+                request,
+            });
         }
     }
     fn select_model(&mut self) {
@@ -2810,88 +2813,7 @@ impl App {
                 }
             }
             Event::Selected { generation, frame } if generation == self.generation => {
-                if matches!(&frame, SessionFollowFrame::Snapshot { .. }) {
-                    self.reply_content.clear();
-                    self.thoughts_expanded.clear();
-                    self.activity_expanded.clear();
-                }
-                if matches!(&frame, SessionFollowFrame::AssistantStream { .. }) {
-                    self.reply_content.clear_live();
-                }
-                let snapshot = matches!(&frame, SessionFollowFrame::Snapshot { .. });
-                let title_change = match &frame {
-                    SessionFollowFrame::Snapshot { projections, .. } => projections
-                        .values
-                        .get("title")
-                        .map(|value| (projections.as_of_seq, value.clone())),
-                    SessionFollowFrame::Event { event } if event.event_type == "session/title" => {
-                        event.data.get("title").and_then(|value| {
-                            i64::try_from(event.seq)
-                                .ok()
-                                .filter(|seq| *seq > self.transcript.cursor())
-                                .map(|seq| (seq, value.clone()))
-                        })
-                    }
-                    _ => None,
-                };
-                if let SessionFollowFrame::Snapshot {
-                    projections,
-                    cursor,
-                    records,
-                    ..
-                } = &frame
-                {
-                    if self.options.smoke.is_some() {
-                        self.smoke_evidence.snapshot_cursor = Some(*cursor);
-                        self.smoke_evidence.record_count = records.len();
-                        self.smoke_evidence.record_kinds = records
-                            .iter()
-                            .map(|record| match record {
-                                HistoryRecord::Event { event } => {
-                                    crate::smoke::kind(&event.event_type)
-                                }
-                            })
-                            .collect();
-                    }
-                    if let (Some(id), Some(value)) = (
-                        self.selected.clone(),
-                        projections
-                            .values
-                            .get("modelSelection")
-                            .and_then(|v| v.get("next")),
-                    ) && let Ok(selection) =
-                        serde_json::from_value::<ModelSelection>(value.clone())
-                    {
-                        self.model_selections.insert(id, selection);
-                        self.reconcile_model_selection();
-                    }
-                    self.follow_ready = true;
-                    self.status = "Live real session; UTC timestamps; no generation started".into();
-                }
-                match self.transcript.apply(generation, frame) {
-                    Ok(()) => {
-                        if let Some((seq, value)) = title_change {
-                            self.observe_title(seq, value);
-                        }
-                        changed = true;
-                        if snapshot {
-                            self.smoke_evidence.snapshot_valid = true;
-                        }
-                        // Follow delivery dispatches nothing. The offer is read from
-                        // the projection the frame carries, so no round trip is needed
-                        // to know whether this Host mounts plan mode.
-                        self.plan_published =
-                            Some(plan_mode::published(self.transcript.projections()));
-                    }
-                    Err(error) => {
-                        self.files.invalidate();
-                        self.follow_ready = false;
-                        if snapshot {
-                            self.smoke_evidence.snapshot_valid = false;
-                        }
-                        self.status = error.to_string();
-                    }
-                }
+                changed |= self.host_selected(generation, frame);
             }
             Event::Created(result) => {
                 self.new_pending = false;
@@ -3309,6 +3231,92 @@ impl App {
         } else {
             screenshot
         }
+    }
+
+    /// Fold one follow frame for the selected session and report whether the
+    /// transcript changed, so the caller can refresh the scroll geometry. The
+    /// caller has already matched the frame to this App generation.
+    fn host_selected(&mut self, generation: u64, frame: SessionFollowFrame) -> bool {
+        let mut changed = false;
+        if matches!(&frame, SessionFollowFrame::Snapshot { .. }) {
+            self.reply_content.clear();
+            self.thoughts_expanded.clear();
+            self.activity_expanded.clear();
+        }
+        if matches!(&frame, SessionFollowFrame::AssistantStream { .. }) {
+            self.reply_content.clear_live();
+        }
+        let snapshot = matches!(&frame, SessionFollowFrame::Snapshot { .. });
+        let title_change = match &frame {
+            SessionFollowFrame::Snapshot { projections, .. } => projections
+                .values
+                .get("title")
+                .map(|value| (projections.as_of_seq, value.clone())),
+            SessionFollowFrame::Event { event } if event.event_type == "session/title" => {
+                event.data.get("title").and_then(|value| {
+                    i64::try_from(event.seq)
+                        .ok()
+                        .filter(|seq| *seq > self.transcript.cursor())
+                        .map(|seq| (seq, value.clone()))
+                })
+            }
+            _ => None,
+        };
+        if let SessionFollowFrame::Snapshot {
+            projections,
+            cursor,
+            records,
+            ..
+        } = &frame
+        {
+            if self.options.smoke.is_some() {
+                self.smoke_evidence.snapshot_cursor = Some(*cursor);
+                self.smoke_evidence.record_count = records.len();
+                self.smoke_evidence.record_kinds = records
+                    .iter()
+                    .map(|record| match record {
+                        HistoryRecord::Event { event } => crate::smoke::kind(&event.event_type),
+                    })
+                    .collect();
+            }
+            if let (Some(id), Some(value)) = (
+                self.selected.clone(),
+                projections
+                    .values
+                    .get("modelSelection")
+                    .and_then(|v| v.get("next")),
+            ) && let Ok(selection) = serde_json::from_value::<ModelSelection>(value.clone())
+            {
+                self.model_selections.insert(id, selection);
+                self.reconcile_model_selection();
+            }
+            self.follow_ready = true;
+            self.status = "Live real session; UTC timestamps; no generation started".into();
+        }
+        match self.transcript.apply(generation, frame) {
+            Ok(()) => {
+                if let Some((seq, value)) = title_change {
+                    self.observe_title(seq, value);
+                }
+                changed = true;
+                if snapshot {
+                    self.smoke_evidence.snapshot_valid = true;
+                }
+                // Follow delivery dispatches nothing. The offer is read from
+                // the projection the frame carries, so no round trip is needed
+                // to know whether this Host mounts plan mode.
+                self.plan_published = Some(plan_mode::published(self.transcript.projections()));
+            }
+            Err(error) => {
+                self.files.invalidate();
+                self.follow_ready = false;
+                if snapshot {
+                    self.smoke_evidence.snapshot_valid = false;
+                }
+                self.status = error.to_string();
+            }
+        }
+        changed
     }
     fn maybe_screenshot(&mut self) -> Task<Message> {
         if !self.smoke_evidence.screenshot_requested

@@ -18,7 +18,7 @@ fn receipt() -> Receipt {
 }
 /// A clean export question: no lifecycle fence, no flight held, no extra gate.
 fn admission() -> Admission {
-    Admission::new(false, false, 0, Flights::NONE)
+    Admission::new(false, false, 0, Flights::default())
 }
 /// Every export in these tests belongs to the same generation and target.
 fn admit(active: &mut Option<Receipt>, receipt: &Receipt, admission: &Admission) -> bool {
@@ -65,9 +65,9 @@ fn export_requires_fresh_ordinary_selected_target_epoch_generation_and_idle_sens
         let mut context = admission();
         let mut target = Some(&baseline.ticket.target);
         match case {
-            0 => context = Admission::new(true, false, 0, Flights::NONE),
-            1 => context = Admission::new(false, true, 0, Flights::NONE),
-            2 => context = Admission::new(false, false, MAX_OPERATIONS, Flights::NONE),
+            0 => context = Admission::new(true, false, 0, Flights::default()),
+            1 => context = Admission::new(false, true, 0, Flights::default()),
+            2 => context = Admission::new(false, false, MAX_OPERATIONS, Flights::default()),
             3 => candidate.ticket.epoch = 0,
             4 => candidate.ticket.epoch = TRANSPORT_EPOCH + 1,
             5 => candidate.ticket.generation += 1,
@@ -83,7 +83,7 @@ fn export_requires_fresh_ordinary_selected_target_epoch_generation_and_idle_sens
                     0,
                     Flights {
                         management: true,
-                        ..Flights::NONE
+                        ..Flights::default()
                     },
                 )
             }
@@ -94,7 +94,7 @@ fn export_requires_fresh_ordinary_selected_target_epoch_generation_and_idle_sens
                     0,
                     Flights {
                         mcp: true,
-                        ..Flights::NONE
+                        ..Flights::default()
                     },
                 )
             }
@@ -108,7 +108,7 @@ fn export_requires_fresh_ordinary_selected_target_epoch_generation_and_idle_sens
         assert!(active.is_none(), "rejection reserves no export slot");
     }
     let mut active = None;
-    let nearly_full = Admission::new(false, false, MAX_OPERATIONS - 1, Flights::NONE);
+    let nearly_full = Admission::new(false, false, MAX_OPERATIONS - 1, Flights::default());
     assert!(admit(&mut active, &baseline, &nearly_full));
     assert_eq!(active, Some(baseline));
 }
@@ -252,7 +252,7 @@ fn active_export_reverse_fences_key_plugin_and_registry_writes() {
                 1,
                 Flights {
                     export: true,
-                    ..Flights::NONE
+                    ..Flights::default()
                 }
             )
         ));
@@ -260,7 +260,7 @@ fn active_export_reverse_fences_key_plugin_and_registry_writes() {
         assert!(admit_management(
             &mut active,
             &submission,
-            &Admission::new(false, false, 0, Flights::NONE)
+            &Admission::new(false, false, 0, Flights::default())
         ));
     }
 }

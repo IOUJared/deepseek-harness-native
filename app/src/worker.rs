@@ -1066,17 +1066,55 @@ struct Flights {
 }
 
 impl Flights {
-    const NONE: Self = Self {
-        management: false,
-        rename: false,
-        fork: false,
-        export: false,
-        terminal: false,
-        mcp: false,
-    };
     /// True when any flight is held.
     fn any(self) -> bool {
         self.management || self.rename || self.fork || self.export || self.terminal || self.mcp
+    }
+}
+
+/// Commands that change Host or app-owned state. While observation is lost or an
+/// admitted submission is still busy, none of them may start and each is answered
+/// with its own refusal; the reads, `DiscardFile` and the MCP composition write are
+/// absent from this list and still run.
+fn mutates_host_state(command: &Command) -> bool {
+    match command {
+        Command::Prompt { .. }
+        | Command::PromptFile { .. }
+        | Command::StageFile(_)
+        | Command::SaveKey { .. }
+        | Command::PluginSave { .. }
+        | Command::Export(_)
+        | Command::Manage(_)
+        | Command::Rename(_)
+        | Command::Fork(_)
+        | Command::TerminalCreate(_)
+        | Command::TerminalClose(_)
+        | Command::TerminalWrite(_)
+        | Command::SelectModel { .. }
+        | Command::Create { .. }
+        | Command::OpenWorkspace(_) => true,
+        Command::Cloudflare(effect) => matches!(
+            effect,
+            crate::settings::cloudflare::Effect::Save { .. }
+                | crate::settings::cloudflare::Effect::Disable { .. }
+                | crate::settings::cloudflare::Effect::AuthMode { .. }
+                | crate::settings::cloudflare::Effect::Setup { .. }
+                | crate::settings::cloudflare::Effect::Start { .. }
+                | crate::settings::cloudflare::Effect::Disconnect { .. }
+        ),
+        Command::Codex(effect) => matches!(
+            effect,
+            crate::codex::Effect::RuntimeSave { .. }
+                | crate::codex::Effect::UsageSave { .. }
+                | crate::codex::Effect::StartLogin { .. }
+                | crate::codex::Effect::AddAccount { .. }
+                | crate::codex::Effect::SelectAccount { .. }
+                | crate::codex::Effect::SignOutAccount { .. }
+                | crate::codex::Effect::SignOutAll { .. }
+                | crate::codex::Effect::EnableModels { .. }
+                | crate::codex::Effect::SubmitCallback { .. }
+        ),
+        _ => false,
     }
 }
 
@@ -1810,7 +1848,12 @@ async fn run(
                         } else if !publish(&events,Event::Cancel{generation:stop_generation,result:Err("Stop not admitted: stale target or another Stop is pending; no cancellation sent".into())}){break Some("Native UI delivery queue overflow".into());}
                         continue;
                     },
-                    command if (!observations_live || submissions.busy()) && matches!(&command,Command::Prompt{..}|Command::PromptFile{..}|Command::StageFile(_)|Command::SaveKey{..}|Command::Cloudflare(crate::settings::cloudflare::Effect::Save{..}|crate::settings::cloudflare::Effect::Disable{..}|crate::settings::cloudflare::Effect::AuthMode{..}|crate::settings::cloudflare::Effect::Setup{..}|crate::settings::cloudflare::Effect::Start{..}|crate::settings::cloudflare::Effect::Disconnect{..})|Command::PluginSave{..}|Command::Export(_)|Command::Manage(_)|Command::Rename(_)|Command::Fork(_)|Command::TerminalCreate(_)|Command::TerminalClose(_)|Command::TerminalWrite(_)|Command::SelectModel{..}|Command::Create{..}|Command::OpenWorkspace(_)|Command::Codex(crate::codex::Effect::RuntimeSave{..}|crate::codex::Effect::UsageSave{..}|crate::codex::Effect::StartLogin{..}|crate::codex::Effect::AddAccount{..}|crate::codex::Effect::SelectAccount{..}|crate::codex::Effect::SignOutAccount{..}|crate::codex::Effect::SignOutAll{..}|crate::codex::Effect::EnableModels{..}|crate::codex::Effect::SubmitCallback{..}))=>{if !publish(&events,rejected(command)){break Some("Native UI delivery queue overflow".into());}continue;},
+                    command if (!observations_live || submissions.busy()) && mutates_host_state(&command) => {
+                        if !publish(&events, rejected(command)) {
+                            break Some("Native UI delivery queue overflow".into());
+                        }
+                        continue;
+                    },
                     Command::DiscardFile(ticket) => { files.discard(&ticket); continue; },
                     Command::StageFile(submission) => {
                         let enabled = !smoke && !*closing.borrow() && !events.is_closed() && operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()) < MAX_OPERATIONS;
@@ -2240,41 +2283,41 @@ mod tests {
         for held in [
             Flights {
                 management: true,
-                ..Flights::NONE
+                ..Flights::default()
             },
             Flights {
                 rename: true,
-                ..Flights::NONE
+                ..Flights::default()
             },
             Flights {
                 fork: true,
-                ..Flights::NONE
+                ..Flights::default()
             },
             Flights {
                 export: true,
-                ..Flights::NONE
+                ..Flights::default()
             },
             Flights {
                 terminal: true,
-                ..Flights::NONE
+                ..Flights::default()
             },
             Flights {
                 mcp: true,
-                ..Flights::NONE
+                ..Flights::default()
             },
         ] {
             assert!(held.any());
             assert!(admission(false, false, 0, held).refused());
         }
-        assert!(!admission(false, false, 0, Flights::NONE).refused());
+        assert!(!admission(false, false, 0, Flights::default()).refused());
         // The lifecycle fences, the capacity bound and a command's own extra gate
         // each refuse on their own, with no flight involved.
-        assert!(admission(true, false, 0, Flights::NONE).refused());
-        assert!(admission(false, true, 0, Flights::NONE).refused());
-        assert!(admission(false, false, MAX_OPERATIONS, Flights::NONE).refused());
-        assert!(!admission(false, false, MAX_OPERATIONS - 1, Flights::NONE).refused());
+        assert!(admission(true, false, 0, Flights::default()).refused());
+        assert!(admission(false, true, 0, Flights::default()).refused());
+        assert!(admission(false, false, MAX_OPERATIONS, Flights::default()).refused());
+        assert!(!admission(false, false, MAX_OPERATIONS - 1, Flights::default()).refused());
         assert!(
-            Admission::new(false, false, 0, Flights::NONE)
+            Admission::new(false, false, 0, Flights::default())
                 .with_extra(true)
                 .refused()
         );
@@ -2580,7 +2623,7 @@ mod tests {
                 assert!(!admit_management(
                     &mut active,
                     &submission,
-                    &admission(smoke, stopping, 0, Flights::NONE)
+                    &admission(smoke, stopping, 0, Flights::default())
                 ));
                 assert!(active.is_none());
             }
@@ -2589,7 +2632,7 @@ mod tests {
             assert!(admit_management(
                 &mut active,
                 &submission,
-                &admission(false, false, 0, Flights::NONE)
+                &admission(false, false, 0, Flights::default())
             ));
             assert_eq!(active, Some(submission));
         }
@@ -2602,7 +2645,7 @@ mod tests {
             assert!(!admit_management(
                 &mut active,
                 &submission,
-                &admission(false, false, operations, Flights::NONE)
+                &admission(false, false, operations, Flights::default())
             ));
             assert!(active.is_none());
         }
@@ -2610,7 +2653,7 @@ mod tests {
         assert!(admit_management(
             &mut active,
             &submission,
-            &admission(false, false, MAX_OPERATIONS - 1, Flights::NONE)
+            &admission(false, false, MAX_OPERATIONS - 1, Flights::default())
         ));
         assert_eq!(active, Some(submission));
     }
@@ -2624,14 +2667,14 @@ mod tests {
         assert!(admit_management(
             &mut active,
             &first,
-            &admission(false, false, 0, Flights::NONE)
+            &admission(false, false, 0, Flights::default())
         ));
         // The occupied slot refuses a second management write even at a live
         // generation, and so does any other held flight.
         assert!(!admit_management(
             &mut active,
             &first,
-            &admission(false, false, 0, Flights::NONE)
+            &admission(false, false, 0, Flights::default())
         ));
         assert!(!admit_management(
             &mut active,
@@ -2642,7 +2685,7 @@ mod tests {
                 0,
                 Flights {
                     export: true,
-                    ..Flights::NONE
+                    ..Flights::default()
                 }
             )
         ));
@@ -2658,7 +2701,7 @@ mod tests {
         assert!(admit_management(
             &mut active,
             &second,
-            &admission(false, false, 0, Flights::NONE)
+            &admission(false, false, 0, Flights::default())
         ));
         assert_eq!(active, Some(second));
     }
@@ -2732,7 +2775,7 @@ mod tests {
             assert!(admit_management(
                 &mut active,
                 &next,
-                &admission(false, false, 0, Flights::NONE)
+                &admission(false, false, 0, Flights::default())
             ));
             settle_management(
                 &mut active,
@@ -2782,9 +2825,15 @@ mod tests {
     fn rename_epoch_smoke_stopping_and_cross_flight_guards_do_not_reserve() {
         let submission = rename_submission();
         for (epoch, context) in [
-            (0, admission(false, false, 0, Flights::NONE)),
-            (TRANSPORT_EPOCH, admission(true, false, 0, Flights::NONE)),
-            (TRANSPORT_EPOCH, admission(false, true, 0, Flights::NONE)),
+            (0, admission(false, false, 0, Flights::default())),
+            (
+                TRANSPORT_EPOCH,
+                admission(true, false, 0, Flights::default()),
+            ),
+            (
+                TRANSPORT_EPOCH,
+                admission(false, true, 0, Flights::default()),
+            ),
             (
                 TRANSPORT_EPOCH,
                 admission(
@@ -2793,7 +2842,7 @@ mod tests {
                     0,
                     Flights {
                         management: true,
-                        ..Flights::NONE
+                        ..Flights::default()
                     },
                 ),
             ),
@@ -2805,7 +2854,7 @@ mod tests {
                     0,
                     Flights {
                         fork: true,
-                        ..Flights::NONE
+                        ..Flights::default()
                     },
                 ),
             ),
@@ -2817,7 +2866,7 @@ mod tests {
                     0,
                     Flights {
                         export: true,
-                        ..Flights::NONE
+                        ..Flights::default()
                     },
                 ),
             ),
@@ -2829,7 +2878,7 @@ mod tests {
                     0,
                     Flights {
                         terminal: true,
-                        ..Flights::NONE
+                        ..Flights::default()
                     },
                 ),
             ),
@@ -2841,13 +2890,13 @@ mod tests {
                     0,
                     Flights {
                         mcp: true,
-                        ..Flights::NONE
+                        ..Flights::default()
                     },
                 ),
             ),
             (
                 TRANSPORT_EPOCH,
-                admission(false, false, MAX_OPERATIONS, Flights::NONE),
+                admission(false, false, MAX_OPERATIONS, Flights::default()),
             ),
         ] {
             let mut candidate = submission.clone();
@@ -2860,7 +2909,7 @@ mod tests {
         assert!(admit_rename(
             &mut active,
             &submission,
-            &admission(false, false, 0, Flights::NONE)
+            &admission(false, false, 0, Flights::default())
         ));
         assert_eq!(active.as_ref(), Some(&submission));
         // One rename flight across sessions: a fresh serial on another target still refuses.
@@ -2870,7 +2919,7 @@ mod tests {
         assert!(!admit_rename(
             &mut active,
             &other,
-            &admission(false, false, 0, Flights::NONE)
+            &admission(false, false, 0, Flights::default())
         ));
         assert_eq!(active.as_ref(), Some(&submission));
     }
@@ -2926,7 +2975,7 @@ mod tests {
             assert!(admit_rename(
                 &mut active,
                 &next,
-                &admission(false, false, 0, Flights::NONE)
+                &admission(false, false, 0, Flights::default())
             ));
             settle_rename(
                 &mut active,
@@ -2983,9 +3032,15 @@ mod tests {
     fn fork_epoch_smoke_stopping_and_cross_flight_guards_do_not_reserve() {
         let submission = fork_submission();
         for (epoch, context) in [
-            (0, admission(false, false, 0, Flights::NONE)),
-            (TRANSPORT_EPOCH, admission(true, false, 0, Flights::NONE)),
-            (TRANSPORT_EPOCH, admission(false, true, 0, Flights::NONE)),
+            (0, admission(false, false, 0, Flights::default())),
+            (
+                TRANSPORT_EPOCH,
+                admission(true, false, 0, Flights::default()),
+            ),
+            (
+                TRANSPORT_EPOCH,
+                admission(false, true, 0, Flights::default()),
+            ),
             (
                 TRANSPORT_EPOCH,
                 admission(
@@ -2994,7 +3049,7 @@ mod tests {
                     0,
                     Flights {
                         management: true,
-                        ..Flights::NONE
+                        ..Flights::default()
                     },
                 ),
             ),
@@ -3006,7 +3061,7 @@ mod tests {
                     0,
                     Flights {
                         rename: true,
-                        ..Flights::NONE
+                        ..Flights::default()
                     },
                 ),
             ),
@@ -3018,7 +3073,7 @@ mod tests {
                     0,
                     Flights {
                         export: true,
-                        ..Flights::NONE
+                        ..Flights::default()
                     },
                 ),
             ),
@@ -3030,7 +3085,7 @@ mod tests {
                     0,
                     Flights {
                         terminal: true,
-                        ..Flights::NONE
+                        ..Flights::default()
                     },
                 ),
             ),
@@ -3042,13 +3097,13 @@ mod tests {
                     0,
                     Flights {
                         mcp: true,
-                        ..Flights::NONE
+                        ..Flights::default()
                     },
                 ),
             ),
             (
                 TRANSPORT_EPOCH,
-                admission(false, false, MAX_OPERATIONS, Flights::NONE),
+                admission(false, false, MAX_OPERATIONS, Flights::default()),
             ),
         ] {
             let mut candidate = submission.clone();
@@ -3061,7 +3116,7 @@ mod tests {
         assert!(admit_fork(
             &mut active,
             &submission,
-            &admission(false, false, 0, Flights::NONE)
+            &admission(false, false, 0, Flights::default())
         ));
         assert_eq!(active.as_ref(), Some(&submission));
         // One fork flight across sources: a fresh serial on another target still refuses.
@@ -3071,7 +3126,7 @@ mod tests {
         assert!(!admit_fork(
             &mut active,
             &other,
-            &admission(false, false, 0, Flights::NONE)
+            &admission(false, false, 0, Flights::default())
         ));
         assert_eq!(active.as_ref(), Some(&submission));
     }
@@ -3121,7 +3176,7 @@ mod tests {
             assert!(admit_fork(
                 &mut active,
                 &next,
-                &admission(false, false, 0, Flights::NONE)
+                &admission(false, false, 0, Flights::default())
             ));
             settle_fork(
                 &mut active,
