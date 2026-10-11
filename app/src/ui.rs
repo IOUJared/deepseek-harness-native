@@ -7,7 +7,7 @@ use crate::{
 use dsh_native_core::{Inspection, PublicEvent, StopResult};
 use dsh_native_transport::dto::*;
 use iced::widget::{
-    Column, Space, button, column, container, pick_list, rich_text, row, scrollable, span, text,
+    Column, Space, button, column, container, rich_text, row, scrollable, span, text,
     text_editor, text_input,
 };
 use iced::{Color, Element, Length, Subscription, Task, Theme, keyboard, window};

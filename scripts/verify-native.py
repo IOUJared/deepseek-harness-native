@@ -28,10 +28,13 @@ def commands(suite, offline=True):
         return [("tool-doctor", ["bash", str(SKILL / "scripts/impeccable"), "doctor"])]
     if suite == "examples":
         return examples
-    lint = []
+    lint = [("format-debt", ["python3", "-B", "scripts/format-debt.py"])]
     for crate in ("core", "transport", "app"):
         manifest = f"{crate}/Cargo.toml"
-        lint.append((f"{crate}-format", ["cargo", "fmt", "--manifest-path", manifest, "--all", "--", "--check"]))
+        # Formatting is owned by scripts/format-debt.py: it runs the scoped
+        # `cargo fmt -- --check` (never --all, so the pinned third-party
+        # app/vendor/winit tree is not claimed as ours) and fails only on new
+        # unformatted first-party files.
         lint.append((f"{crate}-clippy", ["cargo", "clippy", "--manifest-path", manifest,
                      *locked, "--all-targets", "--all-features", "--",
                      "-D", "clippy::todo", "-D", "clippy::unimplemented", "-D", "unsafe_op_in_unsafe_fn"]))

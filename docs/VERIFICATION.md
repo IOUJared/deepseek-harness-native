@@ -7,6 +7,7 @@ Reference for native frontend and backend changes. [Impeccable Rust](../.agents/
 Run from the native repository. The runner prints plans without running checks, executes serially with two Cargo jobs, defaults to locked/offline Cargo, never installs tools and records private evidence. An explicit `--online` permits Cargo dependency access; it does not install verification tools.
 
 ```sh
+scripts/check.sh
 python3 -B scripts/verify-native.py --suite test --plan
 python3 -B scripts/verify-native.py --suite doctor
 python3 -B scripts/verify-native.py --suite lint
@@ -15,7 +16,14 @@ python3 -B scripts/verify-native.py --suite examples
 python3 -B scripts/verify-native.py --suite test
 ```
 
-Use `--cargo-home ABS_PATH` for an existing cache. `--suite all` runs lint and test suites and remains failed if any check fails. Formatting is check-only; Clippy denies unfinished macros and implicit unsafe operations, while other warnings stay visible. Existing whole-project formatting and lint warnings are debt, not silently waived cleanliness.
+`scripts/check.sh` is the single entry point: with no arguments it runs `--suite all`, and any other argument is forwarded unchanged (`scripts/check.sh --plan`). Use `--cargo-home ABS_PATH` for an existing cache.
+
+## Formatting and lint debt
+
+- `format-debt` owns formatting. It runs the scoped `cargo fmt --manifest-path <crate>/Cargo.toml -- --check` for Core, transport and App, deliberately without `--all`, so the pinned third-party `app/vendor/winit` tree is never reported as ours; that upstream tree accounted for 1,139 of the former failures.
+- `AGENTS.md` forbids rewriting all shared Rust files to resolve local formatting debt, so the remaining first-party debt is recorded per file in `scripts/format-debt-baseline.json` rather than waived. The check prints current file and hunk totals and **fails when a file that was clean becomes unformatted, or a new file is added unformatted**. Removing debt is reported, not failed; record an intentional change with `python3 -B scripts/format-debt.py --update`. Baseline at 2026-10-10: 46 files, 3,229 hunks — hand-written style such as `fn f(&self)->bool`, which no rustfmt option accepts.
+- Clippy denies unfinished macros and implicit unsafe operations; other warnings stay visible by policy, and a guard asserts the suite does not deny all baseline warnings. Visible totals measured 2026-10-10: App 211, Core 17, transport 6 — mostly collapsible `if` statements, missing `else`, and large enum variants.
+- Reducing either debt takes one dedicated, reviewed commit per change; do not mix it with feature work.
 
 Reports contain exact commands, outcomes, toolchain details and before/after source hashes. A source change during a run invalidates the combined evidence. This detects drift; it is not an attestation of the complete compiler dependency closure. Output is retained beneath ignored `app/evidence/`; no source or user profile is rewritten.
 

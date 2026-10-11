@@ -53,7 +53,7 @@ use dsh_native_transport::dto::*;
 use iced::{Element, Subscription, Task, window};
 use iced::widget::{column, container, text_editor};
 use serde_json::{Value, json};
-use std::{fs, io::{Read, Write}, os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt}, path::{Path, PathBuf}, time::Duration};
+use std::{fs, io::{Read, Write}, os::unix::fs::{MetadataExt, OpenOptionsExt}, path::{Path, PathBuf}, time::Duration};
 const FIRST: &str = "PUBLIC unsent draft\nΚαλημέρα · 日本語 · 🦀";
 const MORE: &str = "\nPUBLIC newer edit while joined save outcome is held\nمرحبا · café";
 const LATEST: &str = "PUBLIC unsent draft\nΚαλημέρα · 日本語 · 🦀\nPUBLIC newer edit while joined save outcome is held\nمرحبا · café";
