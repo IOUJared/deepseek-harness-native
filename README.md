@@ -60,7 +60,7 @@ cargo build --locked --release -j2 --manifest-path deepseek-harness-native/app/C
 
 ## Limits
 
-- Separate backend required; not self-contained or generally portable yet.
+- Separate backend required; not self-contained or generally portable yet; the [Windows/macOS boundary](<docs/NATIVE-PLATFORM-PORT.md>) is mapped but no non-Linux build exists.
 - Existing Harness profiles and credentials stay separate.
 - Private qualification reports/screenshots/homes remain local-only; historical evidence links are not GitHub downloads. Published binary/checksum assets appear only on the release page.
 - Packaging still needs the original local Cargo cache; clean-machine packaging is not verified.

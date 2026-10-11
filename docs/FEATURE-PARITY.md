@@ -21,7 +21,7 @@ Development port, **not Windows/macOS parity**. Source audits/scripted fixtures 
 | Terminal/browser/Office/docs | Backend audit only, no native guest | Linux providers and lazy isolated guest lifecycle/resources |
 | Goals/todos/subagents/schedules | Bounded known read-only records | Dedicated controls/live qualification |
 | Desktop integration | Own native window; [native Wayland clipboard paste](<NATIVE-CLIPBOARD.md>) | Open-with/notifications/file associations/tray/shortcuts; X11 paste |
-| Install/update | [Frozen external-runtime development archives](<NATIVE-DEVELOPMENT-PACKAGE.md>); extracted launchers qualified | Not installer; Host/Node closure, older Linux, licenses, integration/update/rollback |
+| Install/update | [Frozen external-runtime development archives](<NATIVE-DEVELOPMENT-PACKAGE.md>); extracted launchers qualified | Not installer; Host/Node closure, older Linux, licenses, integration/update/rollback; Windows/macOS [boundary mapped](<NATIVE-PLATFORM-PORT.md>), nothing built or verified off Linux |
 | Performance | [Startup mapping, 8 s and 60 s owned-tree idle, and 4,084-row reflow measured on the r2 release](<NATIVE-PERFORMANCE.md>) (60 s idle 0.47% of one core, 336 MiB RSS, 264 MiB PSS; later reflows 5.54 ms median) | Input and presented-frame latency, VRAM, live-host long chat, sustained/other-hardware repeats; no universal toolkit superiority |
 
 ## Acceptance policy
