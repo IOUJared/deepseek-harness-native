@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Harness Native
+GenericName=AI coding assistant
+Comment=Native DeepSeek Harness client (development build; separate alpha backend required)
+Exec=dsh-native
+TryExec=dsh-native
+Icon=ai.deepseek.harness.native.app
+Terminal=false
+Categories=Development;
+Keywords=deepseek;harness;ai;chat;assistant;
+StartupNotify=true
+StartupWMClass=ai.deepseek.harness.native.app

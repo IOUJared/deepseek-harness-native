@@ -1,0 +1,78 @@
+# Maintainer: Jared <https://github.com/IOUJared>
+# Arch package for the native Harness client. The compatible 0.2.1-alpha.1 backend,
+# Node 26 and any profile remain external; this installs the app, the launcher
+# wrapper, the desktop entry and the icon. Build with:  makepkg -si
+pkgname=dsh-native-app
+pkgver=2026.10.10.r2
+pkgrel=1
+pkgdesc="Native DeepSeek Harness Linux client (development build; external 0.2.1-alpha.1 backend required)"
+arch=('x86_64')
+url="https://github.com/IOUJared/deepseek-harness-native"
+license=('MIT')
+depends=('glibc' 'gcc-libs' 'wayland' 'libxkbcommon' 'vulkan-icd-loader' 'ttf-dejavu' 'nodejs')
+optdepends=('deepseek-harness-linux: isolated built 0.2.1-alpha.1 backend (external, not packaged here)')
+provides=('dsh-native-app')
+conflicts=('dsh-native-app')
+source=("dsh-native-app-$pkgver.tar.gz::https://github.com/IOUJared/deepseek-harness-native/releases/download/v2026.10.10-r2/dsh-native-linux-x86_64-development-2026.10.10-r2-4ecec524d097.tar.gz")
+sha256sums=('a2f97dd899ae978d01f5fb0cbf3e6d04b83bca86e3bd6c7eeaea13029647b594')
+
+package() {
+  local payload="dsh-native-linux-x86_64-development-2026.10.10-r2-4ecec524d097"
+  install -Dm755 "$srcdir/$payload/bin/dsh-native-app" "$pkgdir/usr/bin/dsh-native-app"
+
+  mkdir -p "$pkgdir/usr/bin"
+  cat > "$pkgdir/usr/bin/dsh-native" <<'WRAPPER'
+#!/usr/bin/env bash
+# Launch the installed native app with the configured isolated alpha runtime.
+# Configuration: ~/.config/dsh-native/config.env with DSH_NATIVE_RUNTIME,
+# DSH_NATIVE_HOME and DSH_NATIVE_WORKSPACE (see packaging/install.sh or the docs).
+set -euo pipefail
+self_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+binary="$self_dir/dsh-native-app"
+config="${DSH_NATIVE_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/dsh-native/config.env}"
+[ -x "$binary" ] || { echo "dsh-native: missing executable $binary" >&2; exit 1; }
+[ -r "$config" ] && . "$config"
+: "${DSH_NATIVE_RUNTIME:?set DSH_NATIVE_RUNTIME in $config}"
+: "${DSH_NATIVE_HOME:?set DSH_NATIVE_HOME in $config}"
+: "${DSH_NATIVE_WORKSPACE:?set DSH_NATIVE_WORKSPACE in $config}"
+exec "$binary" --runtime "$DSH_NATIVE_RUNTIME" \
+  --expected-version "${DSH_NATIVE_EXPECTED_VERSION:-0.2.1-alpha.1}" \
+  --home "$DSH_NATIVE_HOME" --user-home "${DSH_NATIVE_USER_HOME:-$HOME}" \
+  --cwd "$DSH_NATIVE_WORKSPACE" --scale "${DSH_NATIVE_SCALE:-1.0}" "$@"
+WRAPPER
+  chmod 755 "$pkgdir/usr/bin/dsh-native"
+
+  mkdir -p "$pkgdir/usr/share/applications"
+  cat > "$pkgdir/usr/share/applications/ai.deepseek.harness.native.app.desktop" <<'DESKTOP'
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Harness Native
+GenericName=AI coding assistant
+Comment=Native DeepSeek Harness client (development build; separate alpha backend required)
+Exec=dsh-native
+TryExec=dsh-native
+Icon=ai.deepseek.harness.native.app
+Terminal=false
+Categories=Development;
+Keywords=deepseek;harness;ai;chat;assistant;
+StartupNotify=true
+StartupWMClass=ai.deepseek.harness.native.app
+DESKTOP
+  chmod 644 "$pkgdir/usr/share/applications/ai.deepseek.harness.native.app.desktop"
+
+  mkdir -p "$pkgdir/usr/share/icons/hicolor/scalable/apps"
+  cat > "$pkgdir/usr/share/icons/hicolor/scalable/apps/ai.deepseek.harness.native.app.svg" <<'ICON'
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="Harness Native">
+  <rect width="256" height="256" rx="56" fill="#1f1d2e"/>
+  <rect x="66" y="64" width="30" height="128" rx="8" fill="#c4a7e7"/>
+  <rect x="160" y="64" width="30" height="128" rx="8" fill="#c4a7e7"/>
+  <rect x="96" y="112" width="64" height="32" rx="8" fill="#9ccfd8"/>
+</svg>
+ICON
+  chmod 644 "$pkgdir/usr/share/icons/hicolor/scalable/apps/ai.deepseek.harness.native.app.svg"
+
+  install -Dm644 "$srcdir/$payload/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 "$srcdir/$payload/development-manifest.json" \
+    "$pkgdir/usr/share/doc/$pkgname/development-manifest.json"
+}
