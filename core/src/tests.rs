@@ -132,7 +132,7 @@ process.stdin.on('data', chunk => {
    const value=c.type==='onboarding-read' ? {loggedIn:false,hasApiKey:false,writable:true,tokenValue:'PUBLIC_FAKE_SECRET'}
     : c.type==='cancel-generation' ? {cancelled:true,tokenValue:'PUBLIC_FAKE_SECRET'}
     : c.type==='account-unsubscribe' ? {subscribed:false,tokenValue:'PUBLIC_FAKE_SECRET'}
-    : {status:'credential-stored',attempt:{phase:'waiting-browser',id:'PUBLIC_FAKE_SECRET',authorizeUrl:'https://platform.example/?token=PUBLIC_FAKE_SECRET'},token:'PUBLIC_FAKE_SECRET'};
+    : {status:'credential-stored',attempt:{phase:'waiting-browser',id:'attempt-1',authorizeUrl:'https://platform.example/dsh/authorize?state=attempt-1'},token:'PUBLIC_FAKE_SECRET'};
    send({type:'native-result',requestId:c.requestId,command:c.type,value});
   }
  }
@@ -257,10 +257,22 @@ fn public_events_and_results_never_contain_private_values() {
         Command::CancelGeneration("fixture-session".into()),
         Command::OpenWorkspace(fixture.directory.path().to_owned()),
     ] {
-        let reply = backend.request(command, Duration::from_secs(1)).unwrap();
+        let reply = backend
+            .request(command.clone(), Duration::from_secs(1))
+            .unwrap();
         let public = format!("{reply:?}");
+        // Every secret marker the fixture holds: the platform session token, its
+        // request header and every token-shaped field.
         assert!(!public.contains("PUBLIC_FAKE"));
-        assert!(!public.contains("http"));
+        // The account view is the one public result that may carry a URL, because
+        // the Host publishes that browser destination for the user to open. It is
+        // the only exception: no reply names a host otherwise.
+        if !matches!(command, Command::AccountState | Command::AccountSubscribe) {
+            assert!(
+                !public.contains("http"),
+                "{command:?} leaked a URL: {public}"
+            );
+        }
     }
     backend.stop().unwrap();
     for event in events.try_iter() {
@@ -304,6 +316,146 @@ fn closed_commands_serialize_only_the_supported_fields() {
     ] {
         assert_eq!(command.encode("42"), Err(Error::InvalidCommand));
     }
+}
+
+#[test]
+fn account_commands_carry_only_what_the_bridge_validates() {
+    let start = Command::AccountStart {
+        locale: "en-US".into(),
+        timezone_offset_seconds: -21_600,
+    };
+    let value = start.encode("42").unwrap();
+    assert_eq!(value["type"], "account-start");
+    assert_eq!(value["requestId"], "42");
+    assert_eq!(value["locale"], "en-US");
+    assert_eq!(value["timezoneOffsetSeconds"], -21_600);
+    assert_eq!(
+        value.as_object().unwrap().len(),
+        4,
+        "no token field is sent"
+    );
+
+    let sign_out = Command::AccountSignOut {
+        locale: "en".into(),
+        timezone_offset_seconds: 0,
+    };
+    assert_eq!(sign_out.name(), "account-signout");
+    assert_eq!(sign_out.encode("42").unwrap()["locale"], "en");
+
+    let cancel = Command::AccountCancel {
+        attempt_id: "attempt-1".into(),
+    };
+    let value = cancel.encode("42").unwrap();
+    assert_eq!(value["type"], "account-cancel");
+    assert_eq!(value["attemptId"], "attempt-1");
+    assert_eq!(value.as_object().unwrap().len(), 3);
+
+    // Anything the bridge would refuse is refused here first, rather than sent.
+    for command in [
+        Command::AccountStart {
+            locale: "en US".into(),
+            timezone_offset_seconds: 0,
+        },
+        Command::AccountStart {
+            locale: "en".into(),
+            timezone_offset_seconds: 86_401,
+        },
+        Command::AccountSignOut {
+            locale: String::new(),
+            timezone_offset_seconds: 0,
+        },
+        Command::AccountCancel {
+            attempt_id: "bad id".into(),
+        },
+        Command::AccountCancel {
+            attempt_id: String::new(),
+        },
+    ] {
+        assert_eq!(
+            command.encode("42"),
+            Err(Error::InvalidCommand),
+            "{command:?}"
+        );
+    }
+}
+
+#[test]
+fn the_account_view_projects_the_attempt_and_never_a_token() {
+    let view = json!({
+        "status": "credential-stored",
+        "links": {"usageUrl": "https://platform.example/usage", "topUpUrl": "https://platform.example/top-up"},
+        "attempt": {
+            "phase": "waiting-browser",
+            "id": "attempt-1",
+            "authorizeUrl": "https://platform.example/dsh/authorize?state=attempt-1",
+            "expiresAt": 1_800_000_000_000i64,
+            "token": "PUBLIC_FAKE_SECRET"
+        },
+        "token": "PUBLIC_FAKE_SECRET"
+    });
+    let reply = account_reply(view.clone());
+    let PublicReply::Account(metadata) = reply else {
+        panic!("account-state must answer with the account view");
+    };
+    assert_eq!(metadata.status, AccountStatus::CredentialStored);
+    assert_eq!(metadata.phase, Some(AttemptPhase::WaitingBrowser));
+    let attempt = metadata.attempt.clone().expect("the attempt is projected");
+    assert_eq!(attempt.id, "attempt-1");
+    assert!(attempt.opens_browser());
+    assert_eq!(
+        attempt.authorize_url.as_deref(),
+        Some("https://platform.example/dsh/authorize?state=attempt-1")
+    );
+    let public = format!("{metadata:?}");
+    assert!(!public.contains("PUBLIC_FAKE"), "{public}");
+    assert!(
+        !public.contains("usage"),
+        "links are not part of the projection"
+    );
+
+    // A signed-out view has no attempt, and a malformed one is refused whole.
+    assert!(matches!(
+        account_reply(json!({"status": "signed-out", "attempt": null})),
+        PublicReply::Account(AccountMetadata {
+            status: AccountStatus::SignedOut,
+            attempt: None,
+            phase: None,
+        })
+    ));
+    for malformed in [
+        json!({"status": "credential-stored", "attempt": {"phase": "waiting-browser", "id": "bad id"}}),
+        json!({"status": "credential-stored", "attempt": {"phase": "waiting-browser", "id": "a", "authorizeUrl": "http://platform.example/dsh/authorize"}}),
+        json!({"status": "credential-stored", "attempt": {"phase": "waiting-browser", "id": "a", "authorizeUrl": "https://platform.example/other"}}),
+        json!({"status": "credential-stored", "attempt": {"phase": "waiting-browser", "id": "a", "authorizeUrl": "https://user@platform.example/dsh/authorize"}}),
+        json!({"status": "credential-stored", "attempt": {"phase": "waiting-browser", "id": "a", "authorizeUrl": "https://platform.example/dsh/authorize#fragment"}}),
+        json!({"status": "credential-stored", "attempt": {"phase": "waiting-browser", "id": "a", "authorizeUrl": 7}}),
+        json!({"status": "credential-stored", "attempt": {"phase": "no-such-phase", "id": "a"}}),
+        json!({"status": "credential-stored", "attempt": {"phase": "waiting-browser"}}),
+        json!({"status": "credential-stored"}),
+        json!({"status": "signed-in", "attempt": null}),
+    ] {
+        assert!(
+            account_result(malformed.clone()).is_err(),
+            "{malformed} must be refused"
+        );
+    }
+}
+
+/// Parse one `account-state` reply the way the process loop does.
+fn account_result(value: Value) -> Result<PublicReply, Error> {
+    match parse(json!({
+        "type": "native-result",
+        "requestId": "1",
+        "command": "account-state",
+        "value": value
+    }))? {
+        protocol::Event::Reply { reply, .. } => reply,
+        _ => panic!("account-state must parse as a reply"),
+    }
+}
+
+fn account_reply(value: Value) -> PublicReply {
+    account_result(value).expect("a valid account view must parse")
 }
 
 #[test]
@@ -672,6 +824,7 @@ fn event_channel_is_bounded_and_private_auth_events_are_not_enqueued() {
         backend.inner.emit(PublicEvent::Account(AccountMetadata {
             status: AccountStatus::SignedOut,
             phase: None,
+            attempt: None,
         }));
     }
     assert!(backend.dropped_event_count() > 0);

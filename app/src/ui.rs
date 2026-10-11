@@ -9405,6 +9405,7 @@ mod tests {
             let account = PublicEvent::Account(dsh_native_core::AccountMetadata {
                 status: dsh_native_core::AccountStatus::CredentialStored,
                 phase: None,
+                attempt: None,
             });
             let _ = window.receive(Event::Core(account.clone()));
             assert_eq!(window.account, "Account metadata not loaded");
@@ -9428,6 +9429,7 @@ mod tests {
         let account = PublicEvent::Account(dsh_native_core::AccountMetadata {
             status: dsh_native_core::AccountStatus::CredentialStored,
             phase: Some(dsh_native_core::AttemptPhase::Succeeded),
+            attempt: None,
         });
         let _ = window.receive(Event::Core(account.clone()));
         assert_eq!(window.account, "Account: CredentialStored · Succeeded");
@@ -9445,6 +9447,7 @@ mod tests {
             dsh_native_core::AccountMetadata {
                 status: dsh_native_core::AccountStatus::SignedOut,
                 phase: None,
+                attempt: None,
             },
         )));
         assert_eq!(window.account, "Account: CredentialStored · Succeeded");

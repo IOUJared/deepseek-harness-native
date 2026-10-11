@@ -1,6 +1,6 @@
 use crate::{
-    AccountMetadata, AccountStatus, AttemptPhase, Command, Error, Inspection, OnboardingMetadata,
-    PublicReply,
+    AccountAttempt, AccountMetadata, AccountStatus, AttemptPhase, Command, Error, Inspection,
+    OnboardingMetadata, PublicReply,
 };
 use serde_json::{Value, json};
 use url::Url;
@@ -132,7 +132,36 @@ fn account(value: &Value) -> Result<AccountMetadata, Error> {
             _ => return Err(Error::Protocol),
         })
     };
-    Ok(AccountMetadata { status, phase })
+    // The attempt a UI can act on: an id to cancel with, and the destination to
+    // open while the Host waits. A malformed entry is refused rather than shown,
+    // and no other field of the view is read at all.
+    let attempt = match (phase, attempt.is_null()) {
+        (Some(_), false) => {
+            let id = attempt["id"].as_str().ok_or(Error::Protocol)?;
+            if !crate::account::valid_attempt_id(id) {
+                return Err(Error::Protocol);
+            }
+            let authorize_url = match attempt.get("authorizeUrl") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(url)) => {
+                    crate::browser::validate_account_destination(url)?;
+                    Some(url.clone())
+                }
+                Some(_) => return Err(Error::Protocol),
+            };
+            Some(AccountAttempt {
+                id: id.to_owned(),
+                authorize_url,
+            })
+        }
+        (None, true) => None,
+        _ => return Err(Error::Protocol),
+    };
+    Ok(AccountMetadata {
+        status,
+        phase,
+        attempt,
+    })
 }
 
 fn inspection(value: &Value) -> Inspection {
@@ -337,6 +366,9 @@ impl Command {
             Self::AccountState => "account-state",
             Self::AccountSubscribe => "account-subscribe",
             Self::AccountUnsubscribe => "account-unsubscribe",
+            Self::AccountStart { .. } => "account-start",
+            Self::AccountCancel { .. } => "account-cancel",
+            Self::AccountSignOut { .. } => "account-signout",
             #[cfg(feature = "transport")]
             Self::DiscoverSessionAgent(_) => "discover-session-agent",
             Self::CancelGeneration(_) => "cancel-generation",
@@ -380,6 +412,28 @@ impl Command {
                     return Err(Error::InvalidCommand);
                 }
                 value["attempt"] = json!(attempt);
+            }
+            Self::AccountStart {
+                locale,
+                timezone_offset_seconds,
+            }
+            | Self::AccountSignOut {
+                locale,
+                timezone_offset_seconds,
+            } => {
+                if !crate::account::valid_locale(locale)
+                    || !crate::account::valid_timezone_offset(*timezone_offset_seconds)
+                {
+                    return Err(Error::InvalidCommand);
+                }
+                value["locale"] = json!(locale);
+                value["timezoneOffsetSeconds"] = json!(timezone_offset_seconds);
+            }
+            Self::AccountCancel { attempt_id } => {
+                if !crate::account::valid_attempt_id(attempt_id) {
+                    return Err(Error::InvalidCommand);
+                }
+                value["attemptId"] = json!(attempt_id);
             }
             Self::CodexEnableModels { expected_revision } => {
                 if *expected_revision > crate::codex::MAX_SAFE_INTEGER {

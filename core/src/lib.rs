@@ -2,6 +2,8 @@
 //! Blocking methods belong on application worker threads; Drop queues shutdown without waiting.
 #![cfg(target_os = "linux")]
 
+mod account;
+pub use account::account_identity;
 #[cfg(feature = "transport")]
 mod agent_discovery;
 #[cfg(feature = "transport")]
@@ -164,6 +166,23 @@ pub enum Command {
     AccountState,
     AccountSubscribe,
     AccountUnsubscribe,
+    /// Start the Host's browser sign-in and return the attempt it created. The
+    /// caller's UI identity travels with it; no token is read or returned.
+    AccountStart {
+        locale: String,
+        timezone_offset_seconds: i32,
+    },
+    /// Cancel one named attempt. An attempt already committing settles before
+    /// the reply, so a cancellation is never reported as a success it is not.
+    AccountCancel {
+        attempt_id: String,
+    },
+    /// Forget the locally stored credential. This is not issuer revocation, and
+    /// it never selects a different account.
+    AccountSignOut {
+        locale: String,
+        timezone_offset_seconds: i32,
+    },
     /// Read a registered Agent's actual ID without creating/resuming it. Requires transport types.
     #[cfg(feature = "transport")]
     DiscoverSessionAgent(dsh_native_transport::dto::SessionId),
@@ -196,10 +215,25 @@ pub enum AttemptPhase {
     Expired,
     Failed,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// One sign-in attempt, as far as a UI needs it: an opaque id to cancel with,
+/// and the browser destination to open while the Host waits for the callback.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AccountAttempt {
+    pub id: String,
+    pub authorize_url: Option<String>,
+}
+impl AccountAttempt {
+    /// The destination is Host configuration, so this checks its shape only; the
+    /// app checks it again, against the launcher's own rules, before opening it.
+    pub fn opens_browser(&self) -> bool {
+        self.authorize_url.is_some()
+    }
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AccountMetadata {
     pub status: AccountStatus,
     pub phase: Option<AttemptPhase>,
+    pub attempt: Option<AccountAttempt>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OnboardingMetadata {

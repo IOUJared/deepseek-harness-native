@@ -133,6 +133,32 @@ pub(crate) fn validate(raw: &str) -> Result<(), Error> {
     }
     Ok(())
 }
+/// The shape of a Platform sign-in destination.
+///
+/// The Host owns the platform origin, so this cannot pin a host the way the
+/// Codex and Cloudflare validators do. What it can pin is everything that makes
+/// a destination safe to hand to a browser: HTTPS away from loopback, no
+/// credentials, no fragment, and the one fixed path Platform authorizes. The
+/// configured origin is checked by the Host, which refuses to publish any other
+/// destination in the first place.
+pub(crate) fn validate_account_destination(raw: &str) -> Result<(), Error> {
+    if raw.len() > 16_384 || raw.bytes().any(|byte| byte <= 0x20 || byte == 0x7f) {
+        return Err(Error::Protocol);
+    }
+    let url = Url::parse(raw).map_err(|_| Error::Protocol)?;
+    let loopback = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
+    if !(url.scheme() == "https" || (loopback && url.scheme() == "http"))
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+        || url.path() != "/dsh/authorize"
+    {
+        return Err(Error::Protocol);
+    }
+    Ok(())
+}
+
 pub(crate) fn wait(mut child: Child) -> Result<(), Error> {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
