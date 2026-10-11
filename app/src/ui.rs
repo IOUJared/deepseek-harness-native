@@ -272,7 +272,7 @@ pub struct App {
     workspace: Option<WorkspaceId>,
     management: crate::management::Management,
     exporter: crate::exporter::Exporter,
-    files: attachment_draft::Draft,
+    files: attachment_draft::Attachments,
     local_files: attachment_ui::LocalFiles,
     show_archived: bool,
     show_trash: bool,
@@ -389,7 +389,7 @@ impl App {
                 workspace: None,
                 management: crate::management::Management::default(),
                 exporter: crate::exporter::Exporter::default(),
-                files: attachment_draft::Draft::default(),
+                files: attachment_draft::Attachments::default(),
                 local_files: Default::default(),
                 show_archived: false,
                 show_trash: false,
@@ -665,15 +665,19 @@ impl App {
                         &context,
                     );
                 }
-                Command::PromptFile { ticket, request } => {
+                Command::PromptFile { tickets, request } => {
                     let context = self.file_context();
-                    self.files.prompt_complete(
-                        &ticket,
-                        &request.request_id,
-                        worker::attachments::PromptOutcome::NotSent,
-                        &context,
-                    );
-                    self.pending.remove(&ticket.generation);
+                    for ticket in &tickets {
+                        self.files.prompt_complete(
+                            ticket,
+                            &request.request_id,
+                            worker::attachments::PromptOutcome::NotSent,
+                            &context,
+                        );
+                    }
+                    if let Some(ticket) = tickets.first() {
+                        self.pending.remove(&ticket.generation);
+                    }
                 }
                 Command::Codex(effect) => {
                     use crate::codex::Effect;
@@ -998,7 +1002,7 @@ impl App {
             Message::FilePreview(stamp) => return self.start_file_preview(stamp),
             Message::FileDropped(id, path) if self.own_window == Some(id) => return self.choose_local_file(path),
             Message::FileDropCancelled(id) if self.own_window == Some(id) && self.file_context().allowed => {
-                self.status = "Drop canceled or unsupported. Attach one local file (up to 4 MiB).".into();
+                self.status = "Drop canceled or unsupported. Attach up to 4 local files (4 MiB each).".into();
             }
             Message::FileOpen => {
                 let context = self.file_context();
@@ -1021,9 +1025,13 @@ impl App {
             }
             Message::FileRemove(ticket) => {
                 let context = self.file_local_context();
-                if context.allowed && self.files.ticket() == Some(&ticket) {
-                    if self.handle.send(Command::DiscardFile(ticket)).is_ok() {
-                        self.files.remove(&context);
+                if context.allowed && self.files.owns(&ticket) {
+                    if self
+                        .handle
+                        .send(Command::DiscardFile(ticket.clone()))
+                        .is_ok()
+                    {
+                        self.files.remove(&ticket, &context);
                     } else {
                         self.status =
                             "Removal not delivered; attachment remains owned. Try Remove again."
@@ -1354,9 +1362,9 @@ impl App {
                 ))
                 .unwrap();
                 let context = self.file_context();
-                let file_ticket = if self.files.has_file(&context) {
+                let file_tickets = if self.files.has_file(&context) {
                     match self.files.begin_prompt(&context, request_id.clone()) {
-                        Some(ticket) => Some(ticket),
+                        Some(tickets) => Some(tickets),
                         None => {
                             self.status = "Attachment authority changed; prompt not sent".into();
                             return Task::none();
@@ -1384,18 +1392,18 @@ impl App {
                         session,
                         text: value,
                         draft_serial:self.draft_serial,
-                        file_request_id: file_ticket.as_ref().map(|_| request_id),
+                        file_request_id: file_tickets.as_ref().map(|_| request_id),
                         epoch:self.transport_epoch,
-                        file:self.files.metadata().cloned(),
-                        file_ticket:file_ticket.clone(),
+                        file:self.files.metadata_all(),
+                        file_ticket:file_tickets.clone().unwrap_or_default(),
                         request:request.clone(),
                     },
                 );
-                if !captured {if let Some(ticket)=&file_ticket {let context=self.file_context();self.files.prompt_complete(ticket,&request.request_id,worker::attachments::PromptOutcome::NotSent,&context);}self.status="Original intent could not be captured; no prompt dispatched.".into();return Task::none();}
+                if !captured {if let Some(tickets)=&file_tickets {let context=self.file_context();for ticket in tickets {self.files.prompt_complete(ticket,&request.request_id,worker::attachments::PromptOutcome::NotSent,&context);}}self.status="Original intent could not be captured; no prompt dispatched.".into();return Task::none();}
                 self.touch_draft(); // Scrub this owned original from the next private snapshot.
                 self.status = "Sending prompt; awaiting Host inbox acceptance…".into();
-                if let Some(ticket) = file_ticket {
-                    self.command(Command::PromptFile { ticket, request });
+                if let Some(tickets) = file_tickets {
+                    self.command(Command::PromptFile { tickets, request });
                 } else {
                     self.command(Command::Prompt {
                         generation: self.generation,
@@ -1780,22 +1788,26 @@ impl App {
                 self.files.complete(&ticket, outcome, &context);
             }
             Event::FilePrompt {
-                ticket,
+                tickets,
                 request_id,
                 outcome,
             } => {
                 let context = self.file_context();
-                self.files
-                    .prompt_complete(&ticket, &request_id, outcome, &context);
-                if self.pending.get(&ticket.generation).is_some_and(|pending| {
-                    pending.session == ticket.target
-                        && pending.file_request_id.as_ref() == Some(&request_id)
-                }) {
-                    let owner=prompt_recovery::Ticket{epoch:ticket.epoch,generation:ticket.generation,session:ticket.target.clone(),request_id:request_id.clone()};
-                    let receipt=match outcome {worker::attachments::PromptOutcome::Accepted=>prompt_recovery::Receipt::Accepted,worker::attachments::PromptOutcome::NotSent=>prompt_recovery::Receipt::NotSent,worker::attachments::PromptOutcome::Unknown=>prompt_recovery::Receipt::Unknown};
-                    if let Some(pending)=self.pending.settle(&owner,receipt) {self.prompt_resolved(pending,ticket.generation,receipt);}
-                    if ticket.generation == self.generation {
-                        self.status=match outcome {worker::attachments::PromptOutcome::Accepted=>"Attachment prompt accepted into Host inbox; generation/history still come from Host events",worker::attachments::PromptOutcome::NotSent=>"Attachment prompt not admitted; file remains ready",worker::attachments::PromptOutcome::Unknown=>"Attachment Send outcome unknown; do not retry automatically"}.into();
+                for ticket in &tickets {
+                    self.files
+                        .prompt_complete(ticket, &request_id, outcome, &context);
+                }
+                if let Some(ticket) = tickets.first() {
+                    if self.pending.get(&ticket.generation).is_some_and(|pending| {
+                        pending.session == ticket.target
+                            && pending.file_request_id.as_ref() == Some(&request_id)
+                    }) {
+                        let owner=prompt_recovery::Ticket{epoch:ticket.epoch,generation:ticket.generation,session:ticket.target.clone(),request_id:request_id.clone()};
+                        let receipt=match outcome {worker::attachments::PromptOutcome::Accepted=>prompt_recovery::Receipt::Accepted,worker::attachments::PromptOutcome::NotSent=>prompt_recovery::Receipt::NotSent,worker::attachments::PromptOutcome::Unknown=>prompt_recovery::Receipt::Unknown};
+                        if let Some(pending)=self.pending.settle(&owner,receipt) {self.prompt_resolved(pending,ticket.generation,receipt);}
+                        if ticket.generation == self.generation {
+                            self.status=match outcome {worker::attachments::PromptOutcome::Accepted=>"Attachment prompt accepted into Host inbox; generation/history still come from Host events",worker::attachments::PromptOutcome::NotSent=>"Attachment prompt not admitted; files remain ready",worker::attachments::PromptOutcome::Unknown=>"Attachment Send outcome unknown; do not retry automatically"}.into();
+                        }
                     }
                 }
             }
@@ -2107,7 +2119,7 @@ impl App {
             }
             Event::SubmissionChecked { ticket,value } => {
                 if let Some((pending,receipt))=self.pending.checked(&ticket,value) {
-                    if let Some(file)=&pending.file_ticket {let context=self.file_context();self.files.reconcile_prompt(file,&pending.request.request_id,receipt==prompt_recovery::Receipt::Accepted,&context);}
+                    if !pending.file_ticket.is_empty() {let context=self.file_context();let accepted=receipt==prompt_recovery::Receipt::Accepted;for file in &pending.file_ticket {self.files.reconcile_prompt(file,&pending.request.request_id,accepted,&context);}}
                     self.prompt_resolved(pending,ticket.submission.generation,receipt);
                 } else if self.pending.ticket().as_ref()==Some(&ticket.submission) {self.status="No verified admission decision. Original submission still owned; no resend permission. Check again only explicitly.".into();}
             }
@@ -2964,40 +2976,33 @@ impl App {
             body = body.push(label(attachment_draft::UPLOAD_CONSENT, MUTED).size(10));
             body = body.push(button(label("Preview image", MUTED).size(10)).style(design::button_style)
                 .on_press_maybe((context.allowed && !path.is_empty() && !self.local_files.busy()).then_some(Message::FilePreview(stamp))));
-        } else if let Some(ticket) = self.files.ticket() {
-            let title = if let Some(metadata) = self.files.metadata() {
-                format!("File · {} · {} bytes", metadata.name, metadata.bytes)
-            } else if self.files.reading() {
-                "Reading / uploading file…".into()
-            } else {
-                "File was not staged".into()
+        }
+        for (ticket, metadata) in self.files.attachments() {
+            body = body.push(self.attachment_row(
+                ticket,
+                format!("File · {} · {} bytes", metadata.name, metadata.bytes),
+                "Remove",
+            ));
+        }
+        for (ticket, metadata, reading) in self.files.active() {
+            let title = match (reading, metadata) {
+                (true, _) => "Reading / uploading file…".to_owned(),
+                (false, Some(metadata)) => {
+                    format!("File · {} · {} bytes", metadata.name, metadata.bytes)
+                }
+                (false, None) => "File was not staged".to_owned(),
             };
-            body = body.push(
-                row![
-                    label(title, MUTED).size(12).width(Length::Fill),
-                    button(
-                        label(
-                            if self.files.reading() {
-                                "Cancel"
-                            } else {
-                                "Remove"
-                            },
-                            MUTED
-                        )
-                        .size(12)
-                    )
-                    .on_press_maybe(
-                        self.file_local_context()
-                            .allowed
-                            .then_some(Message::FileRemove(ticket.clone()))
-                    )
-                    .style(design::button_style)
-                    .padding([6, 9])
-                ]
-                .spacing(6)
-                .align_y(iced::Alignment::Center),
-            );
-        } else if self.files.pending() || self.files.prompt_pending() || self.local_files.busy() {
+            body = body.push(self.attachment_row(
+                ticket,
+                title,
+                if reading { "Cancel" } else { "Remove" },
+            ));
+        }
+        if self.files.attachments().is_empty()
+            && self.files.active().is_empty()
+            && !self.files.editor_open()
+            && (self.files.pending() || self.files.prompt_pending() || self.local_files.busy())
+        {
             body = body.push(label("Previous file operation is finishing…", MUTED).size(11));
         }
         body = body.push(self.local_file_preview());
@@ -3008,6 +3013,28 @@ impl App {
             .id("native-file-draft")
             .width(Length::Fill)
             .into()
+    }
+    /// One compact Rosé Pine row per attachment, carrying exactly that slot's ticket.
+    fn attachment_row(
+        &self,
+        ticket: &worker::attachments::Ticket,
+        title: String,
+        action: &'static str,
+    ) -> Element<'_, Message> {
+        row![
+            label(title, MUTED).size(12).width(Length::Fill),
+            button(label(action, MUTED).size(12))
+                .on_press_maybe(
+                    self.file_local_context()
+                        .allowed
+                        .then_some(Message::FileRemove(ticket.clone()))
+                )
+                .style(design::button_style)
+                .padding([6, 9])
+        ]
+        .spacing(6)
+        .align_y(iced::Alignment::Center)
+        .into()
     }
     fn prompt_resolved(&mut self,pending:Pending,generation:u64,receipt:prompt_recovery::Receipt) {
         self.draft_state.touch(&pending.session); // Includes definitive NotSent/queue refusal.
@@ -3060,7 +3087,7 @@ impl App {
             inner=inner.push(label(if unknown {"Submission unresolved · original retained; current draft is separate. No resend."} else {"Awaiting admission · original request is frozen."},if unknown {DANGER} else {MUTED}).size(11))
                 .push(row![button("Check submission").style(design::button_style).padding([6,9]).on_press_maybe((unknown && !self.pending.checking() && self.ready && !self.stopped).then_some(Message::CheckSubmission(ticket.clone()))),button(if self.pending.expanded {"Hide original"} else {"Review original"}).style(design::button_style).padding([6,9]).on_press(Message::ReviewSubmission(ticket.clone()))].spacing(6));
             if self.selected.as_ref()!=Some(&ticket.session) || self.generation!=ticket.generation {inner=inner.push(button("Stop original session").style(design::button_style).padding([6,9]).on_press_maybe((self.ready && !self.cancel_pending && !self.stopped).then_some(Message::StopSubmission(ticket.clone()))));}
-            if let Some(file)=&pending.file {inner=inner.push(label(format!("Original file: {} · {} bytes · receipt is never replayed",file.name,file.bytes),MUTED).size(11));}
+            if !pending.file.is_empty() {let bytes:u64=pending.file.iter().map(|file|file.bytes).sum();let description=if pending.file.len()==1{format!("Original file: {} · {} bytes · receipt is never replayed",pending.file[0].name,bytes)}else{format!("Original files: {} · {} bytes total · receipts are never replayed",pending.file.len(),bytes)};inner=inner.push(label(description,MUTED).size(11));}
             if self.pending.expanded {inner=inner.push(scrollable(label(pending.text.clone(),TEXT).size(12)).height(100));}
         }
         if self.files.editor_open()
@@ -3080,11 +3107,14 @@ impl App {
                 self.model_control(),
                 Space::new().width(Length::Fill),
                 container(
-                    button(label("+ Attach", MUTED).size(11))
+                    button(label(
+                        if self.files.count()==0 {"+ Attach".to_owned()}else{format!("+ Attach · {}/{}",self.files.count(),attachment_draft::MAX_ATTACHMENTS)},
+                        MUTED,
+                    ).size(11))
                         .on_press_maybe(
                             (self.file_context().allowed
                                 && !self.files.editor_open()
-                                && self.files.ticket().is_none()
+                                && !self.files.at_capacity()
                                 && !self.files.pending()
                                 && !self.files.prompt_pending()
                                 && !self.local_files.busy())

@@ -1,10 +1,10 @@
-# Native single-file draft and prompt admission
+# Native bounded four-file draft and prompt admission
 
-**+ File path → absolute Linux path → Review → Upload → Send.** One local slot, **4 MiB** maximum, using [intake](<NATIVE-FILE-INTAKE.md>)/[upload](<NATIVE-FILE-UPLOAD.md>). No OS chooser, new dependency or primary webview. Wayland drag/drop is unsupported in pinned Iced core 0.14.0; no XWayland fallback.
+**+ File path → absolute Linux path → Review → Upload → Send.** Up to **4 local slots × 4 MiB each**, using [intake](<NATIVE-FILE-INTAKE.md>)/[upload](<NATIVE-FILE-UPLOAD.md>). No OS chooser, new dependency or primary webview. Wayland drag/drop is unsupported in pinned Iced core 0.14.0; no XWayland fallback.
 
 ## Local review and private authority
 
-- [Draft](<../app/src/attachment_draft.rs>) holds path input, tickets/name/size/outcomes—never bodies/receipts. Opening/revision fences allow current edits but reject old Upload/Cancel consent after changes. Validation performs no I/O.
+- [Draft](<../app/src/attachment_draft.rs>) holds path input, tickets/name/size/outcomes—never bodies/receipts. A bounded `Attachments` manager owns up to four unchanged per-file drafts, keeps exactly one open editor slot and remembers the exact ticket set of one dispatched prompt. Opening/revision fences allow current edits but reject old Upload/Cancel consent after changes. Validation performs no I/O.
 - [App](<../app/src/ui.rs>) shows storage-before-Send/no-deletion warnings. Exact-ticket Remove must reach the worker; queue failure cannot silently erase authority.
 - File-only or text+file uses normal Send/model controls. Editing/rejected/unknown/pending file state blocks Send, never silently omits the file.
 - Stale Remove cannot discard a newer file. Selection/reload/follow loss hides authority; admitted reads stay reserved until completion/disconnection. Remove/cancel remains available during model restrictions, not inactive modal/dispatched prompt. Matching upload completion may settle behind Settings.
@@ -12,7 +12,7 @@
 ## One explicit prompt attempt
 
 - [Worker](<../app/src/attachments.rs>) alone inserts/consumes private receipts: exact epoch/generation/ticket/Session, ordinary v4 header, enabled Queue mode, caller text ≤32 KiB/eight parts. Generic Prompt cannot inject files; header correlation is not an Agent lease.
-- **Never restore a dispatched receipt**, including error/drop/negative ACK/timeout. Slot remains reserved until exact request completion. Closing/delivery loss wins before polling; cancellation after dispatch is **Unknown, not rollback**.
+- **Never restore a dispatched receipt**, including error/drop/negative ACK/timeout. The dispatched ticket set remains reserved until exact request completion. Closing/delivery loss wins before polling; cancellation after dispatch is **Unknown, not rollback**.
 - Matching ACK clears only unchanged submitted draft. Known-not-sent refusal can retain Ready for another explicit attempt; uncertain Send retains text/metadata and blocks Send until Remove. No automatic retry. Foreign/text-only ACKs cannot settle files; serial exhaustion fails closed.
 - Durable file summaries show name/size and “preview unavailable,” never receipt/digest/raw objects.
 

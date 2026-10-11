@@ -56,11 +56,11 @@ pub(super) fn upload(app: &mut App, receiver: &mut tokio::sync::mpsc::Receiver<C
 fn send(
     app: &mut App,
     receiver: &mut tokio::sync::mpsc::Receiver<Command>,
-) -> (Ticket, SessionPromptRequest) {
+) -> (Vec<Ticket>, SessionPromptRequest) {
     assert!(app.send_allowed());
     let _ = app.update(Message::Send);
     match receiver.try_recv().unwrap() {
-        Command::PromptFile { ticket, request } => (ticket, request),
+        Command::PromptFile { tickets, request } => (tickets, request),
         _ => panic!("file intention silently lost"),
     }
 }
@@ -76,7 +76,7 @@ fn keyboard_send_never_submits_empty_or_whitespace_file_drafts() {
         assert!(app.files.ready().is_some());
         assert!(!app.files.prompt_pending());
         let (owner, _) = send(&mut app, &mut rx);
-        assert_eq!(owner, ticket);
+        assert_eq!(owner, vec![ticket]);
     }
 }
 #[test]
@@ -105,7 +105,7 @@ fn file_only_send_uses_ticket_not_receipt_and_blocks_duplicate_send() {
     let (mut app, mut rx) = ready_app();
     let t = upload(&mut app, &mut rx);
     let (owner, request) = send(&mut app, &mut rx);
-    assert_eq!(owner, t);
+    assert_eq!(owner, vec![t.clone()]);
     assert!(request.content.is_empty());
     assert!(app.files.prompt_pending());
     let _ = app.update(Message::Send);
@@ -118,14 +118,14 @@ fn file_only_send_uses_ticket_not_receipt_and_blocks_duplicate_send() {
     assert!(app.files.prompt_pending());
     assert!(app.pending.contains_key(&t.generation));
     let _ = app.receive(Event::FilePrompt {
-        ticket: t.clone(),
+        tickets: vec![t.clone()],
         request_id: SessionRequestId::new("PUBLIC_wrong_id").unwrap(),
         outcome: PromptOutcome::Accepted,
     });
     assert!(app.files.prompt_pending());
     assert!(app.pending.contains_key(&t.generation));
     let _ = app.receive(Event::FilePrompt {
-        ticket: t,
+        tickets: vec![t],
         request_id: request.request_id,
         outcome: PromptOutcome::Accepted,
     });
@@ -136,14 +136,15 @@ fn file_only_send_uses_ticket_not_receipt_and_blocks_duplicate_send() {
 #[test]
 fn unknown_file_send_keeps_text_and_blocks_remove_until_explicit_admission_check() {
     let (mut app, mut rx) = ready_app();
-    upload(&mut app, &mut rx);
+    let file = upload(&mut app, &mut rx);
     app.editor = text_editor::Content::with_text("PUBLIC unchanged draft");
-    let (t, request) = send(&mut app, &mut rx);
+    let (tickets, request) = send(&mut app, &mut rx);
+    assert_eq!(tickets, vec![file.clone()]);
     assert!(
         matches!(request.content.as_slice(),[PromptContentPart::Text{text}] if text=="PUBLIC unchanged draft")
     );
     let _ = app.receive(Event::FilePrompt {
-        ticket: t.clone(),
+        tickets: tickets.clone(),
         request_id: request.request_id,
         outcome: PromptOutcome::Unknown,
     });
@@ -152,7 +153,7 @@ fn unknown_file_send_keeps_text_and_blocks_remove_until_explicit_admission_check
     assert!(app.files.notice().unwrap().contains("unknown"));
     let _ = app.update(Message::Send);
     assert!(rx.try_recv().is_err());
-    let _ = app.update(Message::FileRemove(t.clone()));
+    let _ = app.update(Message::FileRemove(file.clone()));
     assert!(rx.try_recv().is_err());
     assert!(!app.send_allowed());
     assert!(app.files.ticket().is_some());

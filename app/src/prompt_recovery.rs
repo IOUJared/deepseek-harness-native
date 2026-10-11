@@ -23,8 +23,8 @@ pub(crate) struct Pending {
     pub draft_serial: u64,
     pub file_request_id: Option<SessionRequestId>,
     pub epoch: u64,
-    pub file: Option<super::attachments::Metadata>,
-    pub file_ticket: Option<super::attachments::Ticket>,
+    pub file: Vec<super::attachments::Metadata>,
+    pub file_ticket: Vec<super::attachments::Ticket>,
     pub request: SessionPromptRequest,
 }
 impl Pending {
@@ -94,13 +94,16 @@ impl Controller {
                 .file_request_id
                 .as_ref()
                 .is_some_and(|id| id != &pending.request.request_id)
-            || pending.file_request_id.is_some() != pending.file_ticket.is_some()
-            || pending.file_ticket.as_ref().is_some_and(|ticket| {
+            || pending.file_request_id.is_some() != !pending.file_ticket.is_empty()
+            || pending.file_ticket.is_empty() != pending.file.is_empty()
+            // The documented native attachment bound is four files of at most 4 MiB each.
+            || pending.file_ticket.len() > 4
+            || pending.file_ticket.iter().any(|ticket| {
                 ticket.epoch != pending.epoch
                     || ticket.generation != generation
                     || ticket.target != pending.session
             })
-            || pending.file.as_ref().is_some_and(|metadata| {
+            || pending.file.iter().any(|metadata| {
                 metadata.name.len() > 4096 || metadata.bytes > 4 * 1024 * 1024
             })
         {

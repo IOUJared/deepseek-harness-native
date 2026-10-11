@@ -47,7 +47,7 @@ pub enum Command {
     StageFile(attachments::Submission),
     DiscardFile(attachments::Ticket),
     PromptFile {
-        ticket: attachments::Ticket,
+        tickets: Vec<attachments::Ticket>,
         request: SessionPromptRequest,
     },
     Codex(crate::codex::Effect),
@@ -105,7 +105,7 @@ pub enum Event {
         outcome: attachments::Outcome,
     },
     FilePrompt {
-        ticket: attachments::Ticket,
+        tickets: Vec<attachments::Ticket>,
         request_id: SessionRequestId,
         outcome: attachments::PromptOutcome,
     },
@@ -401,8 +401,8 @@ fn rejected(command: Command) -> Event {
             ticket: submission.ticket,
             outcome: attachments::Outcome::NotSent,
         },
-        Command::PromptFile { ticket, request } => Event::FilePrompt {
-            ticket,
+        Command::PromptFile { tickets, request } => Event::FilePrompt {
+            tickets,
             request_id: request.request_id,
             outcome: attachments::PromptOutcome::NotSent,
         },
@@ -1075,21 +1075,24 @@ async fn run(
                 if matches!(&command,Command::Decision(submission) if decisions.is_active(submission)){continue;}
                 if prompt_worker::normal_capacity_rejects(&command,operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some())) {if !publish(&events,rejected(command)){break Some("Native UI delivery queue overflow".into());}continue;}
                 let command=match command {
-                    Command::PromptFile{ticket,request}=>{
+                    Command::PromptFile{tickets,request}=>{
                         let request_id=request.request_id.clone();
                         let enabled=!smoke && !*closing.borrow() && !events.is_closed();
-                        let owner=prompt_worker::ticket(ticket.generation,&request);
-                        if !submissions.admit(owner.clone(),generation,selected_file_target.as_ref(),enabled) {if !publish(&events,Event::FilePrompt{ticket,request_id,outcome:attachments::PromptOutcome::NotSent}){break Some("Native UI delivery queue overflow".into());}continue;}
-                        match files.prepare_prompt(std::slice::from_ref(&ticket),request,TRANSPORT_EPOCH,generation,selected_file_target.as_ref(),enabled) {
+                        // The first ticket only names the shared generation/session ownership; the
+                        // whole exact set is checked again against the private staged receipts.
+                        let Some(owner_ticket)=tickets.first().cloned() else {if !publish(&events,Event::FilePrompt{tickets,request_id,outcome:attachments::PromptOutcome::NotSent}){break Some("Native UI delivery queue overflow".into());}continue;};
+                        let owner=prompt_worker::ticket(owner_ticket.generation,&request);
+                        if !submissions.admit(owner.clone(),generation,selected_file_target.as_ref(),enabled) {if !publish(&events,Event::FilePrompt{tickets,request_id,outcome:attachments::PromptOutcome::NotSent}){break Some("Native UI delivery queue overflow".into());}continue;}
+                        match files.prepare_prompt(&tickets,request,TRANSPORT_EPOCH,generation,selected_file_target.as_ref(),enabled) {
                             Ok(request)=>{
                                 if !submissions.freeze(&owner,&request) {break Some("Original file prompt ownership lost before dispatch".into());}
                                 let client=client.clone();let mut prompt_closing=closing.clone();let prompt_events=events.clone();
                                 tasks.spawn(async move {
                                     let outcome=file_prompt_outcome(&mut prompt_closing,&prompt_events,client.session_prompt(request)).await;
-                                    Event::FilePrompt{ticket,request_id,outcome}
+                                    Event::FilePrompt{tickets,request_id,outcome}
                                 });
                             },
-                            Err(())=>{submissions.settle(&Event::PromptNotSent{ticket:owner});if !publish(&events,Event::FilePrompt{ticket,request_id,outcome:attachments::PromptOutcome::NotSent}) {break Some("Native UI delivery queue overflow".into());}},
+                            Err(())=>{submissions.settle(&Event::PromptNotSent{ticket:owner});if !publish(&events,Event::FilePrompt{tickets,request_id,outcome:attachments::PromptOutcome::NotSent}) {break Some("Native UI delivery queue overflow".into());}},
                         }
                         continue;
                     },
@@ -1287,7 +1290,7 @@ async fn run(
                 }
             },
             stopped=stop_tasks.join_next(),if !stop_tasks.is_empty()=>if let Some(result)=stopped {match result {Ok(event)=>{submissions.settle(&event);if !publish(&events,event){break Some("Native UI delivery queue overflow".into());}},Err(_)=>break Some("Reserved Stop worker failed".into())}},
-            task=tasks.join_next(),if !tasks.is_empty()=>if let Some(task)=task {match task {Ok(event)=>{submissions.settle(&event);if let Event::FilePrompt{ticket,request_id,..}=&event {if !files.settle_prompt(ticket,request_id) {break Some("Native file prompt ownership lost".into());}}if let Event::DecisionResult{submission,result}=&event{decisions.settle(submission,result.is_ok());if result.is_ok(){live_decisions.retain(|key|key!=&submission.key);}}if let Event::CodexCompleted{ticket,outcome}=&event{codex.settle(*ticket,outcome.clone());}if let Event::CloudflareCompleted{ticket,outcome}=&event{cloudflare.settle(*ticket,outcome);cloudflare_worker::dispatch_cancel(&mut cloudflare,&backend,&mut tasks);}settle_plugin(&mut plugins_active,&event);settle_management(&mut management_active,&event);if let Event::KeySaved{ticket,..}=&event{if key_saving==Some(*ticket){key_saving=None;}}if !publish(&events,event){break Some("Native UI delivery queue overflow".into());}},Err(_)=>break Some("Native operation worker failed".into())}},
+            task=tasks.join_next(),if !tasks.is_empty()=>if let Some(task)=task {match task {Ok(event)=>{submissions.settle(&event);if let Event::FilePrompt{tickets,request_id,..}=&event {if !tickets.iter().any(|ticket| files.settle_prompt(ticket,request_id)) {break Some("Native file prompt ownership lost".into());}}if let Event::DecisionResult{submission,result}=&event{decisions.settle(submission,result.is_ok());if result.is_ok(){live_decisions.retain(|key|key!=&submission.key);}}if let Event::CodexCompleted{ticket,outcome}=&event{codex.settle(*ticket,outcome.clone());}if let Event::CloudflareCompleted{ticket,outcome}=&event{cloudflare.settle(*ticket,outcome);cloudflare_worker::dispatch_cancel(&mut cloudflare,&backend,&mut tasks);}settle_plugin(&mut plugins_active,&event);settle_management(&mut management_active,&event);if let Event::KeySaved{ticket,..}=&event{if key_saving==Some(*ticket){key_saving=None;}}if !publish(&events,event){break Some("Native UI delivery queue overflow".into());}},Err(_)=>break Some("Native operation worker failed".into())}},
         }
     };
     // Revoke private control authority and request owned stop before awaiting

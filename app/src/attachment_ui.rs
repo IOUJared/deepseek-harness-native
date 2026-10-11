@@ -107,7 +107,7 @@ impl App {
                     .local_files
                     .uploaded
                     .as_ref()
-                    .is_some_and(|owner| self.files.ticket() == Some(owner))
+                    .is_some_and(|owner| self.files.owns(owner))
         })
     }
     pub(super) fn reconcile_local_files(&mut self) {
@@ -249,12 +249,15 @@ impl App {
         if !self.file_context().allowed || self.observations_lost {
             return Task::none();
         }
+        if self.files.at_capacity() {
+            self.status=format!("Attachment limit reached ({} files, 4 MiB each). Remove a file before choosing another.",attachment_draft::MAX_ATTACHMENTS);
+            return Task::none();
+        }
         if self.files.editor_open()
-            || self.files.ticket().is_some()
             || self.files.pending()
             || self.files.prompt_pending()
         {
-            self.status="One attachment at a time. Cancel or Remove the current file before choosing another.".into();
+            self.status="Finish the current file selection or upload before choosing another.".into();
             return Task::none();
         }
         if self.local_files.busy() {
@@ -435,7 +438,7 @@ impl App {
             ]
             .spacing(10),
             label(
-                "One file · up to 4 MiB. Selecting reads a local preview, not an upload.",
+                "Up to 4 files · 4 MiB each. Selecting reads a local preview, not an upload.",
                 MUTED
             )
             .size(11),

@@ -11,8 +11,8 @@ fn pending(id: &str) -> Pending {
         draft_serial: 0,
         epoch: 1,
         file_request_id: None,
-        file: None,
-        file_ticket: None,
+        file: Vec::new(),
+        file_ticket: Vec::new(),
         request: SessionPromptRequest {
             session_id: session,
             request_id: SessionRequestId::new(id).unwrap(),

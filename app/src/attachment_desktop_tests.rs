@@ -31,7 +31,7 @@ fn drop_selects_only_into_review_and_ignores_foreign_windows() {
     let owner = app.files.editor().unwrap().0;
     drop(app.update(Message::FileDropped(id, PathBuf::from("/SECOND.png"))));
     assert_eq!(app.files.editor().unwrap().0, owner);
-    assert!(app.status.contains("One attachment"));
+    assert!(app.status.contains("current file selection"));
     assert!(!app.send_allowed());
     assert!(!app.files.pending());
 }
@@ -267,8 +267,12 @@ fn ready_file_drop_never_replaces_existing_receipt() {
     let (mut app, mut rx) = ready_app();
     let ticket = upload(&mut app, &mut rx);
     drop(app.choose_local_file(PathBuf::from("/SECOND.png")));
+    // The staged receipt keeps its slot; the drop opens a separate bounded review slot.
     assert_eq!(app.files.ticket(), Some(&ticket));
-    assert!(!app.local_files.busy());
+    assert_eq!(app.files.count(), 1);
+    assert!(app.files.ready().is_some());
+    assert_eq!(app.files.editor().unwrap().1, "/SECOND.png");
+    assert!(app.local_files.busy());
     assert!(rx.try_recv().is_err());
 }
 #[test]

@@ -1,6 +1,7 @@
-//! UI-only, one-file authority. No receipts, file bodies, filesystem reads or network calls.
-//! The caller invalidates on identity changes and discards returned tickets on the worker.
-//! Context-free display accessors describe that caller-maintained visible authority.
+//! UI-only, bounded up-to-four-file authority. No receipts, file bodies, filesystem reads or
+//! network calls. The caller invalidates on identity changes and discards returned tickets on
+//! the worker. Context-free display accessors describe that caller-maintained visible authority.
+//! [`Attachments`] reuses the proven per-file [`Draft`] state machine unchanged.
 use crate::worker::{attachments, file_intake};
 use attachments::{Metadata, Outcome, PromptOutcome, Submission, Ticket};
 use dsh_native_transport::dto::{SessionId, SessionRequestId};
@@ -377,6 +378,296 @@ impl Draft {
         if !c.matches(ticket) || !matches!(&self.state,State::Unknown(t,_) | State::Sending(t,_) if t==ticket) { return; }
         self.state=State::Empty;
         self.notice=(!accepted).then_some("Original submission was rejected before dispatch. Upload receipt is not reused; choose the file again explicitly.");
+    }
+}
+
+/// Documented native attachment bound: four files, each up to 4 MiB.
+pub const MAX_ATTACHMENTS: usize = 4;
+/// Bounded GUI-side set of up to [`MAX_ATTACHMENTS`] drafts. Every per-file rule stays owned by
+/// one [`Draft`]; this type only owns slot membership, the single open editor and the exact
+/// ticket set of one dispatched prompt. At most one slot is free (no file, no editor); a free
+/// open slot is kept available while the set is below the cap.
+pub struct Attachments {
+    slots: Vec<Draft>,
+    prompt: Option<(Vec<Ticket>, SessionRequestId)>,
+    /// Manager-wide high-water marks. Each [`Draft`] owns its counters, so a fresh slot must
+    /// continue the shared sequence instead of restarting it; otherwise two slots would mint the
+    /// same ticket or editor stamp and a stale callback could address the wrong file.
+    upload_serial: u64,
+    editor_serial: u64,
+}
+impl Default for Attachments {
+    fn default() -> Self {
+        Self {
+            slots: vec![Draft::default()],
+            prompt: None,
+            upload_serial: 0,
+            editor_serial: 0,
+        }
+    }
+}
+impl fmt::Debug for Attachments {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Attachments { .. }")
+    }
+}
+impl Attachments {
+    fn free(slot: &Draft) -> bool {
+        slot.ticket().is_none()
+            && !slot.editor_open()
+            && !slot.pending()
+            && !slot.prompt_pending()
+    }
+    /// Occupied slots: every slot that owns a file identity, including a reading, rejected or
+    /// unknown one. The cap counts these, never the free open slot.
+    fn occupied(&self) -> usize {
+        self.slots
+            .iter()
+            .filter(|slot| slot.ticket().is_some())
+            .count()
+    }
+    fn open_index(&self) -> Option<usize> {
+        self.slots.iter().position(Self::free)
+    }
+    fn adopt_counters(&mut self) {
+        for slot in &self.slots {
+            self.upload_serial = self.upload_serial.max(slot.upload_serial);
+            self.editor_serial = self.editor_serial.max(slot.editor_serial);
+        }
+    }
+    fn fresh_slot(&self) -> Draft {
+        Draft {
+            upload_serial: self.upload_serial,
+            editor_serial: self.editor_serial,
+            ..Draft::default()
+        }
+    }
+    /// Keep exactly one free open slot available without exceeding the cap.
+    fn ensure_open_slot(&mut self) {
+        self.adopt_counters();
+        if self.slots.len() < MAX_ATTACHMENTS && self.open_index().is_none() {
+            let slot = self.fresh_slot();
+            self.slots.push(slot);
+        }
+    }
+    /// Collapse surplus free slots to one, preserving every slot that still holds a file or an
+    /// unsettled reservation, then restore the open slot.
+    fn normalize(&mut self) {
+        let mut normalized = Vec::with_capacity(self.slots.len());
+        let mut kept_free = false;
+        for slot in std::mem::take(&mut self.slots) {
+            if Self::free(&slot) {
+                if kept_free {
+                    continue;
+                }
+                kept_free = true;
+            }
+            normalized.push(slot);
+        }
+        self.slots = normalized;
+        self.ensure_open_slot();
+    }
+    fn editor_index(&self) -> Option<usize> {
+        self.slots.iter().position(Draft::editor_open)
+    }
+    /// Every ready attachment in slot order; the UI list and the prompt set use it.
+    pub fn attachments(&self) -> Vec<(&Ticket, &Metadata)> {
+        self.slots.iter().filter_map(Draft::ready).collect()
+    }
+    /// Occupied slots that are not ready, as `(ticket, metadata, reading)` for display only.
+    pub fn active(&self) -> Vec<(&Ticket, Option<&Metadata>, bool)> {
+        self.slots
+            .iter()
+            .filter(|slot| slot.ready().is_none())
+            .filter_map(|slot| {
+                slot.ticket()
+                    .map(|ticket| (ticket, slot.metadata(), slot.reading()))
+            })
+            .collect()
+    }
+    pub fn open(&mut self, c: &Context) -> bool {
+        if self.pending() || self.prompt_pending() || self.at_capacity() {
+            return false;
+        }
+        let Some(index) = self.open_index() else {
+            return false;
+        };
+        let opened = self.slots[index].open(c);
+        self.adopt_counters();
+        opened
+    }
+    pub fn editor(&self) -> Option<(EditorStamp, &str)> {
+        self.slots.iter().find_map(Draft::editor)
+    }
+    pub fn editor_open(&self) -> bool {
+        self.editor_index().is_some()
+    }
+    pub fn edit(&mut self, stamp: EditorStamp, text: String, c: &Context) -> bool {
+        let edited = match self.editor_index() {
+            Some(index) => self.slots[index].edit(stamp, text, c),
+            None => false,
+        };
+        self.adopt_counters();
+        edited
+    }
+    pub fn stage(&mut self, stamp: EditorStamp, c: &Context) -> Option<Submission> {
+        if self.pending() || self.prompt_pending() || self.at_capacity() {
+            return None;
+        }
+        let index = self.editor_index()?;
+        let submission = self.slots[index].stage(stamp, c);
+        self.adopt_counters();
+        submission
+    }
+    pub fn cancel_editor(&mut self, stamp: EditorStamp, c: &Context) -> bool {
+        let Some(index) = self.editor_index() else {
+            return false;
+        };
+        let canceled = self.slots[index].cancel_editor(stamp, c);
+        if canceled {
+            self.normalize();
+        }
+        canceled
+    }
+    /// Settle the exact reading slot, then make the open slot available again.
+    pub fn complete(&mut self, ticket: &Ticket, outcome: Outcome, c: &Context) {
+        for slot in &mut self.slots {
+            slot.complete(ticket, outcome.clone(), c);
+        }
+        self.normalize();
+    }
+    /// Remove only the named slot's file and restore the free open slot.
+    pub fn remove(&mut self, ticket: &Ticket, c: &Context) -> Option<Ticket> {
+        let index = self
+            .slots
+            .iter()
+            .position(|slot| slot.ticket() == Some(ticket))?;
+        let removed = self.slots[index].remove(c)?;
+        self.slots.remove(index);
+        self.normalize();
+        Some(removed)
+    }
+    /// Revoke visibility on every slot; each slot keeps its own reservations until its callback.
+    pub fn invalidate(&mut self) {
+        for slot in &mut self.slots {
+            slot.invalidate();
+        }
+    }
+    pub fn disconnect(&mut self) {
+        for slot in &mut self.slots {
+            slot.disconnect();
+        }
+        self.prompt = None;
+    }
+    pub fn has_file(&self, c: &Context) -> bool {
+        self.slots.iter().any(|slot| slot.has_file(c))
+    }
+    /// Any occupied slot that is rejected or unknown blocks send, exactly as one slot did.
+    pub fn can_send(&self, c: &Context) -> bool {
+        !self.editor_open()
+            && !self.pending()
+            && !self.prompt_pending()
+            && self.slots.iter().all(|slot| slot.can_send(c))
+    }
+    /// Display-only convenience accessors; the multi-file truth is [`Self::attachments`].
+    pub fn ticket(&self) -> Option<&Ticket> {
+        self.slots.iter().find_map(Draft::ticket)
+    }
+    /// Display-only convenience accessor; the multi-file truth is [`Self::attachments`].
+    #[allow(dead_code)]
+    pub fn metadata(&self) -> Option<&Metadata> {
+        self.slots.iter().find_map(Draft::metadata)
+    }
+    pub fn ready(&self) -> Option<(&Ticket, &Metadata)> {
+        self.slots.iter().find_map(Draft::ready)
+    }
+    /// Every ready ticket in slot order; the same set [`Self::begin_prompt`] returns.
+    pub fn tickets(&self) -> Vec<Ticket> {
+        self.attachments()
+            .into_iter()
+            .map(|(ticket, _)| ticket.clone())
+            .collect()
+    }
+    /// Metadata for every occupied slot, including an in-flight prompt; display/validation only.
+    pub fn metadata_all(&self) -> Vec<Metadata> {
+        self.slots
+            .iter()
+            .filter_map(Draft::metadata)
+            .cloned()
+            .collect()
+    }
+    pub fn owns(&self, ticket: &Ticket) -> bool {
+        self.slots.iter().any(|slot| slot.ticket() == Some(ticket))
+    }
+    pub fn pending(&self) -> bool {
+        self.slots.iter().any(Draft::pending)
+    }
+    /// Display-only convenience accessor; the multi-file truth is [`Self::active`].
+    #[allow(dead_code)]
+    pub fn reading(&self) -> bool {
+        self.slots.iter().any(Draft::reading)
+    }
+    pub fn prompt_pending(&self) -> bool {
+        self.slots.iter().any(Draft::prompt_pending) || self.prompt.is_some()
+    }
+    pub fn notice(&self) -> Option<&'static str> {
+        self.slots.iter().find_map(Draft::notice)
+    }
+    pub fn at_capacity(&self) -> bool {
+        self.occupied() >= MAX_ATTACHMENTS
+    }
+    pub fn count(&self) -> usize {
+        self.occupied()
+    }
+    /// Bind one explicit prompt attempt over every ready file. Requires at least one ready file,
+    /// no pending read and no prompt already in flight; the returned set is exactly the tickets
+    /// the worker must settle.
+    pub fn begin_prompt(&mut self, c: &Context, request_id: SessionRequestId) -> Option<Vec<Ticket>> {
+        if !self.can_send(c) || !self.has_file(c) || self.pending() || self.prompt_pending() {
+            return None;
+        }
+        let mut tickets = Vec::new();
+        for slot in self.slots.iter_mut().filter(|slot| slot.ready().is_some()) {
+            let ticket = slot.begin_prompt(c, request_id.clone())?;
+            tickets.push(ticket);
+        }
+        if tickets.is_empty() {
+            return None;
+        }
+        self.prompt = Some((tickets.clone(), request_id));
+        Some(tickets)
+    }
+    pub fn prompt_complete(
+        &mut self,
+        ticket: &Ticket,
+        request_id: &SessionRequestId,
+        outcome: PromptOutcome,
+        c: &Context,
+    ) {
+        for slot in &mut self.slots {
+            slot.prompt_complete(ticket, request_id, outcome, c);
+        }
+        self.retire_settled_prompt();
+        self.normalize();
+    }
+    pub fn reconcile_prompt(
+        &mut self,
+        ticket: &Ticket,
+        request_id: &SessionRequestId,
+        accepted: bool,
+        c: &Context,
+    ) {
+        for slot in &mut self.slots {
+            slot.reconcile_prompt(ticket, request_id, accepted, c);
+        }
+        self.retire_settled_prompt();
+        self.normalize();
+    }
+    /// The remembered set retires only once no slot still reserves a prompt callback.
+    fn retire_settled_prompt(&mut self) {
+        if !self.slots.iter().any(Draft::prompt_pending) {
+            self.prompt = None;
+        }
     }
 }
 
@@ -898,5 +1189,118 @@ mod tests {
             draft.complete(&fresh, Outcome::Staged(metadata()), &next);
             assert_eq!(draft.ready().unwrap().0, &fresh);
         }
+    }
+
+    fn ready_files(files: &mut Attachments, c: &Context, count: usize) -> Vec<Ticket> {
+        let mut tickets = Vec::new();
+        for _ in 0..count {
+            assert!(files.open(c));
+            let stamp = files.editor().unwrap().0;
+            assert!(files.edit(stamp, "/not-required-to-exist/file.bin".into(), c));
+            let stamp = files.editor().unwrap().0;
+            let ticket = files.stage(stamp, c).unwrap().ticket;
+            files.complete(&ticket, Outcome::Staged(metadata()), c);
+            tickets.push(ticket);
+        }
+        tickets
+    }
+    fn forged_stamp() -> EditorStamp {
+        EditorStamp {
+            opening: 0,
+            serial: 0,
+            epoch: 0,
+            generation: 0,
+        }
+    }
+
+    #[test]
+    fn two_ready_files_bind_one_exactly_two_ticket_prompt() {
+        let c = context();
+        let mut files = Attachments::default();
+        let tickets = ready_files(&mut files, &c, 2);
+        assert_eq!(files.attachments().len(), 2);
+        assert_eq!(files.tickets(), tickets);
+        // Slots must not restart the shared serial sequence and mint equal tickets.
+        assert_ne!(tickets[0].serial, tickets[1].serial);
+        assert!(!files.at_capacity());
+        let held = files.begin_prompt(&c, request()).unwrap();
+        assert_eq!(held, tickets);
+        assert!(files.prompt_pending());
+        assert!(!files.can_send(&c));
+        assert!(files.attachments().is_empty());
+        // The whole set settles one ticket at a time; ownership clears only after the last one.
+        files.prompt_complete(&held[0], &request(), PromptOutcome::Accepted, &c);
+        assert!(files.prompt_pending());
+        assert!(files.active().iter().any(|(ticket, _, _)| *ticket == &held[1]));
+        files.prompt_complete(&held[1], &request(), PromptOutcome::Accepted, &c);
+        assert!(!files.prompt_pending());
+        assert!(!files.pending());
+        assert_eq!(files.count(), 0);
+    }
+
+    #[test]
+    fn capacity_refuses_a_fifth_attachment() {
+        let c = context();
+        let mut files = Attachments::default();
+        ready_files(&mut files, &c, MAX_ATTACHMENTS);
+        assert_eq!(files.count(), MAX_ATTACHMENTS);
+        assert!(files.at_capacity());
+        // The cap consumes the open slot, so no fifth editor or stage can start.
+        assert!(!files.open(&c));
+        assert!(!files.editor_open());
+        assert!(files.stage(forged_stamp(), &c).is_none());
+        assert_eq!(files.tickets().len(), MAX_ATTACHMENTS);
+    }
+
+    #[test]
+    fn remove_releases_only_the_named_slot_and_keeps_the_rest_sendable() {
+        let c = context();
+        let mut files = Attachments::default();
+        let tickets = ready_files(&mut files, &c, 3);
+        assert_eq!(files.remove(&tickets[1], &c), Some(tickets[1].clone()));
+        assert_eq!(files.attachments().len(), 2);
+        assert!(files.owns(&tickets[0]) && files.owns(&tickets[2]));
+        assert!(!files.owns(&tickets[1]));
+        assert!(files.can_send(&c) && files.has_file(&c));
+        assert!(files.remove(&tickets[1], &c).is_none());
+        let held = files.begin_prompt(&c, request()).unwrap();
+        assert_eq!(held, vec![tickets[0].clone(), tickets[2].clone()]);
+    }
+
+    #[test]
+    fn pending_prompt_blocks_staging_and_sending() {
+        let c = context();
+        let mut files = Attachments::default();
+        let tickets = ready_files(&mut files, &c, 1);
+        let held = files.begin_prompt(&c, request()).unwrap();
+        assert_eq!(held, tickets);
+        assert!(!files.can_send(&c));
+        assert!(!files.open(&c));
+        assert!(!files.at_capacity());
+        assert!(files.stage(forged_stamp(), &c).is_none());
+        assert!(files.begin_prompt(&c, request()).is_none());
+    }
+
+    #[test]
+    fn notice_surfaces_a_rejected_slot_and_removal_restores_send() {
+        let c = context();
+        let mut files = Attachments::default();
+        assert!(files.open(&c));
+        let stamp = files.editor().unwrap().0;
+        assert!(files.edit(stamp, "/rejected/file.bin".into(), &c));
+        let stamp = files.editor().unwrap().0;
+        let ticket = files.stage(stamp, &c).unwrap().ticket;
+        files.complete(&ticket, Outcome::NotSent, &c);
+        assert!(files.attachments().is_empty());
+        assert_eq!(files.active().len(), 1);
+        assert!(files.notice().is_some_and(|notice| notice.contains("not sent")));
+        assert!(!files.can_send(&c));
+        assert!(!files.at_capacity());
+        assert!(files.open(&c), "an explicit repick slot stays available");
+        files.cancel_editor(files.editor().unwrap().0, &c);
+        assert_eq!(files.remove(&ticket, &c), Some(ticket));
+        assert!(files.notice().is_none());
+        assert!(files.can_send(&c));
+        assert_eq!(files.count(), 0);
     }
 }

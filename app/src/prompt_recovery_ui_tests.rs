@@ -106,13 +106,13 @@ fn file_unknown_keeps_exact_owner_and_positive_read_clears_only_original_file_no
     let file = upload(&mut app, &mut rx);
     app.editor = text_editor::Content::with_text("PUBLIC file original");
     drop(app.update(Message::Send));
-    let Command::PromptFile { ticket, request } = rx.try_recv().unwrap() else {
+    let Command::PromptFile { tickets, request } = rx.try_recv().unwrap() else {
         panic!()
     };
-    assert_eq!(ticket, file);
+    assert_eq!(tickets, vec![file]);
     let owner = app.pending.ticket().unwrap();
     drop(app.receive(Event::FilePrompt {
-        ticket: ticket.clone(),
+        tickets: tickets.clone(),
         request_id: request.request_id,
         outcome: worker::attachments::PromptOutcome::Unknown,
     }));

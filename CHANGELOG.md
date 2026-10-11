@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- [Multiple attachments](<docs/NATIVE-ATTACHMENT-UX.md>): up to four files at 4 MiB each are owned at once, each with its own review, upload and Remove, and one Send binds every ready file into a single prompt whose exact ticket set the worker releases on settlement. A bounded manager reuses the unchanged per-file draft machine and continues its serial high-water marks, so a second file can never mint a duplicate ticket or editor stamp. Wire-verified by unit tests; a rendered multi-file frame and a live two-file Host run are not yet qualified.
+
 ## 2026.10.10-r2 — Native Linux development release
 
 October 10, 2026, America/Chicago. Second calendar release of the day; collects the Cloudflare, sidebar, chat-polish, clipboard and quality-gate work landed after `2026.10.10-r1`. [Release checks and limits](<RELEASES/2026.10.10-r2.md>).

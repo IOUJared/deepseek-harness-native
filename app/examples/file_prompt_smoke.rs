@@ -256,12 +256,13 @@ async fn file_prompt_result(
         let event = next(feed).await?;
         observe(&event, report)?;
         if let Event::FilePrompt {
-            ticket: returned,
+            tickets: returned,
             request_id,
             outcome,
         } = event
         {
-            if returned != *ticket || request_id != *id || outcome != expected {
+            if returned.len() != 1 || &returned[0] != ticket || request_id != *id || outcome != expected
+            {
                 return Err("file-prompt-result-invalid");
             }
             return Ok(());
@@ -415,7 +416,7 @@ async fn exercise(
         let id = body.request_id.clone();
         handle
             .send(Command::PromptFile {
-                ticket: ticket.clone(),
+                tickets: vec![ticket.clone()],
                 request: body,
             })
             .map_err(|_| "file-prompt-not-queued")?;
@@ -443,7 +444,7 @@ async fn exercise(
         let replay_id = replay.request_id.clone();
         handle
             .send(Command::PromptFile {
-                ticket: ticket.clone(),
+                tickets: vec![ticket.clone()],
                 request: replay,
             })
             .map_err(|_| "replay-not-queued")?;

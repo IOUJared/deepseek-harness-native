@@ -744,7 +744,7 @@ impl Fixture {
         };
         if self
             .handle
-            .send(worker::Command::PromptFile { ticket, request })
+            .send(worker::Command::PromptFile { tickets: vec![ticket], request })
             .is_err()
         {
             return self.stop(Some("probe-queue-not-admitted"));
@@ -973,16 +973,16 @@ impl Fixture {
                         Task::batch([task, self.ready(index)])
                     }
                     worker::Event::FilePrompt {
-                        ticket,
+                        tickets,
                         request_id,
                         outcome,
                     } if self.phase != Phase::Stopping => match self.phase {
                         Phase::Probe(index, kind) => {
-                            if self.ticket.as_ref() != Some(ticket)
+                            if self.ticket.as_ref() != tickets.first()
                                 || request_id.as_str()
                                     != format!("PUBLIC_native_rejected_{}_{}", index + 1, kind)
                                 || *outcome != PromptOutcome::NotSent
-                                || ui::ready_ticket(&self.app).as_ref() != Some(ticket)
+                                || ui::ready_ticket(&self.app).as_ref() != tickets.first()
                                 || !ui::send_ready(&self.app)
                                 || ui::composer_text(&self.app)
                                     != if index == 1 { "" } else { TEXT }
@@ -1000,7 +1000,7 @@ impl Fixture {
                             ])
                         }
                         Phase::Sent(_)
-                            if self.ticket.as_ref() == Some(ticket)
+                            if self.ticket.as_ref() == tickets.first()
                                 && self.request.as_ref() == Some(request_id)
                                 && *outcome == PromptOutcome::Accepted
                                 && !self.ack =>

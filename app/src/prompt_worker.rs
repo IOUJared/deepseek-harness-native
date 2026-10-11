@@ -61,10 +61,9 @@ impl Coordinator {
                 generation,
                 request,
             } => Some(ticket(*generation, request)),
-            Command::PromptFile {
-                ticket: attachment,
-                request,
-            } => Some(ticket(attachment.generation, request)),
+            Command::PromptFile { tickets, request } => tickets
+                .first()
+                .map(|attachment| ticket(attachment.generation, request)),
             _ => None,
         };
         submission
@@ -122,13 +121,15 @@ impl Coordinator {
                 self.check = None;
             }
             Event::FilePrompt {
-                ticket,
+                tickets,
                 request_id,
                 outcome,
-            } if self.owned_ticket().is_some_and(|t| {
-                t.generation == ticket.generation
-                    && t.session == ticket.target
-                    && &t.request_id == request_id
+            } if tickets.first().is_some_and(|ticket| {
+                self.owned_ticket().is_some_and(|t| {
+                    t.generation == ticket.generation
+                        && t.session == ticket.target
+                        && &t.request_id == request_id
+                })
             }) =>
             {
                 if matches!(

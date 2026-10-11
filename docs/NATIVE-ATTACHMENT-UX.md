@@ -1,8 +1,8 @@
 # Native attachment selection
 
-**Attach** opens an in-window Iced file picker over an inactive, dimmed conversation. Browse folders, go Up/Home, toggle hidden entries or enter an absolute folder. **Enter a file path instead** keeps the existing path editor; Cancel dismisses an empty selection. Only one attachment is owned at a time.
+**Attach** opens an in-window Iced file picker over an inactive, dimmed conversation. Browse folders, go Up/Home, toggle hidden entries or enter an absolute folder. **Enter a file path instead** keeps the existing path editor; Cancel dismisses an empty selection. Up to **4 files × 4 MiB each** are owned at a time. The picker and path editor operate on the one open slot, so each new file gets its own review before Upload; Attach shows the live `n/4` count and is disabled at the cap.
 
-Selection stays local: review the path, click **Upload**, then **Send**. Choosing a file does not upload or prompt. Removing/canceling after upload revokes local authority, not stored Host bytes. Unknown upload/Send results retain the existing explicit-reconciliation restrictions.
+Selection stays local: review the path, click **Upload**, then **Send**. Choosing a file does not upload or prompt. Ready files render as a compact chip row, each with its own Remove. Removing/canceling after upload revokes local authority, not stored Host bytes. Unknown upload/Send results retain the existing explicit-reconciliation restrictions. One Send binds every ready file into one prompt; the worker releases that exact ticket set on settlement.
 
 ## Local work
 
@@ -14,7 +14,7 @@ Selection stays local: review the path, click **Upload**, then **Send**. Choosin
 
 ## Drag-and-drop
 
-The App's drop admission validates the native window and current session/lifecycle/modal authority before creating a local review. It rejects replacement of an existing draft/receipt and never uploads automatically. A [pinned winit patch](<../app/vendor/README.md>) produces the standard Iced drop event on the existing owned Wayland queue; unpatched 0.30.13 does not support it.
+The App's drop admission validates the native window and current session/lifecycle/modal authority before creating a local review. It rejects replacement of existing local work while a selection/upload/prompt is in flight or once the 4-file cap is reached, and never uploads automatically. A drop with a ready file and an open slot adds a separate review slot instead of replacing the staged receipt. A [pinned winit patch](<../app/vendor/README.md>) produces the standard Iced drop event on the existing owned Wayland queue; unpatched 0.30.13 does not support it.
 
 Only one local `file:///` URI is accepted, never a remote URL or a partially validated list. Transfer limits: 64 KiB/64 scanned URI lines, 4,096 decoded path bytes, eight seat/offer sessions, 8 KiB per dispatch and an absolute three-second drop deadline. COPY is the only negotiated action; no MOVE/source deletion. Seat/window removal, replacement, pre-drop leave, malformed input, failed reads and timeout retire owned pipe/timer/offer state. A dropped leave may finish its already-admitted transfer; stale callbacks cannot publish into a removed window. Failed admitted drops publish standard cancellation feedback, shown as a generic visible message with an Attach fallback; successful delivery does not also report failure. This adds no borrowed-display sidecar or I/O thread. Arbitrary compositor metadata retained by SCTK is outside these payload bounds.
 
