@@ -228,6 +228,7 @@ const server = http.createServer(async (request, response) => {
   const output = { type: 'server-response', rpcId: mode === 'wrong-rpc' ? 'wrong' : envelope.rpcId, result: { ok: true, ...(value === undefined ? {} : { value }) } };
   if (mode === 'missing-available') delete output.result.value.items[0].agentAvailable;
   if (envelope.method === 'settings/mutate' && ['plugin-conflict', 'plugin-rejected', 'plugin-postcommit'].includes(mode)) output.result = { ok: false, error: { code: mode === 'plugin-conflict' ? 'settings/conflict' : mode === 'plugin-rejected' ? 'settings/rejected' : 'gateway/internal', message: 'PRIVATE_PLUGIN_SENTINEL', details: {} } };
+  if (mode === 'commands-context-missing' && envelope.method === 'commands/list') output.result = { ok: false, error: { code: 'gateway/context-not-found', message: 'PRIVATE_CONTEXT_SENTINEL', details: {} } };
   if (mode === 'fork-unavailable') output.result = { ok: false, error: { code: 'session/fork-unavailable', message: 'PRIVATE_FORK_SENTINEL', details: {} } };
   if (mode === 'fork-attach-failed') output.result = { ok: false, error: { code: 'session/workspace-attach-failed', message: 'PRIVATE_FORK_SENTINEL', details: {} } };
   if (mode === 'failure') output.result = { ok: false, error: { code: 'fixture/rejected', message: 'SECRET_SENTINEL_opaque_url_cookie', details: {} } };

@@ -28,6 +28,9 @@ mod export_worker_tests;
 #[cfg(test)]
 #[path = "plugin_worker_tests.rs"]
 mod plugin_worker_tests;
+#[cfg(test)]
+#[path = "mcp_worker_tests.rs"]
+mod mcp_worker_tests;
 use codex_worker::{CodexCoordinator, codex_ticket, execute_codex};
 #[path = "attachments.rs"]
 pub(crate) mod attachments;
@@ -78,6 +81,10 @@ pub enum Command {
     TerminalCreate(crate::terminal::CreateSubmission),
     TerminalClose(crate::terminal::CloseSubmission),
     TerminalWrite(crate::terminal::WriteSubmission),
+    /// Read the app-owned MCP patch file and the live Host MCP inventory.
+    McpRead(crate::mcp::ReadTicket),
+    /// Replace the app-owned MCP patch file. Shares the single management flight.
+    McpWrite(crate::mcp::Submission),
     KeyMetadata(crate::settings::Ticket),
     SaveKey {
         ticket: crate::settings::Ticket,
@@ -199,6 +206,19 @@ pub enum Event {
     TerminalWritten {
         submission: crate::terminal::WriteSubmission,
         result: Result<(), crate::terminal::WriteFailure>,
+    },
+    /// One answer to [`Command::McpRead`]: the app-owned document and the
+    /// Host's live MCP inventory. There is no failure type: the local read and
+    /// the inventory read each report their own reason.
+    McpLoaded {
+        ticket: crate::mcp::ReadTicket,
+        loaded: crate::mcp::Loaded,
+    },
+    /// One answer to [`Command::McpWrite`]. `NotSent` is a refusal before any
+    /// file operation; `Indeterminate` may already have replaced the file.
+    McpWritten {
+        submission: crate::mcp::Submission,
+        outcome: crate::mcp::WriteOutcome,
     },
     KeyMetadata {
         ticket: crate::settings::Ticket,
@@ -790,6 +810,16 @@ fn rejected(command: Command) -> Event {
             submission,
             result: Err(crate::terminal::WriteFailure::NotSent),
         },
+        Command::McpRead(ticket) => Event::McpLoaded {
+            ticket,
+            loaded: crate::mcp::Loaded::refused(
+                "The native worker refused the MCP read before it ran.",
+            ),
+        },
+        Command::McpWrite(submission) => Event::McpWritten {
+            submission,
+            outcome: crate::mcp::WriteOutcome::NotSent,
+        },
         Command::Shutdown => Event::Fault(error),
     }
 }
@@ -1047,10 +1077,11 @@ fn settle_management(active: &mut Option<crate::management::Submission>, event: 
     }
 }
 /// Reserve one title rename without activating an Agent. Exactly one session-management
-/// write (registry mutation, rename, fork or export) may be in flight.
-/// The one single-flight gate the management, rename, fork and export
-/// operations share. Grouping it states that each operation excludes the others
-/// and that all four obey the same smoke, shutdown and in-flight limits.
+/// write (registry mutation, rename, fork, terminal, MCP composition or export)
+/// may be in flight.
+/// The one single-flight gate the management, rename, fork, terminal, MCP and
+/// export operations share. Grouping it states that each operation excludes the
+/// others and that all obey the same smoke, shutdown and in-flight limits.
 struct Admission {
     smoke: bool,
     stopping: bool,
@@ -1060,6 +1091,7 @@ struct Admission {
     peer_rename: bool,
     peer_fork: bool,
     peer_export: bool,
+    peer_mcp: bool,
 }
 
 impl Admission {
@@ -1072,6 +1104,7 @@ impl Admission {
             || self.peer_rename
             || self.peer_fork
             || self.peer_export
+            || self.peer_mcp
             || self.operations >= MAX_OPERATIONS
     }
 }
@@ -1120,6 +1153,9 @@ pub enum CommandListFailure {
     MethodMissing,
     /// The Host answered with something this build cannot read.
     Unreadable,
+    /// The gateway could not resolve the session's context, so nothing is
+    /// advertised for it. A different defect from an unreadable reply.
+    ContextMissing,
     /// Authentication, transport or correlation failed.
     Unreachable,
 }
@@ -1129,6 +1165,9 @@ impl CommandListFailure {
         use dsh_native_transport::Error as E;
         match error {
             E::HttpStatus(404) => Self::MethodMissing,
+            E::RemoteCode("gateway/context-not-found" | "gateway/context-unavailable") => {
+                Self::ContextMissing
+            }
             E::InvalidJson | E::InvalidDto => Self::Unreadable,
             _ => Self::Unreachable,
         }
@@ -1141,9 +1180,11 @@ impl CommandListFailure {
             dsh_native_transport::Error::HttpStatus(status) => format!("http {status}"),
             other => other.code().to_owned(),
         };
+        // `RemoteCode` already *is* the Host's code, so it is reported verbatim.
         let reason = match self {
             Self::MethodMissing => "this Host does not expose the command list",
             Self::Unreadable => "the Host's command list could not be read",
+            Self::ContextMissing => "this session has no agent context the Host can read",
             Self::Unreachable => "no command list from the Host",
         };
         format!("{reason} ({code}); slash completion is unavailable")
@@ -1371,6 +1412,69 @@ fn settle_terminal_write(active: &mut Option<crate::terminal::WriteReceipt>, eve
         *active = None;
     }
 }
+/// Reserve the app-owned MCP composition write, which shares the single
+/// management flight: it may not run beside a registry mutation, rename, fork,
+/// terminal operation or export, and it obeys the same smoke, shutdown and
+/// in-flight limits.
+fn admit_mcp(
+    active: &mut Option<crate::mcp::WriteTicket>,
+    ticket: &crate::mcp::WriteTicket,
+    smoke: bool,
+    stopping: bool,
+    operations: usize,
+    other_active: bool,
+) -> bool {
+    if smoke
+        || stopping
+        || other_active
+        || active.is_some()
+        || operations >= MAX_OPERATIONS
+        || ticket.epoch != TRANSPORT_EPOCH
+    {
+        return false;
+    }
+    *active = Some(*ticket);
+    true
+}
+fn settle_mcp(active: &mut Option<crate::mcp::WriteTicket>, event: &Event) {
+    if let Event::McpWritten { submission, .. } = event
+        && active.as_ref() == Some(&submission.ticket)
+    {
+        *active = None;
+    }
+}
+/// Read the app-owned patch file locally and the Host's MCP inventory over the
+/// transport. The inventory is advisory: a failed read still returns the file.
+async fn read_mcp(
+    client: dsh_native_transport::NativeClient,
+    home: std::path::PathBuf,
+    ticket: crate::mcp::ReadTicket,
+) -> Event {
+    let (inventory, inventory_read) = match client.plugin_inventory().await {
+        Ok(snapshot) => (crate::mcp::inventory(&snapshot.entries), true),
+        Err(_) => (Vec::new(), false),
+    };
+    Event::McpLoaded {
+        ticket,
+        loaded: crate::mcp::load(&home, inventory, inventory_read),
+    }
+}
+/// Replace the app-owned patch file. Blocking file work runs off the async
+/// runtime and returns its own submission, so the receipt is never inferred.
+async fn write_mcp(home: std::path::PathBuf, submission: crate::mcp::Submission) -> Event {
+    let joined = tokio::task::spawn_blocking(move || {
+        let outcome = crate::mcp::commit(&home, submission.ticket.expected, &submission.entries);
+        (submission, outcome)
+    })
+    .await;
+    match joined {
+        Ok((submission, outcome)) => Event::McpWritten {
+            submission,
+            outcome,
+        },
+        Err(_) => Event::Fault("Native MCP composition worker failed".into()),
+    }
+}
 async fn manage(
     client: dsh_native_transport::NativeClient,
     submission: crate::management::Submission,
@@ -1412,6 +1516,7 @@ struct ExportAdmission<'a> {
     rename_active: bool,
     fork_active: bool,
     terminal_active: bool,
+    mcp_active: bool,
 }
 fn operation_count(tasks: usize, export_active: bool) -> usize {
     tasks.saturating_add(usize::from(export_active))
@@ -1441,6 +1546,7 @@ fn admit_export(
         || context.rename_active
         || context.fork_active
         || context.terminal_active
+        || context.mcp_active
     {
         return false;
     }
@@ -1546,6 +1652,9 @@ async fn run(
     mut closing: watch::Receiver<bool>,
     smoke: bool,
 ) {
+    // The private native home is the only location the MCP panel may rewrite, and
+    // Core consumes `options` below, so the path is captured here.
+    let mcp_home = options.native_home.clone();
     if *closing.borrow() || events.is_closed() {
         let _ = publish(&events, Event::NoBackendStarted);
         return;
@@ -1668,6 +1777,7 @@ async fn run(
     let mut rename_active: Option<crate::rename::Submission> = None;
     let mut fork_active: Option<crate::fork::Submission> = None;
     let mut terminal_active: Option<TerminalFlight> = None;
+    let mut mcp_active: Option<crate::mcp::WriteTicket> = None;
     let mut terminal_write_active: Option<crate::terminal::WriteReceipt> = None;
     let mut terminal: Option<NativeStream<dsh_native_transport::terminal::TerminalFrame>> = None;
     let mut terminal_ticket: Option<crate::terminal::FollowTicket> = None;
@@ -1814,7 +1924,7 @@ async fn run(
                         if admit_export(&mut export_active,&receipt,ExportAdmission {
                             smoke,stopping:*closing.borrow() || events.is_closed(),
                             operations:tasks.len(),generation,target:selected_target.as_ref(),
-                            key_saving:key_saving.is_some()||cloudflare.busy()||codex.busy(),plugins_active:plugins_active.is_some(),management_active:management_active.is_some(),rename_active:rename_active.is_some(),fork_active:fork_active.is_some(),terminal_active:terminal_active.is_some(),
+                            key_saving:key_saving.is_some()||cloudflare.busy()||codex.busy(),plugins_active:plugins_active.is_some(),management_active:management_active.is_some(),rename_active:rename_active.is_some(),fork_active:fork_active.is_some(),terminal_active:terminal_active.is_some(),mcp_active:mcp_active.is_some(),
                         }) {
                             export_download=Some(tokio::spawn(download_export(client.clone(),destination,receipt.ticket.target.clone())));
                         } else {
@@ -1836,7 +1946,7 @@ async fn run(
                         continue;
                     },
                     Command::Manage(submission)=>{
-                        if terminal_active.is_none() && rename_active.is_none() && fork_active.is_none() && admit_management_without_export(&mut management_active,&submission,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),export_active.is_some()) {
+                        if terminal_active.is_none() && rename_active.is_none() && fork_active.is_none() && mcp_active.is_none() && admit_management_without_export(&mut management_active,&submission,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),export_active.is_some()) {
                             tasks.spawn(manage(client.clone(),submission));
                         } else if !publish(&events,Event::Managed{submission,result:Err(())}) {
                             break Some("Native UI delivery queue overflow".into());
@@ -1844,7 +1954,7 @@ async fn run(
                         continue;
                     },
                     Command::Rename(submission)=>{
-                        if terminal_active.is_none() && admit_rename(&mut rename_active,&submission,&Admission{smoke,stopping:*closing.borrow(),operations:operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),management_active:management_active.is_some(),peer_rename:false,peer_fork:fork_active.is_some(),peer_export:export_active.is_some()}) {
+                        if terminal_active.is_none() && mcp_active.is_none() && admit_rename(&mut rename_active,&submission,&Admission{smoke,stopping:*closing.borrow(),operations:operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),management_active:management_active.is_some(),peer_rename:false,peer_fork:fork_active.is_some(),peer_export:export_active.is_some(),peer_mcp:false}) {
                             tasks.spawn(rename(client.clone(),submission));
                         } else if !publish(&events,Event::Renamed{submission,result:Err(())}) {
                             break Some("Native UI delivery queue overflow".into());
@@ -1852,7 +1962,7 @@ async fn run(
                         continue;
                     },
                     Command::Fork(submission)=>{
-                        if terminal_active.is_none() && admit_fork(&mut fork_active,&submission,&Admission{smoke,stopping:*closing.borrow(),operations:operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),management_active:management_active.is_some(),peer_rename:rename_active.is_some(),peer_fork:false,peer_export:export_active.is_some()}) {
+                        if terminal_active.is_none() && mcp_active.is_none() && admit_fork(&mut fork_active,&submission,&Admission{smoke,stopping:*closing.borrow(),operations:operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),management_active:management_active.is_some(),peer_rename:rename_active.is_some(),peer_fork:false,peer_export:export_active.is_some(),peer_mcp:false}) {
                             tasks.spawn(fork(client.clone(),submission));
                         } else if !publish(&events,Event::Forked{submission,result:Err(crate::fork::Failure::Unknown)}) {
                             break Some("Native UI delivery queue overflow".into());
@@ -1896,7 +2006,7 @@ async fn run(
                     },
                     Command::TerminalCreate(submission)=>{
                         let flight=TerminalFlight::Create(submission.clone());
-                        let other_active=management_active.is_some()||rename_active.is_some()||fork_active.is_some()||export_active.is_some();
+                        let other_active=management_active.is_some()||rename_active.is_some()||fork_active.is_some()||export_active.is_some()||mcp_active.is_some();
                         if submission.receipt.ticket.epoch==TRANSPORT_EPOCH && admit_terminal(&mut terminal_active,&flight,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),other_active) {
                             tasks.spawn(terminal_create(client.clone(),submission));
                         } else if !publish(&events,Event::TerminalCreated{submission,result:Err(crate::terminal::CreateFailure::NotSent)}) {
@@ -1906,7 +2016,7 @@ async fn run(
                     },
                     Command::TerminalClose(submission)=>{
                         let flight=TerminalFlight::Close(submission.clone());
-                        let other_active=management_active.is_some()||rename_active.is_some()||fork_active.is_some()||export_active.is_some();
+                        let other_active=management_active.is_some()||rename_active.is_some()||fork_active.is_some()||export_active.is_some()||mcp_active.is_some();
                         if submission.receipt.ticket.epoch==TRANSPORT_EPOCH && admit_terminal(&mut terminal_active,&flight,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),other_active) {
                             tasks.spawn(terminal_close(client.clone(),submission));
                         } else if !publish(&events,Event::TerminalClosed{submission,result:Err(crate::terminal::CloseFailure::NotSent)}) {
@@ -1920,11 +2030,27 @@ async fn run(
                             && submission.receipt.ticket.epoch==TRANSPORT_EPOCH
                             && terminal_write_active.is_none()
                             && terminal_active.is_none()
+                            && mcp_active.is_none()
                             && operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some())<MAX_OPERATIONS;
                         if enabled {
                             terminal_write_active=Some(submission.receipt.clone());
                             tasks.spawn(terminal_write(client.clone(),submission));
                         } else if !publish(&events,Event::TerminalWritten{submission,result:Err(crate::terminal::WriteFailure::NotSent)}) {
+                            break Some("Native UI delivery queue overflow".into());
+                        }
+                        continue;
+                    },
+                    Command::McpRead(ticket)=>{
+                        // A local file read plus a read-only inventory call; it
+                        // reserves no management flight and mutates nothing.
+                        tasks.spawn(read_mcp(client.clone(),mcp_home.clone(),ticket));
+                        continue;
+                    },
+                    Command::McpWrite(submission)=>{
+                        let other_active=terminal_active.is_some()||management_active.is_some()||rename_active.is_some()||fork_active.is_some()||export_active.is_some();
+                        if admit_mcp(&mut mcp_active,&submission.ticket,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),other_active) {
+                            tasks.spawn(write_mcp(mcp_home.clone(),submission));
+                        } else if !publish(&events,Event::McpWritten{submission,outcome:crate::mcp::WriteOutcome::NotSent}) {
                             break Some("Native UI delivery queue overflow".into());
                         }
                         continue;
@@ -1972,7 +2098,7 @@ async fn run(
                     Command::Page{generation,request}=>Event::Page{generation,result:client.session_page(request).await.map_err(|e|format!("History page: {e}"))},
                     Command::CommandsList(session_id)=>Event::CommandsListed{session_id:session_id.clone(),result:client.commands_list(&session_id).await.map_err(|error|CommandListFailureOutcome::Failed{kind:CommandListFailure::of(&error),error})},
                     Command::CommandsExecute{session_id,line}=>Event::CommandsExecuted{session_id:session_id.clone(),line:line.clone(),result:client.commands_execute(&CommandExecuteRequest{session_id:session_id.clone(),line,submitted_attachments:Vec::new()}).await.map_err(|_|())},
-                    Command::Cloudflare(_)|Command::PromptFile{..}|Command::StageFile(_)|Command::DiscardFile(_)|Command::Codex(_)|Command::Export(_)|Command::PluginsRead(_)|Command::PluginSave{..}|Command::Manage(_)|Command::Rename(_)|Command::Fork(_)|Command::TerminalRead(_)|Command::TerminalFollow(_)|Command::TerminalCreate(_)|Command::TerminalClose(_)|Command::TerminalWrite(_)|Command::KeyMetadata(_)|Command::SaveKey{..}|Command::Inspect|Command::Shutdown|Command::Select{..}=>Event::Fault("Invalid native command state".into()),
+                    Command::Cloudflare(_)|Command::PromptFile{..}|Command::StageFile(_)|Command::DiscardFile(_)|Command::Codex(_)|Command::Export(_)|Command::PluginsRead(_)|Command::PluginSave{..}|Command::Manage(_)|Command::Rename(_)|Command::Fork(_)|Command::TerminalRead(_)|Command::TerminalFollow(_)|Command::TerminalCreate(_)|Command::TerminalClose(_)|Command::TerminalWrite(_)|Command::McpRead(_)|Command::McpWrite(_)|Command::KeyMetadata(_)|Command::SaveKey{..}|Command::Inspect|Command::Shutdown|Command::Select{..}=>Event::Fault("Invalid native command state".into()),
                 }});
             }
             event=next_root(&mut root),if root.is_some()=>match event {
@@ -2044,7 +2170,7 @@ async fn run(
                 }
             },
             stopped=stop_tasks.join_next(),if !stop_tasks.is_empty()=>if let Some(result)=stopped {match result {Ok(event)=>{submissions.settle(&event);if !publish(&events,event){break Some("Native UI delivery queue overflow".into());}},Err(_)=>break Some("Reserved Stop worker failed".into())}},
-            task=tasks.join_next(),if !tasks.is_empty()=>if let Some(task)=task {match task {Ok(event)=>{submissions.settle(&event);if let Event::FilePrompt{tickets,request_id,..}=&event&& !tickets.iter().any(|ticket| files.settle_prompt(ticket,request_id)) {break Some("Native file prompt ownership lost".into());}if let Event::DecisionResult{submission,result}=&event{decisions.settle(submission,result.is_ok());if result.is_ok(){live_decisions.retain(|key|key!=&submission.key);}}if let Event::CodexCompleted{ticket,outcome}=&event{codex.settle(*ticket,outcome.clone());}if let Event::CloudflareCompleted{ticket,outcome}=&event{cloudflare.settle(*ticket,outcome);cloudflare_worker::dispatch_cancel(&mut cloudflare,&backend,&mut tasks);}settle_plugin(&mut plugins_active,&event);settle_management(&mut management_active,&event);settle_rename(&mut rename_active,&event);settle_fork(&mut fork_active,&event);settle_terminal(&mut terminal_active,&event);settle_terminal_write(&mut terminal_write_active,&event);if let Event::KeySaved{ticket,..}=&event&& key_saving==Some(*ticket){key_saving=None;}if !publish(&events,event){break Some("Native UI delivery queue overflow".into());}},Err(_)=>break Some("Native operation worker failed".into())}},
+            task=tasks.join_next(),if !tasks.is_empty()=>if let Some(task)=task {match task {Ok(event)=>{submissions.settle(&event);if let Event::FilePrompt{tickets,request_id,..}=&event&& !tickets.iter().any(|ticket| files.settle_prompt(ticket,request_id)) {break Some("Native file prompt ownership lost".into());}if let Event::DecisionResult{submission,result}=&event{decisions.settle(submission,result.is_ok());if result.is_ok(){live_decisions.retain(|key|key!=&submission.key);}}if let Event::CodexCompleted{ticket,outcome}=&event{codex.settle(*ticket,outcome.clone());}if let Event::CloudflareCompleted{ticket,outcome}=&event{cloudflare.settle(*ticket,outcome);cloudflare_worker::dispatch_cancel(&mut cloudflare,&backend,&mut tasks);}settle_plugin(&mut plugins_active,&event);settle_management(&mut management_active,&event);settle_rename(&mut rename_active,&event);settle_fork(&mut fork_active,&event);settle_terminal(&mut terminal_active,&event);settle_terminal_write(&mut terminal_write_active,&event);settle_mcp(&mut mcp_active,&event);if let Event::KeySaved{ticket,..}=&event&& key_saving==Some(*ticket){key_saving=None;}if !publish(&events,event){break Some("Native UI delivery queue overflow".into());}},Err(_)=>break Some("Native operation worker failed".into())}},
         }
     };
     // Revoke private control authority and request owned stop before awaiting
@@ -2625,7 +2751,8 @@ mod tests {
                     management_active: management,
                     peer_rename: false,
                     peer_fork: fork,
-                    peer_export: export
+                    peer_export: export,
+                    peer_mcp: false
                 }
             ));
             assert!(active.is_none());
@@ -2641,7 +2768,8 @@ mod tests {
                 management_active: false,
                 peer_rename: false,
                 peer_fork: false,
-                peer_export: false
+                peer_export: false,
+                    peer_mcp: false
             }
         ));
         assert_eq!(active.as_ref(), Some(&submission));
@@ -2659,7 +2787,8 @@ mod tests {
                 management_active: false,
                 peer_rename: false,
                 peer_fork: false,
-                peer_export: false
+                peer_export: false,
+                    peer_mcp: false
             }
         ));
         assert_eq!(active.as_ref(), Some(&submission));
@@ -2723,7 +2852,8 @@ mod tests {
                     management_active: false,
                     peer_rename: false,
                     peer_fork: false,
-                    peer_export: false
+                    peer_export: false,
+                    peer_mcp: false
                 }
             ));
             settle_rename(
@@ -2810,7 +2940,8 @@ mod tests {
                     management_active: management,
                     peer_rename: rename,
                     peer_fork: false,
-                    peer_export: export
+                    peer_export: export,
+                    peer_mcp: false
                 }
             ));
             assert!(active.is_none());
@@ -2826,7 +2957,8 @@ mod tests {
                 management_active: false,
                 peer_rename: false,
                 peer_fork: false,
-                peer_export: false
+                peer_export: false,
+                    peer_mcp: false
             }
         ));
         assert_eq!(active.as_ref(), Some(&submission));
@@ -2844,7 +2976,8 @@ mod tests {
                 management_active: false,
                 peer_rename: false,
                 peer_fork: false,
-                peer_export: false
+                peer_export: false,
+                    peer_mcp: false
             }
         ));
         assert_eq!(active.as_ref(), Some(&submission));
@@ -2902,7 +3035,8 @@ mod tests {
                     management_active: false,
                     peer_rename: false,
                     peer_fork: false,
-                    peer_export: false
+                    peer_export: false,
+                    peer_mcp: false
                 }
             ));
             settle_fork(

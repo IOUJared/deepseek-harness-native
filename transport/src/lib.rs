@@ -32,6 +32,11 @@ pub enum Error {
     InvalidDto,
     Correlation,
     RemoteFailure,
+    /// One of the Host's own error codes, recognized because it identifies a
+    /// refusal this app must distinguish. The message is still dropped: a provider
+    /// message can quote configuration or a rejected secret, but a code is the
+    /// diagnostic that names the cause.
+    RemoteCode(&'static str),
     SettingsConflict,
     SettingsRejected,
     /// The Host refused a fork before creating a child: no completed turn (or no such `atSeq`).
@@ -73,6 +78,7 @@ impl Error {
             Self::InvalidDto => "invalid-dto",
             Self::Correlation => "correlation",
             Self::RemoteFailure => "remote-failure",
+            Self::RemoteCode(code) => code,
             Self::SettingsConflict => "settings-conflict",
             Self::SettingsRejected => "settings-rejected",
             Self::ForkUnavailable => "fork-unavailable",

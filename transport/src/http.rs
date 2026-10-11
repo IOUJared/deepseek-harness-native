@@ -471,6 +471,25 @@ impl NativeClient {
                             Endpoint::TerminalWrite | Endpoint::TerminalResize,
                             Some("terminal/control-unavailable"),
                         ) => Error::TerminalControlUnavailable,
+                        // The gateway's own context codes name a cause this app
+                        // must tell apart: a request for a session whose context
+                        // the gateway cannot resolve is a different defect from an
+                        // unreadable reply, and only the code distinguishes them.
+                        (_, Some("gateway/context-not-found")) => {
+                            Error::RemoteCode("gateway/context-not-found")
+                        }
+                        (_, Some("gateway/context-unavailable")) => {
+                            Error::RemoteCode("gateway/context-unavailable")
+                        }
+                        (_, Some("gateway/context-failed")) => {
+                            Error::RemoteCode("gateway/context-failed")
+                        }
+                        (_, Some("gateway/arguments-invalid")) => {
+                            Error::RemoteCode("gateway/arguments-invalid")
+                        }
+                        (_, Some("gateway/definition-unavailable")) => {
+                            Error::RemoteCode("gateway/definition-unavailable")
+                        }
                         _ => Error::RemoteFailure,
                     },
                 )

@@ -2043,3 +2043,27 @@ async fn commands_execute_refuses_a_blank_or_oversized_line_before_any_write() {
         ));
     }
 }
+
+#[tokio::test]
+async fn a_gateway_context_refusal_keeps_its_code_and_no_message() {
+    // The gateway's own refusal for a session whose context it cannot resolve is a
+    // different defect from an unreadable reply, so its code survives -- while the
+    // message, which can quote configuration or a secret, does not.
+    let mut fixture = NodeHostFixture::start("commands-context-missing").await;
+    let client = fixture.connect(Limits::default()).await.unwrap();
+    let error = client
+        .commands_list(&SessionId::new("session / opaque:%").unwrap())
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error,
+        Error::RemoteCode("gateway/context-not-found"),
+        "the gateway's code must be the diagnosis"
+    );
+    assert_eq!(error.code(), "gateway/context-not-found");
+    let shown = format!("{error:?}{error}");
+    assert!(
+        !shown.contains("PRIVATE_CONTEXT_SENTINEL"),
+        "the Host's message must never be retained or shown: {shown}"
+    );
+}
