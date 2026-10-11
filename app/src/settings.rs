@@ -343,19 +343,26 @@ impl Settings {
         let context = self.codex_context(enabled);
         self.codex.continue_connection(context)
     }
+    /// The Codex panel's own ticket, for the composed examples and the tests that
+    /// drive it; the panel mints its tickets from the live context internally.
     #[allow(dead_code)]
     pub(crate) fn codex_ticket(&self) -> crate::codex::Ticket {
         self.codex.ticket()
     }
+    /// The reviewed-or-draft Codex callback ticket, read by the composed Codex
+    /// example and the tests.
     #[allow(dead_code)]
     pub(crate) fn codex_draft_ticket(&self) -> Option<crate::codex::DraftTicket> {
         self.codex.draft_ticket()
     }
-    /// Nonsecret view tickets; every action remains subject to panel and backend guards.
+    /// Nonsecret view tickets; every action remains subject to panel and backend
+    /// guards. The layout fixture and the composed dialog example read them.
     #[allow(dead_code)]
     pub(crate) fn plugin_read_ticket(&self) -> crate::plugins::ReadTicket {
         self.plugins.read_ticket()
     }
+    /// The reviewed plugin-field ticket, read by the composed dialog example and
+    /// the tests.
     #[allow(dead_code)]
     pub(crate) fn plugin_draft_ticket(&self) -> Option<crate::plugins::DraftTicket> {
         self.plugins.draft_ticket()

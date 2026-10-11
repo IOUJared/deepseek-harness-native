@@ -590,21 +590,15 @@ impl Attachments {
     pub fn ticket(&self) -> Option<&Ticket> {
         self.slots.iter().find_map(Draft::ticket)
     }
-    /// Display-only convenience accessor; the multi-file truth is [`Self::attachments`].
-    #[allow(dead_code)]
-    pub fn metadata(&self) -> Option<&Metadata> {
-        self.slots.iter().find_map(Draft::metadata)
-    }
-    /// Slot-order ready receipt for the caller's display model; the send path
-    /// reads the full ticket set directly.
+    /// Slot-order ready receipt. The composer reads its own slot state directly;
+    /// the fixture's `fileDraftReady` report, the file tests and the composed
+    /// file example are the consumers.
     #[allow(dead_code)]
     pub fn ready(&self) -> Option<(&Ticket, &Metadata)> {
         self.slots.iter().find_map(Draft::ready)
     }
     /// Every ready ticket in slot order; the same set [`Self::begin_prompt`] returns.
-    /// Every ready ticket in slot order, for a caller that needs the whole
-    /// set; the send path reads them from the prompt it begins.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn tickets(&self) -> Vec<Ticket> {
         self.attachments()
             .into_iter()
@@ -624,11 +618,6 @@ impl Attachments {
     }
     pub fn pending(&self) -> bool {
         self.slots.iter().any(Draft::pending)
-    }
-    /// Display-only convenience accessor; the multi-file truth is [`Self::active`].
-    #[allow(dead_code)]
-    pub fn reading(&self) -> bool {
-        self.slots.iter().any(Draft::reading)
     }
     pub fn prompt_pending(&self) -> bool {
         self.slots.iter().any(Draft::prompt_pending) || self.prompt.is_some()

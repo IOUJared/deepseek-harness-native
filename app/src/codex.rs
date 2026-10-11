@@ -213,8 +213,8 @@ pub enum Outcome {
     Metadata(CodexMetadata),
     Confirmed,
     Refused,
-    // Reserved for a future exact Core conflict classification; Core currently reports uncertainty.
-    #[allow(dead_code)]
+    /// Core refused the mutation with its own epoch conflict; `codex_worker` maps
+    /// `Error::CodexEpochConflict` onto this rather than reporting uncertainty.
     Conflict,
     Indeterminate,
     NotSent,
@@ -421,8 +421,10 @@ impl Controller {
             .or_else(|| self.usage.ticket())
             .or_else(|| self.runtime.ticket())
     }
-    /// Permission gate for future usage consumers; no usage execution is connected.
-    #[allow(dead_code)]
+    /// The quota consent gate. No native surface queries quota yet, so only the
+    /// tests that pin the opt-out semantics call it; the first real consumer must
+    /// use this gate rather than the persisted preference alone.
+    #[cfg(test)]
     pub fn effective_consent(&self) -> bool {
         self.usage.effective_consent()
     }

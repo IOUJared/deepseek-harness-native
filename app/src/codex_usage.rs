@@ -15,8 +15,9 @@ pub enum Action {
     Save,
     Composer(CodexComposerDisplay),
     Alert(CodexUsageAlert),
-    /// Reserved for an alert-threshold edit once the Host exposes one; the
-    /// native surface rejects it today.
+    /// The alert threshold this reducer can hold. No native control edits it yet,
+    /// so the shipping binary never constructs it; the composed usage example and
+    /// the reducer tests drive the validation below.
     #[allow(dead_code)]
     Threshold(String),
     Retry(bool),
@@ -153,8 +154,11 @@ impl Usage {
             .and_then(|v| CodexRemainingPercent::new(v).ok())
             .is_some()
     }
-    /// Future consumers must use this gate, not persisted experimental_quota alone.
-    /// This permission does not start a CLI, quota query, notification or retry.
+    /// The quota consent gate: fresh, unrevoked, acknowledged and opted in locally
+    /// as well as on the Host. No native surface queries quota yet, so only this
+    /// module's tests call it; the first real consumer must use this gate rather
+    /// than the persisted preference alone. It starts no CLI, query or retry.
+    #[cfg(test)]
     pub(super) fn effective_consent(&self) -> bool {
         self.fresh
             && !self.revoked

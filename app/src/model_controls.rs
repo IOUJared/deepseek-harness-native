@@ -85,12 +85,13 @@ impl State {
         self.open.is_some()
     }
     /// Presentation-only acknowledgement stamp; the mutation path keeps its own.
+    /// The layout fixture and this module's tests read it.
     #[allow(dead_code)]
     pub(super) fn stamp(&self) -> Option<Stamp> {
         self.open
     }
     /// Which anchored submenu is open, for presentation that needs the section
-    /// rather than only the open state.
+    /// rather than only the open state. The layout fixture reports it.
     #[allow(dead_code)]
     pub(super) fn section(&self) -> Option<Section> {
         self.section

@@ -150,8 +150,9 @@ mod working_status;
 mod working_ui_tests;
 #[derive(Clone)]
 pub enum Message {
-    /// Reserved for an explicit file-open action; selection and drop currently
-    /// route through [`Self::FileChoose`] and the picker.
+    /// An explicit file-open action. No native control publishes it: the composer
+    /// offers [`Self::FileChoose`], and drops route through the picker. The
+    /// composed file example and the tests drive the handler.
     #[allow(dead_code)]
     FileOpen,
     FileChoose,
