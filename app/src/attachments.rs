@@ -42,7 +42,7 @@ pub enum PromptOutcome {
 }
 #[derive(Clone, PartialEq, Eq)]
 struct PromptOwner {
-    ticket: Ticket,
+    tickets: Vec<Ticket>,
     request_id: SessionRequestId,
 }
 pub(super) enum Failure {
@@ -61,16 +61,35 @@ struct Staged {
     ticket: Ticket,
     value: FileUploadValue,
 }
+/// Bounded staged set: one active read/upload closure, at most this many private receipts.
+/// Four 4 MiB files is the documented attachment bound; admission refuses beyond it.
+pub(super) const MAX_STAGED: usize = 4;
 #[derive(Default)]
 pub(super) struct Coordinator {
     active: Option<Operation>,
-    staged: Option<Staged>,
+    staged: Vec<Staged>,
     prompt: Option<PromptOwner>,
     last_serial: u64,
 }
 impl Coordinator {
     pub fn busy(&self) -> bool {
         self.active.is_some()
+    }
+    /// Private staged receipts for the caller's own display model; never exposed to the GUI as bytes.
+    pub fn staged_tickets(&self) -> impl Iterator<Item = &Ticket> {
+        self.staged.iter().map(|staged| &staged.ticket)
+    }
+    pub fn staged_metadata(&self, ticket: &Ticket) -> Option<Metadata> {
+        self.staged
+            .iter()
+            .find(|staged| &staged.ticket == ticket)
+            .map(|staged| Metadata {
+                name: staged.value.file.name.clone(),
+                bytes: staged.value.file.bytes,
+            })
+    }
+    pub fn staged_count(&self) -> usize {
+        self.staged.len()
     }
     /// Rejected/stale/replayed work performs no filesystem or network operation.
     pub fn admit(
@@ -83,7 +102,8 @@ impl Coordinator {
     ) -> Option<watch::Receiver<bool>> {
         if !enabled
             || self.active.is_some()
-            || self.staged.is_some()
+            || self.staged.len() >= MAX_STAGED
+            || self.staged.iter().any(|staged| &staged.ticket == ticket)
             || self.prompt.is_some()
             || ticket.epoch != epoch
             || ticket.generation != generation
@@ -101,10 +121,12 @@ impl Coordinator {
         });
         Some(receiver)
     }
-    /// Bind private authority to one explicit attempt. A failed/abandoned RPC never restores the receipt.
+    /// Bind private authority to one explicit attempt over the whole staged set. The caller must name
+    /// exactly the staged files: a stray or missing receipt refuses the prompt without consuming it.
+    /// A failed/abandoned RPC never restores the receipts.
     pub fn prepare_prompt(
         &mut self,
-        ticket: &Ticket,
+        tickets: &[Ticket],
         mut request: SessionPromptRequest,
         epoch: u64,
         generation: u64,
@@ -118,29 +140,44 @@ impl Coordinator {
                 PromptContentPart::Text { text } => total.checked_add(text.len()),
                 _ => None,
             });
+        let complete = !tickets.is_empty()
+            && tickets.len() == self.staged.len()
+            && tickets
+                .iter()
+                .all(|ticket| self.staged.iter().any(|staged| &staged.ticket == ticket));
         if !enabled
             || self.active.is_some()
             || self.prompt.is_some()
-            || ticket.epoch != epoch
-            || ticket.generation != generation
-            || Some(&ticket.target) != target
-            || request.session_id != ticket.target
+            || tickets.iter().any(|ticket| {
+                ticket.epoch != epoch
+                    || ticket.generation != generation
+                    || Some(&ticket.target) != target
+            })
+            || tickets
+                .first()
+                .is_none_or(|first| request.session_id != first.target)
             || !matches!(request.mode, PromptMode::Queue)
-            || request.content.len() > 8
+            || request.content.len() + tickets.len() > 8
             || bytes.is_none_or(|bytes| bytes > 32 * 1024)
-            || !self
-                .staged
-                .as_ref()
-                .is_some_and(|staged| &staged.ticket == ticket)
+            || !complete
         {
             return Err(());
         }
-        let staged = self.staged.take().unwrap();
-        request.content.push(PromptContentPart::File {
-            receipt_id: staged.value.receipt_id,
-        });
+        for ticket in tickets {
+            if let Some(index) = self
+                .staged
+                .iter()
+                .position(|staged| &staged.ticket == ticket)
+            {
+                let staged = self.staged.remove(index);
+                request.content.push(PromptContentPart::File {
+                    receipt_id: staged.value.receipt_id,
+                });
+            }
+        }
+        self.staged.clear();
         self.prompt = Some(PromptOwner {
-            ticket: ticket.clone(),
+            tickets: tickets.to_vec(),
             request_id: request.request_id.clone(),
         });
         Ok(request)
@@ -150,7 +187,7 @@ impl Coordinator {
         if self
             .prompt
             .as_ref()
-            .is_some_and(|owner| &owner.ticket == ticket && &owner.request_id == request_id)
+            .is_some_and(|owner| owner.request_id == *request_id && owner.tickets.contains(ticket))
         {
             self.prompt = None;
             true
@@ -163,7 +200,7 @@ impl Coordinator {
         if let Some(active) = &self.active {
             active.cancellation.send_replace(true);
         }
-        self.staged = None;
+        self.staged.clear();
     }
     pub fn discard(&mut self, ticket: &Ticket) {
         if self.active.as_ref().is_some_and(|op| &op.ticket == ticket) {
@@ -173,13 +210,7 @@ impl Coordinator {
                 .cancellation
                 .send_replace(true);
         }
-        if self
-            .staged
-            .as_ref()
-            .is_some_and(|staged| &staged.ticket == ticket)
-        {
-            self.staged = None;
-        }
+        self.staged.retain(|staged| &staged.ticket != ticket);
     }
     pub fn settle(
         &mut self,
@@ -203,11 +234,14 @@ impl Coordinator {
             Err(Failure::Read(error)) => Outcome::ReadRejected(error),
             Err(Failure::Upload) => Outcome::Unknown,
             Ok(value) if current => {
+                if self.staged.len() >= MAX_STAGED {
+                    return Outcome::Unknown;
+                }
                 let metadata = Metadata {
                     name: value.file.name.clone(),
                     bytes: value.file.bytes,
                 };
-                self.staged = Some(Staged {
+                self.staged.push(Staged {
                     ticket: completion.ticket,
                     value,
                 });
@@ -252,16 +286,30 @@ mod tests {
     fn prompt_private_receipt_is_inserted_once_without_frontend_receipt_input() {
         let (mut owner, t) = staged_owner();
         let body = owner
-            .prepare_prompt(&t, request(), 1, 3, Some(&t.target), true)
+            .prepare_prompt(
+                std::slice::from_ref(&t),
+                request(),
+                1,
+                3,
+                Some(&t.target),
+                true,
+            )
             .unwrap();
         assert_eq!(body.content.len(), 2);
         assert!(
             matches!(&body.content[1],PromptContentPart::File{receipt_id} if receipt_id.as_str()=="PUBLIC_PRIVATE_RECEIPT")
         );
-        assert!(owner.staged.is_none());
+        assert!(owner.staged.is_empty());
         assert!(
             owner
-                .prepare_prompt(&t, request(), 1, 3, Some(&t.target), true)
+                .prepare_prompt(
+                    std::slice::from_ref(&t),
+                    request(),
+                    1,
+                    3,
+                    Some(&t.target),
+                    true
+                )
                 .is_err()
         );
     }
@@ -297,10 +345,17 @@ mod tests {
             }
             assert!(
                 owner
-                    .prepare_prompt(&t, request, epoch, generation, selected.as_ref(), enabled)
+                    .prepare_prompt(
+                        std::slice::from_ref(&t),
+                        request,
+                        epoch,
+                        generation,
+                        selected.as_ref(),
+                        enabled
+                    )
                     .is_err()
             );
-            assert!(owner.staged.is_some());
+            assert!(!owner.staged.is_empty());
             assert!(owner.prompt.is_none());
         }
     }
@@ -311,7 +366,7 @@ mod tests {
         let body = request();
         let id = body.request_id.clone();
         owner
-            .prepare_prompt(&t, body, 1, 3, Some(&t.target), true)
+            .prepare_prompt(std::slice::from_ref(&t), body, 1, 3, Some(&t.target), true)
             .unwrap();
         owner.invalidate();
         owner.discard(&t);
@@ -324,10 +379,17 @@ mod tests {
         assert!(!owner.settle_prompt(&t, &SessionRequestId::new("PUBLIC_other_request").unwrap()));
         assert!(owner.settle_prompt(&t, &id));
         assert!(!owner.settle_prompt(&t, &id));
-        assert!(owner.staged.is_none());
+        assert!(owner.staged.is_empty());
         assert!(
             owner
-                .prepare_prompt(&t, request(), 1, 3, Some(&t.target), true)
+                .prepare_prompt(
+                    std::slice::from_ref(&t),
+                    request(),
+                    1,
+                    3,
+                    Some(&t.target),
+                    true
+                )
                 .is_err()
         );
         assert!(
@@ -342,7 +404,14 @@ mod tests {
         let mut request = request();
         request.content.clear();
         let request = owner
-            .prepare_prompt(&t, request, 1, 3, Some(&t.target), true)
+            .prepare_prompt(
+                std::slice::from_ref(&t),
+                request,
+                1,
+                3,
+                Some(&t.target),
+                true,
+            )
             .unwrap();
         assert!(matches!(
             request.content.as_slice(),
@@ -419,7 +488,7 @@ mod tests {
             Outcome::Unknown
         );
         assert!(!owner.busy());
-        assert!(owner.staged.is_none());
+        assert!(owner.staged.is_empty());
     }
     #[test]
     fn actual_selection_checks_reject_wrong_generation_or_target_after_success() {
@@ -435,7 +504,7 @@ mod tests {
                 owner.settle(completion(&t), epoch, generation, target),
                 Outcome::Unknown
             );
-            assert!(owner.staged.is_none());
+            assert!(owner.staged.is_empty());
         }
     }
     #[test]
@@ -470,19 +539,103 @@ mod tests {
             })
         );
         assert!(!format!("{outcome:?}").contains("PRIVATE_RECEIPT"));
-        assert!(
-            owner
-                .admit(&ticket(2), 1, 3, Some(&t.target), true)
-                .is_none()
+        // A second file may join the staged set; the first receipt is neither sent nor replaced.
+        let second = ticket(2);
+        let _receiver = admit(&mut owner, &second);
+        assert_eq!(owner.staged_count(), 1);
+        assert!(matches!(
+            owner.settle(completion(&second), 1, 3, Some(&second.target)),
+            Outcome::Staged(_)
+        ));
+        assert_eq!(owner.staged_count(), 2);
+        owner.discard(&second);
+        assert_eq!(
+            owner.staged_count(),
+            1,
+            "discard released another file's receipt"
         );
-        owner.discard(&ticket(2));
-        assert!(owner.staged.is_some());
+        assert!(
+            owner.admit(&t, 1, 3, Some(&t.target), true).is_none(),
+            "a replayed serial must stay refused"
+        );
         owner.discard(&t);
-        assert!(owner.staged.is_none());
+        assert!(owner.staged.is_empty());
+        let third = ticket(3);
+        let _receiver = admit(&mut owner, &third);
+        assert_eq!(owner.staged_count(), 0);
+    }
+    #[test]
+    fn whole_staged_set_is_bound_into_one_prompt_with_one_file_part_each() {
+        let (mut owner, first) = staged_owner();
+        let second = ticket(2);
+        let _receiver = admit(&mut owner, &second);
+        assert!(matches!(
+            owner.settle(completion(&second), 1, 3, Some(&second.target)),
+            Outcome::Staged(_)
+        ));
+        assert_eq!(owner.staged_count(), 2);
+        let body = owner
+            .prepare_prompt(
+                &[first.clone(), second.clone()],
+                request(),
+                1,
+                3,
+                Some(&first.target),
+                true,
+            )
+            .expect("both staged receipts are owned");
+        assert_eq!(body.content.len(), 3);
+        assert!(matches!(body.content[0], PromptContentPart::Text { .. }));
+        assert!(
+            body.content[1..]
+                .iter()
+                .all(|part| matches!(part, PromptContentPart::File { .. }))
+        );
+        assert_eq!(owner.staged_count(), 0);
+        assert!(owner.settle_prompt(&second, &body.request_id));
+        assert!(!owner.settle_prompt(&second, &body.request_id));
+    }
+    #[test]
+    fn prompt_refuses_when_the_named_set_omits_a_staged_receipt() {
+        let (mut owner, first) = staged_owner();
+        let second = ticket(2);
+        let _receiver = admit(&mut owner, &second);
+        assert!(matches!(
+            owner.settle(completion(&second), 1, 3, Some(&second.target)),
+            Outcome::Staged(_)
+        ));
         assert!(
             owner
-                .admit(&ticket(2), 1, 3, Some(&t.target), true)
-                .is_some()
+                .prepare_prompt(
+                    std::slice::from_ref(&first),
+                    request(),
+                    1,
+                    3,
+                    Some(&first.target),
+                    true
+                )
+                .is_err(),
+            "a stray staged receipt must refuse the prompt instead of being dropped"
+        );
+        assert_eq!(owner.staged_count(), 2);
+    }
+    #[test]
+    fn staged_authority_is_bounded_and_refuses_beyond_the_documented_maximum() {
+        let mut owner = Coordinator::default();
+        for serial in 1..=MAX_STAGED as u64 {
+            let staged = ticket(serial);
+            let _receiver = admit(&mut owner, &staged);
+            assert!(matches!(
+                owner.settle(completion(&staged), 1, 3, Some(&staged.target)),
+                Outcome::Staged(_)
+            ));
+        }
+        assert_eq!(owner.staged_count(), MAX_STAGED);
+        let extra = ticket(MAX_STAGED as u64 + 1);
+        assert!(
+            owner
+                .admit(&extra, 1, 3, Some(&extra.target), true)
+                .is_none()
         );
     }
     #[test]
@@ -502,6 +655,6 @@ mod tests {
             ),
             Outcome::ReadRejected(crate::worker::file_intake::Failure::Canceled)
         );
-        assert!(owner.staged.is_none());
+        assert!(owner.staged.is_empty());
     }
 }

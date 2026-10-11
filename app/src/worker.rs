@@ -1080,7 +1080,7 @@ async fn run(
                         let enabled=!smoke && !*closing.borrow() && !events.is_closed();
                         let owner=prompt_worker::ticket(ticket.generation,&request);
                         if !submissions.admit(owner.clone(),generation,selected_file_target.as_ref(),enabled) {if !publish(&events,Event::FilePrompt{ticket,request_id,outcome:attachments::PromptOutcome::NotSent}){break Some("Native UI delivery queue overflow".into());}continue;}
-                        match files.prepare_prompt(&ticket,request,TRANSPORT_EPOCH,generation,selected_file_target.as_ref(),enabled) {
+                        match files.prepare_prompt(std::slice::from_ref(&ticket),request,TRANSPORT_EPOCH,generation,selected_file_target.as_ref(),enabled) {
                             Ok(request)=>{
                                 if !submissions.freeze(&owner,&request) {break Some("Original file prompt ownership lost before dispatch".into());}
                                 let client=client.clone();let mut prompt_closing=closing.clone();let prompt_events=events.clone();

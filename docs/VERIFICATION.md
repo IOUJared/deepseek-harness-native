@@ -42,6 +42,10 @@ Reports contain exact commands, outcomes, toolchain details and before/after sou
 
 The fake-wire suite needs the existing `transport/tests` dependencies and `/usr/bin/node`; CI prepares them. The runner does not replace Node or install npm dependencies. Existing tests own their isolated fixtures and cleanup.
 
+## Known test-isolation risk
+
+`ui::draft_store::sidebar_storage_tests` is intermittent under concurrent test execution. Observed 2026-10-10 on the r2 tree: two different tests (`absent_and_present_empty_are_semantically_equal_and_nonempty_absent_conflicts`, then `checked_save_retains_intra_operation_bytes_guard`) failed with `Failure::Busy` at high parallelism, each passed alone, and no failure reproduced in three runs at one thread and four runs at two threads. The cause is not root-caused; `app/.cargo/config.toml` pins `RUST_TEST_THREADS=2` to match this runner, but that is a mitigation, not a fix. Treat a `Busy` failure there as a known flake, not proof of a regression — and do not weaken the assertions to hide it.
+
 ## Real native drop (opt-in)
 
 Named gap: synthetic App messages and the existing headless Gamescope seat cannot establish actual `wl_data_device` transfer. [qualify-native-drop.py](<../scripts/qualify-native-drop.py>) reuses existing pidfd cleanup owners and `layout_smoke` with an explicit new PUBLIC file. It opens one private nested Hyprland window, disables libseat/systemd integration, isolates HOME/D-Bus/config/runtime, and injects software pointer events **only** into its verified inner socket. It does not reload desktop settings or start a Host.

@@ -1,2 +1,9 @@
 [build]
 jobs = 2
+
+# The lock/CAS tests in ui::draft_store are only stable at two test threads; higher
+# parallelism makes two different sidebar-storage tests fail intermittently (observed
+# 2026-10-10). Pin the documented setting so a bare `cargo test` matches
+# scripts/verify-native.py instead of failing for an unrelated reason.
+[env]
+RUST_TEST_THREADS = "2"
