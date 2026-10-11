@@ -122,7 +122,10 @@ fn shadowed_records(data: &Value) -> Option<String> {
     data["shadowedSeqs"]
         .as_array()
         .filter(|seqs| !seqs.is_empty())
-        .map(|seqs| format!("{} records", seqs.len()))
+        .map(|seqs| match seqs.len() {
+            1 => "1 record".to_owned(),
+            n => format!("{n} records"),
+        })
 }
 
 /// The logged shadow price is the host estimator's own number, not a count.
@@ -910,6 +913,61 @@ mod tests {
         assert!(closed.is_none());
     }
 
+    /// The recorded shape, not a consensus of my own assumptions.
+    ///
+    /// No session on this machine ever compacted, so the payload below is copied
+    /// field-for-field from a session the backend's own snapshot suite recorded
+    /// against a real summarization call
+    /// (`deepseek-harness-linux/snapshots/session/compaction-summary-headroom/session.v4.jsonl`).
+    /// If the backend's recorded event shape moves, this fails here rather than in
+    /// a user's session. `compaction/prune` has never been recorded: its shape is
+    /// pinned from the producer instead
+    /// (`compaction-tool-result-pruner/src/index.ts`, the append beside the
+    /// replacement `tool/result`).
+    #[test]
+    fn the_recorded_compaction_shape_labels_as_documented() {
+        let recorded_summary = json!({
+            "compactionId": "{{id:1}}",
+            "summary": [{"type": "text", "text": "The request established a durable compaction premise."}],
+            "rawOutput": [{"type": "text", "text": "The request established a durable compaction premise."}],
+            "llmStreamCall": true,
+            "shadowedRange": {"start": 8, "end": 9},
+            "shadowedSeqs": [8, 9],
+            "shadowedTokenCount": 375,
+            "provider": "deepseek-official",
+            "model": "deepseek-v4-flash",
+            "maxTokens": 1800,
+            "usage": {"inputTokens": 20, "outputTokens": 4}
+        });
+        let summary = label(&event(7, "compaction/summary", recorded_summary.clone()));
+        assert_eq!(summary.title, "Context summarized · seqs 8–9");
+        assert_eq!(summary.target.as_deref(), Some("~375 tokens reclaimed"));
+        assert!(!summary.failed);
+        // The recorded summary body stays in the record, never on the row.
+        assert!(!format!("{summary:?}").contains("durable compaction premise"));
+
+        // The recorded brackets carry only the transaction identity.
+        for (seq, kind) in [(6u64, "compaction/start"), (8, "compaction/end")] {
+            assert!(
+                summarize(
+                    &event(seq, kind, json!({"compactionId": "{{id:1}}", "turn": 1})),
+                    std::iter::empty()
+                )
+                .is_none(),
+                "{kind} must produce no row"
+            );
+        }
+
+        // The prune producer's shadow-price shape, which no recording contains.
+        let pruned = label(&event(
+            9,
+            "compaction/prune",
+            json!({"shadowedRange": {"start": 12, "end": 12}, "shadowedSeqs": [12],
+                "shadowedTokenCount": 375}),
+        ));
+        assert_eq!(pruned.title, "Context elided · 1 record → stubs");
+        assert_eq!(pruned.target.as_deref(), Some("~375 tokens reclaimed"));
+    }
     /// Absent, malformed and unbounded payloads degrade to a bounded label
     /// instead of a guessed count or a fabricated tier.
     #[test]

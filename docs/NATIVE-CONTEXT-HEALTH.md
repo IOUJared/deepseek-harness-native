@@ -138,6 +138,29 @@ was **2.8%** of the reported window against a compaction threshold of **80%**, a
 compaction, the loop guard and plan mode have no live evidence here: they have
 never occurred on this machine, not merely gone unobserved.
 
+The compaction rows are additionally pinned to a **recorded payload** rather than to
+my reading of the type declarations:
+`the_recorded_compaction_shape_labels_as_documented` carries the
+`compaction/summary` event field-for-field from a session the backend's own snapshot
+suite recorded against a real summarization call
+(`deepseek-harness-linux/snapshots/session/compaction-summary-headroom/session.v4.jsonl`),
+and asserts that it labels as `Context summarized · seqs 8–9` with `~375 tokens
+reclaimed`, that its summary body stays in the record, and that the recorded
+`compaction/start` and `compaction/end` brackets produce no row. If that shape
+moves, the test fails here instead of in a user's session.
+
+`compaction/prune` has never been recorded anywhere, so its shape is pinned from
+the producer instead (`compaction-tool-result-pruner/src/index.ts`, the append
+beside the replacement `tool/result`). It shares `shadowedRange`, `shadowedSeqs`
+and `shadowedTokenCount` with the summary event, which is why one parser reads both.
+
+**Plan mode cannot be entered from this app at all.** The native transport exposes
+no `commands/*` method, and commands execute through a dedicated surface
+(`remote.commands.execute`), not through a prompt: sending `/plan` as prompt text
+would be ordinary conversation. The indicator therefore only ever shows state a
+*host* set — the Web GUI or CLI on the same profile. Making it settable here is a
+transport addition, not a UI control.
+
 ## Not qualified
 
 - No live Host, provider or model produced these frames. `layout_smoke` renders
