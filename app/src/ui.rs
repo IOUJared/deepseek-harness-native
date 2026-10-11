@@ -2537,11 +2537,15 @@ impl App {
                             );
                         }
                         // A failed read offers nothing and is not remembered as an
-                        // answer, so the next command line asks again. It is also
-                        // reported: a silent dead end leaves the user with a slash
-                        // and no menu and nothing to act on.
+                        // answer. Clearing the in-flight flag is what makes the next
+                        // keystroke retry: a session whose context the gateway could
+                        // not resolve yet is readable once the session has activity,
+                        // and latching here would leave the menu permanently shut. The
+                        // failure is also reported, because a silent dead end leaves
+                        // the user nothing to act on.
                         Err(failure) => {
                             self.commands = None;
+                            self.commands_pending = false;
                             self.status = failure.message();
                         }
                     }

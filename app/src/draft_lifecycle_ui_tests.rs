@@ -293,3 +293,53 @@ fn the_host_reply_opens_the_menu_and_accepting_only_rewrites_the_draft() {
         "a foreign reply must not open the menu"
     );
 }
+
+/// A failed read must not latch: a session whose context the gateway cannot resolve
+/// yet becomes readable once it has activity, so the next keystroke has to retry.
+#[test]
+fn a_failed_advertisement_read_is_retried_by_the_next_keystroke() {
+    let (mut app, mut queue) = super::conversation_actions_ui_tests::app();
+    let session = app.selected.clone().unwrap();
+    edit(&mut app, "/");
+    let _ = queue.try_recv().expect("the first slash asks");
+    assert!(app.commands_pending);
+
+    drop(app.update(Message::Worker(Event::CommandsListed {
+        session_id: session,
+        result: Err(worker::CommandListFailureOutcome::Failed {
+            kind: worker::CommandListFailure::ContextMissing,
+            error: dsh_native_transport::Error::RemoteCode("gateway/context-not-found"),
+        }),
+    })));
+    assert!(
+        !app.commands_pending,
+        "a failed read must clear the in-flight flag, or nothing ever asks again"
+    );
+    assert!(app.commands.is_none());
+    assert!(
+        app.status.contains("gateway/context-not-found"),
+        "the failure names the Host's own code: {}",
+        app.status
+    );
+
+    // The next keystroke retries, and a reply this time opens the menu. `edit`
+    // appends, which is exactly what a retry is: one more character typed.
+    edit(&mut app, "p");
+    assert_eq!(app.editor.text(), "/p");
+    let Command::CommandsList(_) = queue.try_recv().expect("the next keystroke must ask again")
+    else {
+        panic!("the retry must be the advertisement read");
+    };
+    let session = app.selected.clone().unwrap();
+    drop(app.update(Message::Worker(Event::CommandsListed {
+        session_id: session,
+        result: Ok(vec![dsh_native_transport::dto::CommandDescriptor {
+            definition_id: None,
+            name: "plan".into(),
+            description: "Explore and design before executing".into(),
+        }]),
+    })));
+    let menu = app.completion().expect("the retry opened the menu");
+    assert_eq!(menu.matches.len(), 1);
+    assert_eq!(menu.matches[0].name, "plan");
+}
