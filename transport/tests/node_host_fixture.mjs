@@ -63,6 +63,12 @@ const server = http.createServer(async (request, response) => {
       ];
       if (mode === 'commands-slash-name') value[0].name = '/plan';
       if (mode === 'commands-blank-name') value[0].name = '';
+      // The real descriptor advertises an optional free-form input hint and may
+      // grow further fields; neither may cost the composer its menu.
+      if (mode === 'commands-extra-fields') {
+        value[0].input = { hint: 'what to plan' };
+        value[1].futureField = { anything: true };
+      }
       break;
     }
     case 'commands/execute': {

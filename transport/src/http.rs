@@ -535,13 +535,10 @@ impl NativeClient {
                 request_args(serde_json::json!({ "sessionId": session_id }))?,
             )
             .await?;
-        if value.len() > MAX_COMMANDS
-            || value.iter().any(|command| {
-                command.name.is_empty()
-                    || command.name.len() > 128
-                    || command.name.starts_with('/')
-                    || command.name.chars().any(char::is_whitespace)
-            })
+        // A bounded list of non-empty names. Nothing here may reject a command
+        // the Host actually offers: rejecting the list costs the user the whole
+        // menu, so only what cannot be addressed at all is refused.
+        if value.len() > MAX_COMMANDS || value.iter().any(|command| command.name.trim().is_empty())
         {
             return Err(Error::InvalidDto);
         }

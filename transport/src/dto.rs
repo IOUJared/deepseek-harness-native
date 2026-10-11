@@ -122,8 +122,14 @@ pub struct CommandExecuteRequest {
     pub submitted_attachments: Vec<Value>,
 }
 /// Host-advertised command metadata. `name` is lowercase and carries no slash.
+///
+/// Unknown fields are **ignored**, not rejected. The Host's descriptor is a
+/// plugin-owned shape under active development, and a command that advertises an
+/// optional free-form `input` hint — precisely the case where completion matters
+/// most — must not fail the whole list. Rejecting one unrecognized field cost the
+/// composer its entire menu once already.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct CommandDescriptor {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub definition_id: Option<String>,

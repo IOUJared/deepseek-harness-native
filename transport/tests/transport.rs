@@ -1870,12 +1870,26 @@ fn command_dtos_use_exact_object_fields_and_reject_extra_authority() {
     assert_eq!(parsed[0].name, "plan");
     assert!(parsed[0].definition_id.is_none());
     assert_eq!(parsed[1].definition_id.as_deref(), Some("PUBLIC-def"));
+    // A plugin-owned descriptor may grow fields this build does not know -- the
+    // real one already advertises an optional `input` hint. Ignoring them keeps
+    // the command list arriving; rejecting one cost the composer its menu.
     for field in ["handler", "run", "input", "authority"] {
         let mut extra = descriptors.clone();
         extra[0][field] = json!("PUBLIC");
+        let parsed = serde_json::from_value::<Vec<CommandDescriptor>>(extra)
+            .unwrap_or_else(|_| panic!("{field} must be ignored, not rejected"));
+        assert_eq!(parsed[0].name, "plan");
+    }
+    // The identifier fields stay strict: a descriptor whose name is missing or
+    // not a string is not a descriptor.
+    for malformed in [
+        json!([{"description": "no name"}]),
+        json!([{"name": 7, "description": "wrong type"}]),
+        json!([{"name": "plan"}]),
+    ] {
         assert!(
-            serde_json::from_value::<Vec<CommandDescriptor>>(extra).is_err(),
-            "{field} must not be accepted"
+            serde_json::from_value::<Vec<CommandDescriptor>>(malformed.clone()).is_err(),
+            "{malformed} must be refused"
         );
     }
     // A success may omit its text; an error must carry one, because the app shows
@@ -1985,20 +1999,30 @@ async fn commands_execute_reports_the_hosts_own_failure_and_refuses_a_blank_one(
 }
 
 #[tokio::test]
-async fn commands_list_refuses_a_descriptor_this_app_cannot_address() {
-    for mode in ["commands-slash-name", "commands-blank-name"] {
-        let mut fixture = NodeHostFixture::start(mode).await;
-        let client = fixture.connect(Limits::default()).await.unwrap();
-        assert!(
-            matches!(
-                client
-                    .commands_list(&SessionId::new("session / opaque:%").unwrap())
-                    .await,
-                Err(Error::InvalidDto)
-            ),
-            "{mode} must be refused"
-        );
-    }
+async fn commands_list_refuses_only_a_descriptor_that_cannot_be_addressed() {
+    // A blank name is not a command. Everything else the Host offers must reach
+    // the composer: rejecting the list costs the user the whole menu.
+    let mut blank = NodeHostFixture::start("commands-blank-name").await;
+    let client = blank.connect(Limits::default()).await.unwrap();
+    assert!(matches!(
+        client
+            .commands_list(&SessionId::new("session / opaque:%").unwrap())
+            .await,
+        Err(Error::InvalidDto)
+    ));
+
+    // A name the composer can address is accepted even when the descriptor
+    // carries fields this build does not know -- the case that broke the menu.
+    let mut tolerant = NodeHostFixture::start("commands-extra-fields").await;
+    let client = tolerant.connect(Limits::default()).await.unwrap();
+    let listed = client
+        .commands_list(&SessionId::new("session / opaque:%").unwrap())
+        .await
+        .expect("an unknown descriptor field must not fail the whole list");
+    assert_eq!(listed.len(), 2);
+    assert_eq!(listed[0].name, "plan");
+    assert_eq!(listed[0].description, "Explore and design before executing");
+    assert_eq!(listed[1].name, "compact");
 }
 
 #[tokio::test]
