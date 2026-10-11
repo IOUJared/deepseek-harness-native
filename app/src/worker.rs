@@ -26,11 +26,11 @@ mod codex_worker;
 #[path = "export_worker_tests.rs"]
 mod export_worker_tests;
 #[cfg(test)]
-#[path = "plugin_worker_tests.rs"]
-mod plugin_worker_tests;
-#[cfg(test)]
 #[path = "mcp_worker_tests.rs"]
 mod mcp_worker_tests;
+#[cfg(test)]
+#[path = "plugin_worker_tests.rs"]
+mod plugin_worker_tests;
 use codex_worker::{CodexCoordinator, codex_ticket, execute_codex};
 #[path = "attachments.rs"]
 pub(crate) mod attachments;
@@ -2769,7 +2769,7 @@ mod tests {
                 peer_rename: false,
                 peer_fork: false,
                 peer_export: false,
-                    peer_mcp: false
+                peer_mcp: false
             }
         ));
         assert_eq!(active.as_ref(), Some(&submission));
@@ -2788,7 +2788,7 @@ mod tests {
                 peer_rename: false,
                 peer_fork: false,
                 peer_export: false,
-                    peer_mcp: false
+                peer_mcp: false
             }
         ));
         assert_eq!(active.as_ref(), Some(&submission));
@@ -2958,7 +2958,7 @@ mod tests {
                 peer_rename: false,
                 peer_fork: false,
                 peer_export: false,
-                    peer_mcp: false
+                peer_mcp: false
             }
         ));
         assert_eq!(active.as_ref(), Some(&submission));
@@ -2977,7 +2977,7 @@ mod tests {
                 peer_rename: false,
                 peer_fork: false,
                 peer_export: false,
-                    peer_mcp: false
+                peer_mcp: false
             }
         ));
         assert_eq!(active.as_ref(), Some(&submission));

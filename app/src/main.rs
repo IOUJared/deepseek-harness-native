@@ -7,6 +7,7 @@ mod fork;
 mod interactions;
 mod known;
 mod management;
+mod mcp;
 mod plugins;
 mod reducer;
 mod rename;

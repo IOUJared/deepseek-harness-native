@@ -113,6 +113,9 @@ mod draft_recovery;
 mod draft_recovery_ui;
 #[path = "draft_store.rs"]
 mod draft_store;
+#[cfg(test)]
+#[path = "mcp_ui_tests.rs"]
+mod mcp_ui_tests;
 #[path = "model_controls.rs"]
 mod model_controls;
 #[cfg(test)]
@@ -293,6 +296,9 @@ pub enum Message {
     CommandMenuDismiss,
     /// Client-only view of Host-owned terminals. Opening spawns no local shell.
     Terminal(crate::terminal::Action),
+    /// App-owned MCP composition: list, add, edit and disable. Only one reviewed
+    /// Confirm writes, and it writes only inside the private native home.
+    Mcp(crate::mcp::Action),
     Close,
     Stay,
     ConfirmClose,
@@ -402,6 +408,9 @@ pub struct App {
     work_open: bool,
     /// The More → Terminal panel is open. The Host owns every shell; the app is a client.
     terminal: crate::terminal::Terminal,
+    /// The More → MCP servers panel is open. It is app-global (the composition
+    /// file belongs to the private home), not session-scoped.
+    mcp: crate::mcp::Mcp,
     info_expanded: u8,
     settings: crate::settings::Settings,
     decisions: crate::interactions::Decisions,
@@ -541,6 +550,7 @@ impl App {
                 commands_pending: false,
                 command_selected: 0,
                 terminal: crate::terminal::Terminal::default(),
+                mcp: crate::mcp::Mcp::default(),
                 info_expanded: 0,
                 settings: Default::default(),
                 decisions: Default::default(),
@@ -707,6 +717,7 @@ impl App {
             && !self.conversation_menu
             && !self.work_open
             && !self.terminal.is_open()
+            && !self.mcp.is_open()
             && self.detail.is_none()
             && !self.sidebar_sheet
             && !self
@@ -966,6 +977,18 @@ impl App {
                 Command::Cancel { generation, .. } if generation == self.generation => {
                     self.cancel_pending = false
                 }
+                Command::McpRead(ticket) => {
+                    self.mcp.loaded_snapshot(
+                        ticket,
+                        crate::mcp::Loaded::refused(
+                            "The native queue, worker or lifecycle refused the MCP read.",
+                        ),
+                    );
+                }
+                Command::McpWrite(submission) => {
+                    self.mcp
+                        .written(&submission, crate::mcp::WriteOutcome::NotSent);
+                }
                 _ => {}
             }
         }
@@ -982,6 +1005,7 @@ impl App {
         self.sidebar_organization.dismiss();
         self.rename.dismiss();
         self.terminal.dismiss();
+        self.mcp.dismiss();
         self.exporter.dismiss();
         self.selected = Some(session.clone());
         self.generation += 1;
@@ -1116,6 +1140,7 @@ impl App {
         self.rename.disconnect();
         self.fork.disconnect();
         self.terminal.disconnect();
+        self.mcp.disconnect();
         self.settings.disconnect();
         self.settings.close();
         self.close = Close::Stopping;
@@ -1234,6 +1259,15 @@ impl App {
         {
             return Task::none();
         }
+        // The MCP panel owns the whole surface while it is open: a background
+        // frame cannot change the file, the draft or the review under the user.
+        if self.mcp.is_open()
+            && !self.settings.is_open()
+            && ((background_message(&message) && !matches!(&message, Message::Mcp(_)))
+                || matches!(&message, Message::Settings(_)))
+        {
+            return Task::none();
+        }
         let was_active = self.transcript_active();
         let geometry_change = matches!(
             &message,
@@ -1343,6 +1377,7 @@ impl App {
                 self.conversation_menu = !self.conversation_menu;
                 self.work_open = false;
                 self.terminal.dismiss();
+                self.mcp.dismiss();
             }
             Message::ToggleInfoDetails(section)
                 if self.layout_controls_enabled()
@@ -1372,8 +1407,12 @@ impl App {
             Message::DismissPanel if self.fork.is_open() && !self.settings_modal_visible() => {
                 self.fork.dismiss();
             }
+            Message::DismissPanel if self.mcp.is_open() && !self.settings_modal_visible() => {
+                self.mcp.dismiss();
+            }
             Message::DismissPanel if self.terminal.is_open() && !self.settings_modal_visible() => {
                 self.terminal.dismiss();
+                self.mcp.dismiss();
             }
             Message::ExportSession(ticket) => {
                 let context = self.management_context();
@@ -1425,10 +1464,29 @@ impl App {
                     self.capabilities = false;
                     self.work_open = false;
                     self.detail = None;
+                    self.mcp.dismiss();
                 }
                 let context = self.terminal_context();
                 if let Some(effect) = self.terminal.apply(action, &context) {
                     self.dispatch_terminal(effect);
+                }
+            }
+            Message::Mcp(action) => {
+                // Opening from the More menu replaces the menu and any other
+                // panel; the panel itself owns everything after that.
+                if matches!(action, crate::mcp::Action::Open) && !self.mcp.is_open() {
+                    self.conversation_menu = false;
+                    self.capabilities = false;
+                    self.work_open = false;
+                    self.detail = None;
+                    self.terminal.dismiss();
+                    let effect = self.mcp.enter(self.transport_epoch);
+                    self.dispatch_mcp(effect);
+                } else {
+                    let context = self.mcp_context();
+                    if let Some(effect) = self.mcp.apply(action, context) {
+                        self.dispatch_mcp(effect);
+                    }
                 }
             }
             #[cfg(test)]
@@ -2182,6 +2240,7 @@ impl App {
                 self.capabilities = !self.capabilities;
                 self.work_open = false;
                 self.terminal.dismiss();
+                self.mcp.dismiss();
                 self.info_expanded = 0;
             }
             // Read-only view of retained records: opening it produces no command,
@@ -2193,6 +2252,7 @@ impl App {
                 self.conversation_menu = false;
                 self.capabilities = false;
                 self.terminal.dismiss();
+                self.mcp.dismiss();
             }
             Message::Work(work_panel_ui::Action::Close) if self.work_open => {
                 self.work_open = false;
@@ -2226,6 +2286,7 @@ impl App {
                 self.rename.dismiss();
                 self.fork.dismiss();
                 self.terminal.dismiss();
+                self.mcp.dismiss();
                 if self.stopped {
                     if self.last_stop.as_ref().is_some_and(|r|matches!(r,Ok(s) if s.exited&&!s.containment_unknown&&s.observed_descendants_remaining==0)){self.capture_draft();self.draft_exit_requested=true;self.close=Close::Stopping;return self.finish_draft_exit();}
                     self.close = Close::Failed(
@@ -2388,6 +2449,7 @@ impl App {
                 self.rename.disconnect();
                 self.fork.disconnect();
                 self.terminal.disconnect();
+                self.mcp.disconnect();
                 self.settings.disconnect();
                 self.account = "Account metadata unavailable (disconnected)".into();
                 self.catalog_read.retire();
@@ -2601,6 +2663,17 @@ impl App {
                     Err(WriteFailure::Unknown) => WriteOutcome::Unknown,
                 };
                 self.terminal.finish_write(&submission.receipt, outcome);
+            }
+            Event::McpLoaded { ticket, loaded } => {
+                self.mcp.loaded_snapshot(ticket, loaded);
+            }
+            // The receipt is the only thing that may change the panel's view of
+            // the file; a refused or indeterminate write is never replayed.
+            Event::McpWritten {
+                submission,
+                outcome,
+            } => {
+                self.mcp.written(&submission, outcome);
             }
             Event::Roster(result) => {
                 self.roster_pending = false;
@@ -2935,6 +3008,7 @@ impl App {
                 self.decisions.disconnect();
                 self.model_controls.dismiss();
                 self.terminal.disconnect();
+                self.mcp.disconnect();
                 self.status="Observation connection lost; original Host identity not re-verified. Check/reconnect explicitly; no automatic restart or session resume.".into();
             }
             Event::ObservationsRejoined { epoch, result }
@@ -3091,6 +3165,7 @@ impl App {
                 self.rename.disconnect();
                 self.fork.disconnect();
                 self.terminal.disconnect();
+                self.mcp.disconnect();
                 self.settings.disconnect();
                 self.account = "Account metadata unavailable (disconnected)".into();
                 self.catalog_read.retire();
@@ -3107,6 +3182,7 @@ impl App {
                 self.rename.disconnect();
                 self.fork.disconnect();
                 self.terminal.disconnect();
+                self.mcp.disconnect();
                 self.settings.disconnect();
                 self.account = "Account metadata unavailable (disconnected)".into();
                 self.catalog_read.retire();
@@ -3126,6 +3202,7 @@ impl App {
                 self.rename.disconnect();
                 self.fork.disconnect();
                 self.terminal.disconnect();
+                self.mcp.disconnect();
                 self.settings.disconnect();
                 self.account = "Account metadata unavailable (disconnected)".into();
                 self.transport_epoch += 1;
@@ -3312,7 +3389,8 @@ impl App {
             && self.rename.pending().is_none()
             && !self.fork.is_open()
             && self.fork.pending().is_none()
-            && !self.terminal.busy();
+            && !self.terminal.busy()
+            && !self.mcp.pending();
         context
     }
     fn rename_context(&self) -> crate::rename::Context {
@@ -3334,7 +3412,8 @@ impl App {
                 && self.exporter.pending().is_none()
                 && !self.fork.is_open()
                 && self.fork.pending().is_none()
-                && !self.terminal.busy(),
+                && !self.terminal.busy()
+                && !self.mcp.pending(),
         }
     }
     fn fork_context(&self) -> crate::fork::Context {
@@ -3366,7 +3445,8 @@ impl App {
                 && self.rename.pending().is_none()
                 && !self.exporter.is_open()
                 && self.exporter.pending().is_none()
-                && !self.terminal.busy(),
+                && !self.terminal.busy()
+                && !self.mcp.pending(),
         }
     }
     fn export_context(&self) -> crate::exporter::Context {
@@ -3414,7 +3494,40 @@ impl App {
                 && !self.fork.is_open()
                 && self.fork.pending().is_none()
                 && !self.exporter.is_open()
-                && self.exporter.pending().is_none(),
+                && self.exporter.pending().is_none()
+                && !self.mcp.pending(),
+        }
+    }
+    /// The MCP panel is app-global: it manages the private home's composition
+    /// file, not one session. It stays available while the Host is live and no
+    /// other management flight is open or pending.
+    fn mcp_context(&self) -> crate::mcp::Context {
+        crate::mcp::Context {
+            epoch: self.transport_epoch,
+            visible: self.mcp.is_open(),
+            enabled: self.options.smoke.is_none()
+                && self.ready
+                && !self.stopped
+                && matches!(self.close, Close::None)
+                && !self.settings.is_open()
+                && !self.management.is_open()
+                && !self.management.pending()
+                && !self.rename.is_open()
+                && self.rename.pending().is_none()
+                && !self.fork.is_open()
+                && self.fork.pending().is_none()
+                && !self.exporter.is_open()
+                && self.exporter.pending().is_none()
+                && !self.terminal.busy()
+                && !self.mcp.pending(),
+        }
+    }
+    /// Map one MCP model effect onto the worker. A read reserves nothing; the
+    /// reviewed write is the only command that touches the composition file.
+    fn dispatch_mcp(&mut self, effect: crate::mcp::Effect) {
+        match effect {
+            crate::mcp::Effect::Read(ticket) => self.command(Command::McpRead(ticket)),
+            crate::mcp::Effect::Write(submission) => self.command(Command::McpWrite(submission)),
         }
     }
     /// Map one terminal model effect onto the worker. Only mutating effects reserve
@@ -4022,6 +4135,7 @@ impl App {
             && !self.capabilities
             && !self.work_open
             && !self.terminal.is_open()
+            && !self.mcp.is_open()
             && self.detail.is_none()
     }
     fn presentation_shell(&self, include_composer: bool) -> Element<'_, Message> {
@@ -4036,6 +4150,8 @@ impl App {
                 self.work_panel_view()
             } else if self.terminal.is_open() {
                 self.terminal_view()
+            } else if self.mcp.is_open() {
+                self.mcp_view()
             } else if let Some(detail) = &self.detail {
                 self.detail_view(detail)
             } else {
@@ -4143,6 +4259,17 @@ impl App {
                 .style(design::button_style)
                 .padding([12, 14])
                 .width(Length::Fill),
+            button(label(
+                format!("MCP servers · app-owned ({})", self.mcp.entries().len()),
+                TEXT,
+            ))
+            .on_press_maybe(
+                self.layout_controls_enabled()
+                    .then_some(Message::Mcp(crate::mcp::Action::Open)),
+            )
+            .style(design::button_style)
+            .padding([12, 14])
+            .width(Length::Fill),
             button(label("Close native Harness…", MUTED))
                 .on_press(Message::Close)
                 .style(design::button_style)
@@ -6815,6 +6942,651 @@ impl App {
         .height(Length::Fill)
         .into()
     }
+    /// App-owned MCP composition panel. It lists the rows this app inserted, the
+    /// Host's own mount state for them, and the single reviewed write that may
+    /// replace the composition file. No secret value is ever rendered.
+    fn mcp_view(&self) -> Element<'_, Message> {
+        use crate::mcp::{Action, Notice};
+
+        let ticket = self.mcp.read_ticket();
+        let context = self.mcp_context();
+        let allowed = context.enabled && context.visible;
+        let writable = allowed && self.mcp.writable();
+        let token = self.mcp.token();
+
+        let mut body = column![
+            row![
+                label("MCP servers", TEXT).size(22).width(Length::Fill),
+                button("Back to conversation")
+                    .style(design::ghost)
+                    .on_press(Message::Mcp(Action::Dismiss(ticket))),
+            ]
+            .spacing(10),
+            label(
+                "Each entry below inserts one @deepseek-ai/dsh-mcp-client row into the Host's home-level patch layer. This app owns that file: it is inside the private native home, rewritten atomically, and backed up first. Content the app cannot preserve is never rewritten.",
+                MUTED
+            )
+            .size(11),
+        ]
+        .spacing(10);
+
+        match self.mcp.loaded() {
+            Some(loaded) if !loaded.path.is_empty() => {
+                body = body.push(
+                    label(
+                        format!(
+                            "File · {} · {} · {}",
+                            short(&loaded.path, 90),
+                            if loaded.revision.is_some() {
+                                "present"
+                            } else {
+                                "absent"
+                            },
+                            if loaded.inventory_read {
+                                "inventory read"
+                            } else {
+                                "inventory unread"
+                            }
+                        ),
+                        MUTED,
+                    )
+                    .size(10),
+                );
+            }
+            _ => {}
+        }
+
+        body = body.push(
+            label(
+                self.mcp.notice().text(),
+                if matches!(
+                    self.mcp.notice(),
+                    Notice::Conflict
+                        | Notice::Indeterminate
+                        | Notice::Invalid
+                        | Notice::ReadFailed
+                        | Notice::Refused
+                        | Notice::NotSent
+                        | Notice::Exhausted
+                ) {
+                    DANGER
+                } else {
+                    MUTED
+                },
+            )
+            .size(11),
+        );
+        if let Some(reason) = self.mcp.foreign_reason() {
+            body = body.push(label(format!("Refused: {reason}"), DANGER).size(11));
+        }
+        if let Some(defect) = self.mcp.defect() {
+            body = body.push(label(format!("Refused: {}", defect.text()), DANGER).size(11));
+        }
+        if self.mcp.pending() {
+            body = body.push(label(
+                "Write submitted; the reviewed document is not installed until the actual outcome returns. Closing the panel cannot undo it.",
+                DANGER,
+            ).size(11));
+        }
+        if let Some(report) = self.mcp.report() {
+            body = body.push(
+                label(
+                    format!(
+                        "Saved {} bytes to {}.{}",
+                        report.bytes,
+                        short(&report.path, 90),
+                        report
+                            .backup
+                            .as_ref()
+                            .map(|name| format!(" Previous file backed up as {name}."))
+                            .unwrap_or_default()
+                    ),
+                    ACCENT,
+                )
+                .size(11),
+            );
+            body = body.push(label(crate::mcp::NEXT_STEP, DANGER).size(11));
+            // The only restart this build has is closing the app, and that is
+            // the app's own confirmed shutdown flow: nothing restarts silently.
+            body = body.push(
+                button("Close native Harness…")
+                    .padding([8, 12])
+                    .style(design::ghost)
+                    .on_press(Message::Close),
+            );
+        }
+        if !allowed {
+            body = body.push(label(
+                "Read-only: the Host lifecycle, smoke mode or another open management flight does not permit requests.",
+                DANGER,
+            ).size(11));
+        }
+
+        body = body.push(
+            button(if self.mcp.loaded().is_none() {
+                "Reading…"
+            } else {
+                "Refresh file & inventory"
+            })
+            .padding([10, 14])
+            .style(design::button_style)
+            // A press while the first read is outstanding is refused by the
+            // panel itself; a press with no snapshot answers a lost read.
+            .on_press_maybe(
+                (allowed && !self.mcp.pending()).then_some(Message::Mcp(Action::Refresh(ticket))),
+            ),
+        );
+
+        if self.mcp.mode() == "review" {
+            body = body.push(self.mcp_review_view());
+        } else if self.mcp.mode() == "form" {
+            body = body.push(self.mcp_form_view(token, allowed));
+        } else {
+            body = body.push(self.mcp_list_view(ticket, writable));
+        }
+
+        scrollable(
+            container(
+                container(body)
+                    .max_width(self.chat_lane())
+                    .width(Length::Fill),
+            )
+            .center_x(Length::Fill)
+            .padding(24),
+        )
+        .height(Length::Fill)
+        .into()
+    }
+    /// One managed row and the Host's own mount state for it.
+    fn mcp_row_label(&self, entry: &crate::mcp::ServerEntry) -> (String, String, Color) {
+        let mount = match self.mcp.loaded().and_then(|loaded| loaded.mount(entry)) {
+            Some(row) => format!(
+                "{} · {}{}",
+                crate::mcp::phase_label(row.phase),
+                if row.enabled { "enabled" } else { "disabled" },
+                if row.phase == dsh_native_transport::plugin::FiberPhase::Failed {
+                    " · the Host reported a mount error"
+                } else {
+                    ""
+                }
+            ),
+            None if self
+                .mcp
+                .loaded()
+                .is_some_and(|loaded| loaded.inventory_read) =>
+            {
+                "not mounted in this Host session".to_owned()
+            }
+            None => "mount state unknown: inventory unread".to_owned(),
+        };
+        let colour = if self
+            .mcp
+            .loaded()
+            .and_then(|l| l.mount(entry))
+            .is_some_and(|row| row.phase == dsh_native_transport::plugin::FiberPhase::Failed)
+        {
+            DANGER
+        } else {
+            MUTED
+        };
+        (mount, entry.target().to_owned(), colour)
+    }
+    fn mcp_list_view(
+        &self,
+        ticket: crate::mcp::ReadTicket,
+        writable: bool,
+    ) -> Element<'_, Message> {
+        use crate::mcp::Action;
+        let mut body = column![].spacing(10);
+        body = body.push(
+            button("Add server…")
+                .padding([10, 14])
+                .style(design::primary_button)
+                .on_press_maybe(writable.then_some(Message::Mcp(Action::BeginAdd(ticket)))),
+        );
+        if self.mcp.entries().is_empty() {
+            body = body.push(
+                label(
+                    "No managed MCP server. The composition file carries an empty patch list.",
+                    MUTED,
+                )
+                .size(11),
+            );
+        }
+        for (index, entry) in self.mcp.entries().iter().enumerate() {
+            let (mount, target, colour) = self.mcp_row_label(entry);
+            let mut card = column![
+                row![
+                    label(short(&entry.server_name, 40), TEXT).size(14),
+                    label(entry.transport.label(), ACCENT).size(11),
+                    label(
+                        if entry.enabled { "enabled" } else { "disabled" },
+                        if entry.enabled { MUTED } else { DANGER }
+                    )
+                    .size(11),
+                ]
+                .spacing(8),
+                label(short(&target, 90), MUTED).size(11),
+                label(mount, colour).size(10),
+            ]
+            .spacing(6);
+            card = card.push(
+                row![
+                    button("Edit")
+                        .padding([7, 11])
+                        .style(design::button_style)
+                        .on_press_maybe(
+                            writable.then_some(Message::Mcp(Action::BeginEdit { ticket, index }))
+                        ),
+                    button(if entry.enabled {
+                        "Remove (disable)"
+                    } else {
+                        "Already disabled"
+                    })
+                    .padding([7, 11])
+                    .style(design::danger_button)
+                    .on_press_maybe(
+                        (writable && entry.enabled)
+                            .then_some(Message::Mcp(Action::BeginDisable { ticket, index }))
+                    ),
+                ]
+                .spacing(8),
+            );
+            body = body.push(
+                container(card)
+                    .padding(12)
+                    .width(Length::Fill)
+                    .style(|_| design::card(design::OVERLAY, 12.0)),
+            );
+        }
+        if let Some(loaded) = self.mcp.loaded() {
+            body = body.push(label("HOST INVENTORY · mcp-client rows", MUTED).size(10));
+            if !loaded.inventory_read {
+                body = body.push(label(
+                    "The Host inventory could not be read, so mount state is unknown. The file above is still the app-owned composition.",
+                    DANGER,
+                ).size(11));
+            } else if loaded.inventory.is_empty() {
+                body = body.push(label(
+                    "The Host reports no live @deepseek-ai/dsh-mcp-client row. A just-written entry mounts on the next Host start.",
+                    MUTED,
+                ).size(11));
+            }
+            for row in &loaded.inventory {
+                body = body.push(
+                    label(
+                        format!(
+                            "{} · {} · {}{}",
+                            short(&row.entry_id, 40),
+                            crate::mcp::phase_label(row.phase),
+                            if row.enabled { "enabled" } else { "disabled" },
+                            if row.entry_id.starts_with(crate::mcp::ROW_PREFIX) {
+                                ""
+                            } else {
+                                " · not managed by this app"
+                            }
+                        ),
+                        if row.phase == dsh_native_transport::plugin::FiberPhase::Failed {
+                            DANGER
+                        } else {
+                            MUTED
+                        },
+                    )
+                    .size(10),
+                );
+            }
+        }
+        body.into()
+    }
+    fn mcp_form_view(&self, token: crate::mcp::Token, allowed: bool) -> Element<'_, Message> {
+        use crate::mcp::{Action, BindingKind, Field, Transport};
+        let Some(draft) = self.mcp.draft() else {
+            return label("No draft is open.", MUTED).into();
+        };
+        let input = allowed && !self.mcp.pending();
+        let mut body = column![
+            label(
+                format!("{} · {}", draft.kind().label(), draft.transport().label()),
+                ACCENT
+            )
+            .size(14),
+        ]
+        .spacing(10);
+
+        let mut transport_choice = row![].spacing(8);
+        for transport in [Transport::Stdio, Transport::StreamableHttp] {
+            let chosen = draft.transport() == transport;
+            transport_choice = transport_choice.push(
+                button(label(
+                    format!("{}{}", if chosen { "● " } else { "" }, transport.label()),
+                    if chosen { ACCENT } else { MUTED },
+                ))
+                .padding([8, 12])
+                .style(design::button_style)
+                .on_press_maybe(
+                    input.then_some(Message::Mcp(Action::SetTransport { token, transport })),
+                ),
+            );
+        }
+        body = body.push(label("TRANSPORT", MUTED).size(10));
+        body = body.push(transport_choice);
+        body = body.push(self.mcp_text_field(
+            "Server name · [A-Za-z0-9_-]{1,32}",
+            draft.server_name(),
+            Field::ServerName,
+            token,
+            input,
+        ));
+        match draft.transport() {
+            Transport::Stdio => {
+                body = body.push(self.mcp_text_field(
+                    "Command · executable, no shell",
+                    draft.command(),
+                    Field::Command,
+                    token,
+                    input,
+                ));
+                body = body.push(label("ARGUMENTS", MUTED).size(10));
+                for (index, arg) in draft.args().iter().enumerate() {
+                    body = body.push(
+                        row![
+                            text_input("argument", arg)
+                                .padding(10)
+                                .style(design::input_style)
+                                .width(Length::Fill)
+                                .on_input_maybe(input.then_some(move |value| Message::Mcp(
+                                    Action::SetArgument {
+                                        token,
+                                        index,
+                                        value
+                                    }
+                                ))),
+                            button("Remove")
+                                .padding([8, 12])
+                                .style(design::button_style)
+                                .on_press_maybe(input.then_some(Message::Mcp(
+                                    Action::RemoveArgument { token, index }
+                                ))),
+                        ]
+                        .spacing(8),
+                    );
+                }
+                body = body.push(
+                    button("Add argument")
+                        .padding([8, 12])
+                        .style(design::button_style)
+                        .on_press_maybe(input.then_some(Message::Mcp(Action::AddArgument(token)))),
+                );
+                body = body.push(self.mcp_bindings_view(
+                    "ENVIRONMENT · names use [A-Za-z_][A-Za-z0-9_]*",
+                    BindingKind::Environment,
+                    token,
+                    input,
+                ));
+                body = body.push(self.mcp_text_field(
+                    "Working directory · empty inherits the Host process directory",
+                    draft.cwd(),
+                    Field::Cwd,
+                    token,
+                    input,
+                ));
+            }
+            Transport::StreamableHttp => {
+                body = body.push(self.mcp_text_field(
+                    "URL · absolute http:// or https:// endpoint",
+                    draft.url(),
+                    Field::Url,
+                    token,
+                    input,
+                ));
+                body = body.push(self.mcp_bindings_view(
+                    "HEADERS · HTTP token names",
+                    BindingKind::Header,
+                    token,
+                    input,
+                ));
+            }
+        }
+        body = body.push(self.mcp_text_field(
+            "Tool-call timeout ms · 1..3600000",
+            draft.timeout(),
+            Field::Timeout,
+            token,
+            input,
+        ));
+        body = body.push(
+            row![
+                button(label(
+                    format!("Enabled: {}", if draft.enabled() { "yes" } else { "no" }),
+                    if draft.enabled() { ACCENT } else { DANGER }
+                ))
+                .padding([8, 12])
+                .style(design::button_style)
+                .on_press_maybe(input.then_some(Message::Mcp(Action::SetEnabled {
+                    token,
+                    enabled: !draft.enabled()
+                }))),
+                button(label(
+                    format!(
+                        "Fail on startup error: {}",
+                        if draft.fail_on_startup_error() {
+                            "yes"
+                        } else {
+                            "no"
+                        }
+                    ),
+                    MUTED
+                ))
+                .padding([8, 12])
+                .style(design::button_style)
+                .on_press_maybe(input.then_some(Message::Mcp(Action::SetFailOnStartup {
+                    token,
+                    value: !draft.fail_on_startup_error()
+                }))),
+            ]
+            .spacing(8),
+        );
+        body = body.push(
+            row![
+                button("Review write")
+                    .padding([10, 14])
+                    .style(design::primary_button)
+                    .on_press_maybe(input.then_some(Message::Mcp(Action::Review(token)))),
+                button("Cancel")
+                    .padding([8, 12])
+                    .style(design::button_style)
+                    .on_press_maybe(input.then_some(Message::Mcp(Action::Cancel(token)))),
+            ]
+            .spacing(8),
+        );
+        body.into()
+    }
+    fn mcp_text_field(
+        &self,
+        placeholder: &'static str,
+        value: &str,
+        field: crate::mcp::Field,
+        token: crate::mcp::Token,
+        enabled: bool,
+    ) -> Element<'_, Message> {
+        let input = text_input(placeholder, value)
+            .padding(10)
+            .style(design::input_style);
+        if enabled {
+            input
+                .on_input(move |value| {
+                    Message::Mcp(crate::mcp::Action::Field {
+                        token,
+                        field,
+                        value,
+                    })
+                })
+                .into()
+        } else {
+            input.into()
+        }
+    }
+    fn mcp_bindings_view(
+        &self,
+        heading: &'static str,
+        binding: crate::mcp::BindingKind,
+        token: crate::mcp::Token,
+        enabled: bool,
+    ) -> Element<'_, Message> {
+        use crate::mcp::Action;
+        let Some(draft) = self.mcp.draft() else {
+            return Space::new().into();
+        };
+        let mut body = column![label(heading, MUTED).size(10)].spacing(8);
+        for (index, (key, label_text)) in draft.bindings(binding).into_iter().enumerate() {
+            let mut line = row![
+                text_input("name", key)
+                    .padding(10)
+                    .style(design::input_style)
+                    .width(Length::Fill)
+                    .on_input_maybe(enabled.then_some(move |value| Message::Mcp(
+                        Action::SetBindingKey {
+                            token,
+                            binding,
+                            index,
+                            value
+                        }
+                    ))),
+                label(label_text, MUTED).size(10),
+            ]
+            .spacing(8);
+            if let Some(value) = draft.binding_input(binding, index) {
+                line = line.push(
+                    text_input("new value", value)
+                        .padding(10)
+                        .style(design::input_style)
+                        .width(Length::Fill)
+                        .on_input(move |value| {
+                            Message::Mcp(Action::SetBindingSecret {
+                                token,
+                                binding,
+                                index,
+                                value: crate::mcp::secret(value),
+                            })
+                        }),
+                );
+            } else {
+                line = line.push(
+                    button("Replace value")
+                        .padding([8, 12])
+                        .style(design::button_style)
+                        .on_press_maybe(enabled.then_some(Message::Mcp(
+                            Action::ReplaceBindingValue {
+                                token,
+                                binding,
+                                index,
+                            },
+                        ))),
+                );
+            }
+            line = line.push(
+                button("Remove")
+                    .padding([8, 12])
+                    .style(design::button_style)
+                    .on_press_maybe(enabled.then_some(Message::Mcp(Action::RemoveBinding {
+                        token,
+                        binding,
+                        index,
+                    }))),
+            );
+            body = body.push(line);
+        }
+        body = body.push(
+            button("Add entry")
+                .padding([8, 12])
+                .style(design::button_style)
+                .on_press_maybe(
+                    enabled.then_some(Message::Mcp(Action::AddBinding { token, binding })),
+                ),
+        );
+        body.into()
+    }
+    fn mcp_review_view(&self) -> Element<'_, Message> {
+        use crate::mcp::Action;
+        let token = self.mcp.token();
+        let Some(kind) = self.mcp.review_kind() else {
+            return label("No write is under review.", MUTED).into();
+        };
+        let Some(entries) = self.mcp.review_entries() else {
+            return label("No write is under review.", MUTED).into();
+        };
+        let row = kind.row(entries);
+        let mut body = column![
+            label(format!("REVIEW · {}", kind.label()), ACCENT).size(14),
+            label(kind.text(), MUTED).size(11),
+            label(
+                format!(
+                    "This writes {} managed entr{} in one complete document. Every other entry is preserved exactly as the app read it.",
+                    entries.len(),
+                    if entries.len() == 1 { "y" } else { "ies" }
+                ),
+                MUTED,
+            )
+            .size(11),
+        ]
+        .spacing(10);
+        if let Some(row) = row {
+            body =
+                body.push(label(format!("row id: {}", short(&row.row_id(), 60)), MUTED).size(10));
+            body = body.push(
+                label(
+                    format!(
+                        "{} · {} · {} · timeout {} ms · fail on startup error {} · {}",
+                        short(&row.server_name, 40),
+                        row.transport.label(),
+                        short(row.target(), 70),
+                        row.tool_call_timeout_ms,
+                        if row.fail_on_startup_error {
+                            "yes"
+                        } else {
+                            "no"
+                        },
+                        if row.enabled { "enabled" } else { "disabled" }
+                    ),
+                    TEXT,
+                )
+                .size(11),
+            );
+            body = body.push(
+                label(
+                    format!(
+                        "arguments {} · environment {} · headers {} · a restated value is written byte-for-byte and never displayed",
+                        row.args.len(),
+                        binding_names(&row.env),
+                        binding_names(&row.headers)
+                    ),
+                    MUTED,
+                )
+                .size(10),
+            );
+        }
+        body = body.push(label(
+            "Confirm is the only control that writes. Cancel changes nothing. A refusal, a conflict or an indeterminate outcome is reported and never retried automatically.",
+            DANGER,
+        ).size(11));
+        body = body.push(
+            row![
+                button("Confirm write")
+                    .padding([10, 14])
+                    .style(design::primary_button)
+                    .on_press_maybe(
+                        (self.mcp.writable() && self.mcp_context().enabled)
+                            .then_some(Message::Mcp(Action::Confirm(token)))
+                    ),
+                button("Cancel review")
+                    .padding([8, 12])
+                    .style(design::button_style)
+                    .on_press_maybe(Some(Message::Mcp(Action::CancelReview(token)))),
+            ]
+            .spacing(8),
+        );
+        body.into()
+    }
     fn close_view(&self) -> Element<'_, Message> {
         let mut content = column![label("Close native Harness", ACCENT)].spacing(16);
         match &self.close {Close::Inspecting=>content=content.push(label("Inspecting owned Core outside the GUI thread…",TEXT)),Close::Confirm(reason)=>content=content.push(label(reason,TEXT)).push(row![button("Stay").on_press(Message::Stay),button("Close and stop own backend").on_press(Message::ConfirmClose)].spacing(12)),Close::Stopping=>content=content.push(label("Closing native subscriptions and transport; waiting for owned Core exit, containment and any admitted filesystem save (not cancellable; partial files may remain)…",TEXT)),Close::Failed(reason)=>content=content.push(label(reason,DANGER)).push(row![button("Stay").on_press(Message::Stay),button("Exit anyway (result uncertain)").on_press_maybe((self.stopped && !self.draft_state.busy() && !self.local_files.busy()).then_some(Message::ExitAnyway))].spacing(12)),Close::None=>{}}
@@ -7031,6 +7803,18 @@ fn settings_modal_size(viewport: iced::Size) -> iced::Size {
         (viewport.width - 48.0).max(1.0).min(960.0),
         (viewport.height - 48.0).max(1.0).min(700.0),
     )
+}
+
+/// One binding list as `NAME (N bytes)`; the value itself is never rendered.
+fn binding_names(bindings: &[(String, crate::mcp::Secret)]) -> String {
+    if bindings.is_empty() {
+        return "none".to_owned();
+    }
+    bindings
+        .iter()
+        .map(|(key, value)| format!("{key} ({} bytes)", value.len()))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn background_message(message: &Message) -> bool {

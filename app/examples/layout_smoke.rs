@@ -20,6 +20,8 @@ mod interactions;
 mod known;
 #[path = "../src/management.rs"]
 mod management;
+#[path = "../src/mcp.rs"]
+mod mcp;
 #[path = "../src/plugins.rs"]
 mod plugins;
 #[path = "../src/reducer.rs"]
@@ -467,6 +469,8 @@ impl Fixture {
                 worker::Command::TerminalCreate(_) => "TerminalCreate",
                 worker::Command::TerminalClose(_) => "TerminalClose",
                 worker::Command::TerminalWrite(_) => "TerminalWrite",
+                worker::Command::McpRead(_) => "McpRead",
+                worker::Command::McpWrite(_) => "McpWrite",
                 worker::Command::KeyMetadata(_) => "KeyMetadata",
                 worker::Command::SaveKey { .. } => "SaveKey",
                 worker::Command::Decision(_) => "Decision",
