@@ -160,7 +160,7 @@ pub enum Event {
     /// composer can say whether the method is missing, refused, or unreadable.
     CommandsListed {
         session_id: SessionId,
-        result: Result<Vec<CommandDescriptor>, CommandListFailure>,
+        result: Result<Vec<CommandDescriptor>, CommandListFailureOutcome>,
     },
     /// One command's Host-owned outcome. `Option` is meaningful: the Host may
     /// settle a command with no execution record, which is not a success. The
@@ -710,7 +710,7 @@ fn rejected(command: Command) -> Event {
         },
         Command::CommandsList(session_id) => Event::CommandsListed {
             session_id,
-            result: Err(CommandListFailure::Unreachable),
+            result: Err(CommandListFailureOutcome::NotAttempted),
         },
         Command::CommandsExecute { session_id, line } => Event::CommandsExecuted {
             session_id,
@@ -1087,6 +1087,31 @@ fn admit_rename(
     *active = Some(submission.clone());
     true
 }
+/// A failed read: which defect, and the transport error that proves it. The error
+/// is kept so the composer can report its code or status without exposing any
+/// provider message.
+#[derive(Clone, Debug)]
+pub enum CommandListFailureOutcome {
+    /// The worker refused the read before sending it.
+    NotAttempted,
+    Failed {
+        kind: CommandListFailure,
+        error: dsh_native_transport::Error,
+    },
+}
+
+impl CommandListFailureOutcome {
+    /// The sentence the status line shows.
+    pub fn message(&self) -> String {
+        match self {
+            Self::NotAttempted => {
+                "No command list was requested from the Host; slash completion is unavailable"
+                    .to_owned()
+            }
+            Self::Failed { kind, error } => kind.message(error),
+        }
+    }
+}
 /// Why the command advertisement could not be read. Each case is a different
 /// defect, so the composer reports which one instead of one generic sentence.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1100,7 +1125,7 @@ pub enum CommandListFailure {
 }
 
 impl CommandListFailure {
-    fn of(error: dsh_native_transport::Error) -> Self {
+    fn of(error: &dsh_native_transport::Error) -> Self {
         use dsh_native_transport::Error as E;
         match error {
             E::HttpStatus(404) => Self::MethodMissing,
@@ -1108,26 +1133,31 @@ impl CommandListFailure {
             _ => Self::Unreachable,
         }
     }
-    /// The sentence the status line shows. Names the defect, not the symptom.
-    pub fn message(self) -> &'static str {
-        match self {
-            Self::MethodMissing => {
-                "This Host does not expose the command list; slash completion is unavailable."
-            }
-            Self::Unreadable => {
-                "The Host's command list could not be read; slash completion is unavailable."
-            }
-            Self::Unreachable => "No command list from the Host; slash completion is unavailable.",
-        }
+    /// The sentence the status line shows. Names the defect and, where the
+    /// transport reported one, the code that proves it -- a code or status number
+    /// carries no session content, unlike a provider message.
+    pub fn message(self, error: &dsh_native_transport::Error) -> String {
+        let code = match error {
+            dsh_native_transport::Error::HttpStatus(status) => format!("http {status}"),
+            other => other.code().to_owned(),
+        };
+        let reason = match self {
+            Self::MethodMissing => "this Host does not expose the command list",
+            Self::Unreadable => "the Host's command list could not be read",
+            Self::Unreachable => "no command list from the Host",
+        };
+        format!("{reason} ({code}); slash completion is unavailable")
     }
 }
 /// Read the Host's advertised commands. Descriptions travel too: the composer
 /// menu shows them, and they are the Host's own words rather than ours.
 async fn commands_list(client: dsh_native_transport::NativeClient, session_id: SessionId) -> Event {
-    let result = client
-        .commands_list(&session_id)
-        .await
-        .map_err(CommandListFailure::of);
+    let result = client.commands_list(&session_id).await.map_err(|error| {
+        CommandListFailureOutcome::Failed {
+            kind: CommandListFailure::of(&error),
+            error,
+        }
+    });
     Event::CommandsListed { session_id, result }
 }
 /// Invoke one command through the Host. The outcome of the command is the Host's
@@ -1940,7 +1970,7 @@ async fn run(
                     Command::Prompt{..}|Command::CheckSubmission(_)|Command::RejoinObservations{..}=>Event::Fault("Prompt bypassed worker ownership".into()),
                     Command::Cancel{..}=>Event::Fault("Cancellation bypassed priority dispatch".into()),
                     Command::Page{generation,request}=>Event::Page{generation,result:client.session_page(request).await.map_err(|e|format!("History page: {e}"))},
-                    Command::CommandsList(session_id)=>Event::CommandsListed{session_id:session_id.clone(),result:client.commands_list(&session_id).await.map_err(CommandListFailure::of)},
+                    Command::CommandsList(session_id)=>Event::CommandsListed{session_id:session_id.clone(),result:client.commands_list(&session_id).await.map_err(|error|CommandListFailureOutcome::Failed{kind:CommandListFailure::of(&error),error})},
                     Command::CommandsExecute{session_id,line}=>Event::CommandsExecuted{session_id:session_id.clone(),line:line.clone(),result:client.commands_execute(&CommandExecuteRequest{session_id:session_id.clone(),line,submitted_attachments:Vec::new()}).await.map_err(|_|())},
                     Command::Cloudflare(_)|Command::PromptFile{..}|Command::StageFile(_)|Command::DiscardFile(_)|Command::Codex(_)|Command::Export(_)|Command::PluginsRead(_)|Command::PluginSave{..}|Command::Manage(_)|Command::Rename(_)|Command::Fork(_)|Command::TerminalRead(_)|Command::TerminalFollow(_)|Command::TerminalCreate(_)|Command::TerminalClose(_)|Command::TerminalWrite(_)|Command::KeyMetadata(_)|Command::SaveKey{..}|Command::Inspect|Command::Shutdown|Command::Select{..}=>Event::Fault("Invalid native command state".into()),
                 }});

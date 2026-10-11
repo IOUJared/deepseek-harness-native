@@ -2480,7 +2480,7 @@ impl App {
                         // and no menu and nothing to act on.
                         Err(failure) => {
                             self.commands = None;
-                            self.status = failure.message().into();
+                            self.status = failure.message();
                         }
                     }
                 }
