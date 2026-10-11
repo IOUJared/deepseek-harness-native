@@ -20,7 +20,6 @@ serde = { version = "=1.0.229", features = ["derive"] }
 tempfile = "=3.27.0"
 url = "=2.5.8"
 zeroize = "=1.9.1"
-oauth2 = { version = "=5.0.0", default-features = false }
 
 [dev-dependencies]
 tokio = { version = "=1.53.2", features = ["rt-multi-thread", "time"] }
