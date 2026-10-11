@@ -709,7 +709,7 @@ pub fn build(
         app.editor = iced::widget::text_editor::Content::with_text(
             "PUBLIC unsent draft preserved until explicit replacement.",
         );
-        drop(app.update(Message::EditMessage {
+        drop(app.update(Message::EditReply {
             generation: app.generation,
             key: 0,
         }));
@@ -745,7 +745,7 @@ pub fn build(
     if preset == "chat-edited" {
         app.editor =
             iced::widget::text_editor::Content::with_text("PUBLIC replace only after consent.");
-        drop(app.update(Message::EditMessage {
+        drop(app.update(Message::EditReply {
             generation: app.generation,
             key: 0,
         }));

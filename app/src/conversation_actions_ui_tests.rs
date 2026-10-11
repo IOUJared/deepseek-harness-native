@@ -65,12 +65,12 @@ fn thoughts_are_local_collapsed_and_geometry_and_copy_use_the_same_parts() {
 fn edit_only_populates_local_composer_and_existing_drafts_require_stamped_consent() {
     let (mut app, mut queue) = app();
     let generation = app.generation;
-    drop(app.update(Message::EditMessage { generation, key: 0 }));
+    drop(app.update(Message::EditReply { generation, key: 0 }));
     assert_eq!(app.editor.text(), "PUBLIC original question");
     assert_eq!(app.draft_serial, 1);
     assert!(queue.try_recv().is_err());
     app.editor = text_editor::Content::with_text("PUBLIC unsent draft");
-    drop(app.update(Message::EditMessage { generation, key: 0 }));
+    drop(app.update(Message::EditReply { generation, key: 0 }));
     let (_, key, draft_serial) = app.edit_review.unwrap();
     assert_eq!(app.editor.text(), "PUBLIC unsent draft");
     drop(app.update(Message::ConfirmEdit {
@@ -100,7 +100,7 @@ fn stale_modal_and_changed_code_actions_cannot_touch_new_sources_or_drafts() {
     stale.generation += 1;
     drop(app.update(Message::ToggleThoughts(stale)));
     assert!(!app.thoughts_expanded.contains(&1));
-    drop(app.update(Message::EditMessage {
+    drop(app.update(Message::EditReply {
         generation: generation + 1,
         key: 0,
     }));
@@ -116,7 +116,7 @@ fn stale_modal_and_changed_code_actions_cannot_touch_new_sources_or_drafts() {
     assert!(app.settings.is_open());
     drop(app.update(Message::ToggleThoughts(changed)));
     assert!(!app.thoughts_expanded.contains(&1));
-    drop(app.update(Message::EditMessage { generation, key: 0 }));
+    drop(app.update(Message::EditReply { generation, key: 0 }));
     assert!(app.editor.text().is_empty());
     assert!(queue.try_recv().is_err());
 }
@@ -131,7 +131,7 @@ fn file_receipts_and_queue_text_are_never_edit_replay_sources() {
     drop(app.update(Message::Worker(Event::Selected { generation, frame })));
     for key in [0, 1] {
         assert!(app.transcript.editable_text(key).is_none());
-        drop(app.update(Message::EditMessage { generation, key }));
+        drop(app.update(Message::EditReply { generation, key }));
     }
     assert!(app.editor.text().is_empty());
     assert!(queue.try_recv().is_err());

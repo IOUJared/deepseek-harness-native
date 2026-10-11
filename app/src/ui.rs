@@ -238,11 +238,11 @@ pub enum Message {
         key: u64,
     },
     CopyCode(conversation_content::Ticket, usize),
-    CopyMessage {
+    CopyReply {
         generation: u64,
         key: u64,
     },
-    EditMessage {
+    EditReply {
         generation: u64,
         key: u64,
     },
@@ -2002,7 +2002,7 @@ impl App {
                     return iced::clipboard::write(source.to_owned());
                 }
             }
-            Message::CopyMessage { generation, key }
+            Message::CopyReply { generation, key }
                 if generation == self.generation && self.composer_visible() =>
             {
                 if let Some(source) = self.row_copy_source(key) {
@@ -2010,7 +2010,7 @@ impl App {
                     return iced::clipboard::write(source);
                 }
             }
-            Message::EditMessage { generation, key }
+            Message::EditReply { generation, key }
                 if self.edit_message_allowed(generation, key) =>
             {
                 if self.editor.text().is_empty() {
@@ -5644,7 +5644,7 @@ impl App {
                     let mut footer = row![
                         button(label("Copy", MUTED).size(10))
                             .on_press_maybe(self.row_copy_source(record.key).is_some().then_some(
-                                Message::CopyMessage {
+                                Message::CopyReply {
                                     generation: self.generation,
                                     key: record.key
                                 }
@@ -5659,7 +5659,7 @@ impl App {
                             button(label("Edit", MUTED).size(10))
                                 .on_press_maybe(
                                     self.edit_message_allowed(self.generation, record.key)
-                                        .then_some(Message::EditMessage {
+                                        .then_some(Message::EditReply {
                                             generation: self.generation,
                                             key: record.key,
                                         }),
@@ -6801,8 +6801,8 @@ fn background_message(message: &Message) -> bool {
             | Message::CopyDetailSource(_)
             | Message::ToggleThoughts(_)
             | Message::CopyCode(..)
-            | Message::CopyMessage { .. }
-            | Message::EditMessage { .. }
+            | Message::CopyReply { .. }
+            | Message::EditReply { .. }
             | Message::ConfirmEdit { .. }
             | Message::CancelEdit
             | Message::DraftReload
