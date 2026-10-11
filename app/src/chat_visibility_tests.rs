@@ -586,7 +586,10 @@ fn an_unrecognized_error_code_still_reports_its_code_and_message() {
         json!({"turn":1,"reason":{"kind":"error","error":{"code":"RATE_LIMIT","message":"PUBLIC_OTHER"}}}),
     )]);
     let rows = displayed(&transcript, false);
-    assert!(rows.contains("Agent error (RATE_LIMIT): PUBLIC_OTHER"), "{rows:?}");
+    assert!(
+        rows.contains("Agent error (RATE_LIMIT): PUBLIC_OTHER"),
+        "{rows:?}"
+    );
 }
 
 #[test]
@@ -659,4 +662,153 @@ fn chat_hides_harness_context_injects_that_trajectory_keeps() {
     }
     // Retained records are never discarded, only presented elsewhere.
     assert_eq!(transcript.rows().len(), 7);
+}
+
+/// The paper's context management and loop guard are harness bookkeeping: they
+/// must never enter the clean conversation, and each must stay reachable as a
+/// labelled Trajectory row rather than only as raw JSON.
+#[test]
+fn compaction_and_loop_guard_stay_out_of_chat_with_labelled_rows() {
+    let transcript = opening(vec![
+        append_user(0, "u1", "PUBLIC real question"),
+        append_assistant(1, "PUBLIC answer"),
+        event(
+            2,
+            "compaction/prune",
+            json!({"shadowedRange":{"start":0,"end":1},"shadowedSeqs":[0,1],"shadowedTokenCount":4200}),
+        ),
+        event(
+            3,
+            "compaction/summary",
+            json!({"compactionId":"c1","summary":[{"type":"text","text":"PUBLIC compacted summary body"}],
+                "shadowedRange":{"start":0,"end":1},"shadowedSeqs":[0,1],"shadowedTokenCount":9000,
+                "provider":"PUBLIC","model":"PUBLIC"}),
+        ),
+        event(4, "compaction/end", json!({"compactionId":"c1","turn":1})),
+        event(
+            5,
+            "user/message",
+            json!({"content":[{"type":"text","text":"PUBLIC loop-guard reminder text"}],
+                "source":{"kind":"repeat-tool-reminder","form":"notice","summary":"bash × 8"}}),
+        ),
+    ]);
+    assert!(transcript.safe_to_send());
+    let chat = displayed(&transcript, false);
+    assert_eq!(human_texts(&transcript), ["PUBLIC real question"]);
+    for hidden in [
+        "PUBLIC compacted summary body",
+        "PUBLIC loop-guard reminder text",
+        "shadowedTokenCount",
+        "repeat-tool-reminder",
+    ] {
+        assert!(!chat.contains(hidden), "{hidden} leaked into Chat: {chat}");
+    }
+    // Trajectory keeps the raw record; the collapsed line is the labelled one.
+    let trajectory = displayed(&transcript, true);
+    for kept in [
+        "PUBLIC compacted summary body",
+        "PUBLIC loop-guard reminder text",
+    ] {
+        assert!(trajectory.contains(kept), "{kept} missing from Trajectory");
+    }
+    let labels: Vec<String> = transcript
+        .rows()
+        .iter()
+        .filter_map(|row| transcript.activity(row.key))
+        .map(|summary| summary.title)
+        .collect();
+    assert!(labels.contains(&"Context elided · 2 records → stubs".to_owned()));
+    assert!(labels.contains(&"Context summarized · seqs 0–1".to_owned()));
+    assert!(labels.contains(&"Loop guard · repeated identical call".to_owned()));
+    // The successful close of a compaction is not itself a row-worthy event.
+    assert!(transcript.activity(4).is_none());
+    let roles: Vec<&str> = transcript
+        .rows()
+        .iter()
+        .map(|row| row.role.as_str())
+        .collect();
+    for named in ["Context elided", "Context summarized", "Loop guard"] {
+        assert!(roles.contains(&named), "{named} missing from {roles:?}");
+    }
+    // Neither producer is mislabelled as human or as a generic inject.
+    assert!(!roles.contains(&"Injected context"));
+    // The brackets around a compaction are not records of their own.
+    assert!(!roles.contains(&"Compaction started"));
+    assert!(!roles.contains(&"Compaction finished"));
+}
+
+/// Every kind this build knows must be classified deliberately. The failure this
+/// guards against is silent: a kind that keeps its own label joins Chat, or a
+/// bookkeeping kind with a friendly label joins it. Both happened here
+/// (`session-log-deepseek/*` and the system prompt rendered as JSON in Chat).
+#[test]
+fn every_known_kind_is_classified_deliberately_in_chat() {
+    use crate::known::LOG_EVENTS;
+    // Kinds a dedicated arm presents as conversation, and kinds an arm labels
+    // for Trajectory. Anything else must fall through to the vocabulary rule.
+    let converses = [
+        "assistant/attempt",
+        "assistant/message",
+        "agent/inbox/spliced",
+        "tool/call",
+        "tool/result",
+        "turn/end",
+        "user/message",
+    ];
+    // Log-only kinds whose own name precedes an arm-provided label. These are
+    // excluded by KIND, so no label a caller passes can admit them.
+    let labelled = [
+        "compaction/prune",
+        "compaction/summary",
+        "model/selection",
+        "plan/mode",
+        "sandbox/mode",
+        "todo/write",
+        "subagent/catalog",
+        "session-log-deepseek/delivery-accepted",
+    ];
+    for kind in LOG_EVENTS {
+        if converses.contains(kind) {
+            continue;
+        }
+        assert!(
+            !crate::reducer::presentation::chat_visible(kind, kind),
+            "{kind} keeps its own label and would join Chat"
+        );
+    }
+    for kind in labelled {
+        assert!(
+            !crate::reducer::presentation::chat_visible(kind, "You"),
+            "{kind} must not join Chat even with a human label"
+        );
+    }
+    // A message-form kind carries its own decision, so the inject labels hide
+    // it and a human label presents it.
+    for (role, expected) in [
+        ("You", true),
+        ("Injected context", false),
+        ("System", false),
+        ("Developer", false),
+        ("Loop guard", false),
+    ] {
+        assert_eq!(
+            crate::reducer::presentation::chat_visible("user/message", role),
+            expected,
+            "user/message / {role}"
+        );
+    }
+    // Each kind an arm presents is visible under the label that arm chooses.
+    for (kind, role) in [
+        ("user/message", "You"),
+        ("assistant/message", "Assistant"),
+        ("tool/call", "Tool call"),
+        ("tool/result", "Tool result"),
+        ("turn/end", "Agent notice"),
+        ("assistant/attempt", "Interrupted assistant attempt"),
+    ] {
+        assert!(
+            crate::reducer::presentation::chat_visible(kind, role),
+            "{kind} / {role} must stay visible"
+        );
+    }
 }

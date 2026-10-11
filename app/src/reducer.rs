@@ -24,6 +24,15 @@ pub const MAX_DISPLAY_BYTES: usize = 32 * 1024;
 pub struct DisplayRow {
     pub key: u64,
     pub role: String,
+    /// The retained event's own type, so Chat classification stays independent
+    /// of any display label a branch above may choose. Read by
+    /// [`presentation::chat_visible`], which the production filter reaches
+    /// through the stored decision below; the field itself is read by the
+    /// fixture and test builds that construct rows directly.
+    #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
+    pub kind: String,
+    /// Whether Chat presents this row. Decided once, where the event is folded.
+    pub chat: bool,
     pub text: String,
     pub time: i64,
     pub surface: bool,
@@ -64,6 +73,8 @@ pub struct Transcript {
     retained: Option<(String, u64, u64)>,
     error: Option<ReduceError>,
     gap: bool,
+    /// Read-only projection of retained goal/todo/subagent/schedule records.
+    work: crate::work_panel::Store,
 }
 impl Transcript {
     pub fn new(generation: u64) -> Self {
@@ -81,10 +92,15 @@ impl Transcript {
             retained: None,
             error: None,
             gap: false,
+            work: crate::work_panel::Store::default(),
         }
     }
     pub fn rows(&self) -> &[DisplayRow] {
         &self.rows
+    }
+    /// Bounded read-only work records; rebuilt from the same retained events as rows.
+    pub fn work(&self) -> &crate::work_panel::Store {
+        &self.work
     }
     /// Project retained rows; cancellation, malformed/future records and Send gates are unchanged.
     pub fn display_rows(&self, records: bool) -> impl Iterator<Item = &DisplayRow> {
@@ -94,11 +110,14 @@ impl Transcript {
                 .get(&row.key)
                 .is_some_and(|event| presentation::ui_control_event(&event.event_type))
                 && (records
-                    || (presentation::conversation_role(&row.role)
+                    || (row.chat
                         && !(row.surface
                             && self.records.get(&row.key).is_some_and(|event| {
                                 event.surface_op.as_ref().is_some_and(Value::is_object)
                             }))
+                        // The role, not the kind, says this splice is not a
+                        // routine queue outcome: the same kind carries a
+                        // submitted message and a bare cancel.
                         && !(row.role == "agent/inbox/spliced"
                             && self
                                 .records
@@ -136,7 +155,12 @@ impl Transcript {
             event.event_type == "turn/end" && chat_presentation::turn_notice(&event.data).is_some()
         })
     }
+    /// Read-only ledger check used by the composed file-admission example.
+    #[allow(dead_code)]
     pub fn submitted_input(&self, key: u64) -> bool {
+        // A splice that carried her message is labelled `You` by the fold; one
+        // that only reported a queue outcome keeps the kind as its label. The
+        // kind alone cannot tell them apart, so the label is the signal here.
         self.records
             .get(&key)
             .is_some_and(|event| event.event_type == "agent/inbox/spliced")
@@ -145,14 +169,30 @@ impl Transcript {
                 .iter()
                 .any(|row| row.key == key && row.role == "You")
     }
-    pub fn records(&self) -> impl Iterator<Item = &SessionWireEvent> { self.records.values() }
+    pub fn records(&self) -> impl Iterator<Item = &SessionWireEvent> {
+        self.records.values()
+    }
     /// Populate a local text draft, never replay file receipts, queue input or model context.
     pub fn editable_text(&self, key: u64) -> Option<String> {
         let event = self.records.get(&key)?;
-        if event.event_type != "user/message" || event.surface_op.as_ref().is_some_and(Value::is_object) { return None; }
+        if event.event_type != "user/message"
+            || event.surface_op.as_ref().is_some_and(Value::is_object)
+        {
+            return None;
+        }
         let parts = event.data["content"].as_array()?;
-        if parts.is_empty() || !parts.iter().all(|part| part["type"] == "text" && part["text"].is_string()) { return None; }
-        let text = parts.iter().map(|part| part["text"].as_str().unwrap()).collect::<Vec<_>>().join("\n");
+        if parts.is_empty()
+            || !parts
+                .iter()
+                .all(|part| part["type"] == "text" && part["text"].is_string())
+        {
+            return None;
+        }
+        let text = parts
+            .iter()
+            .map(|part| part["text"].as_str().unwrap())
+            .collect::<Vec<_>>()
+            .join("\n");
         (!text.trim().is_empty() && text.len() <= MAX_DISPLAY_BYTES).then_some(text)
     }
     /// Derive a compact tool label from retained metadata, without changing the fold.
@@ -207,10 +247,10 @@ impl Transcript {
         if generation != self.generation {
             return Ok(());
         }
-        if !matches!(&frame, SessionFollowFrame::Snapshot { .. }) {
-            if let Some(error) = self.error {
-                return Err(error);
-            }
+        if !matches!(&frame, SessionFollowFrame::Snapshot { .. })
+            && let Some(error) = self.error
+        {
+            return Err(error);
         }
         let result = self.apply_inner(frame);
         if let Err(error) = result {
@@ -278,15 +318,15 @@ impl Transcript {
                     return Err(ReduceError::SequenceGap);
                 }
                 self.cursor = event.seq as i64;
-                if let Some(attempt) = &mut self.attempt {
-                    if matches!(
+                if let Some(attempt) = &mut self.attempt
+                    && matches!(
                         event.event_type.as_str(),
                         "assistant/message" | "assistant/attempt"
-                    ) && event.data.get("turn").and_then(Value::as_u64) == Some(attempt.turn)
-                        && event.data.get("step").and_then(Value::as_u64) == Some(attempt.step)
-                    {
-                        attempt.pending.insert(event.seq);
-                    }
+                    )
+                    && event.data.get("turn").and_then(Value::as_u64) == Some(attempt.turn)
+                    && event.data.get("step").and_then(Value::as_u64) == Some(attempt.step)
+                {
+                    attempt.pending.insert(event.seq);
                 }
                 if event.event_type == "step/end"
                     && self.retained.as_ref().is_some_and(|(_, t, s)| {
@@ -479,6 +519,7 @@ impl Transcript {
             .filter_map(|event| event.data["id"].as_str())
             .collect();
         let mut unknown = false;
+        let mut work = crate::work_panel::Store::default();
         for event in self.records.values() {
             if self
                 .attempt
@@ -488,6 +529,7 @@ impl Transcript {
                 continue;
             }
             let kind = event.event_type.as_str();
+            work.ingest(kind, &event.data);
             let submitted = (kind == "agent/inbox/spliced")
                 .then(|| chat_presentation::submitted_text(&event.data, &recorded))
                 .flatten();
@@ -521,6 +563,10 @@ impl Transcript {
                     Some(notice) => notice,
                     None => continue,
                 },
+                // A compaction's open and close markers are transaction brackets:
+                // they carry no information the prune and summary lines below do
+                // not, so they get no row rather than an unboxed JSON fallback.
+                "compaction/start" | "compaction/end" => continue,
                 kind if crate::known::LOG_EVENTS.contains(&kind) => safe_json(&event.data),
                 "turn/start" | "step/start" | "step/end" | "request/header" | "request/context"
                 | "session/end-seed" | "image/offload" => continue,
@@ -547,7 +593,15 @@ impl Transcript {
                     "turn/end" if event.data["reason"]["kind"] == "error" => "Agent error",
                     "turn/end" => "Agent notice",
                     // Harness context injects share the user role on the wire; only the
-                    // `user` producer is human history. Trajectory keeps the rest.
+                    // `user` producer is human history. Trajectory keeps the rest, and
+                    // the loop guard's own reminder gets its producer named instead of
+                    // joining the general inject label.
+                    "user/message"
+                        if event.data["source"]["kind"].as_str()
+                            == Some("repeat-tool-reminder") =>
+                    {
+                        "Loop guard"
+                    }
                     "user/message" if !presentation::human_message(&event.data["source"]) => {
                         "Injected context"
                     }
@@ -558,12 +612,19 @@ impl Transcript {
                     "tool/call" => "Tool call",
                     "system/message" => "System",
                     "developer/message" => "Developer",
+                    // Context management is log-only bookkeeping: named for
+                    // Trajectory, still absent from the clean conversation. The
+                    // open and close markers never reach this match.
+                    "compaction/prune" => "Context elided",
+                    "compaction/summary" => "Context summarized",
                     _ => kind,
                 }
             };
             let row = DisplayRow {
                 key: event.seq,
                 role: bounded(role, 128),
+                kind: bounded(kind, 128),
+                chat: presentation::chat_visible(kind, role),
                 text: bounded(&text, MAX_DISPLAY_BYTES),
                 time: event.time,
                 surface,
@@ -581,6 +642,9 @@ impl Transcript {
             rows.push(row);
         }
         self.rows = rows;
+        // The work store is a projection of the same retained records as rows; a
+        // malformed payload contributes nothing and never changes Send authority.
+        self.work = work;
         if let Some(error) = invalid {
             return Err(error);
         }

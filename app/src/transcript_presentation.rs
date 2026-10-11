@@ -6,21 +6,40 @@ pub fn ui_control_event(kind: &str) -> bool {
         "session/title" | "session/title-llm-request" | "model/selection"
     )
 }
-/// Roles the Chat view presents. The system prompt, developer injects, model-only
-/// context and harness bookkeeping belong to Trajectory. The exclusion is
-/// deliberately a known list rather than an allowlist: an event kind this build
-/// does not recognize stays visible, so a future required diagnostic is never
-/// silently dropped (`future/required` is the standing case).
-pub fn conversation_role(role: &str) -> bool {
-    if matches!(
-        role,
-        "System" | "Developer" | "Model context update" | "Injected context"
-    ) {
+/// Whether the Chat view presents an event of this kind with this role.
+///
+/// The two inputs are deliberately separate. A kind that this build does not
+/// recognize stays visible, so a future required diagnostic is never silently
+/// dropped (`future/required` is the standing case). A recognized bookkeeping
+/// kind is never presented, whatever label a caller hands it — that is why the
+/// role alone cannot be the input: `LOG_EVENTS` asks about kinds, and a caller
+/// that passes a display label asks a question the list cannot answer.
+///
+/// The explicit role labels cover the decisions a dedicated reducer branch makes
+/// from the event's own producer: a human prompt, an inject, the loop guard's
+/// reminder, a model-context replacement.
+pub fn chat_visible(kind: &str, role: &str) -> bool {
+    // A cancellation or a claimed submission shares the splice kind with a
+    // routine queue outcome, so that one kind keeps its own filter.
+    if kind == "agent/inbox/spliced" {
+        return true;
+    }
+    // A recognized bookkeeping kind is never conversation. This is checked
+    // before any role label, so no caller can relabel one into Chat.
+    if crate::known::LOG_EVENTS.contains(&kind) {
         return false;
     }
-    // A cancellation or inbox outcome shares the splice kind, so that one keeps
-    // its own routine filter instead of the blanket bookkeeping exclusion.
-    role == "agent/inbox/spliced" || !crate::known::LOG_EVENTS.contains(&role)
+    // Message-form kinds: the branch that folded the event decided the role.
+    !matches!(
+        role,
+        "System"
+            | "Developer"
+            | "Model context update"
+            | "Injected context"
+            | "Context elided"
+            | "Context summarized"
+            | "Loop guard"
+    )
 }
 /// True when a logged message is human history rather than a harness inject.
 /// `MessageSourceMap` is merge-extensible, but every producer declares its `kind`
@@ -107,6 +126,64 @@ pub fn routine_inbox(data: &Value) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+    /// The (kind, role) pairs the reducer actually produces. A harness
+    /// bookkeeping kind stays out of Chat whatever label it carries — the
+    /// regression that let `session-log-deepseek/*` and the system prompt render
+    /// as JSON in the conversation.
+    #[test]
+    fn chat_classification_uses_the_kind_for_bookkeeping_and_the_role_for_messages() {
+        for (kind, role) in [
+            ("system/message", "System"),
+            ("developer/message", "Developer"),
+            ("user/message", "Injected context"),
+            ("user/message", "Loop guard"),
+            ("user/message", "Model context update"),
+            ("compaction/prune", "Context elided"),
+            ("compaction/summary", "Context summarized"),
+            (
+                "session-log-deepseek/delivery-accepted",
+                "session-log-deepseek/delivery-accepted",
+            ),
+            ("model/selection", "model/selection"),
+            ("plan/mode", "plan/mode"),
+            ("sandbox/mode", "sandbox/mode"),
+            ("todo/write", "todo/write"),
+            ("goal/change", "goal/change"),
+            ("subagent/catalog", "subagent/catalog"),
+        ] {
+            assert!(
+                !chat_visible(kind, role),
+                "{kind} / {role} must stay out of Chat"
+            );
+        }
+        // A relabelled bookkeeping kind is still bookkeeping, not conversation.
+        for kind in ["compaction/prune", "session-log-deepseek/delivery-accepted"] {
+            assert!(
+                !chat_visible(kind, "You"),
+                "{kind} must ignore a human label"
+            );
+        }
+        for (kind, role) in [
+            ("user/message", "You"),
+            ("assistant/message", "Assistant"),
+            ("assistant/message", "Assistant · live"),
+            ("assistant/attempt", "Interrupted assistant attempt"),
+            ("tool/call", "Tool call"),
+            ("tool/result", "Tool result"),
+            ("turn/end", "Agent error"),
+            ("agent/inbox/spliced", "You"),
+        ] {
+            assert!(
+                chat_visible(kind, role),
+                "{kind} / {role} must stay visible"
+            );
+        }
+        // A kind this build does not recognize stays visible by policy: a future
+        // required diagnostic must never be silently dropped.
+        for kind in ["future/required", "Permission/preset", "plugin/progress"] {
+            assert!(chat_visible(kind, kind), "{kind} must stay visible");
+        }
+    }
     #[test]
     fn only_known_routine_queue_splices_are_secondary() {
         for target in ["next-turn", "next-step"] {
@@ -192,47 +269,6 @@ mod tests {
             let mut v = event.clone();
             v[key] = json!(9_007_199_254_740_992u64);
             assert!(!routine_inbox(&v));
-        }
-    }
-    #[test]
-    fn chat_keeps_conversation_and_unknown_roles_but_moves_known_internals_to_trajectory() {
-        // Conversation, tool activity and the splice kind (cancellation and inbox
-        // outcomes carry their own routine filter) stay in Chat.
-        for role in [
-            "You",
-            "Assistant",
-            "Assistant · live",
-            "Interrupted assistant attempt",
-            "Tool call",
-            "Tool result",
-            "Agent notice",
-            "Agent error",
-            "agent/inbox/spliced",
-        ] {
-            assert!(conversation_role(role));
-        }
-        // A kind this build does not recognize stays visible: a future required
-        // diagnostic must never be silently dropped.
-        for role in ["future/required", "Permission/preset", "approval/policy-changed"] {
-            assert!(conversation_role(role));
-        }
-        // The system prompt, developer injects, model-only context and every
-        // known bookkeeping or telemetry event belong to Trajectory.
-        for role in [
-            "System",
-            "Developer",
-            "Model context update",
-            "Injected context",
-            "permission/preset",
-            "sandbox/mode",
-            "approval/policy",
-            "session-log-deepseek/delivery-accepted",
-            "model/selection",
-            "command/run",
-            "todo/write",
-            "subagent/catalog",
-        ] {
-            assert!(!conversation_role(role), "{role}");
         }
     }
 }

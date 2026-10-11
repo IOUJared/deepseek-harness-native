@@ -64,7 +64,102 @@ pub(super) fn summarize<'a>(
                 |call| text_summary_label(&call.data, true, failed),
             ))
         }
+        // Staged context management, described with the paper's own vocabulary:
+        // elision replaces a stale observation body, summarization folds the
+        // oldest middle region. Both are log-only, so these lines are the only
+        // place the user learns the harness reclaimed context.
+        "compaction/prune" => Some(Summary {
+            title: match shadowed_records(&event.data) {
+                Some(records) => format!("Context elided · {records} → stubs"),
+                None => "Context elided · count available in details".into(),
+            },
+            target: shadowed_tokens(&event.data),
+            failed: false,
+            edits: None,
+        }),
+        "compaction/summary" => {
+            let range = &event.data["shadowedRange"];
+            let span = match (count(&range["start"]), count(&range["end"])) {
+                (Some(start), Some(end)) => format!("seqs {start}–{end}"),
+                _ => "range available in details".into(),
+            };
+            Some(Summary {
+                title: format!("Context summarized · {span}"),
+                target: shadowed_tokens(&event.data),
+                failed: false,
+                edits: None,
+            })
+        }
+        "compaction/end" => event.data["error"].as_str().map_or_else(
+            || None,
+            |error| {
+                Some(Summary {
+                    title: "Compaction failed".into(),
+                    target: Some(compact(error, 96)),
+                    failed: true,
+                    edits: None,
+                })
+            },
+        ),
+        // The loop guard injects an advisory reminder as a `user/message`; only
+        // its producer source marks it, so this is not a human turn. The host
+        // owns the counting and the thresholds — nothing is recounted here.
+        "user/message" if event.data["source"]["kind"].as_str() == Some("repeat-tool-reminder") => {
+            Some(loop_guard_summary(&event.data))
+        }
         _ => None,
+    }
+}
+
+fn count(value: &Value) -> Option<u64> {
+    value
+        .as_u64()
+        .filter(|value| *value <= 9_007_199_254_740_991)
+}
+
+/// Records replaced by one elision, when the log states them.
+fn shadowed_records(data: &Value) -> Option<String> {
+    data["shadowedSeqs"]
+        .as_array()
+        .filter(|seqs| !seqs.is_empty())
+        .map(|seqs| format!("{} records", seqs.len()))
+}
+
+/// The logged shadow price is the host estimator's own number, not a count.
+fn shadowed_tokens(data: &Value) -> Option<String> {
+    count(&data["shadowedTokenCount"])
+        .map(|tokens| format!("~{} tokens reclaimed", compact_tokens(tokens)))
+}
+
+fn compact_tokens(tokens: u64) -> String {
+    if tokens >= 1000 {
+        format!("{}k", tokens / 1000)
+    } else {
+        tokens.to_string()
+    }
+}
+
+/// `"bash × 8"` is the guard's own producer summary: the tool name and the run
+/// length it counted. It is presentation input, so an unexpected form degrades
+/// to a generic label rather than inventing a count.
+fn loop_guard_summary(data: &Value) -> Summary {
+    let run = data["source"]["summary"]
+        .as_str()
+        .and_then(|summary| summary.split_once(" × "))
+        .map(|(tool, times)| (compact(tool, MAX_NAME_BYTES), compact(times, 16)));
+    match run {
+        Some((tool, times)) if !tool.is_empty() && !times.is_empty() => Summary {
+            title: "Loop guard · repeated identical call".into(),
+            target: Some(format!("{tool} × {times}")),
+            failed: false,
+            edits: None,
+        },
+        _ => Summary {
+            title: "Loop guard · repeated identical call".into(),
+            target: None,
+            failed: false,
+            edits: None,
+        },
     }
 }
 
@@ -582,7 +677,7 @@ mod tests {
 
     #[test]
     fn getter_leaves_stored_rows_and_reducer_state_untouched() {
-        let records = vec![
+        let records = [
             call(0, "a", "read", json!({"file_path":"a.rs"})),
             result(1, "a", json!(false)),
         ];
@@ -592,10 +687,20 @@ mod tests {
         let before = transcript
             .rows()
             .iter()
-            .map(|r| (r.key, r.role.clone(), r.text.clone(), r.time, r.surface))
+            .map(|r| {
+                (
+                    r.key,
+                    r.role.clone(),
+                    r.kind.clone(),
+                    r.chat,
+                    r.text.clone(),
+                    r.time,
+                    r.surface,
+                )
+            })
             .collect::<Vec<_>>();
-        assert_eq!(before[0].2, "read\n{\"file_path\":\"a.rs\"}");
-        assert_eq!(before[1].2, "PRIVATE RESULT");
+        assert_eq!(before[0].4, "read\n{\"file_path\":\"a.rs\"}");
+        assert_eq!(before[1].4, "PRIVATE RESULT");
         let cursor = transcript.opening_cursor();
         let safe = transcript.safe_to_send();
         let stored = serde_json::to_value(&transcript.records).unwrap();
@@ -609,7 +714,15 @@ mod tests {
             transcript
                 .rows()
                 .iter()
-                .map(|r| (r.key, r.role.clone(), r.text.clone(), r.time, r.surface))
+                .map(|r| (
+                    r.key,
+                    r.role.clone(),
+                    r.kind.clone(),
+                    r.chat,
+                    r.text.clone(),
+                    r.time,
+                    r.surface
+                ))
                 .collect::<Vec<_>>()
         );
         assert_eq!(cursor, transcript.opening_cursor());
@@ -751,5 +864,138 @@ mod tests {
         assert_eq!(line_diff_totals("same\nsame", "same\nsame"), Some((0, 0)));
         assert_eq!(line_diff_totals("世界\ncafé", "世界\ncafe"), Some((1, 1)));
         assert_eq!(line_diff_totals("a\nb\nc", "c\nb\na"), Some((2, 2)));
+    }
+
+    /// Staged context management is log-only, so these labels are the only place
+    /// the user sees what was reclaimed. Only logged counts are shown.
+    #[test]
+    fn context_management_labels_report_only_logged_counts() {
+        let pruned = label(&event(
+            7,
+            "compaction/prune",
+            json!({"shadowedRange":{"start":5,"end":40},"shadowedSeqs":[5,9,12,40],
+                "shadowedTokenCount":34000,"content":[{"type":"text","text":"PRIVATE PRUNED BODY"}]}),
+        ));
+        assert_eq!(pruned.title, "Context elided · 4 records → stubs");
+        assert_eq!(pruned.target.as_deref(), Some("~34k tokens reclaimed"));
+        assert!(!pruned.failed);
+        assert!(!format!("{pruned:?}").contains("PRIVATE"));
+
+        let summarized = label(&event(
+            8,
+            "compaction/summary",
+            json!({"compactionId":"c1","summary":[{"type":"text","text":"PRIVATE SUMMARY BODY"}],
+                "shadowedRange":{"start":5,"end":208},"shadowedSeqs":[5,6,208],
+                "shadowedTokenCount":96000,"provider":"PUBLIC","model":"public-model","llmStreamCall":true}),
+        ));
+        assert_eq!(summarized.title, "Context summarized · seqs 5–208");
+        assert_eq!(summarized.target.as_deref(), Some("~96k tokens reclaimed"));
+        assert!(!summarized.failed);
+        // The summary body belongs to Details, never this line.
+        assert!(!format!("{summarized:?}").contains("PRIVATE"));
+
+        let failed = label(&event(
+            9,
+            "compaction/end",
+            json!({"compactionId":"c1","turn":4,"error":"summarizer unavailable"}),
+        ));
+        assert_eq!(failed.title, "Compaction failed");
+        assert_eq!(failed.target.as_deref(), Some("summarizer unavailable"));
+        assert!(failed.failed);
+
+        let closed = summarize(
+            &event(10, "compaction/end", json!({"compactionId":"c1","turn":4})),
+            std::iter::empty(),
+        );
+        assert!(closed.is_none());
+    }
+
+    /// Absent, malformed and unbounded payloads degrade to a bounded label
+    /// instead of a guessed count or a fabricated tier.
+    #[test]
+    fn context_management_labels_survive_missing_and_hostile_fields() {
+        let empty = label(&event(
+            1,
+            "compaction/prune",
+            json!({"shadowedRange":{"start":0,"end":0},"shadowedSeqs":[]}),
+        ));
+        assert_eq!(empty.title, "Context elided · count available in details");
+        assert!(empty.target.is_none());
+
+        for bad in [
+            json!(-1),
+            json!(1.5),
+            json!("12"),
+            Value::Null,
+            json!(9007199254740992u64),
+        ] {
+            let summary = label(&event(
+                2,
+                "compaction/summary",
+                json!({"shadowedRange":{"start":1,"end":2},"shadowedTokenCount":bad}),
+            ));
+            assert!(summary.target.is_none(), "{bad}");
+            assert_eq!(summary.title, "Context summarized · seqs 1–2");
+        }
+        let no_range = label(&event(3, "compaction/summary", json!({})));
+        assert_eq!(
+            no_range.title,
+            "Context summarized · range available in details"
+        );
+        let long_error = label(&event(
+            4,
+            "compaction/end",
+            json!({"compactionId":"c1","error":"e".repeat(4096)}),
+        ));
+        assert!(long_error.target.as_deref().unwrap().len() <= 96);
+        let tiny = label(&event(
+            5,
+            "compaction/prune",
+            json!({"shadowedTokenCount":999}),
+        ));
+        assert_eq!(tiny.target.as_deref(), Some("~999 tokens reclaimed"));
+    }
+
+    /// The reminder is a `user/message` carrying the guard's own `source`; the
+    /// tool name and run length come from that producer summary.
+    #[test]
+    fn loop_guard_labels_use_the_producer_summary_without_recounting() {
+        let reminder = label(&event(
+            3,
+            "user/message",
+            json!({"content":[{"type":"text","text":"PRIVATE REMINDER TEXT"}],
+                "source":{"kind":"repeat-tool-reminder","form":"notice","summary":"bash × 8"}}),
+        ));
+        assert_eq!(reminder.title, "Loop guard · repeated identical call");
+        assert_eq!(reminder.target.as_deref(), Some("bash × 8"));
+        assert!(!reminder.failed);
+        assert!(!format!("{reminder:?}").contains("PRIVATE"));
+
+        for source in [
+            json!({"kind":"repeat-tool-reminder"}),
+            json!({"kind":"repeat-tool-reminder","summary":"bash"}),
+            json!({"kind":"repeat-tool-reminder","summary":"× 8"}),
+            json!({"kind":"repeat-tool-reminder","summary":12}),
+        ] {
+            let summary = label(&event(
+                4,
+                "user/message",
+                json!({"content":[],"source":source}),
+            ));
+            assert_eq!(summary.title, "Loop guard · repeated identical call");
+            assert!(summary.target.is_none(), "{source}");
+        }
+        // A human turn is not a guard reminder.
+        assert!(
+            summarize(
+                &event(
+                    5,
+                    "user/message",
+                    json!({"content":[{"type":"text","text":"hello"}],"source":{"kind":"user"}}),
+                ),
+                std::iter::empty(),
+            )
+            .is_none()
+        );
     }
 }

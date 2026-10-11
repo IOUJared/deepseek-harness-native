@@ -4,6 +4,8 @@ fn row(key: u64, role: &str) -> DisplayRow {
     DisplayRow {
         key,
         role: role.into(),
+        kind: role.into(),
+        chat: crate::reducer::presentation::chat_visible(role, role),
         text: "PUBLIC".into(),
         time: 0,
         surface: false,
@@ -195,7 +197,7 @@ fn older_page_anchor_uses_real_compact_activity_height_not_record_count() {
     );
     let text = app.transcript.rows()[0].text.clone();
     drop(app.update(app.detail_request(0).unwrap()));
-    assert_eq!(app.detail.as_ref().unwrap().source,text);
+    assert_eq!(app.detail.as_ref().unwrap().source, text);
     drop(app.update(app.detail_back().unwrap()));
     drop(app.update(Message::ToggleConversationMenu));
     drop(app.update(app.detail_request(1).unwrap()));

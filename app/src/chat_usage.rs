@@ -37,7 +37,7 @@ fn sum(values: &[u64]) -> Option<u64> {
         .filter(|total| *total <= MAX_COUNT)
 }
 fn compact(value: u64) -> String {
-    if value >= 1000 && value % 1000 == 0 {
+    if value >= 1000 && value.is_multiple_of(1000) {
         format!("{}k", value / 1000)
     } else {
         value.to_string()
@@ -56,10 +56,10 @@ fn usage(value: &Value) -> Option<Usage> {
     let write = field(object, "cacheWriteTokens").ok()?;
     let reasoning = field(object, "reasoningTokens").ok()?;
     let reported = field(object, "totalTokens").ok()?;
-    if let Some(reasoning) = reasoning {
-        if reasoning > output? {
-            return None;
-        }
+    if let Some(reasoning) = reasoning
+        && reasoning > output?
+    {
+        return None;
     }
     let known_prompt = sum(&[input.unwrap_or(0), read.unwrap_or(0), write.unwrap_or(0)])?;
     let prompt = match (input, read, write) {
@@ -72,10 +72,10 @@ fn usage(value: &Value) -> Option<Usage> {
             if total < known_total {
                 return None;
             }
-            if let (Some(prompt), Some(output)) = (prompt, output) {
-                if sum(&[prompt, output])? != total {
-                    return None;
-                }
+            if let (Some(prompt), Some(output)) = (prompt, output)
+                && sum(&[prompt, output])? != total
+            {
+                return None;
             }
             total
         }
@@ -88,10 +88,10 @@ fn usage(value: &Value) -> Option<Usage> {
     })
 }
 fn settlement_usage(event: &SessionWireEvent) -> Option<Usage> {
-    if event.event_type == "assistant/message" {
-        if let Some(value) = event.data.get("usage") {
-            return usage(value);
-        }
+    if event.event_type == "assistant/message"
+        && let Some(value) = event.data.get("usage")
+    {
+        return usage(value);
     }
     let stream = event.data.get("stream")?.as_array()?;
     if stream.len() > MAX_RECORDS {
@@ -129,7 +129,13 @@ fn selection_pending(projections: &BTreeMap<String, Value>) -> bool {
         _ => true,
     }
 }
-fn context(projections: &BTreeMap<String, Value>) -> Option<String> {
+/// Occupancy and the window it is measured against, from valid projections only.
+struct Occupancy {
+    used: u64,
+    capacity: u64,
+}
+
+fn occupancy(projections: &BTreeMap<String, Value>) -> Option<Occupancy> {
     let object = projections.get("contextPressure")?.as_object()?;
     let projected = field(object, "projectedTokens").ok()?;
     let pressure = field(object, "pressureTokens").ok()?;
@@ -138,21 +144,83 @@ fn context(projections: &BTreeMap<String, Value>) -> Option<String> {
         return None;
     }
     let used = projected.or(pressure)?;
-    Some(format!(
-        "Context ~{} / {}",
-        compact(used),
-        compact(capacity)
-    ))
+    Some(Occupancy { used, capacity })
 }
 
-/// Describe current approximate Host context or the last retained authoritative request.
-/// The caller owns session/epoch/watermark validity; stale projections cannot supply capacity.
-/// Retained records must be a contiguous chronological window, not a whole-log usage aggregate.
-pub fn describe<'a>(
+/// The context-pressure tier. `Tight` is keyed to the mounted compaction
+/// threshold (`thresholdRatio: 0.8` of the window): the host elides and
+/// summarizes from there, so the user is told before it happens. No soft tier
+/// is assumed — the alpha profile runs one threshold, not the paper's two.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Severity {
+    Normal,
+    Tight,
+    Critical,
+}
+
+impl Severity {
+    /// `None` for occupancy the window cannot plausibly contain: a projection
+    /// reporting orders of magnitude past its own window is malformed, and a
+    /// percentage or tier derived from it would be confident nonsense.
+    fn of(occupancy: &Occupancy) -> Option<Self> {
+        let overrun = u128::from(occupancy.used) * 10 > u128::from(occupancy.capacity) * 100;
+        if overrun {
+            return None;
+        }
+        Some(if occupancy.used >= occupancy.capacity {
+            Self::Critical
+        } else if u128::from(occupancy.used) * 10 > u128::from(occupancy.capacity) * 8 {
+            Self::Tight
+        } else {
+            Self::Normal
+        })
+    }
+}
+
+/// The composer's context reading: its one-line label, the tier that colours it,
+/// and bounded disclosure entries. Presentation only — never a Send gate.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ContextState {
+    pub line: String,
+    pub severity: Severity,
+    pub detail: Vec<String>,
+}
+
+const PRUNE_NOTE: &str = "Context management replaces tool output over 8k characters with a stub \
+before it summarizes older history near 80% of the window. The paper's staged order — elide \
+first, summarize second — is what controls peak context.";
+const OVERFLOW_NOTE: &str = "At the window limit. Unmanaged contexts in the study overflowed and \
+ended early on most tasks, so start a new conversation or compact rather than continuing here.";
+const TOOLS_NOTE: &str =
+    "Predefined file tools stay available; a bash-only interface is not offered.";
+const MAX_DETAIL_LINES: usize = 4;
+
+impl ContextState {
+    /// Mark a reading the caller must treat as absent: no tier, no disclosure.
+    fn unavailable(line: String) -> Self {
+        Self {
+            line,
+            severity: Severity::Normal,
+            detail: Vec::new(),
+        }
+    }
+}
+
+/// One owner for the projection, pending-selection, route-change and
+/// projection-current gates, so the plain label and the tiered state can never
+/// describe different things.
+enum Reading {
+    Context(Occupancy),
+    Last(Usage),
+    Unavailable,
+}
+
+/// Both callers own their own `records` iterator; this is the shared fold.
+fn reading<'a>(
     projections: &BTreeMap<String, Value>,
     projection_current: bool,
     records: impl Iterator<Item = &'a SessionWireEvent>,
-) -> String {
+) -> Reading {
     let mut previous = None;
     let mut context_route = None;
     let mut last = None;
@@ -162,13 +230,13 @@ pub fn describe<'a>(
             || event.seq > MAX_COUNT
             || previous.is_some_and(|seq: u64| seq.checked_add(1) != Some(event.seq))
         {
-            return UNAVAILABLE.into();
+            return Reading::Unavailable;
         }
         previous = Some(event.seq);
         match event.event_type.as_str() {
             "request/context" => {
                 let Some(next) = route(&event.data) else {
-                    return UNAVAILABLE.into();
+                    return Reading::Unavailable;
                 };
                 if context_route.as_ref().is_some_and(|old| old != &next) {
                     last = None;
@@ -178,7 +246,7 @@ pub fn describe<'a>(
             }
             "model/selection" => {
                 let Some(next) = route(&event.data) else {
-                    return UNAVAILABLE.into();
+                    return Reading::Unavailable;
                 };
                 if context_route.as_ref() != Some(&next) {
                     last = None;
@@ -192,13 +260,13 @@ pub fn describe<'a>(
                     .and_then(|message| message.get("source"));
                 if let Some(source) = source {
                     let Some(source_route) = route(source) else {
-                        return UNAVAILABLE.into();
+                        return Reading::Unavailable;
                     };
                     if context_route
                         .as_ref()
                         .is_some_and(|current| current != &source_route)
                     {
-                        return UNAVAILABLE.into();
+                        return Reading::Unavailable;
                     }
                 }
                 last = settlement_usage(event);
@@ -209,28 +277,108 @@ pub fn describe<'a>(
         }
     }
     let pending = selection_pending(projections);
-    if projection_current && !pending && !changed_route {
-        if let Some(label) = context(projections) {
-            return label;
-        }
+    if projection_current
+        && !pending
+        && !changed_route
+        && let Some(occupancy) = occupancy(projections)
+    {
+        return Reading::Context(occupancy);
     }
     if pending || changed_route {
-        return UNAVAILABLE.into();
+        return Reading::Unavailable;
     }
     match last {
-        Some(Usage {
+        Some(usage) => Reading::Last(usage),
+        None => Reading::Unavailable,
+    }
+}
+
+/// Describe current approximate Host context or the last retained authoritative request.
+/// The caller owns session/epoch/watermark validity; stale projections cannot supply capacity.
+/// Retained records must be a contiguous chronological window, not a whole-log usage aggregate.
+/// The plain label. [`state`] wraps it for the composer; this stays the direct
+/// entry point its unit tests and the fixture build read.
+#[allow(dead_code)]
+pub fn describe<'a>(
+    projections: &BTreeMap<String, Value>,
+    projection_current: bool,
+    records: impl Iterator<Item = &'a SessionWireEvent>,
+) -> String {
+    match reading(projections, projection_current, records) {
+        Reading::Context(Occupancy { used, capacity }) => {
+            format!("Context ~{} / {}", compact(used), compact(capacity))
+        }
+        Reading::Last(usage) => last_request(usage),
+        Reading::Unavailable => UNAVAILABLE.into(),
+    }
+}
+
+/// The composer's context reading: [`describe`]'s exact line plus the pressure
+/// tier that colours it and bounded disclosure entries. A last-request or
+/// unavailable line keeps [`Severity::Normal`] and stays undisclosed, so the app
+/// warns only where a real window and occupancy are both known.
+pub fn state<'a>(
+    projections: &BTreeMap<String, Value>,
+    projection_current: bool,
+    records: impl Iterator<Item = &'a SessionWireEvent>,
+) -> ContextState {
+    let Occupancy { used, capacity } = match reading(projections, projection_current, records) {
+        Reading::Context(occupancy) => occupancy,
+        Reading::Last(usage) => return ContextState::unavailable(last_request(usage)),
+        Reading::Unavailable => return ContextState::unavailable(UNAVAILABLE.into()),
+    };
+    let severity = Severity::of(&Occupancy { used, capacity });
+    let Some(severity) = severity else {
+        // Implausible occupancy: keep the two counts the Host reported and add
+        // nothing the numbers cannot support.
+        return ContextState::unavailable(format!(
+            "Context ~{} / {}",
+            compact(used),
+            compact(capacity)
+        ));
+    };
+    let mut detail = vec![
+        format!(
+            "Context is approximate: {used} of {capacity} tokens reported by the Host, {}% of the window.",
+            percent(used, capacity)
+        ),
+        PRUNE_NOTE.into(),
+        TOOLS_NOTE.into(),
+    ];
+    if severity == Severity::Critical {
+        detail.push(OVERFLOW_NOTE.into());
+    }
+    detail.truncate(MAX_DETAIL_LINES);
+    ContextState {
+        line: format!(
+            "Context ~{} / {} · {}%",
+            compact(used),
+            compact(capacity),
+            percent(used, capacity)
+        ),
+        severity,
+        detail,
+    }
+}
+
+/// Integer percentage of the window in use. Widened to `u128` so the largest
+/// accepted count still divides exactly instead of saturating.
+fn percent(used: u64, capacity: u64) -> u64 {
+    (u128::from(used) * 100 / u128::from(capacity)) as u64
+}
+
+fn last_request(usage: Usage) -> String {
+    match usage {
+        Usage {
             prompt: Some(prompt),
             output: Some(output),
             ..
-        }) => {
-            format!(
-                "Last request: {} in · {} out",
-                compact(prompt),
-                compact(output)
-            )
-        }
-        Some(Usage { total, .. }) => format!("Last request: {} tokens", compact(total)),
-        None => UNAVAILABLE.into(),
+        } => format!(
+            "Last request: {} in · {} out",
+            compact(prompt),
+            compact(output)
+        ),
+        Usage { total, .. } => format!("Last request: {} tokens", compact(total)),
     }
 }
 
@@ -254,6 +402,88 @@ mod tests {
     }
     fn message(value: Value) -> SessionWireEvent {
         event(10, "assistant/message", json!({"usage":value}))
+    }
+    /// The tier is presentation only; the line it colours is `describe`'s exact
+    /// line, so a warning can never describe a different session than the label.
+    #[test]
+    fn tier_and_percentage_follow_the_reported_occupancy() {
+        let read = |value: Value| state(&pressure(value), true, [].iter());
+        let normal = read(json!({"pressureTokens":17,"contextWindow":128000}));
+        assert_eq!(normal.line, "Context ~17 / 128k · 0%");
+        assert_eq!(normal.severity, Severity::Normal);
+        assert_eq!(normal.detail.len(), 3);
+
+        let tight = read(json!({"pressureTokens":100,"contextWindow":128000}));
+        assert_eq!(tight.line, "Context ~100 / 128k · 0%");
+        assert_eq!(tight.severity, Severity::Normal);
+
+        let tight =
+            read(json!({"pressureTokens":17000,"projectedTokens":18000,"contextWindow":128000}));
+        assert_eq!(tight.line, "Context ~18k / 128k · 14%");
+        assert_eq!(tight.severity, Severity::Normal);
+        assert!(
+            !tight
+                .detail
+                .iter()
+                .any(|line| line.contains("window limit"))
+        );
+
+        // Exactly at the mounted compaction threshold is still Normal: nothing
+        // has been reclaimed yet.
+        let at_threshold = read(json!({"pressureTokens":10240,"contextWindow":12800}));
+        assert_eq!(at_threshold.severity, Severity::Normal);
+        let above = read(json!({"pressureTokens":10241,"contextWindow":12800}));
+        assert_eq!(above.severity, Severity::Tight);
+        assert_eq!(above.line, "Context ~10241 / 12800 · 80%");
+        assert!(
+            !above
+                .detail
+                .iter()
+                .any(|line| line.contains("window limit"))
+        );
+
+        // At or past the window the run is the paper's overflow case.
+        let critical = read(json!({"pressureTokens":128000,"contextWindow":128000}));
+        assert_eq!(critical.severity, Severity::Critical);
+        assert_eq!(critical.line, "Context ~128k / 128k · 100%");
+        assert!(
+            critical
+                .detail
+                .iter()
+                .any(|line| line.contains("window limit"))
+        );
+        let over = read(json!({"pressureTokens":130000,"contextWindow":128000}));
+        assert_eq!(over.severity, Severity::Critical);
+        assert_eq!(over.line, "Context ~130k / 128k · 101%");
+        assert!(over.detail.len() <= MAX_DETAIL_LINES);
+    }
+    /// A percentage that overflows or an absent window must not be guessed, and
+    /// a last-request line is never a context warning.
+    #[test]
+    fn absent_or_unsafe_occupancy_discloses_nothing() {
+        let p = pressure(json!({"pressureTokens":1,"contextWindow":0}));
+        assert_eq!(state(&p, true, [].iter()).line, UNAVAILABLE);
+        assert_eq!(state(&p, true, [].iter()).severity, Severity::Normal);
+        assert!(state(&p, true, [].iter()).detail.is_empty());
+        let huge = pressure(json!({"pressureTokens":MAX_COUNT,"contextWindow":1}));
+        let implausible = state(&huge, true, [].iter());
+        assert_eq!(implausible.line, format!("Context ~{MAX_COUNT} / 1"));
+        assert_eq!(implausible.severity, Severity::Normal);
+        assert!(implausible.detail.is_empty());
+        let stale = pressure(json!({"pressureTokens":120000,"contextWindow":128000}));
+        assert_eq!(state(&stale, false, [].iter()).line, UNAVAILABLE);
+        assert!(state(&stale, false, [].iter()).detail.is_empty());
+        let events = [message(
+            json!({"inputTokens":100,"outputTokens":20,"totalTokens":120}),
+        )];
+        let line = state(&BTreeMap::new(), false, events.iter());
+        assert_eq!(line.line, "Last request: 120 tokens");
+        assert_eq!(line.severity, Severity::Normal);
+        assert!(line.detail.is_empty());
+        let summary = state(&BTreeMap::new(), true, events.iter());
+        assert_eq!(summary.line, "Last request: 120 tokens");
+        assert_eq!(summary.severity, Severity::Normal);
+        assert_eq!(summary.detail, Vec::<String>::new());
     }
     #[test]
     fn public_context_is_approximate_and_never_uses_stale_capacity() {
