@@ -812,3 +812,108 @@ fn every_known_kind_is_classified_deliberately_in_chat() {
         );
     }
 }
+
+/// A real recorded alpha session, content-free: 88 events with the payload shapes
+/// this build actually receives from a Host -- `request/context` carrying the
+/// window, `assistant/message` carrying usage buckets, injected user messages,
+/// spliced inbox messages, tool rows and delivery bookkeeping.
+///
+/// The synthetic fixtures pin behaviour; this one pins that the behaviour holds
+/// for the real shapes, which is what they cannot show. Numbers are the recorded
+/// ones: the Host reported a 272000-token window and the largest prompt-side
+/// sample was 7486 tokens, so the composed source itself sat far below the
+/// compaction threshold.
+#[test]
+fn a_real_recorded_window_projects_its_own_reported_occupancy() {
+    let fixture: SessionFollowFrame =
+        serde_json::from_str(include_str!("../fixtures/real-session-context.json"))
+            .expect("real recorded window");
+    let mut transcript = Transcript::new(1);
+    transcript
+        .apply(1, fixture)
+        .expect("contiguous recorded window");
+    assert!(
+        transcript.safe_to_send(),
+        "a recorded window must stay sendable"
+    );
+
+    // The recorded occupancy, not an invented one: 7486 of 272000 is 2%.
+    let state = crate::ui::chat_usage::state(&transcript.projections(), true, transcript.records());
+    assert_eq!(state.line, "Context ~7486 / 272k · 2%");
+    assert_eq!(state.severity, crate::ui::chat_usage::Severity::Normal);
+    assert!(
+        !state
+            .detail
+            .iter()
+            .any(|line| line.contains("window limit")),
+        "a session at 2% must not be warned about the window"
+    );
+
+    // The recorded conversation is presented; the harness bookkeeping is not.
+    let chat: Vec<&str> = transcript
+        .display_rows(false)
+        .map(|row| row.role.as_str())
+        .collect();
+    assert!(
+        chat.contains(&"You"),
+        "the recorded human turns stay: {chat:?}"
+    );
+    assert!(
+        chat.contains(&"Assistant"),
+        "recorded replies stay: {chat:?}"
+    );
+    assert!(
+        !chat.contains(&"Injected context"),
+        "recorded runtime/time/skill injects stay in Trajectory: {chat:?}"
+    );
+    for hidden in [
+        "System",
+        "Developer",
+        "Model context update",
+        "session-log-deepseek/delivery-accepted",
+    ] {
+        assert!(!chat.contains(&hidden), "{hidden} reached Chat: {chat:?}");
+    }
+
+    // The recorded window carries kinds whose names are a route, a preset or a
+    // sandbox mode -- not conversation. They are excluded by their kind, and the
+    // real log is where that matters: these are the records a Host actually sent.
+    let kinds: Vec<&str> = transcript
+        .display_rows(false)
+        .map(|row| row.kind.as_str())
+        .collect();
+    assert_eq!(
+        kinds
+            .iter()
+            .filter(|kind| **kind == "permission/preset"
+                || **kind == "sandbox/mode"
+                || **kind == "approval/policy")
+            .count(),
+        0,
+        "recorded bookkeeping kinds reached Chat: {kinds:?}"
+    );
+    // The recorded human and tool turns are exactly what Chat keeps.
+    assert_eq!(
+        kinds.iter().filter(|kind| **kind == "user/message").count(),
+        3,
+        "recorded human turns: {kinds:?}"
+    );
+    assert!(kinds.iter().any(|kind| *kind == "tool/call"));
+    assert!(kinds.iter().any(|kind| *kind == "tool/result"));
+
+    // Every recorded tool row labels through the real argument shapes.
+    let tool_rows = transcript
+        .rows()
+        .iter()
+        .filter(|row| row.role == "Tool call" || row.role == "Tool result")
+        .count();
+    assert!(tool_rows >= 16, "recorded tool rows: {tool_rows}");
+    for row in transcript.rows() {
+        if row.role == "Tool call" {
+            let summary = transcript
+                .activity(row.key)
+                .expect("recorded tool call labels");
+            assert!(!summary.title.is_empty());
+        }
+    }
+}

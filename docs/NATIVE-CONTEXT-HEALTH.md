@@ -118,11 +118,34 @@ and the system prompt both rendered as JSON in Chat, because a listed kind is as
 about by *name* and a display label answers a different question. `every_known_kind_is_classified_deliberately_in_chat`
 now pins the whole vocabulary so a third leak fails a test instead of reaching the UI.
 
+## What real recorded sessions show
+
+The render frames are synthetic, but the parsers are additionally pinned against a
+**real recorded alpha session** in `app/fixtures/real-session-context.json`: 88
+events covering the payload shapes a Host actually sends — `request/context`
+carrying the window, `assistant/message` carrying usage buckets, injected user
+messages, spliced inbox messages, tool rows and delivery bookkeeping. Its content
+is replaced; its kinds, field names, sequence order and numbers are the recorded
+ones. `a_real_recorded_window_projects_its_own_reported_occupancy` asserts that the
+window projects its own reported occupancy (7486 of 272000 tokens, 2%), that the
+recorded bookkeeping kinds stay out of Chat while the recorded human and tool
+turns stay, and that every recorded tool row labels through the real argument
+shapes.
+
+Measured across the 14 recorded sessions in this workspace: the highest occupancy
+was **2.8%** of the reported window against a compaction threshold of **80%**, and
+**no session contains a single `compaction/*` or `plan/mode` event**. That is why
+compaction, the loop guard and plan mode have no live evidence here: they have
+never occurred on this machine, not merely gone unobserved.
+
 ## Not qualified
 
 - No live Host, provider or model produced these frames. `layout_smoke` renders
   PUBLIC synthetic records: `context-pressure`, `context-pressure-risk`,
-  `context-management`, `context-management-chat` and `plan-chip`.
+  `context-management`, `context-management-chat`, `plan-chip` and the
+  `plan-mode` states.
+- The real recorded window above is replayed through the fold; it is not a Host
+  run. It exercises the parsers against real shapes, not a live connection.
 - The tier thresholds are read from this build's mounted policy. A deployment that
   changes `thresholdRatio` or the pruner budgets changes the copy's accuracy, not
   the code's behaviour: nothing here parses a threshold from the wire.

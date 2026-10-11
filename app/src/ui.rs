@@ -86,7 +86,7 @@ mod attachment_ui_tests;
 #[path = "chat_flow_ui_tests.rs"]
 mod chat_flow_ui_tests;
 #[path = "chat_usage.rs"]
-mod chat_usage;
+pub(crate) mod chat_usage;
 #[cfg(test)]
 #[path = "conversation_actions_ui_tests.rs"]
 mod conversation_actions_ui_tests;
@@ -2587,7 +2587,6 @@ impl App {
                             })
                             .collect();
                     }
-                    self.projections = projections.values.clone();
                     if let (Some(id), Some(value)) = (
                         self.selected.clone(),
                         projections
@@ -4379,7 +4378,7 @@ impl App {
         // One reading: the tier colours the line, and only a real window with a
         // plausible occupancy can raise one (see `chat_usage::Severity`).
         let context = chat_usage::state(
-            &self.projections,
+            self.transcript.projections(),
             self.follow_ready
                 && self.transcript.safe_to_send()
                 && !self.model_pending
@@ -4484,7 +4483,7 @@ impl App {
         let mut metadata = row![];
         // Plan mode is harness state published to clients as { active, pending }.
         // Read-only here: this chip can neither enter nor leave the mode.
-        if let Some(mode) = plan_mode::mode(&self.projections) {
+        if let Some(mode) = plan_mode::mode(self.transcript.projections()) {
             metadata = metadata.push(label(mode.label(), ACCENT).size(10));
         }
         if let Some(plan) = plan {
@@ -5990,12 +5989,13 @@ impl App {
                     ));
                 }
             }
-            if !self.projections.is_empty() {
+            if !self.transcript.projections().is_empty() {
                 details = details
                     .push(label("Read-only session projections", MUTED).size(13))
                     .push(label(
                         reducer::safe_json(
-                            &serde_json::to_value(&self.projections).unwrap_or_default(),
+                            &serde_json::to_value(self.transcript.projections())
+                                .unwrap_or_default(),
                         ),
                         TEXT,
                     ));

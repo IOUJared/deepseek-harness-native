@@ -1,0 +1,5007 @@
+{
+ "type": "snapshot",
+ "header": {
+  "version": 4,
+  "id": "PUBLIC-recorded-session",
+  "createdAt": 1791674381491,
+  "isSeeded": false
+ },
+ "cursor": 87,
+ "hasMore": false,
+ "records": [
+  {
+   "type": "event",
+   "event": {
+    "type": "permission/preset",
+    "seq": 0,
+    "time": 1791674381493,
+    "data": {
+     "preset": "workspace-write"
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "sandbox/mode",
+    "seq": 1,
+    "time": 1791674381493,
+    "data": {
+     "mode": "workspace-write"
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "approval/policy",
+    "seq": 2,
+    "time": 1791674381493,
+    "data": {
+     "policy": "PUBLIC synthetic text"
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "agent/inbox/spliced",
+    "seq": 3,
+    "time": 1791674385377,
+    "data": {
+     "target": "next-turn",
+     "start": 0,
+     "inserted": [
+      {
+       "content": [
+        {
+         "type": "text",
+         "text": "PUBLIC synthetic text"
+        }
+       ],
+       "source": {
+        "kind": "user",
+        "rpcId": "PUBLIC-id",
+        "promptFingerprint": "PUBLIC-id",
+        "clientTimeZone": "PUBLIC synthetic text"
+       },
+       "role": "user",
+       "id": "PUBLIC-id"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "turn/start",
+    "seq": 4,
+    "time": 1791674385379,
+    "data": {
+     "turn": 1
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "agent/inbox/spliced",
+    "seq": 5,
+    "time": 1791674385380,
+    "data": {
+     "target": "next-turn",
+     "start": 0,
+     "removedCount": 1,
+     "inserted": []
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "step/start",
+    "seq": 6,
+    "time": 1791674385414,
+    "data": {
+     "turn": 1,
+     "step": 1
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "system/message",
+    "seq": 7,
+    "time": 1791674385416,
+    "data": {
+     "turn": 1,
+     "step": 1,
+     "message": {
+      "role": "system",
+      "content": [
+       {
+        "type": "text",
+        "text": "PUBLIC synthetic text"
+       }
+      ],
+      "source": {
+       "kind": "PUBLIC synthetic text"
+      },
+      "id": "PUBLIC-id"
+     }
+    },
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "user/message",
+    "seq": 8,
+    "time": 1791674385416,
+    "data": {
+     "content": [
+      {
+       "type": "text",
+       "text": "PUBLIC synthetic text"
+      }
+     ],
+     "source": {
+      "kind": "user",
+      "rpcId": "PUBLIC-id",
+      "promptFingerprint": "PUBLIC-id",
+      "clientTimeZone": "PUBLIC synthetic text"
+     },
+     "role": "user",
+     "id": "PUBLIC-id"
+    },
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "user/message",
+    "seq": 9,
+    "time": 1791674385417,
+    "data": {
+     "content": [
+      {
+       "type": "text",
+       "text": "PUBLIC synthetic text"
+      }
+     ],
+     "source": {
+      "kind": "runtime-context",
+      "form": "snapshot",
+      "sections": [
+       {
+        "name": "PUBLIC-tool",
+        "text": "PUBLIC synthetic text"
+       },
+       {
+        "name": "PUBLIC-tool",
+        "text": "PUBLIC synthetic text"
+       }
+      ]
+     },
+     "role": "user",
+     "id": "PUBLIC-id"
+    },
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "user/message",
+    "seq": 10,
+    "time": 1791674385417,
+    "data": {
+     "content": [
+      {
+       "type": "text",
+       "text": "PUBLIC synthetic text"
+      }
+     ],
+     "source": {
+      "kind": "skill-catalog",
+      "form": "PUBLIC synthetic text",
+      "entries": [
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text"
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text"
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text"
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text"
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text"
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text"
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text"
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text"
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text"
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text"
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text"
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text"
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text"
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text"
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text"
+       }
+      ]
+     },
+     "role": "user",
+     "id": "PUBLIC-id"
+    },
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "user/message",
+    "seq": 11,
+    "time": 1791674385417,
+    "data": {
+     "content": [
+      {
+       "type": "text",
+       "text": "PUBLIC synthetic text"
+      }
+     ],
+     "source": {
+      "kind": "time-context",
+      "form": "snapshot",
+      "sections": [
+       {
+        "name": "PUBLIC-tool",
+        "text": "PUBLIC synthetic text"
+       }
+      ]
+     },
+     "role": "user",
+     "id": "PUBLIC-id"
+    },
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "request/header",
+    "seq": 12,
+    "time": 1791674385418,
+    "data": {
+     "header": {
+      "config": {
+       "provider": "PUBLIC-provider",
+       "model": "PUBLIC-model",
+       "reasoningEffort": "PUBLIC synthetic text"
+      },
+      "tools": [
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "questions": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "items": {
+            "type": "PUBLIC synthetic text",
+            "additionalProperties": true,
+            "properties": {
+             "id": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text"
+             },
+             "question": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text"
+             },
+             "header": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text"
+             },
+             "options": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text",
+              "items": {
+               "type": "PUBLIC synthetic text",
+               "additionalProperties": true,
+               "properties": {
+                "label": {
+                 "type": "PUBLIC synthetic text",
+                 "description": "PUBLIC synthetic text"
+                },
+                "description": {
+                 "type": "PUBLIC synthetic text",
+                 "description": "PUBLIC synthetic text"
+                }
+               },
+               "required": [
+                "PUBLIC synthetic text"
+               ]
+              }
+             },
+             "multi_select": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text"
+             }
+            },
+            "required": [
+             "PUBLIC synthetic text",
+             "PUBLIC synthetic text"
+            ]
+           }
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "description": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "command": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "timeoutMs": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "workdir": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "run_in_background": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "sandbox_permissions": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "enum": [
+            "workspace-write",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "justification": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "objective": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "max_goal_rounds": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "file_path": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "old_string": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "new_string": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "replace_all": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "sandbox_permissions": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "enum": [
+            "workspace-write",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "justification": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "plan": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {}
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "pattern": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "path": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "pattern": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "path": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "include": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "agent_id": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "job_id": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "reason": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {}
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "job_id": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "wait": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "timeout_ms": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "scope": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "enum": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          }
+         }
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "files": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "items": {
+            "type": "PUBLIC synthetic text",
+            "additionalProperties": false,
+            "properties": {
+             "path": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text"
+             },
+             "description": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text"
+             }
+            },
+            "required": [
+             "PUBLIC synthetic text"
+            ]
+           }
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "file_path": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "offset": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "limit": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "file_path": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "prompt": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "title": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "after_seconds": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "every_seconds": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "daily": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "additionalProperties": false,
+           "properties": {
+            "time": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "time_zone": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            }
+           },
+           "required": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "weekly": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "additionalProperties": false,
+           "properties": {
+            "time": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "time_zone": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "weekdays": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text",
+             "items": {
+              "type": "PUBLIC synthetic text"
+             }
+            }
+           },
+           "required": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "cron": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "additionalProperties": false,
+           "properties": {
+            "expression": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "time_zone": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            }
+           },
+           "required": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "at": {
+           "oneOf": [
+            {
+             "type": "PUBLIC synthetic text"
+            },
+            {
+             "type": "PUBLIC synthetic text",
+             "additionalProperties": false,
+             "properties": {
+              "date": {
+               "type": "PUBLIC synthetic text"
+              },
+              "time": {
+               "type": "PUBLIC synthetic text"
+              },
+              "time_zone": {
+               "type": "PUBLIC synthetic text"
+              }
+             },
+             "required": [
+              "PUBLIC synthetic text",
+              "PUBLIC synthetic text",
+              "PUBLIC synthetic text"
+             ]
+            }
+           ],
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "id": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {}
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "id": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "title": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "prompt": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "every_seconds": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "daily": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "additionalProperties": false,
+           "properties": {
+            "time": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "time_zone": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            }
+           },
+           "required": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "weekly": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "additionalProperties": false,
+           "properties": {
+            "time": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "time_zone": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "weekdays": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text",
+             "items": {
+              "type": "PUBLIC synthetic text"
+             }
+            }
+           },
+           "required": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "cron": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "additionalProperties": false,
+           "properties": {
+            "expression": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "time_zone": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            }
+           },
+           "required": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "at": {
+           "oneOf": [
+            {
+             "type": "PUBLIC synthetic text"
+            },
+            {
+             "type": "PUBLIC synthetic text",
+             "additionalProperties": false,
+             "properties": {
+              "date": {
+               "type": "PUBLIC synthetic text"
+              },
+              "time": {
+               "type": "PUBLIC synthetic text"
+              },
+              "time_zone": {
+               "type": "PUBLIC synthetic text"
+              }
+             },
+             "required": [
+              "PUBLIC synthetic text",
+              "PUBLIC synthetic text",
+              "PUBLIC synthetic text"
+             ]
+            }
+           ],
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "agent_id": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "message": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "name": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "description": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "prompt": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "run_in_background": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "description": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "prompt": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "run_in_background": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "todos": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "items": {
+            "type": "PUBLIC synthetic text",
+            "additionalProperties": false,
+            "properties": {
+             "content": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text"
+             },
+             "status": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text",
+              "enum": [
+               "PUBLIC synthetic text",
+               "PUBLIC synthetic text",
+               "completed"
+              ]
+             }
+            },
+            "required": [
+             "PUBLIC synthetic text",
+             "PUBLIC synthetic text"
+            ]
+           }
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "goal_id": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "revision": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "action": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "enum": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "objective": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "max_goal_rounds": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "blocked_reason": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "url": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "queries": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "items": {
+            "type": "PUBLIC synthetic text"
+           }
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "script": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "meta": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "additionalProperties": true,
+           "properties": {
+            "name": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "description": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "whenToUse": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "phases": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text",
+             "items": {
+              "type": "PUBLIC synthetic text",
+              "additionalProperties": true,
+              "properties": {
+               "title": {
+                "type": "PUBLIC synthetic text",
+                "description": "PUBLIC synthetic text"
+               },
+               "detail": {
+                "type": "PUBLIC synthetic text",
+                "description": "PUBLIC synthetic text"
+               },
+               "provider": {
+                "type": "PUBLIC synthetic text",
+                "description": "PUBLIC synthetic text"
+               },
+               "model": {
+                "type": "PUBLIC synthetic text",
+                "description": "PUBLIC synthetic text"
+               }
+              },
+              "required": [
+               "PUBLIC synthetic text"
+              ]
+             }
+            }
+           },
+           "required": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "args": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "additionalProperties": true
+          },
+          "run_in_background": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "file_path": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "content": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "sandbox_permissions": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "enum": [
+            "workspace-write",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "justification": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       }
+      ]
+     },
+     "reason": "PUBLIC synthetic text"
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "request/context",
+    "seq": 13,
+    "time": 1791674385419,
+    "data": {
+     "provider": "PUBLIC-provider",
+     "model": "PUBLIC-model",
+     "contextWindow": 272000
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "session/title",
+    "seq": 14,
+    "time": 1791674385421,
+    "data": {
+     "title": "PUBLIC recorded session",
+     "messageSeqs": [
+      8
+     ],
+     "source": {
+      "kind": "PUBLIC synthetic text"
+     }
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "session/title-llm-request",
+    "seq": 15,
+    "time": 1791674385421,
+    "data": {
+     "titleProvider": "PUBLIC synthetic text",
+     "messageSeqs": [
+      8
+     ],
+     "route": {
+      "provider": "PUBLIC-provider",
+      "model": "PUBLIC-model"
+     },
+     "system": "PUBLIC synthetic text",
+     "messages": [
+      {
+       "content": [
+        {
+         "type": "text",
+         "text": "PUBLIC synthetic text"
+        }
+       ],
+       "source": {
+        "kind": "PUBLIC synthetic text"
+       },
+       "role": "user",
+       "id": "PUBLIC-id"
+      }
+     ],
+     "maxTokens": 64
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "assistant/message",
+    "seq": 16,
+    "time": 1791674387357,
+    "data": {
+     "turn": 1,
+     "step": 1,
+     "message": {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "PUBLIC synthetic text"
+       }
+      ],
+      "source": {
+       "kind": "model",
+       "provider": "PUBLIC-provider",
+       "model": "PUBLIC-model",
+       "replayState": {
+        "response": {
+         "kind": "PUBLIC synthetic text",
+         "version": 2,
+         "api": "PUBLIC synthetic text",
+         "provider": "PUBLIC-provider",
+         "model": "PUBLIC-model",
+         "responseId": "PUBLIC synthetic text",
+         "stopReason": "PUBLIC synthetic text"
+        },
+        "blocks": [
+         {
+          "type": "text",
+          "textSignature": "PUBLIC synthetic text"
+         }
+        ]
+       }
+      },
+      "id": "PUBLIC-id"
+     },
+     "usage": {
+      "inputTokens": 6512,
+      "outputTokens": 13,
+      "totalTokens": 6525
+     },
+     "stream": []
+    },
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "step/end",
+    "seq": 17,
+    "time": 1791674387357,
+    "data": {
+     "turn": 1,
+     "step": 1
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "turn/end",
+    "seq": 18,
+    "time": 1791674387358,
+    "data": {
+     "turn": 1,
+     "reason": {
+      "kind": "completed"
+     }
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "session/title",
+    "seq": 19,
+    "time": 1791674387365,
+    "data": {
+     "title": "PUBLIC recorded session",
+     "messageSeqs": [
+      8
+     ],
+     "source": {
+      "kind": "PUBLIC synthetic text",
+      "provider": "PUBLIC-provider",
+      "model": {
+       "provider": "PUBLIC-provider",
+       "model": "PUBLIC-model"
+      }
+     }
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "model/selection",
+    "seq": 20,
+    "time": 1791674400163,
+    "data": {
+     "provider": "PUBLIC-provider",
+     "model": "PUBLIC-model"
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "agent/inbox/spliced",
+    "seq": 21,
+    "time": 1791674425298,
+    "data": {
+     "target": "next-turn",
+     "start": 0,
+     "inserted": [
+      {
+       "content": [
+        {
+         "type": "text",
+         "text": "PUBLIC synthetic text"
+        }
+       ],
+       "source": {
+        "kind": "user",
+        "rpcId": "PUBLIC-id",
+        "promptFingerprint": "PUBLIC-id",
+        "clientTimeZone": "PUBLIC synthetic text"
+       },
+       "role": "user",
+       "id": "PUBLIC-id"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "turn/start",
+    "seq": 22,
+    "time": 1791674425299,
+    "data": {
+     "turn": 2
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "agent/inbox/spliced",
+    "seq": 23,
+    "time": 1791674425299,
+    "data": {
+     "target": "next-turn",
+     "start": 0,
+     "removedCount": 1,
+     "inserted": []
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "step/start",
+    "seq": 24,
+    "time": 1791674425312,
+    "data": {
+     "turn": 2,
+     "step": 1
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "system/message",
+    "seq": 25,
+    "time": 1791674425313,
+    "data": {
+     "turn": 2,
+     "step": 1,
+     "message": {
+      "role": "system",
+      "content": [
+       {
+        "type": "text",
+        "text": "PUBLIC synthetic text"
+       }
+      ],
+      "source": {
+       "kind": "PUBLIC synthetic text"
+      },
+      "id": "PUBLIC-id"
+     }
+    },
+    "sourceEventSeqs": [
+     7
+    ],
+    "surfaceOp": {
+     "op": "replace",
+     "startSeq": 7,
+     "endSeq": 7
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "user/message",
+    "seq": 26,
+    "time": 1791674425313,
+    "data": {
+     "content": [
+      {
+       "type": "text",
+       "text": "PUBLIC synthetic text"
+      }
+     ],
+     "source": {
+      "kind": "user",
+      "rpcId": "PUBLIC-id",
+      "promptFingerprint": "PUBLIC-id",
+      "clientTimeZone": "PUBLIC synthetic text"
+     },
+     "role": "user",
+     "id": "PUBLIC-id"
+    },
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "user/message",
+    "seq": 27,
+    "time": 1791674425314,
+    "data": {
+     "content": [
+      {
+       "type": "text",
+       "text": "PUBLIC synthetic text"
+      }
+     ],
+     "source": {
+      "kind": "model-selection",
+      "form": "notice",
+      "summary": "PUBLIC synthetic text"
+     },
+     "role": "user",
+     "id": "PUBLIC-id"
+    },
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "request/header",
+    "seq": 28,
+    "time": 1791674425314,
+    "data": {
+     "header": {
+      "config": {
+       "provider": "PUBLIC-provider",
+       "model": "PUBLIC-model"
+      },
+      "tools": [
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "questions": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "items": {
+            "type": "PUBLIC synthetic text",
+            "additionalProperties": true,
+            "properties": {
+             "id": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text"
+             },
+             "question": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text"
+             },
+             "header": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text"
+             },
+             "options": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text",
+              "items": {
+               "type": "PUBLIC synthetic text",
+               "additionalProperties": true,
+               "properties": {
+                "label": {
+                 "type": "PUBLIC synthetic text",
+                 "description": "PUBLIC synthetic text"
+                },
+                "description": {
+                 "type": "PUBLIC synthetic text",
+                 "description": "PUBLIC synthetic text"
+                }
+               },
+               "required": [
+                "PUBLIC synthetic text"
+               ]
+              }
+             },
+             "multi_select": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text"
+             }
+            },
+            "required": [
+             "PUBLIC synthetic text",
+             "PUBLIC synthetic text"
+            ]
+           }
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "description": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "command": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "timeoutMs": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "workdir": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "run_in_background": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "sandbox_permissions": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "enum": [
+            "workspace-write",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "justification": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "objective": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "max_goal_rounds": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "file_path": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "old_string": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "new_string": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "replace_all": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "sandbox_permissions": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "enum": [
+            "workspace-write",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "justification": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "plan": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {}
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "pattern": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "path": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "pattern": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "path": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "include": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "agent_id": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "job_id": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "reason": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {}
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "job_id": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "wait": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "timeout_ms": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "scope": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "enum": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          }
+         }
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "files": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "items": {
+            "type": "PUBLIC synthetic text",
+            "additionalProperties": false,
+            "properties": {
+             "path": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text"
+             },
+             "description": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text"
+             }
+            },
+            "required": [
+             "PUBLIC synthetic text"
+            ]
+           }
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "file_path": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "offset": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "limit": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "file_path": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "prompt": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "title": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "after_seconds": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "every_seconds": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "daily": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "additionalProperties": false,
+           "properties": {
+            "time": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "time_zone": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            }
+           },
+           "required": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "weekly": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "additionalProperties": false,
+           "properties": {
+            "time": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "time_zone": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "weekdays": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text",
+             "items": {
+              "type": "PUBLIC synthetic text"
+             }
+            }
+           },
+           "required": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "cron": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "additionalProperties": false,
+           "properties": {
+            "expression": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "time_zone": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            }
+           },
+           "required": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "at": {
+           "oneOf": [
+            {
+             "type": "PUBLIC synthetic text"
+            },
+            {
+             "type": "PUBLIC synthetic text",
+             "additionalProperties": false,
+             "properties": {
+              "date": {
+               "type": "PUBLIC synthetic text"
+              },
+              "time": {
+               "type": "PUBLIC synthetic text"
+              },
+              "time_zone": {
+               "type": "PUBLIC synthetic text"
+              }
+             },
+             "required": [
+              "PUBLIC synthetic text",
+              "PUBLIC synthetic text",
+              "PUBLIC synthetic text"
+             ]
+            }
+           ],
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "id": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {}
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "id": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "title": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "prompt": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "every_seconds": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "daily": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "additionalProperties": false,
+           "properties": {
+            "time": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "time_zone": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            }
+           },
+           "required": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "weekly": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "additionalProperties": false,
+           "properties": {
+            "time": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "time_zone": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "weekdays": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text",
+             "items": {
+              "type": "PUBLIC synthetic text"
+             }
+            }
+           },
+           "required": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "cron": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "additionalProperties": false,
+           "properties": {
+            "expression": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "time_zone": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            }
+           },
+           "required": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "at": {
+           "oneOf": [
+            {
+             "type": "PUBLIC synthetic text"
+            },
+            {
+             "type": "PUBLIC synthetic text",
+             "additionalProperties": false,
+             "properties": {
+              "date": {
+               "type": "PUBLIC synthetic text"
+              },
+              "time": {
+               "type": "PUBLIC synthetic text"
+              },
+              "time_zone": {
+               "type": "PUBLIC synthetic text"
+              }
+             },
+             "required": [
+              "PUBLIC synthetic text",
+              "PUBLIC synthetic text",
+              "PUBLIC synthetic text"
+             ]
+            }
+           ],
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "agent_id": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "message": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "name": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "description": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "prompt": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "run_in_background": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "description": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "prompt": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "run_in_background": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "todos": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "items": {
+            "type": "PUBLIC synthetic text",
+            "additionalProperties": false,
+            "properties": {
+             "content": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text"
+             },
+             "status": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text",
+              "enum": [
+               "PUBLIC synthetic text",
+               "PUBLIC synthetic text",
+               "completed"
+              ]
+             }
+            },
+            "required": [
+             "PUBLIC synthetic text",
+             "PUBLIC synthetic text"
+            ]
+           }
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "goal_id": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "revision": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "action": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "enum": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "objective": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "max_goal_rounds": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "blocked_reason": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "url": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "queries": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "items": {
+            "type": "PUBLIC synthetic text"
+           }
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "script": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "meta": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "additionalProperties": true,
+           "properties": {
+            "name": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "description": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "whenToUse": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "phases": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text",
+             "items": {
+              "type": "PUBLIC synthetic text",
+              "additionalProperties": true,
+              "properties": {
+               "title": {
+                "type": "PUBLIC synthetic text",
+                "description": "PUBLIC synthetic text"
+               },
+               "detail": {
+                "type": "PUBLIC synthetic text",
+                "description": "PUBLIC synthetic text"
+               },
+               "provider": {
+                "type": "PUBLIC synthetic text",
+                "description": "PUBLIC synthetic text"
+               },
+               "model": {
+                "type": "PUBLIC synthetic text",
+                "description": "PUBLIC synthetic text"
+               }
+              },
+              "required": [
+               "PUBLIC synthetic text"
+              ]
+             }
+            }
+           },
+           "required": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "args": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "additionalProperties": true
+          },
+          "run_in_background": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "file_path": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "content": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "sandbox_permissions": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "enum": [
+            "workspace-write",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "justification": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       }
+      ]
+     },
+     "reason": "PUBLIC synthetic text",
+     "startsSeries": true
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "request/context",
+    "seq": 29,
+    "time": 1791674425315,
+    "data": {
+     "provider": "PUBLIC-provider",
+     "model": "PUBLIC-model",
+     "contextWindow": 128000
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "assistant/attempt",
+    "seq": 30,
+    "time": 1791674425481,
+    "data": {
+     "turn": 2,
+     "step": 1,
+     "stream": []
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "step/end",
+    "seq": 31,
+    "time": 1791674425481,
+    "data": {
+     "turn": 2,
+     "step": 1
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "turn/end",
+    "seq": 32,
+    "time": 1791674425482,
+    "data": {
+     "turn": 2,
+     "reason": {
+      "kind": "error",
+      "error": {
+       "message": "PUBLIC synthetic text",
+       "code": "PUBLIC synthetic text"
+      }
+     }
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "model/selection",
+    "seq": 33,
+    "time": 1791674445292,
+    "data": {
+     "provider": "PUBLIC-provider",
+     "model": "PUBLIC-model"
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "model/selection",
+    "seq": 34,
+    "time": 1791674448880,
+    "data": {
+     "provider": "PUBLIC-provider",
+     "model": "PUBLIC-model"
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "agent/inbox/spliced",
+    "seq": 35,
+    "time": 1791674457493,
+    "data": {
+     "target": "next-turn",
+     "start": 0,
+     "inserted": [
+      {
+       "content": [
+        {
+         "type": "text",
+         "text": "PUBLIC synthetic text"
+        }
+       ],
+       "source": {
+        "kind": "user",
+        "rpcId": "PUBLIC-id",
+        "promptFingerprint": "PUBLIC-id",
+        "clientTimeZone": "PUBLIC synthetic text"
+       },
+       "role": "user",
+       "id": "PUBLIC-id"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "turn/start",
+    "seq": 36,
+    "time": 1791674457493,
+    "data": {
+     "turn": 3
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "agent/inbox/spliced",
+    "seq": 37,
+    "time": 1791674457494,
+    "data": {
+     "target": "next-turn",
+     "start": 0,
+     "removedCount": 1,
+     "inserted": []
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "step/start",
+    "seq": 38,
+    "time": 1791674457504,
+    "data": {
+     "turn": 3,
+     "step": 1
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "system/message",
+    "seq": 39,
+    "time": 1791674457506,
+    "data": {
+     "turn": 3,
+     "step": 1,
+     "message": {
+      "role": "system",
+      "content": [
+       {
+        "type": "text",
+        "text": "PUBLIC synthetic text"
+       }
+      ],
+      "source": {
+       "kind": "PUBLIC synthetic text"
+      },
+      "id": "PUBLIC-id"
+     }
+    },
+    "sourceEventSeqs": [
+     25
+    ],
+    "surfaceOp": {
+     "op": "replace",
+     "startSeq": 25,
+     "endSeq": 25
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "user/message",
+    "seq": 40,
+    "time": 1791674457506,
+    "data": {
+     "content": [
+      {
+       "type": "text",
+       "text": "PUBLIC synthetic text"
+      }
+     ],
+     "source": {
+      "kind": "user",
+      "rpcId": "PUBLIC-id",
+      "promptFingerprint": "PUBLIC-id",
+      "clientTimeZone": "PUBLIC synthetic text"
+     },
+     "role": "user",
+     "id": "PUBLIC-id"
+    },
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "user/message",
+    "seq": 41,
+    "time": 1791674457506,
+    "data": {
+     "content": [
+      {
+       "type": "text",
+       "text": "PUBLIC synthetic text"
+      }
+     ],
+     "source": {
+      "kind": "model-selection",
+      "form": "notice",
+      "summary": "PUBLIC synthetic text"
+     },
+     "role": "user",
+     "id": "PUBLIC-id"
+    },
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "request/header",
+    "seq": 42,
+    "time": 1791674457507,
+    "data": {
+     "header": {
+      "config": {
+       "provider": "PUBLIC-provider",
+       "model": "PUBLIC-model"
+      },
+      "tools": [
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "questions": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "items": {
+            "type": "PUBLIC synthetic text",
+            "additionalProperties": true,
+            "properties": {
+             "id": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text"
+             },
+             "question": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text"
+             },
+             "header": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text"
+             },
+             "options": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text",
+              "items": {
+               "type": "PUBLIC synthetic text",
+               "additionalProperties": true,
+               "properties": {
+                "label": {
+                 "type": "PUBLIC synthetic text",
+                 "description": "PUBLIC synthetic text"
+                },
+                "description": {
+                 "type": "PUBLIC synthetic text",
+                 "description": "PUBLIC synthetic text"
+                }
+               },
+               "required": [
+                "PUBLIC synthetic text"
+               ]
+              }
+             },
+             "multi_select": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text"
+             }
+            },
+            "required": [
+             "PUBLIC synthetic text",
+             "PUBLIC synthetic text"
+            ]
+           }
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "description": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "command": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "timeoutMs": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "workdir": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "run_in_background": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "sandbox_permissions": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "enum": [
+            "workspace-write",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "justification": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "objective": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "max_goal_rounds": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "file_path": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "old_string": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "new_string": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "replace_all": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "sandbox_permissions": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "enum": [
+            "workspace-write",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "justification": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "plan": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {}
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "pattern": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "path": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "pattern": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "path": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "include": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "agent_id": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "job_id": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "reason": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {}
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "job_id": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "wait": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "timeout_ms": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "scope": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "enum": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          }
+         }
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "files": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "items": {
+            "type": "PUBLIC synthetic text",
+            "additionalProperties": false,
+            "properties": {
+             "path": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text"
+             },
+             "description": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text"
+             }
+            },
+            "required": [
+             "PUBLIC synthetic text"
+            ]
+           }
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "file_path": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "offset": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "limit": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "file_path": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "prompt": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "title": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "after_seconds": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "every_seconds": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "daily": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "additionalProperties": false,
+           "properties": {
+            "time": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "time_zone": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            }
+           },
+           "required": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "weekly": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "additionalProperties": false,
+           "properties": {
+            "time": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "time_zone": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "weekdays": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text",
+             "items": {
+              "type": "PUBLIC synthetic text"
+             }
+            }
+           },
+           "required": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "cron": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "additionalProperties": false,
+           "properties": {
+            "expression": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "time_zone": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            }
+           },
+           "required": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "at": {
+           "oneOf": [
+            {
+             "type": "PUBLIC synthetic text"
+            },
+            {
+             "type": "PUBLIC synthetic text",
+             "additionalProperties": false,
+             "properties": {
+              "date": {
+               "type": "PUBLIC synthetic text"
+              },
+              "time": {
+               "type": "PUBLIC synthetic text"
+              },
+              "time_zone": {
+               "type": "PUBLIC synthetic text"
+              }
+             },
+             "required": [
+              "PUBLIC synthetic text",
+              "PUBLIC synthetic text",
+              "PUBLIC synthetic text"
+             ]
+            }
+           ],
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "id": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {}
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "id": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "title": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "prompt": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "every_seconds": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "daily": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "additionalProperties": false,
+           "properties": {
+            "time": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "time_zone": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            }
+           },
+           "required": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "weekly": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "additionalProperties": false,
+           "properties": {
+            "time": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "time_zone": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "weekdays": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text",
+             "items": {
+              "type": "PUBLIC synthetic text"
+             }
+            }
+           },
+           "required": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "cron": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "additionalProperties": false,
+           "properties": {
+            "expression": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "time_zone": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            }
+           },
+           "required": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "at": {
+           "oneOf": [
+            {
+             "type": "PUBLIC synthetic text"
+            },
+            {
+             "type": "PUBLIC synthetic text",
+             "additionalProperties": false,
+             "properties": {
+              "date": {
+               "type": "PUBLIC synthetic text"
+              },
+              "time": {
+               "type": "PUBLIC synthetic text"
+              },
+              "time_zone": {
+               "type": "PUBLIC synthetic text"
+              }
+             },
+             "required": [
+              "PUBLIC synthetic text",
+              "PUBLIC synthetic text",
+              "PUBLIC synthetic text"
+             ]
+            }
+           ],
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "agent_id": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "message": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "name": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "description": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "prompt": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "run_in_background": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "description": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "prompt": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "run_in_background": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "todos": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "items": {
+            "type": "PUBLIC synthetic text",
+            "additionalProperties": false,
+            "properties": {
+             "content": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text"
+             },
+             "status": {
+              "type": "PUBLIC synthetic text",
+              "description": "PUBLIC synthetic text",
+              "enum": [
+               "PUBLIC synthetic text",
+               "PUBLIC synthetic text",
+               "completed"
+              ]
+             }
+            },
+            "required": [
+             "PUBLIC synthetic text",
+             "PUBLIC synthetic text"
+            ]
+           }
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "goal_id": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "revision": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "action": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "enum": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "objective": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "max_goal_rounds": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "blocked_reason": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "url": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "queries": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "items": {
+            "type": "PUBLIC synthetic text"
+           }
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "script": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "meta": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "additionalProperties": true,
+           "properties": {
+            "name": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "description": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "whenToUse": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text"
+            },
+            "phases": {
+             "type": "PUBLIC synthetic text",
+             "description": "PUBLIC synthetic text",
+             "items": {
+              "type": "PUBLIC synthetic text",
+              "additionalProperties": true,
+              "properties": {
+               "title": {
+                "type": "PUBLIC synthetic text",
+                "description": "PUBLIC synthetic text"
+               },
+               "detail": {
+                "type": "PUBLIC synthetic text",
+                "description": "PUBLIC synthetic text"
+               },
+               "provider": {
+                "type": "PUBLIC synthetic text",
+                "description": "PUBLIC synthetic text"
+               },
+               "model": {
+                "type": "PUBLIC synthetic text",
+                "description": "PUBLIC synthetic text"
+               }
+              },
+              "required": [
+               "PUBLIC synthetic text"
+              ]
+             }
+            }
+           },
+           "required": [
+            "PUBLIC synthetic text",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "args": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "additionalProperties": true
+          },
+          "run_in_background": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       },
+       {
+        "name": "PUBLIC-tool",
+        "description": "PUBLIC synthetic text",
+        "parameters": {
+         "type": "PUBLIC synthetic text",
+         "properties": {
+          "file_path": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "content": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          },
+          "sandbox_permissions": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text",
+           "enum": [
+            "workspace-write",
+            "PUBLIC synthetic text"
+           ]
+          },
+          "justification": {
+           "type": "PUBLIC synthetic text",
+           "description": "PUBLIC synthetic text"
+          }
+         },
+         "required": [
+          "PUBLIC synthetic text",
+          "PUBLIC synthetic text"
+         ]
+        }
+       }
+      ]
+     },
+     "reason": "PUBLIC synthetic text",
+     "startsSeries": true
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "request/context",
+    "seq": 43,
+    "time": 1791674457507,
+    "data": {
+     "provider": "PUBLIC-provider",
+     "model": "PUBLIC-model",
+     "contextWindow": 272000
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "assistant/message",
+    "seq": 44,
+    "time": 1791674459727,
+    "data": {
+     "turn": 3,
+     "step": 1,
+     "message": {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "PUBLIC synthetic text",
+        "id": "PUBLIC-id",
+        "name": "PUBLIC-tool",
+        "arguments": "{\"PUBLIC\":\"PUBLIC\"}"
+       }
+      ],
+      "source": {
+       "kind": "model",
+       "provider": "PUBLIC-provider",
+       "model": "PUBLIC-model",
+       "replayState": {
+        "response": {
+         "kind": "PUBLIC synthetic text",
+         "version": 2,
+         "api": "PUBLIC synthetic text",
+         "provider": "PUBLIC-provider",
+         "model": "PUBLIC-model",
+         "responseId": "PUBLIC synthetic text",
+         "stopReason": "PUBLIC synthetic text"
+        },
+        "blocks": [
+         {
+          "type": "PUBLIC synthetic text"
+         }
+        ]
+       }
+      },
+      "id": "PUBLIC-id"
+     },
+     "usage": {
+      "inputTokens": 6628,
+      "outputTokens": 43,
+      "totalTokens": 6671
+     },
+     "stream": []
+    },
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "tool/call",
+    "seq": 45,
+    "time": 1791674459728,
+    "data": {
+     "turn": 3,
+     "step": 1,
+     "callId": "PUBLIC-id",
+     "name": "PUBLIC-tool",
+     "arguments": "{\"PUBLIC\":\"PUBLIC\"}"
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "tool/result",
+    "seq": 46,
+    "time": 1791674459732,
+    "data": {
+     "turn": 3,
+     "step": 1,
+     "message": {
+      "role": "tool",
+      "source": {
+       "kind": "tool",
+       "callId": "PUBLIC-id"
+      },
+      "toolCallId": "PUBLIC-id",
+      "content": [
+       {
+        "type": "text",
+        "text": "PUBLIC synthetic text"
+       }
+      ],
+      "isError": true,
+      "id": "PUBLIC-id"
+     },
+     "error": {
+      "name": "PUBLIC-tool",
+      "code": "PUBLIC synthetic text"
+     }
+    },
+    "sourceEventSeqs": [
+     45
+    ],
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "step/end",
+    "seq": 47,
+    "time": 1791674459733,
+    "data": {
+     "turn": 3,
+     "step": 1
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "step/start",
+    "seq": 48,
+    "time": 1791674459737,
+    "data": {
+     "turn": 3,
+     "step": 2
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "assistant/message",
+    "seq": 49,
+    "time": 1791674462077,
+    "data": {
+     "turn": 3,
+     "step": 2,
+     "message": {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "PUBLIC synthetic text",
+        "id": "PUBLIC-id",
+        "name": "PUBLIC-tool",
+        "arguments": "{\"PUBLIC\":\"PUBLIC\"}"
+       }
+      ],
+      "source": {
+       "kind": "model",
+       "provider": "PUBLIC-provider",
+       "model": "PUBLIC-model",
+       "replayState": {
+        "response": {
+         "kind": "PUBLIC synthetic text",
+         "version": 2,
+         "api": "PUBLIC synthetic text",
+         "provider": "PUBLIC-provider",
+         "model": "PUBLIC-model",
+         "responseId": "PUBLIC synthetic text",
+         "stopReason": "PUBLIC synthetic text"
+        },
+        "blocks": [
+         {
+          "type": "PUBLIC synthetic text"
+         }
+        ]
+       }
+      },
+      "id": "PUBLIC-id"
+     },
+     "usage": {
+      "inputTokens": 225,
+      "outputTokens": 37,
+      "totalTokens": 6790,
+      "cacheReadTokens": 6528
+     },
+     "stream": []
+    },
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "tool/call",
+    "seq": 50,
+    "time": 1791674462077,
+    "data": {
+     "turn": 3,
+     "step": 2,
+     "callId": "PUBLIC-id",
+     "name": "PUBLIC-tool",
+     "arguments": "{\"PUBLIC\":\"PUBLIC\"}"
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "tool/result",
+    "seq": 51,
+    "time": 1791674462218,
+    "data": {
+     "turn": 3,
+     "step": 2,
+     "message": {
+      "role": "tool",
+      "source": {
+       "kind": "tool",
+       "callId": "PUBLIC-id"
+      },
+      "toolCallId": "PUBLIC-id",
+      "content": [
+       {
+        "type": "text",
+        "text": "PUBLIC synthetic text"
+       }
+      ],
+      "isError": false,
+      "id": "PUBLIC-id"
+     },
+     "meta": {
+      "url": "https://example.invalid/PUBLIC",
+      "statusCode": 403,
+      "truncated": false
+     }
+    },
+    "sourceEventSeqs": [
+     50
+    ],
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "step/end",
+    "seq": 52,
+    "time": 1791674462219,
+    "data": {
+     "turn": 3,
+     "step": 2
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "step/start",
+    "seq": 53,
+    "time": 1791674462223,
+    "data": {
+     "turn": 3,
+     "step": 3
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "assistant/message",
+    "seq": 54,
+    "time": 1791674464174,
+    "data": {
+     "turn": 3,
+     "step": 3,
+     "message": {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "PUBLIC synthetic text",
+        "id": "PUBLIC-id",
+        "name": "PUBLIC-tool",
+        "arguments": "{\"PUBLIC\":\"PUBLIC\"}"
+       }
+      ],
+      "source": {
+       "kind": "model",
+       "provider": "PUBLIC-provider",
+       "model": "PUBLIC-model",
+       "replayState": {
+        "response": {
+         "kind": "PUBLIC synthetic text",
+         "version": 2,
+         "api": "PUBLIC synthetic text",
+         "provider": "PUBLIC-provider",
+         "model": "PUBLIC-model",
+         "responseId": "PUBLIC synthetic text",
+         "stopReason": "PUBLIC synthetic text"
+        },
+        "blocks": [
+         {
+          "type": "PUBLIC synthetic text"
+         }
+        ]
+       }
+      },
+      "id": "PUBLIC-id"
+     },
+     "usage": {
+      "inputTokens": 197,
+      "outputTokens": 32,
+      "totalTokens": 6885,
+      "cacheReadTokens": 6656
+     },
+     "stream": []
+    },
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "tool/call",
+    "seq": 55,
+    "time": 1791674464174,
+    "data": {
+     "turn": 3,
+     "step": 3,
+     "callId": "PUBLIC-id",
+     "name": "PUBLIC-tool",
+     "arguments": "{\"PUBLIC\":\"PUBLIC\"}"
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "tool/result",
+    "seq": 56,
+    "time": 1791674464465,
+    "data": {
+     "turn": 3,
+     "step": 3,
+     "message": {
+      "role": "tool",
+      "source": {
+       "kind": "tool",
+       "callId": "PUBLIC-id"
+      },
+      "toolCallId": "PUBLIC-id",
+      "content": [
+       {
+        "type": "text",
+        "text": "PUBLIC synthetic text"
+       }
+      ],
+      "isError": false,
+      "id": "PUBLIC-id"
+     },
+     "meta": {
+      "url": "https://example.invalid/PUBLIC",
+      "statusCode": 404,
+      "truncated": true
+     }
+    },
+    "sourceEventSeqs": [
+     55
+    ],
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "step/end",
+    "seq": 57,
+    "time": 1791674464465,
+    "data": {
+     "turn": 3,
+     "step": 3
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "step/start",
+    "seq": 58,
+    "time": 1791674464470,
+    "data": {
+     "turn": 3,
+     "step": 4
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "assistant/message",
+    "seq": 59,
+    "time": 1791674466855,
+    "data": {
+     "turn": 3,
+     "step": 4,
+     "message": {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "PUBLIC synthetic text",
+        "id": "PUBLIC-id",
+        "name": "PUBLIC-tool",
+        "arguments": "{\"PUBLIC\":\"PUBLIC\"}"
+       }
+      ],
+      "source": {
+       "kind": "model",
+       "provider": "PUBLIC-provider",
+       "model": "PUBLIC-model",
+       "replayState": {
+        "response": {
+         "kind": "PUBLIC synthetic text",
+         "version": 2,
+         "api": "PUBLIC synthetic text",
+         "provider": "PUBLIC-provider",
+         "model": "PUBLIC-model",
+         "responseId": "PUBLIC synthetic text",
+         "stopReason": "PUBLIC synthetic text"
+        },
+        "blocks": [
+         {
+          "type": "PUBLIC synthetic text"
+         }
+        ]
+       }
+      },
+      "id": "PUBLIC-id"
+     },
+     "usage": {
+      "inputTokens": 298,
+      "outputTokens": 42,
+      "totalTokens": 6996,
+      "cacheReadTokens": 6656
+     },
+     "stream": []
+    },
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "tool/call",
+    "seq": 60,
+    "time": 1791674466855,
+    "data": {
+     "turn": 3,
+     "step": 4,
+     "callId": "PUBLIC-id",
+     "name": "PUBLIC-tool",
+     "arguments": "{\"PUBLIC\":\"PUBLIC\"}"
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "tool/result",
+    "seq": 61,
+    "time": 1791674467272,
+    "data": {
+     "turn": 3,
+     "step": 4,
+     "message": {
+      "role": "tool",
+      "source": {
+       "kind": "tool",
+       "callId": "PUBLIC-id"
+      },
+      "toolCallId": "PUBLIC-id",
+      "content": [
+       {
+        "type": "text",
+        "text": "PUBLIC synthetic text"
+       }
+      ],
+      "isError": false,
+      "id": "PUBLIC-id"
+     },
+     "meta": {
+      "url": "https://example.invalid/PUBLIC",
+      "statusCode": 404,
+      "truncated": true
+     }
+    },
+    "sourceEventSeqs": [
+     60
+    ],
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "step/end",
+    "seq": 62,
+    "time": 1791674467272,
+    "data": {
+     "turn": 3,
+     "step": 4
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "step/start",
+    "seq": 63,
+    "time": 1791674467276,
+    "data": {
+     "turn": 3,
+     "step": 5
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "assistant/message",
+    "seq": 64,
+    "time": 1791674469158,
+    "data": {
+     "turn": 3,
+     "step": 5,
+     "message": {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "PUBLIC synthetic text",
+        "id": "PUBLIC-id",
+        "name": "PUBLIC-tool",
+        "arguments": "{\"PUBLIC\":\"PUBLIC\"}"
+       }
+      ],
+      "source": {
+       "kind": "model",
+       "provider": "PUBLIC-provider",
+       "model": "PUBLIC-model",
+       "replayState": {
+        "response": {
+         "kind": "PUBLIC synthetic text",
+         "version": 2,
+         "api": "PUBLIC synthetic text",
+         "provider": "PUBLIC-provider",
+         "model": "PUBLIC-model",
+         "responseId": "PUBLIC synthetic text",
+         "stopReason": "PUBLIC synthetic text"
+        },
+        "blocks": [
+         {
+          "type": "PUBLIC synthetic text"
+         }
+        ]
+       }
+      },
+      "id": "PUBLIC-id"
+     },
+     "usage": {
+      "inputTokens": 293,
+      "outputTokens": 35,
+      "totalTokens": 7112,
+      "cacheReadTokens": 6784
+     },
+     "stream": []
+    },
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "tool/call",
+    "seq": 65,
+    "time": 1791674469158,
+    "data": {
+     "turn": 3,
+     "step": 5,
+     "callId": "PUBLIC-id",
+     "name": "PUBLIC-tool",
+     "arguments": "{\"PUBLIC\":\"PUBLIC\"}"
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "tool/result",
+    "seq": 66,
+    "time": 1791674469288,
+    "data": {
+     "turn": 3,
+     "step": 5,
+     "message": {
+      "role": "tool",
+      "source": {
+       "kind": "tool",
+       "callId": "PUBLIC-id"
+      },
+      "toolCallId": "PUBLIC-id",
+      "content": [
+       {
+        "type": "text",
+        "text": "PUBLIC synthetic text"
+       }
+      ],
+      "isError": true,
+      "id": "PUBLIC-id"
+     },
+     "error": {
+      "name": "PUBLIC-tool",
+      "code": "PUBLIC synthetic text"
+     }
+    },
+    "sourceEventSeqs": [
+     65
+    ],
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "step/end",
+    "seq": 67,
+    "time": 1791674469288,
+    "data": {
+     "turn": 3,
+     "step": 5
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "step/start",
+    "seq": 68,
+    "time": 1791674469293,
+    "data": {
+     "turn": 3,
+     "step": 6
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "assistant/message",
+    "seq": 69,
+    "time": 1791674472125,
+    "data": {
+     "turn": 3,
+     "step": 6,
+     "message": {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "PUBLIC synthetic text",
+        "id": "PUBLIC-id",
+        "name": "PUBLIC-tool",
+        "arguments": "{\"PUBLIC\":\"PUBLIC\"}"
+       }
+      ],
+      "source": {
+       "kind": "model",
+       "provider": "PUBLIC-provider",
+       "model": "PUBLIC-model",
+       "replayState": {
+        "response": {
+         "kind": "PUBLIC synthetic text",
+         "version": 2,
+         "api": "PUBLIC synthetic text",
+         "provider": "PUBLIC-provider",
+         "model": "PUBLIC-model",
+         "responseId": "PUBLIC synthetic text",
+         "stopReason": "PUBLIC synthetic text"
+        },
+        "blocks": [
+         {
+          "type": "PUBLIC synthetic text"
+         }
+        ]
+       }
+      },
+      "id": "PUBLIC-id"
+     },
+     "usage": {
+      "inputTokens": 222,
+      "outputTokens": 32,
+      "totalTokens": 7166,
+      "cacheReadTokens": 6912
+     },
+     "stream": []
+    },
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "tool/call",
+    "seq": 70,
+    "time": 1791674472125,
+    "data": {
+     "turn": 3,
+     "step": 6,
+     "callId": "PUBLIC-id",
+     "name": "PUBLIC-tool",
+     "arguments": "{\"PUBLIC\":\"PUBLIC\"}"
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "tool/result",
+    "seq": 71,
+    "time": 1791674472453,
+    "data": {
+     "turn": 3,
+     "step": 6,
+     "message": {
+      "role": "tool",
+      "source": {
+       "kind": "tool",
+       "callId": "PUBLIC-id"
+      },
+      "toolCallId": "PUBLIC-id",
+      "content": [
+       {
+        "type": "text",
+        "text": "PUBLIC synthetic text"
+       }
+      ],
+      "isError": false,
+      "id": "PUBLIC-id"
+     },
+     "meta": {
+      "url": "https://example.invalid/PUBLIC",
+      "statusCode": 404,
+      "truncated": true
+     }
+    },
+    "sourceEventSeqs": [
+     70
+    ],
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "step/end",
+    "seq": 72,
+    "time": 1791674472454,
+    "data": {
+     "turn": 3,
+     "step": 6
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "step/start",
+    "seq": 73,
+    "time": 1791674472458,
+    "data": {
+     "turn": 3,
+     "step": 7
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "assistant/message",
+    "seq": 74,
+    "time": 1791674475338,
+    "data": {
+     "turn": 3,
+     "step": 7,
+     "message": {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "PUBLIC synthetic text",
+        "id": "PUBLIC-id",
+        "name": "PUBLIC-tool",
+        "arguments": "{\"PUBLIC\":\"PUBLIC\"}"
+       }
+      ],
+      "source": {
+       "kind": "model",
+       "provider": "PUBLIC-provider",
+       "model": "PUBLIC-model",
+       "replayState": {
+        "response": {
+         "kind": "PUBLIC synthetic text",
+         "version": 2,
+         "api": "PUBLIC synthetic text",
+         "provider": "PUBLIC-provider",
+         "model": "PUBLIC-model",
+         "responseId": "PUBLIC synthetic text",
+         "stopReason": "PUBLIC synthetic text"
+        },
+        "blocks": [
+         {
+          "type": "PUBLIC synthetic text"
+         }
+        ]
+       }
+      },
+      "id": "PUBLIC-id"
+     },
+     "usage": {
+      "inputTokens": 195,
+      "outputTokens": 38,
+      "totalTokens": 7273,
+      "cacheReadTokens": 7040
+     },
+     "stream": []
+    },
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "tool/call",
+    "seq": 75,
+    "time": 1791674475339,
+    "data": {
+     "turn": 3,
+     "step": 7,
+     "callId": "PUBLIC-id",
+     "name": "PUBLIC-tool",
+     "arguments": "{\"PUBLIC\":\"PUBLIC\"}"
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "tool/result",
+    "seq": 76,
+    "time": 1791674477308,
+    "data": {
+     "turn": 3,
+     "step": 7,
+     "message": {
+      "role": "tool",
+      "source": {
+       "kind": "tool",
+       "callId": "PUBLIC-id"
+      },
+      "toolCallId": "PUBLIC-id",
+      "content": [
+       {
+        "type": "text",
+        "text": "PUBLIC synthetic text"
+       }
+      ],
+      "isError": false,
+      "id": "PUBLIC-id"
+     },
+     "meta": {
+      "url": "https://example.invalid/PUBLIC",
+      "statusCode": 200,
+      "truncated": true
+     }
+    },
+    "sourceEventSeqs": [
+     75
+    ],
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "step/end",
+    "seq": 77,
+    "time": 1791674477308,
+    "data": {
+     "turn": 3,
+     "step": 7
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "step/start",
+    "seq": 78,
+    "time": 1791674477317,
+    "data": {
+     "turn": 3,
+     "step": 8
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "assistant/message",
+    "seq": 79,
+    "time": 1791674479520,
+    "data": {
+     "turn": 3,
+     "step": 8,
+     "message": {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "PUBLIC synthetic text",
+        "id": "PUBLIC-id",
+        "name": "PUBLIC-tool",
+        "arguments": "{\"PUBLIC\":\"PUBLIC\"}"
+       }
+      ],
+      "source": {
+       "kind": "model",
+       "provider": "PUBLIC-provider",
+       "model": "PUBLIC-model",
+       "replayState": {
+        "response": {
+         "kind": "PUBLIC synthetic text",
+         "version": 2,
+         "api": "PUBLIC synthetic text",
+         "provider": "PUBLIC-provider",
+         "model": "PUBLIC-model",
+         "responseId": "PUBLIC synthetic text",
+         "stopReason": "PUBLIC synthetic text"
+        },
+        "blocks": [
+         {
+          "type": "PUBLIC synthetic text"
+         }
+        ]
+       }
+      },
+      "id": "PUBLIC-id"
+     },
+     "usage": {
+      "inputTokens": 311,
+      "outputTokens": 36,
+      "totalTokens": 7387,
+      "cacheReadTokens": 7040
+     },
+     "stream": []
+    },
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "tool/call",
+    "seq": 80,
+    "time": 1791674479521,
+    "data": {
+     "turn": 3,
+     "step": 8,
+     "callId": "PUBLIC-id",
+     "name": "PUBLIC-tool",
+     "arguments": "{\"PUBLIC\":\"PUBLIC\"}"
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "tool/result",
+    "seq": 81,
+    "time": 1791674479697,
+    "data": {
+     "turn": 3,
+     "step": 8,
+     "message": {
+      "role": "tool",
+      "source": {
+       "kind": "tool",
+       "callId": "PUBLIC-id"
+      },
+      "toolCallId": "PUBLIC-id",
+      "content": [
+       {
+        "type": "text",
+        "text": "PUBLIC synthetic text"
+       }
+      ],
+      "isError": false,
+      "id": "PUBLIC-id"
+     },
+     "meta": {
+      "url": "https://example.invalid/PUBLIC",
+      "statusCode": 429,
+      "truncated": false
+     }
+    },
+    "sourceEventSeqs": [
+     80
+    ],
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "step/end",
+    "seq": 82,
+    "time": 1791674479697,
+    "data": {
+     "turn": 3,
+     "step": 8
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "step/start",
+    "seq": 83,
+    "time": 1791674479705,
+    "data": {
+     "turn": 3,
+     "step": 9
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "assistant/message",
+    "seq": 84,
+    "time": 1791674484482,
+    "data": {
+     "turn": 3,
+     "step": 9,
+     "message": {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "PUBLIC synthetic text"
+       }
+      ],
+      "source": {
+       "kind": "model",
+       "provider": "PUBLIC-provider",
+       "model": "PUBLIC-model",
+       "replayState": {
+        "response": {
+         "kind": "PUBLIC synthetic text",
+         "version": 2,
+         "api": "PUBLIC synthetic text",
+         "provider": "PUBLIC-provider",
+         "model": "PUBLIC-model",
+         "responseId": "PUBLIC synthetic text",
+         "stopReason": "PUBLIC synthetic text"
+        },
+        "blocks": [
+         {
+          "type": "text",
+          "textSignature": "PUBLIC synthetic text"
+         }
+        ]
+       }
+      },
+      "id": "PUBLIC-id"
+     },
+     "usage": {
+      "inputTokens": 318,
+      "outputTokens": 106,
+      "totalTokens": 7592,
+      "cacheReadTokens": 7168
+     },
+     "stream": []
+    },
+    "surfaceOp": "append"
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "step/end",
+    "seq": 85,
+    "time": 1791674484482,
+    "data": {
+     "turn": 3,
+     "step": 9
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "turn/end",
+    "seq": 86,
+    "time": 1791674484483,
+    "data": {
+     "turn": 3,
+     "reason": {
+      "kind": "completed"
+     }
+    }
+   }
+  },
+  {
+   "type": "event",
+   "event": {
+    "type": "session/end-seed",
+    "seq": 87,
+    "time": 1791679664549,
+    "data": {}
+   }
+  }
+ ],
+ "projections": {
+  "asOfSeq": 87,
+  "values": {
+   "contextPressure": {
+    "pressureTokens": 7486,
+    "projectedTokens": 7486,
+    "contextWindow": 272000
+   }
+  }
+ },
+ "assistantStream": {
+  "revision": 0
+ }
+}

@@ -67,6 +67,11 @@ pub struct Transcript {
     before: Option<u64>,
     more: bool,
     records: BTreeMap<u64, SessionWireEvent>,
+    /// The snapshot's plugin projections, owned beside the record window they
+    /// describe: a projection is relative to the log prefix that produced it, so
+    /// keeping the two together is what stops a stale projection describing a
+    /// newer window.
+    projections: BTreeMap<String, serde_json::Value>,
     retained_bytes: usize,
     rows: Vec<DisplayRow>,
     attempt: Option<Attempt>,
@@ -86,6 +91,7 @@ impl Transcript {
             before: None,
             more: false,
             records: BTreeMap::new(),
+            projections: BTreeMap::new(),
             retained_bytes: 0,
             rows: vec![],
             attempt: None,
@@ -97,6 +103,10 @@ impl Transcript {
     }
     pub fn rows(&self) -> &[DisplayRow] {
         &self.rows
+    }
+    /// The projections that describe this retained window.
+    pub fn projections(&self) -> &BTreeMap<String, serde_json::Value> {
+        &self.projections
     }
     /// Bounded read-only work records; rebuilt from the same retained events as rows.
     pub fn work(&self) -> &crate::work_panel::Store {
@@ -265,10 +275,14 @@ impl Transcript {
                 cursor,
                 has_more,
                 assistant_stream,
+                projections,
                 ..
             } => {
                 self.records.clear();
                 self.retained_bytes = 0;
+                // A new snapshot replaces the window, so its projections replace
+                // the previous ones rather than being merged onto them.
+                self.projections = projections.values.clone();
                 self.rows.clear();
                 self.attempt = None;
                 self.retained = None;

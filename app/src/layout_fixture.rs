@@ -1104,7 +1104,8 @@ pub fn build(
         // Plan mode is reported only by the Host's projection; no control here
         // can change it, so the fixture asserts the presented label alone.
         "plan-mode" | "plan-mode-applying" | "plan-mode-leaving" => {
-            let mode = super::plan_mode::mode(&app.projections).expect("PUBLIC plan projection");
+            let mode = super::plan_mode::mode(app.transcript.projections())
+                .expect("PUBLIC plan projection");
             let expected = match preset {
                 "plan-mode" => super::plan_mode::Mode::Active,
                 "plan-mode-applying" => super::plan_mode::Mode::Applying,
@@ -1507,7 +1508,7 @@ pub fn metadata(app: &App, preset: &str) -> Value {
         "planChipSimulated":plan_expected,
         "planChipProjected":plan_projected,
         "planModeSimulated":preset.starts_with("plan-mode"),
-        "planModeLabel":super::plan_mode::mode(&app.projections).map(super::plan_mode::Mode::label),
+        "planModeLabel":super::plan_mode::mode(app.transcript.projections()).map(super::plan_mode::Mode::label),
         "contextDisclosureOpen":context_warning,
         "workPanelReadOnlyTotal":app.transcript.work().total(),
         "workPanelGoalsOmitted":app.transcript.work().dropped(crate::work_panel::Section::Goals)
