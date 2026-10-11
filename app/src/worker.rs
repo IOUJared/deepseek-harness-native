@@ -156,10 +156,11 @@ pub enum Event {
         submission: crate::rename::Submission,
         result: Result<SessionRenameValue, ()>,
     },
-    /// The session's advertised commands, or a failure that offers nothing.
+    /// The session's advertised commands, or a failure that names its kind so the
+    /// composer can say whether the method is missing, refused, or unreadable.
     CommandsListed {
         session_id: SessionId,
-        result: Result<Vec<CommandDescriptor>, ()>,
+        result: Result<Vec<CommandDescriptor>, CommandListFailure>,
     },
     /// One command's Host-owned outcome. `Option` is meaningful: the Host may
     /// settle a command with no execution record, which is not a success. The
@@ -709,7 +710,7 @@ fn rejected(command: Command) -> Event {
         },
         Command::CommandsList(session_id) => Event::CommandsListed {
             session_id,
-            result: Err(()),
+            result: Err(CommandListFailure::Unreachable),
         },
         Command::CommandsExecute { session_id, line } => Event::CommandsExecuted {
             session_id,
@@ -1086,10 +1087,47 @@ fn admit_rename(
     *active = Some(submission.clone());
     true
 }
+/// Why the command advertisement could not be read. Each case is a different
+/// defect, so the composer reports which one instead of one generic sentence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommandListFailure {
+    /// The method is absent from this Host's remote surface.
+    MethodMissing,
+    /// The Host answered with something this build cannot read.
+    Unreadable,
+    /// Authentication, transport or correlation failed.
+    Unreachable,
+}
+
+impl CommandListFailure {
+    fn of(error: dsh_native_transport::Error) -> Self {
+        use dsh_native_transport::Error as E;
+        match error {
+            E::HttpStatus(404) => Self::MethodMissing,
+            E::InvalidJson | E::InvalidDto => Self::Unreadable,
+            _ => Self::Unreachable,
+        }
+    }
+    /// The sentence the status line shows. Names the defect, not the symptom.
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::MethodMissing => {
+                "This Host does not expose the command list; slash completion is unavailable."
+            }
+            Self::Unreadable => {
+                "The Host's command list could not be read; slash completion is unavailable."
+            }
+            Self::Unreachable => "No command list from the Host; slash completion is unavailable.",
+        }
+    }
+}
 /// Read the Host's advertised commands. Descriptions travel too: the composer
 /// menu shows them, and they are the Host's own words rather than ours.
 async fn commands_list(client: dsh_native_transport::NativeClient, session_id: SessionId) -> Event {
-    let result = client.commands_list(&session_id).await.map_err(|_| ());
+    let result = client
+        .commands_list(&session_id)
+        .await
+        .map_err(CommandListFailure::of);
     Event::CommandsListed { session_id, result }
 }
 /// Invoke one command through the Host. The outcome of the command is the Host's
@@ -1902,7 +1940,7 @@ async fn run(
                     Command::Prompt{..}|Command::CheckSubmission(_)|Command::RejoinObservations{..}=>Event::Fault("Prompt bypassed worker ownership".into()),
                     Command::Cancel{..}=>Event::Fault("Cancellation bypassed priority dispatch".into()),
                     Command::Page{generation,request}=>Event::Page{generation,result:client.session_page(request).await.map_err(|e|format!("History page: {e}"))},
-                    Command::CommandsList(session_id)=>Event::CommandsListed{session_id:session_id.clone(),result:client.commands_list(&session_id).await.map_err(|_|())},
+                    Command::CommandsList(session_id)=>Event::CommandsListed{session_id:session_id.clone(),result:client.commands_list(&session_id).await.map_err(CommandListFailure::of)},
                     Command::CommandsExecute{session_id,line}=>Event::CommandsExecuted{session_id:session_id.clone(),line:line.clone(),result:client.commands_execute(&CommandExecuteRequest{session_id:session_id.clone(),line,submitted_attachments:Vec::new()}).await.map_err(|_|())},
                     Command::Cloudflare(_)|Command::PromptFile{..}|Command::StageFile(_)|Command::DiscardFile(_)|Command::Codex(_)|Command::Export(_)|Command::PluginsRead(_)|Command::PluginSave{..}|Command::Manage(_)|Command::Rename(_)|Command::Fork(_)|Command::TerminalRead(_)|Command::TerminalFollow(_)|Command::TerminalCreate(_)|Command::TerminalClose(_)|Command::TerminalWrite(_)|Command::KeyMetadata(_)|Command::SaveKey{..}|Command::Inspect|Command::Shutdown|Command::Select{..}=>Event::Fault("Invalid native command state".into()),
                 }});

@@ -2478,11 +2478,9 @@ impl App {
                         // answer, so the next command line asks again. It is also
                         // reported: a silent dead end leaves the user with a slash
                         // and no menu and nothing to act on.
-                        Err(()) => {
+                        Err(failure) => {
                             self.commands = None;
-                            self.status =
-                                "No command list from the Host; slash completion is unavailable."
-                                    .into();
+                            self.status = failure.message().into();
                         }
                     }
                 }
@@ -7933,7 +7931,8 @@ mod tests {
                 assert!(
                     matches!(
                         actual,
-                        Some(text_editor::Binding::Custom(Message::CommandMenuMove(step)))
+                        Some(text_editor::Binding::Custom(Message::CommandMenuMove(delta)))
+                            if delta == step
                     ),
                     "{key:?} must move {step}"
                 );
