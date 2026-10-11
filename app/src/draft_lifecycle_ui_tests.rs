@@ -343,3 +343,35 @@ fn a_failed_advertisement_read_is_retried_by_the_next_keystroke() {
     assert_eq!(menu.matches.len(), 1);
     assert_eq!(menu.matches[0].name, "plan");
 }
+
+/// The settle announcement is decided from the Host's own run flag, so a session
+/// that is already running when it is selected must not announce anything: that is
+/// a snapshot of someone else's work, not the completion of the user's.
+#[test]
+fn a_settle_is_announced_only_after_this_watcher_saw_the_session_run() {
+    let (mut app, _queue) = super::conversation_actions_ui_tests::app();
+    let session = app.selected.clone().unwrap();
+    app.window_active = false;
+
+    // Already running on selection: observing it cannot announce.
+    app.run_watch = run_watch::Watch::default();
+    assert_eq!(app.run_watch.observe(Some(session.as_str()), true), None);
+    assert_eq!(app.run_watch.observe(Some(session.as_str()), true), None);
+
+    // Only the falling edge, and only once.
+    assert!(
+        app.run_watch
+            .observe(Some(session.as_str()), false)
+            .is_some()
+    );
+    assert!(
+        app.run_watch
+            .observe(Some(session.as_str()), false)
+            .is_none()
+    );
+
+    // A focused window is never interrupted, however the settle arrives.
+    assert!(notifications::notice(notifications::Kind::Answered, true, "t", "d").is_none());
+    // A smoke run never reaches the desktop at all.
+    assert!(app.options.smoke.is_none());
+}

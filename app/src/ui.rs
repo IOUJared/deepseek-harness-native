@@ -121,6 +121,8 @@ mod model_controls;
 #[cfg(test)]
 #[path = "model_metadata_ui_tests.rs"]
 mod model_metadata_ui_tests;
+#[path = "notifications.rs"]
+mod notifications;
 #[path = "plan_control.rs"]
 mod plan_control;
 #[path = "plan_mode.rs"]
@@ -128,6 +130,8 @@ mod plan_mode;
 #[cfg(test)]
 #[path = "prompt_recovery_ui_tests.rs"]
 mod prompt_recovery_ui_tests;
+#[path = "run_watch.rs"]
+mod run_watch;
 #[path = "sidebar_organization.rs"]
 mod sidebar_organization;
 #[path = "sidebar_ui.rs"]
@@ -402,6 +406,8 @@ pub struct App {
     commands_pending: bool,
     /// Highlighted completion row.
     command_selected: usize,
+    /// Tracks the selected session's run state so a settle is announced once.
+    run_watch: run_watch::Watch,
     /// A plan-mode toggle is in flight. Inert until its reply settles.
     plan_toggle_pending: bool,
     /// The read-only More → Work records panel is open.
@@ -549,6 +555,7 @@ impl App {
                 commands: None,
                 commands_pending: false,
                 command_selected: 0,
+                run_watch: run_watch::Watch::default(),
                 terminal: crate::terminal::Terminal::default(),
                 mcp: crate::mcp::Mcp::default(),
                 info_expanded: 0,
@@ -1038,6 +1045,8 @@ impl App {
         self.commands = None;
         self.commands_pending = false;
         self.command_selected = 0;
+        // A new subject: its run state is a snapshot, not a settle.
+        self.run_watch = run_watch::Watch::default();
         self.model_controls.dismiss();
         self.reconcile_model_selection();
         self.status = "Opening authoritative session snapshot…".into();
@@ -1694,6 +1703,9 @@ impl App {
                 if !self.composer_visible() || !self.ready {
                     self.model_controls.dismiss();
                 }
+                // Every Host report can settle the selected session, so the
+                // announcement is decided after the state it describes is applied.
+                self.announce_settle();
                 return task;
             }
             Message::ReviewRecovered { generation, serial }
@@ -4538,6 +4550,53 @@ impl App {
                 .min(matches_len(&draft, candidates) - 1),
             query: query.to_owned(),
         })
+    }
+    /// Announce a turn that finished while the window was not focused.
+    ///
+    /// The decision is split from delivery so the falling edge can be tested
+    /// without spawning anything: `run_watch` owns the transition, `notifications`
+    /// owns the wording, and this only connects them to the Host's own run flag.
+    fn announce_settle(&mut self) {
+        if self.options.smoke.is_some() {
+            return;
+        }
+        let selected = self.selected.clone();
+        let running = selected
+            .as_ref()
+            .and_then(|id| self.sessions.get(id))
+            .is_some_and(|session| session.running && self.running_status_live());
+        if self
+            .run_watch
+            .observe(selected.as_ref().map(|id| id.as_str()), running)
+            .is_none()
+        {
+            return;
+        }
+        // The title the sidebar already shows for this session, so the notice
+        // names the conversation the way the user sees it.
+        let title = self
+            .selected
+            .as_ref()
+            .and_then(|id| self.sessions.get(id))
+            .map(|session| self.session_title(session))
+            .unwrap_or_default();
+        // A broken update stream is the other settle worth interrupting for: the
+        // conversation may have stopped receiving records off-screen.
+        let (kind, detail) = if self.transcript.interrupted() {
+            (
+                notifications::Kind::Interrupted,
+                "The update stream stopped. Open the conversation to check it.",
+            )
+        } else {
+            (
+                notifications::Kind::Answered,
+                "The turn finished. Open the conversation to read it.",
+            )
+        };
+        let notice = notifications::notice(kind, self.window_active, &title, detail);
+        if let Some(notice) = notice {
+            notifications::deliver(&notice);
+        }
     }
     /// Ask the Host for this session's commands, once per composer session. The
     /// trigger is a user action -- a leading slash -- so no frame dispatch and no

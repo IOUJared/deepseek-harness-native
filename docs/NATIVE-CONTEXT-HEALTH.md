@@ -132,6 +132,24 @@ The advertisement is read lazily on the first leading slash, not on selection or
 a frame, and a failed read offers nothing and is retried by the next command line
 rather than remembered as an answer.
 
+## Desktop notifications
+
+A turn that settles while the window is **not focused** raises one desktop
+notification, through a single bounded `notify-send` call. This is the app's first
+child process, so the rules are narrow:
+
+| Rule | Why |
+|---|---|
+| only on a falling edge of the Host's own run flag | a repeated roster update is a state, not a completion |
+| never for a session this watcher has not already seen running | selecting a busy session is not the user's work finishing |
+| never while the window is focused | the result is already on screen |
+| never in a smoke run | qualification must not reach the desktop |
+| every field passed as a separate argument | no session text can become a shell word |
+| spawned, never waited on | delivery cannot block the UI thread |
+
+A broken update stream raises the other notification, because a conversation that
+silently stopped receiving records off-screen is worth interrupting for.
+
 ## Chat stays clean
 
 Compaction, the loop guard and the plan chip are harness bookkeeping. Chat

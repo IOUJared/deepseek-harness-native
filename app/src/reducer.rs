@@ -108,6 +108,11 @@ impl Transcript {
     pub fn projections(&self) -> &BTreeMap<String, serde_json::Value> {
         &self.projections
     }
+    /// Whether the retained stream is broken. Read-only: the app announces it but
+    /// never repairs it here.
+    pub fn interrupted(&self) -> bool {
+        self.error.is_some()
+    }
     /// Bounded read-only work records; rebuilt from the same retained events as rows.
     pub fn work(&self) -> &crate::work_panel::Store {
         &self.work
