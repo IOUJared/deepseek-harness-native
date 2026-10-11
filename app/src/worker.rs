@@ -261,6 +261,11 @@ impl std::fmt::Debug for Handle {
     }
 }
 impl Handle {
+    /// Returning the value that could not be sent is the [`mpsc::Sender::send`]
+    /// idiom this mirrors, so the error type is [`Command`] itself (240 bytes).
+    /// Boxing it in the error alone would not help: the value that fails is the
+    /// caller's own command, which it may retry, keep or drop.
+    #[allow(clippy::result_large_err)]
     pub fn send(&self, command: Command) -> Result<(), Command> {
         if matches!(command, Command::Shutdown) {
             self.shutdown.send_replace(true);
@@ -577,7 +582,17 @@ fn execute_cloudflare(
             free,
             token,
             ..
-        } => backend.save_cloudflare(revision, &account, models, browser, free, token, timeout),
+        } => backend.save_cloudflare(
+            revision,
+            &account,
+            dsh_native_core::CloudflareSaveChoice {
+                models_enabled: models,
+                browser_enabled: browser,
+                free_plan_confirmed: free,
+            },
+            token,
+            timeout,
+        ),
         Effect::Disable { revision, .. } => backend
             .request(
                 CoreCommand::CloudflareDisable {
@@ -1000,25 +1015,40 @@ fn settle_management(active: &mut Option<crate::management::Submission>, event: 
 }
 /// Reserve one title rename without activating an Agent. Exactly one session-management
 /// write (registry mutation, rename, fork or export) may be in flight.
-fn admit_rename(
-    active: &mut Option<crate::rename::Submission>,
-    submission: &crate::rename::Submission,
+/// The one single-flight gate the management, rename, fork and export
+/// operations share. Grouping it states that each operation excludes the others
+/// and that all four obey the same smoke, shutdown and in-flight limits.
+struct Admission {
     smoke: bool,
     stopping: bool,
     operations: usize,
     management_active: bool,
-    fork_active: bool,
-    export_active: bool,
+    /// The peers this operation must not run beside, by their own active state.
+    peer_rename: bool,
+    peer_fork: bool,
+    peer_export: bool,
+}
+
+impl Admission {
+    /// True when this operation must not be admitted.
+    fn refused(&self, other_active: bool) -> bool {
+        self.smoke
+            || self.stopping
+            || other_active
+            || self.management_active
+            || self.peer_rename
+            || self.peer_fork
+            || self.peer_export
+            || self.operations >= MAX_OPERATIONS
+    }
+}
+
+fn admit_rename(
+    active: &mut Option<crate::rename::Submission>,
+    submission: &crate::rename::Submission,
+    admission: &Admission,
 ) -> bool {
-    if smoke
-        || stopping
-        || submission.receipt.ticket.epoch != TRANSPORT_EPOCH
-        || active.is_some()
-        || management_active
-        || fork_active
-        || export_active
-        || operations >= MAX_OPERATIONS
-    {
+    if admission.refused(active.is_some()) || submission.receipt.ticket.epoch != TRANSPORT_EPOCH {
         return false;
     }
     *active = Some(submission.clone());
@@ -1049,22 +1079,9 @@ async fn rename(
 fn admit_fork(
     active: &mut Option<crate::fork::Submission>,
     submission: &crate::fork::Submission,
-    smoke: bool,
-    stopping: bool,
-    operations: usize,
-    management_active: bool,
-    rename_active: bool,
-    export_active: bool,
+    admission: &Admission,
 ) -> bool {
-    if smoke
-        || stopping
-        || submission.receipt.ticket.epoch != TRANSPORT_EPOCH
-        || active.is_some()
-        || management_active
-        || rename_active
-        || export_active
-        || operations >= MAX_OPERATIONS
-    {
+    if admission.refused(active.is_some()) || submission.receipt.ticket.epoch != TRANSPORT_EPOCH {
         return false;
     }
     *active = Some(submission.clone());
@@ -1702,7 +1719,7 @@ async fn run(
                         continue;
                     },
                     Command::Rename(submission)=>{
-                        if terminal_active.is_none() && admit_rename(&mut rename_active,&submission,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),management_active.is_some(),fork_active.is_some(),export_active.is_some()) {
+                        if terminal_active.is_none() && admit_rename(&mut rename_active,&submission,&Admission{smoke,stopping:*closing.borrow(),operations:operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),management_active:management_active.is_some(),peer_rename:false,peer_fork:fork_active.is_some(),peer_export:export_active.is_some()}) {
                             tasks.spawn(rename(client.clone(),submission));
                         } else if !publish(&events,Event::Renamed{submission,result:Err(())}) {
                             break Some("Native UI delivery queue overflow".into());
@@ -1710,7 +1727,7 @@ async fn run(
                         continue;
                     },
                     Command::Fork(submission)=>{
-                        if terminal_active.is_none() && admit_fork(&mut fork_active,&submission,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),management_active.is_some(),rename_active.is_some(),export_active.is_some()) {
+                        if terminal_active.is_none() && admit_fork(&mut fork_active,&submission,&Admission{smoke,stopping:*closing.borrow(),operations:operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),management_active:management_active.is_some(),peer_rename:rename_active.is_some(),peer_fork:false,peer_export:export_active.is_some()}) {
                             tasks.spawn(fork(client.clone(),submission));
                         } else if !publish(&events,Event::Forked{submission,result:Err(crate::fork::Failure::Unknown)}) {
                             break Some("Native UI delivery queue overflow".into());
@@ -2458,12 +2475,15 @@ mod tests {
             assert!(!admit_rename(
                 &mut active,
                 &candidate,
-                smoke,
-                stopping,
-                operations,
-                management,
-                fork,
-                export
+                &Admission {
+                    smoke: smoke,
+                    stopping: stopping,
+                    operations: operations,
+                    management_active: management,
+                    peer_rename: false,
+                    peer_fork: fork,
+                    peer_export: export
+                }
             ));
             assert!(active.is_none());
         }
@@ -2471,12 +2491,15 @@ mod tests {
         assert!(admit_rename(
             &mut active,
             &submission,
-            false,
-            false,
-            0,
-            false,
-            false,
-            false
+            &Admission {
+                smoke: false,
+                stopping: false,
+                operations: 0,
+                management_active: false,
+                peer_rename: false,
+                peer_fork: false,
+                peer_export: false
+            }
         ));
         assert_eq!(active.as_ref(), Some(&submission));
         // One rename flight across sessions: a fresh serial on another target still refuses.
@@ -2486,12 +2509,15 @@ mod tests {
         assert!(!admit_rename(
             &mut active,
             &other,
-            false,
-            false,
-            0,
-            false,
-            false,
-            false
+            &Admission {
+                smoke: false,
+                stopping: false,
+                operations: 0,
+                management_active: false,
+                peer_rename: false,
+                peer_fork: false,
+                peer_export: false
+            }
         ));
         assert_eq!(active.as_ref(), Some(&submission));
     }
@@ -2547,12 +2573,15 @@ mod tests {
             assert!(admit_rename(
                 &mut active,
                 &next,
-                false,
-                false,
-                0,
-                false,
-                false,
-                false
+                &Admission {
+                    smoke: false,
+                    stopping: false,
+                    operations: 0,
+                    management_active: false,
+                    peer_rename: false,
+                    peer_fork: false,
+                    peer_export: false
+                }
             ));
             settle_rename(
                 &mut active,
@@ -2631,12 +2660,15 @@ mod tests {
             assert!(!admit_fork(
                 &mut active,
                 &candidate,
-                smoke,
-                stopping,
-                operations,
-                management,
-                rename,
-                export
+                &Admission {
+                    smoke: smoke,
+                    stopping: stopping,
+                    operations: operations,
+                    management_active: management,
+                    peer_rename: rename,
+                    peer_fork: false,
+                    peer_export: export
+                }
             ));
             assert!(active.is_none());
         }
@@ -2644,12 +2676,15 @@ mod tests {
         assert!(admit_fork(
             &mut active,
             &submission,
-            false,
-            false,
-            0,
-            false,
-            false,
-            false
+            &Admission {
+                smoke: false,
+                stopping: false,
+                operations: 0,
+                management_active: false,
+                peer_rename: false,
+                peer_fork: false,
+                peer_export: false
+            }
         ));
         assert_eq!(active.as_ref(), Some(&submission));
         // One fork flight across sources: a fresh serial on another target still refuses.
@@ -2659,12 +2694,15 @@ mod tests {
         assert!(!admit_fork(
             &mut active,
             &other,
-            false,
-            false,
-            0,
-            false,
-            false,
-            false
+            &Admission {
+                smoke: false,
+                stopping: false,
+                operations: 0,
+                management_active: false,
+                peer_rename: false,
+                peer_fork: false,
+                peer_export: false
+            }
         ));
         assert_eq!(active.as_ref(), Some(&submission));
     }
@@ -2714,12 +2752,15 @@ mod tests {
             assert!(admit_fork(
                 &mut active,
                 &next,
-                false,
-                false,
-                0,
-                false,
-                false,
-                false
+                &Admission {
+                    smoke: false,
+                    stopping: false,
+                    operations: 0,
+                    management_active: false,
+                    peer_rename: false,
+                    peer_fork: false,
+                    peer_export: false
+                }
             ));
             settle_fork(
                 &mut active,

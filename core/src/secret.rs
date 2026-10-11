@@ -152,12 +152,15 @@ pub(crate) fn cloudflare_frame(
     id: &str,
     revision: u64,
     account: &str,
-    models: bool,
-    browser: bool,
-    free: bool,
+    choice: crate::cloudflare::CloudflareSaveChoice,
     token: Option<&SecretApiKey>,
 ) -> Result<SecretBytes, Error> {
-    crate::cloudflare::validate_save(revision, account, models, browser, free)?;
+    crate::cloudflare::validate_save(revision, account, choice)?;
+    let crate::cloudflare::CloudflareSaveChoice {
+        models_enabled: models,
+        browser_enabled: browser,
+        free_plan_confirmed: free,
+    } = choice;
     if id.is_empty()
         || id.len() > 128
         || !id
@@ -235,9 +238,11 @@ mod tests {
                 "r_1",
                 2,
                 "0123456789abcdef0123456789abcdef",
-                true,
-                false,
-                true,
+                crate::cloudflare::CloudflareSaveChoice {
+                    models_enabled: true,
+                    browser_enabled: false,
+                    free_plan_confirmed: true,
+                },
                 secret,
             )
             .unwrap();
@@ -254,11 +259,47 @@ mod tests {
                     .unwrap_or(serde_json::Value::Null)
             );
         }
-        assert!(cloudflare_frame("bad id", 2, "", false, false, false, None).is_err());
-        assert!(cloudflare_frame("r", 2, "", true, false, false, Some(&token)).is_err());
+        assert!(
+            cloudflare_frame(
+                "bad id",
+                2,
+                "",
+                crate::cloudflare::CloudflareSaveChoice {
+                    models_enabled: false,
+                    browser_enabled: false,
+                    free_plan_confirmed: false
+                },
+                None
+            )
+            .is_err()
+        );
+        assert!(
+            cloudflare_frame(
+                "r",
+                2,
+                "",
+                crate::cloudflare::CloudflareSaveChoice {
+                    models_enabled: true,
+                    browser_enabled: false,
+                    free_plan_confirmed: false
+                },
+                Some(&token)
+            )
+            .is_err()
+        );
         let maximum = SecretApiKey::new("\"".repeat(16_384)).unwrap();
-        let frame =
-            cloudflare_frame(&"r".repeat(128), 0, "", false, false, false, Some(&maximum)).unwrap();
+        let frame = cloudflare_frame(
+            &"r".repeat(128),
+            0,
+            "",
+            crate::cloudflare::CloudflareSaveChoice {
+                models_enabled: false,
+                browser_enabled: false,
+                free_plan_confirmed: false,
+            },
+            Some(&maximum),
+        )
+        .unwrap();
         assert!(frame.as_slice().len() <= MAX_LINE);
         assert!(frame.as_slice().len() > 32_768);
     }

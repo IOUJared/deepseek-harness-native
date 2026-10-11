@@ -228,13 +228,25 @@ pub(crate) fn account_valid(account: &str) -> bool {
                 .bytes()
                 .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
 }
+/// The three independent save switches, grouped so a caller cannot transpose
+/// them positionally: each is a distinct product decision, not a mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CloudflareSaveChoice {
+    pub models_enabled: bool,
+    pub browser_enabled: bool,
+    pub free_plan_confirmed: bool,
+}
+
 pub(crate) fn validate_save(
     revision: u64,
     account: &str,
-    models: bool,
-    browser: bool,
-    free: bool,
+    choice: CloudflareSaveChoice,
 ) -> Result<(), Error> {
+    let CloudflareSaveChoice {
+        models_enabled: models,
+        browser_enabled: browser,
+        free_plan_confirmed: free,
+    } = choice;
     if revision >= crate::codex::MAX_SAFE_INTEGER
         || !account_valid(account)
         || ((models || browser) && (account.is_empty() || !free))
@@ -422,10 +434,54 @@ mod tests {
     }
     #[test]
     fn save_requires_valid_account_consent_and_successor_revision() {
-        assert!(validate_save(0, "", false, false, false).is_ok());
-        assert!(validate_save(0, "", true, false, true).is_err());
-        assert!(validate_save(0, "0123456789abcdef0123456789abcdef", false, true, false).is_err());
-        assert!(validate_save(crate::codex::MAX_SAFE_INTEGER, "", false, false, false).is_err());
+        assert!(
+            validate_save(
+                0,
+                "",
+                CloudflareSaveChoice {
+                    models_enabled: false,
+                    browser_enabled: false,
+                    free_plan_confirmed: false
+                }
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_save(
+                0,
+                "",
+                CloudflareSaveChoice {
+                    models_enabled: true,
+                    browser_enabled: false,
+                    free_plan_confirmed: true
+                }
+            )
+            .is_err()
+        );
+        assert!(
+            validate_save(
+                0,
+                "0123456789abcdef0123456789abcdef",
+                CloudflareSaveChoice {
+                    models_enabled: false,
+                    browser_enabled: true,
+                    free_plan_confirmed: false
+                }
+            )
+            .is_err()
+        );
+        assert!(
+            validate_save(
+                crate::codex::MAX_SAFE_INTEGER,
+                "",
+                CloudflareSaveChoice {
+                    models_enabled: false,
+                    browser_enabled: false,
+                    free_plan_confirmed: false
+                }
+            )
+            .is_err()
+        );
     }
     #[test]
     fn oauth_setup_and_status_are_closed_bounded_and_nonsecret() {

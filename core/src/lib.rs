@@ -10,7 +10,7 @@ mod browser;
 mod cloudflare;
 pub use cloudflare::{
     CloudflareAuthError, CloudflareAuthMode, CloudflareAuthPhase, CloudflareAuthStatus,
-    CloudflareOauthSetup, CloudflareSnapshot,
+    CloudflareOauthSetup, CloudflareSaveChoice, CloudflareSnapshot,
 };
 mod codex;
 mod codex_runtime;
@@ -997,27 +997,23 @@ impl Backend {
         &self,
         expected_revision: u64,
         account_id: &str,
-        models_enabled: bool,
-        browser_enabled: bool,
-        free_plan_confirmed: bool,
+        choice: cloudflare::CloudflareSaveChoice,
         api_token: Option<SecretApiKey>,
         timeout: Duration,
     ) -> Result<CloudflareSnapshot, Error> {
-        cloudflare::validate_save(
-            expected_revision,
-            account_id,
+        cloudflare::validate_save(expected_revision, account_id, choice)?;
+        // Named once, so the frame and the acknowledgement check cannot drift.
+        let cloudflare::CloudflareSaveChoice {
             models_enabled,
             browser_enabled,
             free_plan_confirmed,
-        )?;
+        } = choice;
         let id = self.request_id(timeout)?;
         let frame = secret::cloudflare_frame(
             &id,
             expected_revision,
             account_id,
-            models_enabled,
-            browser_enabled,
-            free_plan_confirmed,
+            choice,
             api_token.as_ref(),
         )?;
         drop(api_token);

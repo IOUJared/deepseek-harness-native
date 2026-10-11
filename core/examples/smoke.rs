@@ -1,11 +1,11 @@
 //! Parent-owned opt-in smoke. Compile is safe; execution starts the explicitly supplied real fork.
 use dsh_native_core::{
     AccountMetadata, AccountStatus, AttemptPhase, Backend, CloudflareAuthMode,
-    CloudflareOauthSetup, CodexCacheRetention, CodexComposerDisplay, CodexIdleMillis,
-    CodexImageBudget, CodexRemainingPercent, CodexRuntimeNatural, CodexRuntimeSnapshot,
-    CodexRuntimeTransport, CodexRuntimeValues, CodexUsageAlert, CodexUsagePreferences,
-    CodexUsageSnapshot, Command, Error, PublicReply, RustBackendOptions, SecretApiKey, StopPolicy,
-    StopResult,
+    CloudflareOauthSetup, CloudflareSaveChoice, CodexCacheRetention, CodexComposerDisplay,
+    CodexIdleMillis, CodexImageBudget, CodexRemainingPercent, CodexRuntimeNatural,
+    CodexRuntimeSnapshot, CodexRuntimeTransport, CodexRuntimeValues, CodexUsageAlert,
+    CodexUsagePreferences, CodexUsageSnapshot, Command, Error, PublicReply, RustBackendOptions,
+    SecretApiKey, StopPolicy, StopResult,
 };
 use serde_json::{Value, json};
 use std::{collections::HashMap, path::PathBuf, thread, time::Duration};
@@ -391,9 +391,11 @@ fn cloudflare_checks(
         .save_cloudflare(
             initial.revision,
             ACCOUNT,
-            false,
-            false,
-            false,
+            CloudflareSaveChoice {
+                models_enabled: false,
+                browser_enabled: false,
+                free_plan_confirmed: false,
+            },
             Some(secret),
             Duration::from_secs(5),
         )
@@ -411,9 +413,11 @@ fn cloudflare_checks(
         .save_cloudflare(
             initial.revision,
             ACCOUNT,
-            false,
-            false,
-            false,
+            CloudflareSaveChoice {
+                models_enabled: false,
+                browser_enabled: false,
+                free_plan_confirmed: false,
+            },
             None,
             Duration::from_secs(5),
         )
@@ -482,9 +486,11 @@ fn cloudflare_oauth_checks(
             .save_cloudflare(
                 initial.revision,
                 ACCOUNT,
-                false,
-                false,
-                false,
+                CloudflareSaveChoice {
+                    models_enabled: false,
+                    browser_enabled: false,
+                    free_plan_confirmed: false,
+                },
                 Some(token),
                 Duration::from_secs(5),
             )

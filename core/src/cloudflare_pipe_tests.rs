@@ -1,4 +1,5 @@
 use super::*;
+use crate::cloudflare::CloudflareSaveChoice;
 // Public fixture values only. Exercises the production Core framing/correlation owner, not a Host.
 const FLOW: &str = r#"
 const mode = 'PUBLIC_MODE';
@@ -39,9 +40,11 @@ fn typed_core_pipe_roundtrip_keeps_null_token_and_rejects_stale_revision() {
         .save_cloudflare(
             0,
             "0123456789abcdef0123456789abcdef",
-            false,
-            false,
-            false,
+            CloudflareSaveChoice {
+                models_enabled: false,
+                browser_enabled: false,
+                free_plan_confirmed: false,
+            },
             Some(SecretApiKey::new("PUBLIC_FAKE_TOKEN".into()).unwrap()),
             Duration::from_secs(1),
         )
@@ -52,9 +55,11 @@ fn typed_core_pipe_roundtrip_keeps_null_token_and_rejects_stale_revision() {
         .save_cloudflare(
             1,
             &first.account_id,
-            true,
-            false,
-            true,
+            CloudflareSaveChoice {
+                models_enabled: true,
+                browser_enabled: false,
+                free_plan_confirmed: true,
+            },
             None,
             Duration::from_secs(1),
         )
@@ -63,7 +68,17 @@ fn typed_core_pipe_roundtrip_keeps_null_token_and_rejects_stale_revision() {
     assert_eq!(second.revision, 2);
     assert!(
         backend
-            .save_cloudflare(0, "", false, false, false, None, Duration::from_secs(1))
+            .save_cloudflare(
+                0,
+                "",
+                CloudflareSaveChoice {
+                    models_enabled: false,
+                    browser_enabled: false,
+                    free_plan_confirmed: false,
+                },
+                None,
+                Duration::from_secs(1),
+            )
             .is_err()
     );
     let PublicReply::Cloudflare(disabled) = backend
@@ -92,9 +107,11 @@ fn late_receipt_is_unknown_and_explicit_read_only_observes_configuration() {
         backend.save_cloudflare(
             0,
             "",
-            false,
-            false,
-            false,
+            CloudflareSaveChoice {
+                models_enabled: false,
+                browser_enabled: false,
+                free_plan_confirmed: false,
+            },
             Some(SecretApiKey::new("PUBLIC_FAKE_TOKEN".into()).unwrap()),
             Duration::from_millis(30)
         ),
@@ -116,9 +133,11 @@ fn extra_secret_and_mismatched_revision_never_become_confirmed_metadata() {
             backend.save_cloudflare(
                 0,
                 "",
-                false,
-                false,
-                false,
+                CloudflareSaveChoice {
+                    models_enabled: false,
+                    browser_enabled: false,
+                    free_plan_confirmed: false,
+                },
                 Some(SecretApiKey::new("PUBLIC_FAKE_TOKEN".into()).unwrap()),
                 Duration::from_secs(1)
             ),
