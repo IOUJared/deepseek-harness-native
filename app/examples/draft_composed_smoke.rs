@@ -11,6 +11,7 @@
 #[path = "../src/management.rs"] mod management;
 #[path = "../src/plugins.rs"] mod plugins;
 #[path = "../src/reducer.rs"] mod reducer;
+#[path = "../src/rename.rs"] mod rename;
 #[path = "../src/settings.rs"] mod settings;
 #[path = "../src/smoke.rs"] mod smoke;
 #[path = "../src/worker.rs"] mod worker;

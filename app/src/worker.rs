@@ -60,6 +60,7 @@ pub enum Command {
         value: dsh_native_transport::plugin::SettingsScalar,
     },
     Manage(crate::management::Submission),
+    Rename(crate::rename::Submission),
     KeyMetadata(crate::settings::Ticket),
     SaveKey {
         ticket: crate::settings::Ticket,
@@ -128,6 +129,10 @@ pub enum Event {
     Managed {
         submission: crate::management::Submission,
         result: Result<(), ()>,
+    },
+    Renamed {
+        submission: crate::rename::Submission,
+        result: Result<SessionRenameValue, ()>,
     },
     KeyMetadata {
         ticket: crate::settings::Ticket,
@@ -434,6 +439,10 @@ fn rejected(command: Command) -> Event {
             submission,
             result: Err(()),
         },
+        Command::Rename(submission) => Event::Renamed {
+            submission,
+            result: Err(()),
+        },
         Command::KeyMetadata(ticket) => Event::KeyMetadata {
             ticket,
             result: Err(()),
@@ -725,6 +734,50 @@ fn settle_management(active: &mut Option<crate::management::Submission>, event: 
         }
     }
 }
+/// Reserve one title rename without activating an Agent. Exactly one session-management
+/// write (registry mutation, rename or export) may be in flight.
+fn admit_rename(
+    active: &mut Option<crate::rename::Submission>,
+    submission: &crate::rename::Submission,
+    smoke: bool,
+    stopping: bool,
+    operations: usize,
+    management_active: bool,
+    export_active: bool,
+) -> bool {
+    if smoke
+        || stopping
+        || submission.receipt.ticket.epoch != TRANSPORT_EPOCH
+        || active.is_some()
+        || management_active
+        || export_active
+        || operations >= MAX_OPERATIONS
+    {
+        return false;
+    }
+    *active = Some(submission.clone());
+    true
+}
+fn settle_rename(active: &mut Option<crate::rename::Submission>, event: &Event) {
+    if let Event::Renamed { submission, .. } = event {
+        if active.as_ref() == Some(submission) {
+            *active = None;
+        }
+    }
+}
+async fn rename(
+    client: dsh_native_transport::NativeClient,
+    submission: crate::rename::Submission,
+) -> Event {
+    // The request carries only the operator target and draft title; the returned
+    // normalized value is the only acknowledged title.
+    let request = SessionRenameRequest {
+        session_id: submission.receipt.ticket.target.clone(),
+        title: submission.title().to_owned(),
+    };
+    let result = client.session_rename(&request).await.map_err(|_| ());
+    Event::Renamed { submission, result }
+}
 async fn manage(
     client: dsh_native_transport::NativeClient,
     submission: crate::management::Submission,
@@ -763,6 +816,7 @@ struct ExportAdmission<'a> {
     key_saving: bool,
     plugins_active: bool,
     management_active: bool,
+    rename_active: bool,
 }
 fn operation_count(tasks: usize, export_active: bool) -> usize {
     tasks.saturating_add(usize::from(export_active))
@@ -789,6 +843,7 @@ fn admit_export(
         || context.key_saving
         || context.plugins_active
         || context.management_active
+        || context.rename_active
     {
         return false;
     }
@@ -1008,6 +1063,7 @@ async fn run(
     let mut plugins_active: Option<PluginOperation> = None;
     let mut codex = CodexCoordinator::default();
     let mut management_active: Option<crate::management::Submission> = None;
+    let mut rename_active: Option<crate::rename::Submission> = None;
     let mut export_active: Option<crate::exporter::Receipt> = None;
     let mut export_download: Option<ExportDownload> = None;
     // Separate ownership: aborting the async download must never detach an admitted save.
@@ -1059,7 +1115,7 @@ async fn run(
                         } else if !publish(&events,Event::Cancel{generation:stop_generation,result:Err("Stop not admitted: stale target or another Stop is pending; no cancellation sent".into())}){break Some("Native UI delivery queue overflow".into());}
                         continue;
                     },
-                    command if (!observations_live || submissions.busy()) && matches!(&command,Command::Prompt{..}|Command::PromptFile{..}|Command::StageFile(_)|Command::SaveKey{..}|Command::Cloudflare(crate::settings::cloudflare::Effect::Save{..}|crate::settings::cloudflare::Effect::Disable{..}|crate::settings::cloudflare::Effect::AuthMode{..}|crate::settings::cloudflare::Effect::Setup{..}|crate::settings::cloudflare::Effect::Start{..}|crate::settings::cloudflare::Effect::Disconnect{..})|Command::PluginSave{..}|Command::Export(_)|Command::Manage(_)|Command::SelectModel{..}|Command::Create{..}|Command::OpenWorkspace(_)|Command::Codex(crate::codex::Effect::RuntimeSave{..}|crate::codex::Effect::UsageSave{..}|crate::codex::Effect::StartLogin{..}|crate::codex::Effect::AddAccount{..}|crate::codex::Effect::SelectAccount{..}|crate::codex::Effect::SignOutAccount{..}|crate::codex::Effect::SignOutAll{..}|crate::codex::Effect::EnableModels{..}|crate::codex::Effect::SubmitCallback{..}))=>{if !publish(&events,rejected(command)){break Some("Native UI delivery queue overflow".into());}continue;},
+                    command if (!observations_live || submissions.busy()) && matches!(&command,Command::Prompt{..}|Command::PromptFile{..}|Command::StageFile(_)|Command::SaveKey{..}|Command::Cloudflare(crate::settings::cloudflare::Effect::Save{..}|crate::settings::cloudflare::Effect::Disable{..}|crate::settings::cloudflare::Effect::AuthMode{..}|crate::settings::cloudflare::Effect::Setup{..}|crate::settings::cloudflare::Effect::Start{..}|crate::settings::cloudflare::Effect::Disconnect{..})|Command::PluginSave{..}|Command::Export(_)|Command::Manage(_)|Command::Rename(_)|Command::SelectModel{..}|Command::Create{..}|Command::OpenWorkspace(_)|Command::Codex(crate::codex::Effect::RuntimeSave{..}|crate::codex::Effect::UsageSave{..}|crate::codex::Effect::StartLogin{..}|crate::codex::Effect::AddAccount{..}|crate::codex::Effect::SelectAccount{..}|crate::codex::Effect::SignOutAccount{..}|crate::codex::Effect::SignOutAll{..}|crate::codex::Effect::EnableModels{..}|crate::codex::Effect::SubmitCallback{..}))=>{if !publish(&events,rejected(command)){break Some("Native UI delivery queue overflow".into());}continue;},
                     Command::DiscardFile(ticket) => { files.discard(&ticket); continue; },
                     Command::StageFile(submission) => {
                         let enabled = !smoke && !*closing.borrow() && !events.is_closed() && operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()) < MAX_OPERATIONS;
@@ -1149,7 +1205,7 @@ async fn run(
                         if admit_export(&mut export_active,&receipt,ExportAdmission {
                             smoke,stopping:*closing.borrow() || events.is_closed(),
                             operations:tasks.len(),generation,target:selected_target.as_ref(),
-                            key_saving:key_saving.is_some()||cloudflare.busy()||codex.busy(),plugins_active:plugins_active.is_some(),management_active:management_active.is_some(),
+                            key_saving:key_saving.is_some()||cloudflare.busy()||codex.busy(),plugins_active:plugins_active.is_some(),management_active:management_active.is_some(),rename_active:rename_active.is_some(),
                         }) {
                             export_download=Some(tokio::spawn(download_export(client.clone(),destination,receipt.ticket.target.clone())));
                         } else {
@@ -1171,9 +1227,17 @@ async fn run(
                         continue;
                     },
                     Command::Manage(submission)=>{
-                        if admit_management_without_export(&mut management_active,&submission,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),export_active.is_some()) {
+                        if rename_active.is_none() && admit_management_without_export(&mut management_active,&submission,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),export_active.is_some()) {
                             tasks.spawn(manage(client.clone(),submission));
                         } else if !publish(&events,Event::Managed{submission,result:Err(())}) {
+                            break Some("Native UI delivery queue overflow".into());
+                        }
+                        continue;
+                    },
+                    Command::Rename(submission)=>{
+                        if admit_rename(&mut rename_active,&submission,smoke,*closing.borrow(),operation_count(tasks.len()+file_jobs.len()+rejoin_jobs.len(),export_active.is_some()),management_active.is_some(),export_active.is_some()) {
+                            tasks.spawn(rename(client.clone(),submission));
+                        } else if !publish(&events,Event::Renamed{submission,result:Err(())}) {
                             break Some("Native UI delivery queue overflow".into());
                         }
                         continue;
@@ -1219,7 +1283,7 @@ async fn run(
                     Command::Prompt{..}|Command::CheckSubmission(_)|Command::RejoinObservations{..}=>Event::Fault("Prompt bypassed worker ownership".into()),
                     Command::Cancel{..}=>Event::Fault("Cancellation bypassed priority dispatch".into()),
                     Command::Page{generation,request}=>Event::Page{generation,result:client.session_page(request).await.map_err(|e|format!("History page: {e}"))},
-                    Command::Cloudflare(_)|Command::PromptFile{..}|Command::StageFile(_)|Command::DiscardFile(_)|Command::Codex(_)|Command::Export(_)|Command::PluginsRead(_)|Command::PluginSave{..}|Command::Manage(_)|Command::KeyMetadata(_)|Command::SaveKey{..}|Command::Inspect|Command::Shutdown|Command::Select{..}=>Event::Fault("Invalid native command state".into()),
+                    Command::Cloudflare(_)|Command::PromptFile{..}|Command::StageFile(_)|Command::DiscardFile(_)|Command::Codex(_)|Command::Export(_)|Command::PluginsRead(_)|Command::PluginSave{..}|Command::Manage(_)|Command::Rename(_)|Command::KeyMetadata(_)|Command::SaveKey{..}|Command::Inspect|Command::Shutdown|Command::Select{..}=>Event::Fault("Invalid native command state".into()),
                 }});
             }
             event=next_root(&mut root),if root.is_some()=>match event {
@@ -1290,7 +1354,7 @@ async fn run(
                 }
             },
             stopped=stop_tasks.join_next(),if !stop_tasks.is_empty()=>if let Some(result)=stopped {match result {Ok(event)=>{submissions.settle(&event);if !publish(&events,event){break Some("Native UI delivery queue overflow".into());}},Err(_)=>break Some("Reserved Stop worker failed".into())}},
-            task=tasks.join_next(),if !tasks.is_empty()=>if let Some(task)=task {match task {Ok(event)=>{submissions.settle(&event);if let Event::FilePrompt{tickets,request_id,..}=&event {if !tickets.iter().any(|ticket| files.settle_prompt(ticket,request_id)) {break Some("Native file prompt ownership lost".into());}}if let Event::DecisionResult{submission,result}=&event{decisions.settle(submission,result.is_ok());if result.is_ok(){live_decisions.retain(|key|key!=&submission.key);}}if let Event::CodexCompleted{ticket,outcome}=&event{codex.settle(*ticket,outcome.clone());}if let Event::CloudflareCompleted{ticket,outcome}=&event{cloudflare.settle(*ticket,outcome);cloudflare_worker::dispatch_cancel(&mut cloudflare,&backend,&mut tasks);}settle_plugin(&mut plugins_active,&event);settle_management(&mut management_active,&event);if let Event::KeySaved{ticket,..}=&event{if key_saving==Some(*ticket){key_saving=None;}}if !publish(&events,event){break Some("Native UI delivery queue overflow".into());}},Err(_)=>break Some("Native operation worker failed".into())}},
+            task=tasks.join_next(),if !tasks.is_empty()=>if let Some(task)=task {match task {Ok(event)=>{submissions.settle(&event);if let Event::FilePrompt{tickets,request_id,..}=&event {if !tickets.iter().any(|ticket| files.settle_prompt(ticket,request_id)) {break Some("Native file prompt ownership lost".into());}}if let Event::DecisionResult{submission,result}=&event{decisions.settle(submission,result.is_ok());if result.is_ok(){live_decisions.retain(|key|key!=&submission.key);}}if let Event::CodexCompleted{ticket,outcome}=&event{codex.settle(*ticket,outcome.clone());}if let Event::CloudflareCompleted{ticket,outcome}=&event{cloudflare.settle(*ticket,outcome);cloudflare_worker::dispatch_cancel(&mut cloudflare,&backend,&mut tasks);}settle_plugin(&mut plugins_active,&event);settle_management(&mut management_active,&event);settle_rename(&mut rename_active,&event);if let Event::KeySaved{ticket,..}=&event{if key_saving==Some(*ticket){key_saving=None;}}if !publish(&events,event){break Some("Native UI delivery queue overflow".into());}},Err(_)=>break Some("Native operation worker failed".into())}},
         }
     };
     // Revoke private control authority and request owned stop before awaiting
@@ -1578,6 +1642,32 @@ mod tests {
             operation,
         }
     }
+    fn rename_submission() -> crate::rename::Submission {
+        use crate::rename::{Action, Context, Rename};
+        let view = crate::management::View {
+            epoch: TRANSPORT_EPOCH,
+            generation: 3,
+            target: SessionId::new("session-worker-rename").unwrap(),
+        };
+        let context = Context {
+            view: Some(view.clone()),
+            allowed: true,
+        };
+        let mut rename = Rename::default();
+        rename.apply(
+            Action::Open {
+                view,
+                title: "PUBLIC worker title".into(),
+            },
+            &context,
+        );
+        let ticket = rename.ticket().unwrap();
+        rename.apply(Action::Review(ticket), &context);
+        let review = rename.review().unwrap().clone();
+        rename
+            .apply(Action::Confirm(review), &context)
+            .expect("reviewed public rename")
+    }
     #[test]
     fn management_epoch_smoke_and_stopping_guards_do_not_reserve() {
         use crate::management::Operation;
@@ -1767,6 +1857,133 @@ mod tests {
         drop(receiver);
         assert!(
             matches!(handle.send(Command::Manage(submission.clone())), Err(Command::Manage(returned)) if returned == submission)
+        );
+    }
+    #[test]
+    fn rename_epoch_smoke_stopping_and_cross_flight_guards_do_not_reserve() {
+        let submission = rename_submission();
+        for (epoch, smoke, stopping, management, export, operations) in [
+            (0, false, false, false, false, 0),
+            (TRANSPORT_EPOCH, true, false, false, false, 0),
+            (TRANSPORT_EPOCH, false, true, false, false, 0),
+            (TRANSPORT_EPOCH, false, false, true, false, 0),
+            (TRANSPORT_EPOCH, false, false, false, true, 0),
+            (TRANSPORT_EPOCH, false, false, false, false, MAX_OPERATIONS),
+        ] {
+            let mut candidate = submission.clone();
+            candidate.receipt.ticket.epoch = epoch;
+            let mut active = None;
+            assert!(!admit_rename(
+                &mut active,
+                &candidate,
+                smoke,
+                stopping,
+                operations,
+                management,
+                export
+            ));
+            assert!(active.is_none());
+        }
+        let mut active = None;
+        assert!(admit_rename(
+            &mut active,
+            &submission,
+            false,
+            false,
+            0,
+            false,
+            false
+        ));
+        assert_eq!(active.as_ref(), Some(&submission));
+        // One rename flight across sessions: a fresh serial on another target still refuses.
+        let mut other = submission.clone();
+        other.receipt.ticket.target = SessionId::new("session-worker-other").unwrap();
+        other.receipt.ticket.serial += 1;
+        assert!(!admit_rename(
+            &mut active,
+            &other,
+            false,
+            false,
+            0,
+            false,
+            false
+        ));
+        assert_eq!(active.as_ref(), Some(&submission));
+    }
+    #[test]
+    fn rename_only_its_exact_receipt_releases_the_slot() {
+        let first = rename_submission();
+        for result in [Ok(SessionRenameValue { title: "PUBLIC ack".into(), seq: 5 }), Err(())] {
+            let mut active = Some(first.clone());
+            settle_rename(&mut active, &Event::Ready("public-fixture".into()));
+            assert_eq!(active.as_ref(), Some(&first));
+            for stale in [
+                {
+                    let mut stale = first.clone();
+                    stale.receipt.attempt += 1;
+                    stale
+                },
+                {
+                    let mut stale = first.clone();
+                    stale.receipt.editor += 1;
+                    stale
+                },
+                {
+                    let mut stale = first.clone();
+                    stale.receipt.ticket.target = SessionId::new("session-worker-other").unwrap();
+                    stale
+                },
+            ] {
+                settle_rename(
+                    &mut active,
+                    &Event::Renamed {
+                        submission: stale,
+                        result: result.clone(),
+                    },
+                );
+                assert_eq!(active.as_ref(), Some(&first));
+            }
+            settle_rename(
+                &mut active,
+                &Event::Renamed {
+                    submission: first.clone(),
+                    result,
+                },
+            );
+            assert!(active.is_none());
+            let mut next = first.clone();
+            next.receipt.attempt += 1;
+            assert!(admit_rename(&mut active, &next, false, false, 0, false, false));
+            settle_rename(
+                &mut active,
+                &Event::Renamed {
+                    submission: first.clone(),
+                    result: Err(()),
+                },
+            );
+            assert_eq!(active.as_ref(), Some(&next));
+        }
+    }
+    #[test]
+    fn rename_queue_rejection_is_redacted_and_returns_the_full_submission() {
+        let submission = rename_submission();
+        let event = rejected(Command::Rename(submission.clone()));
+        assert_eq!(format!("{event:?}"), "NativeWorkerEvent(redacted)");
+        assert!(
+            matches!(event, Event::Renamed { submission: returned, result: Err(()) } if returned == submission)
+        );
+        let (handle, _, receiver, _events, closing) = test_channels();
+        for _ in 0..32 {
+            assert!(handle.send(Command::Inspect).is_ok());
+        }
+        assert!(
+            matches!(handle.send(Command::Rename(submission.clone())), Err(Command::Rename(returned)) if returned == submission)
+        );
+        assert!(handle.send(Command::Shutdown).is_ok());
+        assert!(*closing.borrow());
+        drop(receiver);
+        assert!(
+            matches!(handle.send(Command::Rename(submission.clone())), Err(Command::Rename(returned)) if returned == submission)
         );
     }
     #[test]

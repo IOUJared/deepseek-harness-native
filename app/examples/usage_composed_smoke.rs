@@ -27,6 +27,8 @@ mod management;
 mod plugins;
 #[path = "../src/reducer.rs"]
 mod reducer;
+#[path = "../src/rename.rs"]
+mod rename;
 #[path = "support/runtime_composed.rs"]
 mod runtime_composed;
 #[path = "../src/settings.rs"]

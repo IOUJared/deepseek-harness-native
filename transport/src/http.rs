@@ -166,6 +166,7 @@ enum Endpoint {
     PromptAdmission,
     ModelCatalog,
     SelectModel,
+    RenameSession,
     Cancel,
     Page,
     AccountState,
@@ -190,6 +191,7 @@ impl Endpoint {
             Self::PromptAdmission => "session/promptAdmission",
             Self::ModelCatalog => "session/modelCatalog",
             Self::SelectModel => "session/selectModel",
+            Self::RenameSession => "session/rename",
             Self::Cancel => "session/cancel",
             Self::Page => "session/page",
             Self::AccountState => "account/getState",
@@ -478,6 +480,22 @@ impl NativeClient {
     pub async fn select_model(&self, request: SelectModelRequest) -> Result<SelectModelValue> {
         self.invoke(Endpoint::SelectModel, request_args(request)?)
             .await
+    }
+    /// Append one operator-owned Session title and return the Host-normalized value.
+    /// An admitted failure or timeout is not proof of no write; never retry automatically.
+    pub async fn session_rename(
+        &self,
+        request: &SessionRenameRequest,
+    ) -> Result<SessionRenameValue> {
+        let value: SessionRenameValue = self
+            .invoke(Endpoint::RenameSession, request_args(request)?)
+            .await?;
+        // A durable event position cannot be negative and an accepted title is
+        // never blank; reject a malformed ACK rather than publishing it.
+        if value.seq < 0 || value.title.trim().is_empty() {
+            return Err(Error::InvalidDto);
+        }
+        Ok(value)
     }
     /// Reserved one-operation lane. The BFF preserves queued inbox input; ACK is not idle.
     pub async fn session_cancel(&self, session_id: &SessionId) -> Result<Accepted> {

@@ -23,6 +23,8 @@ mod options;
 mod plugins;
 #[path = "../src/reducer.rs"]
 mod reducer;
+#[path = "../src/rename.rs"]
+mod rename;
 #[path = "../src/settings.rs"]
 mod settings;
 #[path = "../src/smoke.rs"]

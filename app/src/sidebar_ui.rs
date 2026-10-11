@@ -29,6 +29,7 @@ pub enum Action {
     Apply(Stamp, Mutation),
     Step(Stamp, bool),
     Registry(Stamp, crate::management::Operation),
+    Rename(Stamp),
     Export(Stamp),
     Reload,
     TrashView,
@@ -61,6 +62,8 @@ impl App {
             && !self.decisions.is_open()
             && !self.management.is_open()
             && !self.management.pending()
+            && !self.rename.is_open()
+            && self.rename.pending().is_none()
             && !self.exporter.is_open()
             && self.exporter.pending().is_none()
             && matches!(self.close, Close::None)
@@ -140,6 +143,26 @@ impl App {
                         crate::management::Action::Review { ticket, operation },
                         &context,
                     );
+                }
+            }
+            Action::Rename(stamp)
+                if self.sidebar_stamp_allowed(&stamp) && !self.sidebar_organization.busy() =>
+            {
+                let view = crate::management::View {
+                    epoch: stamp.epoch,
+                    generation: stamp.generation,
+                    target: stamp.target,
+                };
+                let context = self.rename_context_for(Some(&view.target));
+                let title = context
+                    .allowed
+                    .then(|| self.sessions.get(&view.target))
+                    .flatten()
+                    .map(|session| self.session_title(session));
+                if let Some(title) = title {
+                    self.sidebar_organization.dismiss();
+                    self.rename
+                        .apply(crate::rename::Action::Open { view, title }, &context);
                 }
             }
             Action::Reload
@@ -350,6 +373,9 @@ impl App {
                     ))),
                     button("Export…").style(design::ghost).on_press_maybe(
                         registry_enabled.then_some(Message::Sidebar(Action::Export(stamp.clone())))
+                    ),
+                    button("Rename…").style(design::ghost).on_press_maybe(
+                        registry_enabled.then_some(Message::Sidebar(Action::Rename(stamp.clone())))
                     ),
                 ]
                 .spacing(8),

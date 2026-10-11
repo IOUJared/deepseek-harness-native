@@ -468,3 +468,195 @@ fn sidebar_pending_io_is_joined_before_exit_and_close_cannot_rollback_it() {
     );
     assert!(queue.try_recv().is_err());
 }
+
+fn with_title(app: &mut App, name: &str, title: &str) {
+    app.sessions.get_mut(&id(name)).unwrap().projections = Some(ProjectionHints {
+        kind: ProjectionKind::Cached,
+        as_of_seq: 3,
+        values: [("title".to_string(), serde_json::json!(title))]
+            .into_iter()
+            .collect(),
+    });
+}
+fn open_rename(app: &mut App, target: &str) -> crate::management::Ticket {
+    let message = app.sidebar_open_message(&id(target));
+    let _ = app.update(message);
+    let stamp = app.sidebar_organization.stamp().unwrap();
+    let _ = app.update(Message::Sidebar(Action::Rename(stamp)));
+    assert!(!app.sidebar_organization.is_open());
+    assert!(app.rename.is_open());
+    app.rename.ticket().unwrap()
+}
+fn confirm_rename(
+    app: &mut App,
+    queue: &mut tokio::sync::mpsc::Receiver<Command>,
+    title: &str,
+) -> Command {
+    let ticket = app.rename.ticket().unwrap();
+    let _ = app.update(Message::Rename(crate::rename::Action::Edit {
+        ticket: ticket.clone(),
+        title: title.into(),
+    }));
+    let _ = app.update(Message::Rename(crate::rename::Action::Review(ticket)));
+    let review = app.rename.review().expect("reviewed title").clone();
+    let _ = app.update(Message::Rename(crate::rename::Action::Confirm(review)));
+    queue.try_recv().expect("explicit rename command")
+}
+fn title_of(app: &App, name: &str) -> String {
+    app.session_title(app.sessions.get(&id(name)).unwrap())
+}
+fn rename_ack(submission: crate::rename::Submission, title: &str, seq: i64) -> Event {
+    Event::Renamed {
+        submission,
+        result: Ok(SessionRenameValue {
+            title: title.into(),
+            seq,
+        }),
+    }
+}
+
+#[test]
+fn rename_row_action_prefills_the_visible_title_for_the_unselected_target_without_writing() {
+    let (mut app, mut queue) = app();
+    with_title(&mut app, "b", "PUBLIC row title");
+    let ticket = open_rename(&mut app, "b");
+    assert_eq!(ticket.target, id("b"));
+    assert_eq!(app.selected, Some(id("a")));
+    assert_eq!(app.rename.title(), "PUBLIC row title");
+    assert_eq!(app.rename.notice(), &crate::rename::Notice::None);
+    assert!(queue.try_recv().is_err());
+}
+
+#[test]
+fn rename_local_validation_refuses_without_closing_the_editor_or_losing_the_typed_text() {
+    let (mut app, mut queue) = app();
+    with_title(&mut app, "b", "PUBLIC row title");
+    let ticket = open_rename(&mut app, "b");
+    let _ = app.update(Message::Rename(crate::rename::Action::Edit {
+        ticket: ticket.clone(),
+        title: "   ".into(),
+    }));
+    assert_eq!(
+        app.rename.notice(),
+        &crate::rename::Notice::Invalid(crate::rename::Invalid::Empty)
+    );
+    let _ = app.update(Message::Rename(crate::rename::Action::Review(
+        ticket.clone(),
+    )));
+    assert!(app.rename.review().is_none());
+    assert!(app.rename.is_open());
+    assert_eq!(app.rename.title(), "   ");
+    assert_eq!(title_of(&app, "b"), "PUBLIC row title");
+    assert!(queue.try_recv().is_err());
+    // Close leaves the previous title untouched and sends nothing.
+    let _ = app.update(Message::Rename(crate::rename::Action::Close(ticket)));
+    assert!(!app.rename.is_open());
+    assert_eq!(title_of(&app, "b"), "PUBLIC row title");
+    assert!(queue.try_recv().is_err());
+}
+
+#[test]
+fn rename_ack_applies_only_the_acknowledged_title_and_never_becomes_a_chat_message() {
+    let (mut app, mut queue) = app();
+    with_title(&mut app, "b", "PUBLIC row title");
+    let _ = open_rename(&mut app, "b");
+    let before_rows = app.transcript.rows().len();
+    let command = confirm_rename(&mut app, &mut queue, "PUBLIC typed title");
+    let Command::Rename(submission) = command else {
+        panic!("only an explicit rename command expected")
+    };
+    assert_eq!(submission.receipt.ticket.target, id("b"));
+    assert_eq!(submission.title(), "PUBLIC typed title");
+    // No optimistic rename: the sidebar still shows the old title until the ACK.
+    assert_eq!(title_of(&app, "b"), "PUBLIC row title");
+    assert_eq!(app.rename.notice(), &crate::rename::Notice::Pending);
+    assert!(queue.try_recv().is_err());
+    let _ = app.receive(rename_ack(submission, "PUBLIC normalized title", 9));
+    assert_eq!(title_of(&app, "b"), "PUBLIC normalized title");
+    assert_eq!(title_of(&app, "a"), "Untitled chat");
+    assert_eq!(app.transcript.rows().len(), before_rows);
+    assert!(
+        !app.transcript
+            .display_rows(true)
+            .any(|row| row.text.contains("PUBLIC normalized title"))
+    );
+    assert_eq!(
+        app.rename.notice(),
+        &crate::rename::Notice::Renamed {
+            title: "PUBLIC normalized title".into()
+        }
+    );
+    assert!(queue.try_recv().is_err());
+}
+
+#[test]
+fn rename_stale_target_epoch_generation_or_foreign_receipt_cannot_change_the_title() {
+    let (mut app, mut queue) = app();
+    with_title(&mut app, "b", "PUBLIC row title");
+    let ticket = open_rename(&mut app, "b");
+    // A bumped generation fences further edits from the still-open editor.
+    app.generation += 1;
+    let _ = app.update(Message::Rename(crate::rename::Action::Edit {
+        ticket: ticket.clone(),
+        title: "PUBLIC forged title".into(),
+    }));
+    assert_eq!(app.rename.title(), "PUBLIC row title");
+    // A bumped transport epoch fences it too.
+    app.generation -= 1;
+    app.transport_epoch += 1;
+    let _ = app.update(Message::Rename(crate::rename::Action::Edit {
+        ticket: ticket.clone(),
+        title: "PUBLIC forged title".into(),
+    }));
+    assert_eq!(app.rename.title(), "PUBLIC row title");
+    app.transport_epoch -= 1;
+    let command = confirm_rename(&mut app, &mut queue, "PUBLIC typed title");
+    let Command::Rename(submission) = command else {
+        panic!("only an explicit rename command expected")
+    };
+    // A foreign receipt (wrong attempt) cannot install a title.
+    let mut foreign = submission.clone();
+    foreign.receipt.attempt += 1;
+    let _ = app.receive(rename_ack(foreign, "PUBLIC foreign title", 9));
+    assert_eq!(title_of(&app, "b"), "PUBLIC row title");
+    assert_eq!(app.rename.notice(), &crate::rename::Notice::Pending);
+    let _ = app.receive(rename_ack(submission, "PUBLIC normalized title", 9));
+    assert_eq!(title_of(&app, "b"), "PUBLIC normalized title");
+    assert!(queue.try_recv().is_err());
+}
+
+#[test]
+fn rename_stale_stamp_epoch_cannot_open_the_editor() {
+    let (mut app, mut queue) = app();
+    with_title(&mut app, "b", "PUBLIC row title");
+    open(&mut app, "b");
+    let stamp = app.sidebar_organization.stamp().unwrap();
+    app.transport_epoch += 1;
+    let _ = app.update(Message::Sidebar(Action::Rename(stamp)));
+    assert!(!app.rename.is_open());
+    assert!(queue.try_recv().is_err());
+}
+
+#[test]
+fn rename_unknown_outcome_is_surfaced_without_retry_or_a_title_guess() {
+    let (mut app, mut queue) = app();
+    with_title(&mut app, "b", "PUBLIC row title");
+    let _ = open_rename(&mut app, "b");
+    let Command::Rename(submission) = confirm_rename(&mut app, &mut queue, "PUBLIC typed title")
+    else {
+        panic!("only an explicit rename command expected")
+    };
+    let _ = app.receive(Event::Renamed {
+        submission: submission.clone(),
+        result: Err(()),
+    });
+    assert_eq!(app.rename.notice(), &crate::rename::Notice::Indeterminate);
+    assert!(app.rename.pending().is_none());
+    assert_eq!(title_of(&app, "b"), "PUBLIC row title");
+    assert_eq!(app.rename.title(), "PUBLIC typed title");
+    // No automatic retry: nothing was re-sent and the consumed review is not re-armed.
+    assert!(queue.try_recv().is_err());
+    let _ = app.receive(rename_ack(submission, "PUBLIC late title", 9));
+    assert_eq!(title_of(&app, "b"), "PUBLIC row title");
+    assert!(queue.try_recv().is_err());
+}

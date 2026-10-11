@@ -404,6 +404,119 @@ async fn registry_inflight_requests_cancel_on_client_close() {
     fixture.stop().await;
 }
 
+fn rename_request() -> SessionRenameRequest {
+    SessionRenameRequest {
+        session_id: SessionId::new("session / rename opaque:%").unwrap(),
+        title: "PUBLIC renamed title".into(),
+    }
+}
+
+#[test]
+fn rename_dtos_use_exact_object_fields_and_reject_extra_authority() {
+    use serde_json::{Value, json};
+    let request = rename_request();
+    let wire = json!({"sessionId":"session / rename opaque:%","title":"PUBLIC renamed title"});
+    assert_eq!(serde_json::to_value(&request).unwrap(), wire);
+    assert_eq!(
+        serde_json::from_value::<SessionRenameRequest>(wire.clone())
+            .unwrap()
+            .title,
+        request.title
+    );
+    for field in ["agent", "agentId", "stopActivity", "seq"] {
+        let mut extra = wire.clone();
+        extra[field] = json!(false);
+        assert!(serde_json::from_value::<SessionRenameRequest>(extra).is_err());
+    }
+    let value = json!({"title":"PUBLIC normalized title","seq":5});
+    let parsed: SessionRenameValue = serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(parsed.title, "PUBLIC normalized title");
+    assert_eq!(parsed.seq, 5);
+    assert_eq!(serde_json::to_value(parsed).unwrap(), value);
+    for malformed in [
+        Value::Null,
+        json!({}),
+        json!({"title":"x"}),
+        json!({"seq":5}),
+        json!({"title":"x","seq":5,"agentId":"agent-fixture"}),
+    ] {
+        assert!(serde_json::from_value::<SessionRenameValue>(malformed).is_err());
+    }
+}
+
+#[tokio::test]
+async fn rename_uses_exact_authenticated_wire_and_returns_the_normalized_ack() {
+    // The fixture 400s unless the full envelope is exactly
+    // {"type":"client-request", rpcId, method:"session/rename",
+    //  payload:{args:{request:{sessionId, title}}}}, so success proves method and args.
+    let mut fixture = NodeHostFixture::start("normal").await;
+    let client = fixture.connect(Limits::default()).await.unwrap();
+    let value = client.session_rename(&rename_request()).await.unwrap();
+    assert_eq!(value.title, "PUBLIC renamed title");
+    assert_eq!(value.seq, 5);
+    client.close().await;
+    fixture.stop().await;
+}
+
+#[tokio::test]
+async fn rename_malformed_or_impossible_ack_fails_closed_before_any_title_claim() {
+    for mode in [
+        "rename-missing",
+        "rename-wrong-type",
+        "rename-extra",
+        "rename-negative-seq",
+    ] {
+        let mut fixture = NodeHostFixture::start(mode).await;
+        let client = fixture.connect(Limits::default()).await.unwrap();
+        assert_eq!(
+            client.session_rename(&rename_request()).await.unwrap_err(),
+            Error::InvalidDto
+        );
+        client.close().await;
+        fixture.stop().await;
+    }
+}
+
+#[tokio::test]
+async fn rename_remote_refusal_and_correlation_errors_remain_redacted() {
+    for (mode, expected) in [
+        ("failure", Error::RemoteFailure),
+        ("wrong-rpc", Error::Correlation),
+    ] {
+        let mut fixture = NodeHostFixture::start(mode).await;
+        let client = fixture.connect(Limits::default()).await.unwrap();
+        let error = client.session_rename(&rename_request()).await.unwrap_err();
+        assert_eq!(error, expected);
+        assert!(!format!("{error:?} {error}").contains("SECRET_SENTINEL"));
+        client.close().await;
+        fixture.stop().await;
+    }
+}
+
+#[tokio::test]
+async fn rename_timeout_and_retired_clone_never_retry() {
+    let mut fixture = NodeHostFixture::start("slow").await;
+    let client = fixture
+        .connect(Limits {
+            timeout: Duration::from_millis(100),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        client.session_rename(&rename_request()).await.unwrap_err(),
+        Error::Timeout
+    );
+    let copy = client.clone();
+    client.invalidate();
+    assert_eq!(
+        copy.session_rename(&rename_request()).await.unwrap_err(),
+        Error::Closed
+    );
+    client.close().await;
+    fixture.stop().await;
+}
+
 #[tokio::test]
 async fn self_reply_ack_retires_only_our_delivery_without_host_cancel() {
     let mut fixture = NodeHostFixture::start("self-reply-series").await;

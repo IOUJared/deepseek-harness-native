@@ -22,6 +22,8 @@ mod management;
 mod plugins;
 #[path = "../src/reducer.rs"]
 mod reducer;
+#[path = "../src/rename.rs"]
+mod rename;
 #[path = "../src/settings.rs"]
 mod settings;
 #[path = "../src/smoke.rs"]
@@ -405,6 +407,7 @@ impl Fixture {
                 worker::Command::PluginsRead(_) => "PluginsRead",
                 worker::Command::PluginSave { .. } => "PluginSave",
                 worker::Command::Manage(_) => "Manage",
+                worker::Command::Rename(_) => "Rename",
                 worker::Command::KeyMetadata(_) => "KeyMetadata",
                 worker::Command::SaveKey { .. } => "SaveKey",
                 worker::Command::Decision(_) => "Decision",

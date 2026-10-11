@@ -108,6 +108,22 @@ pub struct SessionCreateValue {
     pub session_id: SessionId,
     pub agent_preset: Option<String>,
 }
+/// One operator-proposed Session title, serialized as exactly `{sessionId, title}`.
+/// Extra authority (`agent`, `agentId`, `stopActivity`, `seq`) is rejected, not ignored.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionRenameRequest {
+    pub session_id: SessionId,
+    pub title: String,
+}
+/// Host-normalized title and the durable event seq that committed it.
+/// The app applies this acknowledged value, never a locally predicted title.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionRenameValue {
+    pub title: String,
+    pub seq: i64,
+}
 /// One operator-requested registry mutation. No Agent authority or activity-stop option.
 ///
 /// JSON must be an object containing only `sessionId`; positional arrays and extra

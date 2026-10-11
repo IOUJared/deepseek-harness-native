@@ -156,6 +156,7 @@ pub enum Message {
     WorkingTick,
     Settings(crate::settings::Action),
     Management(crate::management::Action),
+    Rename(crate::rename::Action),
     ExportSession(crate::management::Ticket),
     Export(crate::exporter::Action),
     ArchivedView,
@@ -271,6 +272,7 @@ pub struct App {
     workspaces: Vec<WorkspaceView>,
     workspace: Option<WorkspaceId>,
     management: crate::management::Management,
+    rename: crate::rename::Rename,
     exporter: crate::exporter::Exporter,
     files: attachment_draft::Attachments,
     local_files: attachment_ui::LocalFiles,
@@ -388,6 +390,7 @@ impl App {
                 workspaces: vec![],
                 workspace: None,
                 management: crate::management::Management::default(),
+                rename: crate::rename::Rename::default(),
                 exporter: crate::exporter::Exporter::default(),
                 files: attachment_draft::Attachments::default(),
                 local_files: Default::default(),
@@ -709,6 +712,10 @@ impl App {
                     .settings
                     .plugin_saved(ticket, crate::plugins::SaveOutcome::NotSent),
                 Command::Manage(submission) => self.management.finish(&submission, Err(()), true),
+                Command::Rename(submission) => {
+                    self.rename
+                        .finish(&submission.receipt, crate::rename::Outcome::NotSent);
+                }
                 Command::Export(submission) => {
                     self.exporter
                         .finish(&submission.receipt, crate::exporter::Outcome::NotSent);
@@ -778,6 +785,7 @@ impl App {
             text_editor::Content::with_text(self.drafts.get(&session).map_or("", String::as_str));
         self.management.dismiss();
         self.sidebar_organization.dismiss();
+        self.rename.dismiss();
         self.exporter.dismiss();
         self.selected = Some(session.clone());
         self.generation += 1;
@@ -896,6 +904,7 @@ impl App {
         self.files.invalidate();
         self.management.disconnect();self.sidebar_organization.dismiss();
         self.exporter.disconnect();
+        self.rename.disconnect();
         self.settings.disconnect();
         self.settings.close();
         self.close = Close::Stopping;
@@ -952,6 +961,13 @@ impl App {
         {
             return Task::none();
         }
+        if self.rename.is_open()
+            && !self.settings.is_open()
+            && ((background_message(&message) && !matches!(&message, Message::Rename(_)))
+                || matches!(&message, Message::Settings(_)))
+        {
+            return Task::none();
+        }
         if self.sidebar_organization.is_open()
             && ((background_message(&message) && !matches!(&message,Message::Sidebar(_)))
                 || matches!(&message,Message::Settings(_))) {return Task::none();}
@@ -974,6 +990,7 @@ impl App {
             &message,
             Message::Settings(_)
                 | Message::Management(_)
+                | Message::Rename(_)
                 | Message::ExportSession(_)
                 | Message::Export(_)
                 | Message::Capabilities
@@ -1066,6 +1083,9 @@ impl App {
             Message::DismissPanel if self.exporter.is_open() && !self.settings_modal_visible() => {
                 self.exporter.dismiss();
             }
+            Message::DismissPanel if self.rename.is_open() && !self.settings_modal_visible() => {
+                self.rename.dismiss();
+            }
             Message::ExportSession(ticket) => {
                 let context = self.management_context();
                 if context.allowed
@@ -1096,6 +1116,12 @@ impl App {
                 let context = self.management_context();
                 if let Some(submission) = self.management.update(action, &context) {
                     self.command(Command::Manage(submission));
+                }
+            }
+            Message::Rename(action) => {
+                let context = self.rename_context();
+                if let Some(submission) = self.rename.apply(action, &context) {
+                    self.command(Command::Rename(submission));
                 }
             }
             #[cfg(test)]
@@ -1647,6 +1673,7 @@ impl App {
                 self.local_files.invalidate();
                 self.settings.close();
                 self.exporter.dismiss();
+                self.rename.dismiss();
                 if self.stopped {
                     if self.last_stop.as_ref().is_some_and(|r|matches!(r,Ok(s) if s.exited&&!s.containment_unknown&&s.observed_descendants_remaining==0)){self.capture_draft();self.draft_exit_requested=true;self.close=Close::Stopping;return self.finish_draft_exit();}
                     self.close = Close::Failed(
@@ -1772,6 +1799,7 @@ impl App {
                 self.files.disconnect();
                 self.management.disconnect();self.sidebar_organization.dismiss();
                 self.exporter.disconnect();
+                self.rename.disconnect();
                 self.settings.disconnect();
                 self.account = "Account metadata unavailable (disconnected)".into();
                 self.catalog_read.retire(); self.ready = false;
@@ -1816,6 +1844,23 @@ impl App {
             }
             Event::Managed { submission, result } => {
                 self.management.finish(&submission, result, false);
+            }
+            Event::Renamed { submission, result } => {
+                let outcome = match result {
+                    Ok(value) => crate::rename::Outcome::Renamed {
+                        title: value.title,
+                        seq: value.seq,
+                    },
+                    Err(()) => crate::rename::Outcome::Unknown,
+                };
+                // Apply only the acknowledged normalized title, and only for this receipt.
+                if let Some(applied) = self.rename.finish(&submission.receipt, outcome) {
+                    self.observe_title_for(
+                        &applied.target,
+                        applied.seq,
+                        serde_json::Value::String(applied.title),
+                    );
+                }
             }
             Event::Roster(result) => {
                 self.roster_pending = false;
@@ -2195,6 +2240,7 @@ impl App {
                 self.files.disconnect();
                 self.management.disconnect();self.sidebar_organization.dismiss();
                 self.exporter.disconnect();
+                self.rename.disconnect();
                 self.settings.disconnect();
                 self.account = "Account metadata unavailable (disconnected)".into();
                 self.catalog_read.retire(); self.ready = false;
@@ -2206,6 +2252,7 @@ impl App {
                 self.files.disconnect();
                 self.management.disconnect();self.sidebar_organization.dismiss();
                 self.exporter.disconnect();
+                self.rename.disconnect();
                 self.settings.disconnect();
                 self.account = "Account metadata unavailable (disconnected)".into();
                 self.catalog_read.retire(); self.ready = false;
@@ -2220,6 +2267,7 @@ impl App {
                 self.files.disconnect();
                 self.management.disconnect();self.sidebar_organization.dismiss();
                 self.exporter.disconnect();
+                self.rename.disconnect();
                 self.settings.disconnect();
                 self.account = "Account metadata unavailable (disconnected)".into();
                 self.transport_epoch += 1;
@@ -2401,8 +2449,28 @@ impl App {
     fn management_context_for(&self, target:Option<&SessionId>) -> crate::management::Context {
         let mut context = self.operator_context_for(target);
         context.allowed =
-            context.allowed && !self.exporter.is_open() && self.exporter.pending().is_none();
+            context.allowed && !self.exporter.is_open() && self.exporter.pending().is_none()
+                && !self.rename.is_open() && self.rename.pending().is_none();
         context
+    }
+    fn rename_context(&self) -> crate::rename::Context {
+        let ticket = self.rename.ticket();
+        let target = ticket
+            .as_ref()
+            .map(|ticket| &ticket.target)
+            .or(self.selected.as_ref());
+        self.rename_context_for(target)
+    }
+    fn rename_context_for(&self, target:Option<&SessionId>) -> crate::rename::Context {
+        let context = self.operator_context_for(target);
+        crate::rename::Context {
+            view: context.view,
+            allowed: context.allowed
+                && !self.management.is_open()
+                && !self.management.pending()
+                && !self.exporter.is_open()
+                && self.exporter.pending().is_none(),
+        }
     }
     fn export_context(&self) -> crate::exporter::Context {
         let ticket=self.exporter.ticket();
@@ -2412,7 +2480,8 @@ impl App {
         let context = self.operator_context_for(target);
         crate::exporter::Context {
             view: context.view,
-            allowed: context.allowed && !self.management.is_open() && !self.management.pending(),
+            allowed: context.allowed && !self.management.is_open() && !self.management.pending()
+                && !self.rename.is_open() && self.rename.pending().is_none(),
         }
     }
     fn operator_context(&self) -> crate::management::Context {
@@ -2516,6 +2585,13 @@ impl App {
                 Message::Export(crate::exporter::Action::Close(ticket)),
             );
         }
+        if let Some(ticket) = self.rename.ticket() {
+            return settings_overlay(
+                self.presentation_shell(false),
+                self.rename_view(),
+                Message::Rename(crate::rename::Action::Close(ticket)),
+            );
+        }
         if let Some(ticket) = self.management.ticket() {
             return settings_overlay(
                 self.presentation_shell(false),
@@ -2616,6 +2692,112 @@ impl App {
         container(scrollable(body).height(Length::Fill))
             .width(size.width)
             .height(size.height)
+            .style(|_| panel(SURFACE))
+            .into()
+    }
+    fn rename_view(&self) -> Element<'_, Message> {
+        use crate::rename::{Action, Notice};
+        let ticket = self.rename.ticket().expect("visible rename editor");
+        let current = self
+            .sessions
+            .get(&ticket.target)
+            .map(|session| self.session_title(session))
+            .unwrap_or_else(|| "Unavailable conversation".into());
+        let enabled = self.rename_context().allowed && self.rename.pending().is_none();
+        let mut body = column![
+            row![
+                label("Rename conversation", TEXT).size(22).width(Length::Fill),
+                button("Close")
+                    .style(design::ghost)
+                    .on_press(Message::Rename(Action::Close(ticket.clone())))
+            ]
+            .spacing(10),
+            label(format!("Shown as: {}", short(&current, 60)), MUTED).size(11),
+            label(
+                "Changes only the Host-owned title. It never sends a chat message or stops work.",
+                MUTED
+            )
+            .size(11),
+        ]
+        .spacing(10);
+        if let Some(review) = self.rename.review() {
+            body = body
+                .push(label("Confirm this exact title", TEXT).size(13))
+                .push(label(self.rename.title(), ACCENT).size(14))
+                .push(
+                    row![
+                        button("Back")
+                            .style(design::ghost)
+                            .on_press_maybe(
+                                enabled.then_some(Message::Rename(Action::Back(ticket.clone())))
+                            ),
+                        button("Confirm rename")
+                            .style(design::primary)
+                            .on_press_maybe(
+                                enabled.then_some(Message::Rename(Action::Confirm(review.clone())))
+                            ),
+                    ]
+                    .spacing(8),
+                );
+        } else {
+            let edit_ticket = ticket.clone();
+            body = body
+                .push(
+                    text_input("Session title", self.rename.title())
+                        .id("native-rename-title")
+                        .on_input_maybe(enabled.then_some(move |title| {
+                            Message::Rename(Action::Edit {
+                                ticket: edit_ticket.clone(),
+                                title,
+                            })
+                        }))
+                        .style(design::input_style)
+                        .padding(8)
+                        .size(13),
+                )
+                .push(
+                    label(
+                        format!("Up to {} UTF-8 bytes; blank titles and control or invisible formatting characters are refused.", crate::rename::MAX_TITLE_BYTES),
+                        MUTED
+                    )
+                    .size(10),
+                )
+                .push(
+                    button("Review rename")
+                        .style(design::primary)
+                        .on_press_maybe(
+                            enabled.then_some(Message::Rename(Action::Review(ticket.clone())))
+                        ),
+                );
+        }
+        body = body.push(match self.rename.notice() {
+            Notice::None => label("Type a title, then review before the single write.", MUTED).size(11),
+            Notice::Invalid(reason) => {
+                label(format!("{} Nothing was sent; your typed title is kept.", reason.text()), DANGER).size(11)
+            }
+            Notice::Pending => label(
+                "Rename admitted. Closing does not cancel or undo it; the title changes only from the Host acknowledgment.",
+                ACCENT,
+            )
+            .size(11),
+            Notice::Renamed { title } => {
+                label(format!("Host accepted \"{}\".", short(title, 80)), ACCENT).size(11)
+            }
+            Notice::NotSent => label(
+                "Worker queue rejected the rename: not sent. No automatic retry.",
+                DANGER,
+            )
+            .size(11),
+            Notice::Indeterminate => label(
+                "Rename not confirmed: Host refusal, failure or uncertain write. The displayed title still comes only from the Host; reconcile explicitly and never retry automatically.",
+                DANGER,
+            )
+            .size(11),
+        });
+        let size = settings_modal_size(self.layout_size());
+        container(scrollable(body).height(Length::Fill))
+            .width(size.width.min(560.0))
+            .height(size.height.min(360.0))
             .style(|_| panel(SURFACE))
             .into()
     }
@@ -3261,7 +3443,12 @@ impl App {
         self.options.smoke.is_none() && self.ready && !self.new_pending
     }
     fn observe_title(&mut self, seq: i64, value: serde_json::Value) {
-        let Some(id) = self.selected.as_ref() else { return; };
+        let Some(id) = self.selected.clone() else { return; };
+        self.observe_title_for(&id, seq, value);
+    }
+    /// Record one title projection for an explicit Session, including a rename ACK.
+    /// Nothing is displayed until it is durable; a malformed value is ignored.
+    fn observe_title_for(&mut self, id: &SessionId, seq: i64, value: serde_json::Value) {
         if seq < -1 || !self.sessions.contains_key(id)
             || (self.title_updates.len() >= 4096 && !self.title_updates.contains_key(id))
             || self.title_updates.get(id).is_some_and(|(old, _)| *old > seq) {
@@ -4529,6 +4716,7 @@ fn background_message(message: &Message) -> bool {
             | Message::Capabilities
             | Message::Interaction(_)
             | Message::Management(_)
+            | Message::Rename(_)
             | Message::ExportSession(_)
             | Message::Export(_)
             | Message::ArchivedView

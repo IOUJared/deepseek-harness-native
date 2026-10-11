@@ -4,6 +4,8 @@
 
 - [Multiple attachments](<docs/NATIVE-ATTACHMENT-UX.md>): up to four files at 4 MiB each are owned at once, each with its own review, upload and Remove, and one Send binds every ready file into a single prompt whose exact ticket set the worker releases on settlement. A bounded manager reuses the unchanged per-file draft machine and continues its serial high-water marks, so a second file can never mint a duplicate ticket or editor stamp. Wire-verified by unit tests; a rendered multi-file frame and a live two-file Host run are not yet qualified.
 
+- [Session rename](<docs/NATIVE-REGISTRY-CONTROLS.md>): the per-row options gain **Rename…**, a compact editor pre-filled with the visible title. Local validation refuses blank, over-1024-UTF-8-byte and control-character titles while keeping the typed text; Review → Confirm sends one `session/rename` (`{sessionId,title}` → `{title,seq}`), the sidebar applies only the Host-normalized ACK, and a stale/foreign receipt or unknown outcome changes nothing and never retries. Unit-, fixture- and App-tested; no live Host rename was executed, so real normalization and the durable `seq` are unqualified.
+
 ## 2026.10.10-r2 — Native Linux development release
 
 October 10, 2026, America/Chicago. Second calendar release of the day; collects the Cloudflare, sidebar, chat-polish, clipboard and quality-gate work landed after `2026.10.10-r1`. [Release checks and limits](<RELEASES/2026.10.10-r2.md>).

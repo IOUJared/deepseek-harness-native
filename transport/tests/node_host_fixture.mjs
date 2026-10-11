@@ -50,6 +50,20 @@ const server = http.createServer(async (request, response) => {
       value = { accepted: true }; break;
     case 'session/modelCatalog': value = { default: { provider: 'example', model: 'model' }, routableProviders: [], groups: [], failures: [] }; break;
     case 'session/selectModel': value = { selected: { provider: args.request.provider, model: args.request.model } }; break;
+    case 'session/rename': {
+      const expected = { request: { sessionId: 'session / rename opaque:%', title: 'PUBLIC renamed title' } };
+      // Full envelope equality rejects extra agent/stopActivity authority and any title drift.
+      if (request.method !== 'POST' || request.headers['content-type'] !== 'application/json'
+          || !isDeepStrictEqual(envelope, { type: 'client-request', rpcId: envelope.rpcId, method: 'session/rename', payload: { args: expected } })) {
+        response.writeHead(400); response.end(); return;
+      }
+      value = { title: args.request.title, seq: 5 };
+      if (mode === 'rename-missing') value = {};
+      if (mode === 'rename-wrong-type') value = { title: 5, seq: 'five' };
+      if (mode === 'rename-extra') value.agentId = 'agent-fixture';
+      if (mode === 'rename-negative-seq') value.seq = -1;
+      break;
+    }
     case 'session/page': value = { records: [], hasMore: false }; break;
     case 'session/projections': value = null; break;
     case 'workspace/pinSession': case 'workspace/unpinSession':

@@ -8,6 +8,7 @@ mod known;
 mod management;
 mod plugins;
 mod reducer;
+mod rename;
 mod settings;
 mod smoke;
 mod ui;
