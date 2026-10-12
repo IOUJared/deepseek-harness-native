@@ -331,6 +331,8 @@ pub enum Message {
     ClipboardPasteField,
     /// The focused tagged field, resolved by asking the widget tree.
     ClipboardFocusedField(Option<String>),
+    /// A clipboard write finished; nothing to do, and deliberately so.
+    ClipboardCopied,
     /// Clipboard text ready to insert into the focused tagged field.
     ClipboardPasteText(Option<String>),
     /// The focused tagged field and the text to insert into it.
@@ -776,7 +778,18 @@ impl App {
         let Some(cloudflare) = self.settings.cloudflare_fields() else {
             return Task::none();
         };
-        iced::clipboard::write(field.value(cloudflare).to_owned())
+        let text = field.value(cloudflare).to_owned();
+        if wayland_session() {
+            // The write happens on a worker thread, like the read, because the
+            // seat-bound backend cannot serve it from this one.
+            return Task::perform(
+                async move {
+                    std::thread::spawn(move || native_clipboard::write_text(text));
+                },
+                |()| Message::ClipboardCopied,
+            );
+        }
+        iced::clipboard::write(text)
     }
     fn read_clipboard_for_field(&self) -> Task<Message> {
         if self.clipboard_field_ticket().is_none() {
@@ -1458,6 +1471,7 @@ impl App {
                 return self.paste_into_focused_field(id, text);
             }
             Message::ClipboardFocusedField(id) => return self.copy_field_text(id),
+            Message::ClipboardCopied => return Task::none(),
             Message::Accessibility(request) => return self.accessibility_request(request),
             Message::AccessibilityMeasured(measured) => {
                 return self.accessibility_measured(measured);
@@ -8007,6 +8021,26 @@ mod native_clipboard {
     pub const MAX_TEXT_BYTES: usize = 256 * 1024;
     /// Bound on how long a clipboard owner may take before paste reports nothing.
     pub const READ_TIMEOUT: Duration = Duration::from_millis(1500);
+
+    /// Copies text, bounded by [`READ_TIMEOUT`]. Iced's own write goes through
+    /// the same seat-bound backend its read does, so the app owns this too.
+    /// Returns whether the clipboard accepted the text.
+    pub fn write_text(text: String) -> bool {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(write_wayland_text(&text));
+        });
+        receiver.recv_timeout(READ_TIMEOUT).ok().unwrap_or(false)
+    }
+
+    fn write_wayland_text(text: &str) -> bool {
+        wl_clipboard_rs::copy::Options::new()
+            .copy(
+                wl_clipboard_rs::copy::Source::Bytes(text.as_bytes().to_vec().into_boxed_slice()),
+                wl_clipboard_rs::copy::MimeType::Text,
+            )
+            .is_ok()
+    }
 
     /// Reads clipboard text, bounded by [`READ_TIMEOUT`] and [`MAX_TEXT_BYTES`].
     /// Blocks only its own thread; returns `None` when nothing usable arrives.
