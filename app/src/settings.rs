@@ -334,9 +334,10 @@ impl Settings {
     }
     /// The Cloudflare page's own ticket, when that page is the one on screen, so
     /// clipboard routing cannot reach a page the user is not looking at.
-    pub(crate) fn cloudflare_field_ticket(&self, epoch: u64) -> Option<crate::settings::Ticket> {
-        (self.open && self.page == Page::Cloudflare && epoch == self.epoch)
-            .then(|| self.cloudflare.ticket())
+    pub(crate) fn cloudflare_field_ticket(&self) -> Option<crate::settings::Ticket> {
+        // The page being on screen is the whole gate here: the controller's own
+        // guards still check the ticket, panel and epoch it is handed.
+        (self.open && self.page == Page::Cloudflare).then(|| self.cloudflare.ticket())
     }
     pub(crate) fn cloudflare_fields(&self) -> Option<&cloudflare::Controller> {
         (self.open && self.page == Page::Cloudflare).then_some(&self.cloudflare)

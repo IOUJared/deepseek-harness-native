@@ -194,6 +194,9 @@ pub struct Controller {
     panel: u64,
     serial: u64,
     visible: bool,
+    /// The field the user last edited, so a paste has a destination even when
+    /// the widget tree cannot name the focused field.
+    last_field: Option<Field>,
     metadata: Option<CloudflareSnapshot>,
     account: String,
     token: Editor,
@@ -251,7 +254,33 @@ impl Controller {
     }
     pub fn leave(&mut self) {
         self.clear();
+        self.last_field = None;
         self.visible = false;
+    }
+    /// Where an unaddressed paste goes: the field the user last edited, or the
+    /// first still-empty field on a page nobody has typed in yet.
+    pub fn paste_target(&self) -> Option<Field> {
+        self.last_field.or_else(|| {
+            Field::ALL
+                .into_iter()
+                .find(|field| field.value(self).is_empty())
+        })
+    }
+    /// A paste the field's own rules refused, said out loud rather than dropped.
+    fn rejected_field(&mut self, field: Field) {
+        self.warning = Some((
+            match field {
+                Field::ClientId => {
+                    "The client ID accepts printable characters only; nothing was pasted."
+                }
+                Field::AccountId => {
+                    "The account ID is 32 lowercase hex digits; nothing was pasted."
+                }
+                Field::Scopes => "Scopes accept letters, digits and spaces; nothing was pasted.",
+                Field::Port => "The callback port is digits only; nothing was pasted.",
+            },
+            true,
+        ));
     }
     pub fn enter(&mut self, epoch: u64) {
         self.adopt_epoch(epoch);
@@ -434,7 +463,10 @@ impl Controller {
             Action::ClientId(_, value) if self.can_write(enabled) => {
                 if value.len() <= 256 && value.bytes().all(|b| (33..=126).contains(&b)) {
                     self.client_id = value;
+                    self.last_field = Some(Field::ClientId);
                     self.changed();
+                } else {
+                    self.rejected_field(Field::ClientId);
                 }
                 None
             }
@@ -445,14 +477,20 @@ impl Controller {
                         .all(|b| b == b' ' || b == b'\n' || (33..=126).contains(&b))
                 {
                     self.scopes = value;
+                    self.last_field = Some(Field::Scopes);
                     self.changed();
+                } else {
+                    self.rejected_field(Field::Scopes);
                 }
                 None
             }
             Action::CallbackPort(_, value) if self.can_write(enabled) => {
                 if value.len() <= 5 && value.bytes().all(|b| b.is_ascii_digit()) {
                     self.port = value;
+                    self.last_field = Some(Field::Port);
                     self.changed();
+                } else {
+                    self.rejected_field(Field::Port);
                 }
                 None
             }
@@ -561,7 +599,10 @@ impl Controller {
                         self.free = false;
                     }
                     self.account = value;
+                    self.last_field = Some(Field::AccountId);
                     self.changed();
+                } else {
+                    self.rejected_field(Field::AccountId);
                 }
                 None
             }

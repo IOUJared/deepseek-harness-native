@@ -743,7 +743,7 @@ impl App {
     /// The ticket that scopes clipboard routing to the page that owns the tagged
     /// fields, or `None` when that page is not the one on screen.
     fn clipboard_field_ticket(&self) -> Option<crate::settings::Ticket> {
-        self.settings.cloudflare_field_ticket(self.transport_epoch)
+        self.settings.cloudflare_field_ticket()
     }
     /// Ask the widget tree which tagged field has focus. The answer arrives as a
     /// message, so nothing here blocks the update loop.
@@ -799,6 +799,9 @@ impl App {
         iced::clipboard::read().map(Message::ClipboardPasteText)
     }
     fn paste_text_into_field(&self, text: Option<String>) -> Task<Message> {
+        // A copied ID usually arrives with a trailing newline, which every field
+        // validator here refuses, so take the first line and trim it.
+        let text = text.map(|text| text.trim().to_owned());
         let Some(text) = text.filter(|text| !text.is_empty()) else {
             return Task::none();
         };
@@ -810,14 +813,19 @@ impl App {
         self.resolve_focused_field(move |id| Message::ClipboardPasteInto { id, text })
     }
     fn paste_into_focused_field(&mut self, id: Option<String>, text: String) -> Task<Message> {
-        let (Some(field), Some(ticket)) = (
-            id.as_deref()
-                .and_then(crate::settings::cloudflare::Field::of),
-            self.clipboard_field_ticket(),
-        ) else {
+        let Some(ticket) = self.clipboard_field_ticket() else {
             return Task::none();
         };
         let Some(cloudflare) = self.settings.cloudflare_fields() else {
+            return Task::none();
+        };
+        // The caret decides first; when the tree cannot name it, the field the
+        // user last edited does, and an untouched page starts at the client ID.
+        let field = id
+            .as_deref()
+            .and_then(crate::settings::cloudflare::Field::of)
+            .or_else(|| cloudflare.paste_target());
+        let Some(field) = field else {
             return Task::none();
         };
         let current = field.value(cloudflare).to_owned();

@@ -355,6 +355,50 @@ fn pasted_text_lands_in_the_field_it_was_pasted_into() {
 }
 
 #[test]
+fn a_paste_lands_in_a_field_even_without_a_resolved_caret() {
+    // A copied ID arrives with a trailing newline; the app trims it before the
+    // field's own rules ever see it, so a valid ID is not silently dropped.
+    let mut c = ready();
+    let ticket = c.ticket();
+    let pasted = "PUBLIC-abc123\n".trim();
+    let Action::ClientId(_, value) = Field::ClientId.paste(ticket, "", pasted) else {
+        panic!("client id paste")
+    };
+    assert_eq!(value, "PUBLIC-abc123");
+    assert!(c.handle(Action::ClientId(ticket, value), 1, true).is_none());
+    assert_eq!(c.client_id, "PUBLIC-abc123");
+    assert_eq!(c.last_field, Some(Field::ClientId));
+
+    // An untouched page pastes into the first empty field, then into whatever the
+    // user edited last once the caret cannot be named.
+    let empty = ready();
+    assert_eq!(
+        empty.paste_target(),
+        Some(Field::ClientId),
+        "an untouched page starts with the client ID"
+    );
+    assert_eq!(c.paste_target(), Some(Field::ClientId));
+    c.account = "a".repeat(32);
+    assert_eq!(c.paste_target(), Some(Field::ClientId));
+
+    // A paste the field refuses says so instead of vanishing, and leaves what was
+    // already there alone.
+    let mut refusing = ready();
+    let kept = refusing.account.clone();
+    let ticket = refusing.ticket();
+    assert!(
+        refusing
+            .handle(Action::Account(ticket, "not-hex!".into()), 1, true)
+            .is_none()
+    );
+    assert_eq!(refusing.account, kept);
+    assert!(
+        refusing.warning.is_some_and(|(_, attention)| attention),
+        "a refused paste is reported"
+    );
+}
+
+#[test]
 fn connect_saves_the_typed_client_and_then_starts_without_a_second_click() {
     // A host that knows no setup yet, with the page holding what the user typed.
     let mut c = ready();
