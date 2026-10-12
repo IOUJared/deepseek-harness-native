@@ -325,6 +325,19 @@ pub enum Message {
     AccessibilityMeasured(accessibility::Measured),
     /// Poll the exposed state while a client is connected.
     AccessibilityTick,
+    /// Copy the focused tagged text field, or paste into it. Iced's single-line
+    /// text input has no copy or paste binding, so the app answers these itself.
+    ClipboardCopyField,
+    ClipboardPasteField,
+    /// The focused tagged field, resolved by asking the widget tree.
+    ClipboardFocusedField(Option<String>),
+    /// Clipboard text ready to insert into the focused tagged field.
+    ClipboardPasteText(Option<String>),
+    /// The focused tagged field and the text to insert into it.
+    ClipboardPasteInto {
+        id: Option<String>,
+        text: String,
+    },
 }
 impl std::fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -688,16 +701,25 @@ impl App {
                 _ => None,
             }),
             keyboard::listen()
-                .with((self.detail_escape_ticket(), self.settings_paste_ticket()))
-                .filter_map(|((ticket, paste), event)| match event {
+                .with((
+                    self.detail_escape_ticket(),
+                    self.settings_paste_ticket(),
+                    self.clipboard_field_ticket(),
+                ))
+                .filter_map(|((ticket, paste, field), event)| match event {
                     keyboard::Event::KeyPressed {
                         key,
                         modifiers,
                         repeat: false,
                         ..
-                    } => panel_shortcut(&key, modifiers, ticket).or_else(|| {
-                        settings_paste_message(wayland_session(), paste, &key, modifiers)
-                    }),
+                    } => panel_shortcut(&key, modifiers, ticket)
+                        .or_else(|| {
+                            settings_paste_message(wayland_session(), paste, &key, modifiers)
+                        })
+                        // The tagged fields answer Ctrl+C and Ctrl+V here, and
+                        // only while the page that owns them is on screen: the
+                        // composer keeps its own, richer bindings.
+                        .or_else(|| field.and_then(|_| clipboard_field_shortcut(&key, modifiers))),
                     _ => None,
                 }),
             animation,
@@ -717,6 +739,91 @@ impl App {
                 Subscription::none()
             },
         ])
+    }
+    /// The ticket that scopes clipboard routing to the page that owns the tagged
+    /// fields, or `None` when that page is not the one on screen.
+    fn clipboard_field_ticket(&self) -> Option<crate::settings::Ticket> {
+        self.settings.cloudflare_field_ticket(self.transport_epoch)
+    }
+    /// Ask the widget tree which tagged field has focus. The answer arrives as a
+    /// message, so nothing here blocks the update loop.
+    fn resolve_focused_field(
+        &self,
+        then: impl FnOnce(Option<String>) -> Message + Send + 'static,
+    ) -> Task<Message> {
+        let fields: Vec<&'static str> = crate::settings::cloudflare::Field::ALL
+            .iter()
+            .map(|field| field.id())
+            .collect();
+        iced::advanced::widget::operate(FocusedField {
+            fields,
+            found: None,
+            then: std::sync::Mutex::new(Some(then)),
+        })
+    }
+    fn copy_focused_field(&self) -> Task<Message> {
+        self.resolve_focused_field(Message::ClipboardFocusedField)
+    }
+    /// Copying answers with the field's whole value: iced exposes no selection
+    /// for a single-line input, so there is nothing finer to copy.
+    fn copy_field_text(&self, id: Option<String>) -> Task<Message> {
+        let Some(field) = id
+            .as_deref()
+            .and_then(crate::settings::cloudflare::Field::of)
+        else {
+            return Task::none();
+        };
+        let Some(cloudflare) = self.settings.cloudflare_fields() else {
+            return Task::none();
+        };
+        iced::clipboard::write(field.value(cloudflare).to_owned())
+    }
+    fn read_clipboard_for_field(&self) -> Task<Message> {
+        if self.clipboard_field_ticket().is_none() {
+            return Task::none();
+        }
+        if wayland_session() {
+            // Iced's Wayland clipboard read needs a seat serial it does not have
+            // here, so the read happens on a worker thread.
+            return Task::perform(
+                async {
+                    let (sender, receiver) = tokio::sync::oneshot::channel();
+                    std::thread::spawn(move || {
+                        let _ = sender.send(native_clipboard::read_text());
+                    });
+                    receiver.await.ok().flatten()
+                },
+                Message::ClipboardPasteText,
+            );
+        }
+        iced::clipboard::read().map(Message::ClipboardPasteText)
+    }
+    fn paste_text_into_field(&self, text: Option<String>) -> Task<Message> {
+        let Some(text) = text.filter(|text| !text.is_empty()) else {
+            return Task::none();
+        };
+        if self.clipboard_field_ticket().is_none() {
+            return Task::none();
+        }
+        // Which field receives it is decided by the widget tree, not by the page:
+        // the paste goes wherever the caret is.
+        self.resolve_focused_field(move |id| Message::ClipboardPasteInto { id, text })
+    }
+    fn paste_into_focused_field(&mut self, id: Option<String>, text: String) -> Task<Message> {
+        let (Some(field), Some(ticket)) = (
+            id.as_deref()
+                .and_then(crate::settings::cloudflare::Field::of),
+            self.clipboard_field_ticket(),
+        ) else {
+            return Task::none();
+        };
+        let Some(cloudflare) = self.settings.cloudflare_fields() else {
+            return Task::none();
+        };
+        let current = field.value(cloudflare).to_owned();
+        self.update(Message::Settings(crate::settings::Action::Cloudflare(
+            field.paste(ticket, &current, &text),
+        )))
     }
     /// One AT-SPI request. An action is answered with the very message a click
     /// sends, so consent, single-flight and panel guards are the same ones.
@@ -1336,6 +1443,13 @@ impl App {
         self.reconcile_local_files();
         // Joined local callbacks must settle even behind another modal or during shutdown.
         match message {
+            Message::ClipboardCopyField => return self.copy_focused_field(),
+            Message::ClipboardPasteField => return self.read_clipboard_for_field(),
+            Message::ClipboardPasteText(text) => return self.paste_text_into_field(text),
+            Message::ClipboardPasteInto { id, text } => {
+                return self.paste_into_focused_field(id, text);
+            }
+            Message::ClipboardFocusedField(id) => return self.copy_field_text(id),
             Message::Accessibility(request) => return self.accessibility_request(request),
             Message::AccessibilityMeasured(measured) => {
                 return self.accessibility_measured(measured);
@@ -8491,6 +8605,77 @@ fn composer_binding(
     }
     text_editor::Binding::from_key_press(event)
 }
+/// Reports which of the tagged text fields currently holds focus. Iced's
+/// `text_input` has no copy or paste binding, so the app answers Ctrl+C and
+/// Ctrl+V itself, and this is how it learns where to send them.
+struct FocusedField<F> {
+    fields: Vec<&'static str>,
+    found: Option<String>,
+    then: std::sync::Mutex<Option<F>>,
+}
+impl<F> iced::advanced::widget::Operation<Message> for FocusedField<F>
+where
+    F: FnOnce(Option<String>) -> Message + Send,
+{
+    fn focusable(
+        &mut self,
+        id: Option<&iced::advanced::widget::Id>,
+        _bounds: iced::Rectangle,
+        state: &mut dyn iced::advanced::widget::operation::Focusable,
+    ) {
+        if !state.is_focused() {
+            return;
+        }
+        if let Some(id) = id
+            && let Some(field) = self
+                .fields
+                .iter()
+                .find(|field| id == &iced::advanced::widget::Id::new(**field))
+        {
+            self.found = Some((*field).to_owned());
+        }
+    }
+    fn traverse(
+        &mut self,
+        operate: &mut dyn FnMut(&mut dyn iced::advanced::widget::Operation<Message>),
+    ) {
+        operate(self);
+    }
+    fn finish(&self) -> iced::advanced::widget::operation::Outcome<Message> {
+        let callback = self
+            .then
+            .lock()
+            .ok()
+            .and_then(|mut callback| callback.take());
+        match callback {
+            Some(callback) => {
+                iced::advanced::widget::operation::Outcome::Some(callback(self.found.clone()))
+            }
+            None => iced::advanced::widget::operation::Outcome::None,
+        }
+    }
+}
+
+/// Ctrl/Command+C or Ctrl/Command+V without Alt/Shift, for a text field the
+/// app answers itself. Iced's single-line input implements neither.
+fn clipboard_field_shortcut(
+    key: &keyboard::Key,
+    modifiers: keyboard::Modifiers,
+) -> Option<Message> {
+    if modifiers.alt() || modifiers.shift() || !modifiers.command() {
+        return None;
+    }
+    let keyboard::Key::Character(value) = key else {
+        return None;
+    };
+    if value.eq_ignore_ascii_case("c") {
+        Some(Message::ClipboardCopyField)
+    } else if value.eq_ignore_ascii_case("v") {
+        Some(Message::ClipboardPasteField)
+    } else {
+        None
+    }
+}
 /// True on a Wayland session, where Iced's bundled clipboard read fails.
 fn wayland_session() -> bool {
     std::env::var_os("WAYLAND_DISPLAY").is_some()
@@ -9028,6 +9213,36 @@ mod tests {
         ));
     }
     #[test]
+    fn clipboard_field_shortcut_answers_only_bare_ctrl_c_and_ctrl_v() {
+        let c = keyboard::Key::Character("c".into());
+        let v = keyboard::Key::Character("V".into());
+        assert!(matches!(
+            clipboard_field_shortcut(&c, keyboard::Modifiers::CTRL),
+            Some(Message::ClipboardCopyField)
+        ));
+        assert!(matches!(
+            clipboard_field_shortcut(&v, keyboard::Modifiers::CTRL),
+            Some(Message::ClipboardPasteField)
+        ));
+        for modifiers in [
+            keyboard::Modifiers::SHIFT,
+            keyboard::Modifiers::ALT,
+            keyboard::Modifiers::CTRL | keyboard::Modifiers::SHIFT,
+            keyboard::Modifiers::CTRL | keyboard::Modifiers::ALT,
+            keyboard::Modifiers::empty(),
+        ] {
+            assert!(clipboard_field_shortcut(&c, modifiers).is_none());
+            assert!(clipboard_field_shortcut(&v, modifiers).is_none());
+        }
+        assert!(
+            clipboard_field_shortcut(
+                &keyboard::Key::Named(keyboard::key::Named::Escape),
+                keyboard::Modifiers::CTRL
+            )
+            .is_none()
+        );
+    }
+
     fn paste_shortcut_matches_only_unmodified_ctrl_or_command_v() {
         let lower = keyboard::Key::Character("v".into());
         let upper = keyboard::Key::Character("V".into());

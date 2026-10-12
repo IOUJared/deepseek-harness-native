@@ -36,6 +36,52 @@ impl Guide {
         }
     }
 }
+/// The text fields on this page that accept a pasted value. Iced's single-line
+/// text input implements no copy or paste binding at all, so the page tags the
+/// fields it owns and the app routes the clipboard to whichever one has focus.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Field {
+    ClientId,
+    AccountId,
+    Scopes,
+    Port,
+}
+impl Field {
+    pub const ALL: [Self; 4] = [Self::ClientId, Self::AccountId, Self::Scopes, Self::Port];
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::ClientId => "native-cloudflare-client",
+            Self::AccountId => "native-cloudflare-account",
+            Self::Scopes => "native-cloudflare-scopes",
+            Self::Port => "native-cloudflare-port",
+        }
+    }
+    pub fn of(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|field| field.id() == id)
+    }
+    /// The value this field holds now, so a paste can add to it rather than
+    /// replace what the user already typed.
+    pub fn value(self, controller: &Controller) -> &str {
+        match self {
+            Self::ClientId => &controller.client_id,
+            Self::AccountId => &controller.account,
+            Self::Scopes => &controller.scopes,
+            Self::Port => &controller.port,
+        }
+    }
+    /// The action that inserts pasted text at the end of this field.
+    pub fn paste(self, ticket: Ticket, current: &str, text: &str) -> Action {
+        let mut value = current.to_owned();
+        value.push_str(text);
+        match self {
+            Self::ClientId => Action::ClientId(ticket, value),
+            Self::AccountId => Action::Account(ticket, value),
+            Self::Scopes => Action::Scopes(ticket, value),
+            Self::Port => Action::CallbackPort(ticket, value),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum Action {
     Connect(Ticket),
@@ -876,6 +922,7 @@ impl Controller {
         body = body.push(setup_field(
             "OAuth client ID",
             "Public client ID from your Cloudflare client",
+            Field::ClientId,
             &self.client_id,
             editable,
             move |value| Action::ClientId(ticket, value),
@@ -883,6 +930,7 @@ impl Controller {
         body = body.push(setup_field(
             "Account ID",
             "32 lowercase hex digits from the dashboard URL",
+            Field::AccountId,
             &self.account,
             editable,
             move |value| Action::Account(ticket, value),
@@ -919,6 +967,7 @@ impl Controller {
                 .push(setup_field(
                     "Registered scopes",
                     "Space separated, e.g. account.read offline_access",
+                    Field::Scopes,
                     &self.scopes,
                     editable,
                     move |value| Action::Scopes(ticket, value),
@@ -926,6 +975,7 @@ impl Controller {
                 .push(setup_field(
                     "Callback port",
                     "Registered redirect port (default 8977)",
+                    Field::Port,
                     &self.port,
                     editable,
                     move |value| Action::CallbackPort(ticket, value),
@@ -1163,11 +1213,15 @@ fn guide_row<'a>(title: &'a str, guide: Guide, ticket: Ticket) -> Element<'a, Ac
 fn setup_field<'a>(
     title: &'a str,
     hint: &'a str,
+    tag: Field,
     value: &'a str,
     editable: bool,
     on_input: impl Fn(String) -> Action + 'a,
 ) -> Element<'a, Action> {
-    let field = text_input(hint, value).padding(12).style(design::field);
+    let field = text_input(hint, value)
+        .id(tag.id())
+        .padding(12)
+        .style(design::field);
     column![
         label(title, TEXT).size(12),
         if editable {

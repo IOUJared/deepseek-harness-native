@@ -325,6 +325,36 @@ fn oauth_ready() -> Controller {
     c
 }
 #[test]
+fn pasted_text_lands_in_the_field_it_was_pasted_into() {
+    let mut c = ready();
+    c.client_id = "PUBLIC-".into();
+    c.scopes = "account.read".into();
+    let ticket = c.ticket();
+    // Every tagged field is reachable by the id the widget tree reports, and its
+    // paste adds to what is already typed instead of replacing it.
+    assert_eq!(Field::of(Field::ClientId.id()), Some(Field::ClientId));
+    assert_eq!(Field::of("native-not-ours"), None);
+    let Action::ClientId(_, value) = Field::ClientId.paste(ticket, &c.client_id, "client-1") else {
+        panic!("client id paste")
+    };
+    assert_eq!(value, "PUBLIC-client-1");
+    c.client_id = value;
+    assert_eq!(Field::ClientId.value(&c), "PUBLIC-client-1");
+    let Action::Account(_, value) = Field::AccountId.paste(ticket, "abc", "def") else {
+        panic!("account paste")
+    };
+    assert_eq!(value, "abcdef");
+    let Action::Scopes(_, value) = Field::Scopes.paste(ticket, &c.scopes, " offline_access") else {
+        panic!("scopes paste")
+    };
+    assert_eq!(value, "account.read offline_access");
+    let Action::CallbackPort(_, value) = Field::Port.paste(ticket, "", "8977") else {
+        panic!("port paste")
+    };
+    assert_eq!(value, "8977");
+}
+
+#[test]
 fn connect_saves_the_typed_client_and_then_starts_without_a_second_click() {
     // A host that knows no setup yet, with the page holding what the user typed.
     let mut c = ready();

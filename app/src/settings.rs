@@ -332,6 +332,15 @@ impl Settings {
     pub(crate) fn subscribe_account(&mut self) -> Option<account::Effect> {
         self.account.subscribe_effect()
     }
+    /// The Cloudflare page's own ticket, when that page is the one on screen, so
+    /// clipboard routing cannot reach a page the user is not looking at.
+    pub(crate) fn cloudflare_field_ticket(&self, epoch: u64) -> Option<crate::settings::Ticket> {
+        (self.open && self.page == Page::Cloudflare && epoch == self.epoch)
+            .then(|| self.cloudflare.ticket())
+    }
+    pub(crate) fn cloudflare_fields(&self) -> Option<&cloudflare::Controller> {
+        (self.open && self.page == Page::Cloudflare).then_some(&self.cloudflare)
+    }
     pub(crate) fn account_observed(&mut self, metadata: dsh_native_core::AccountMetadata) {
         self.account.observed(metadata);
     }
