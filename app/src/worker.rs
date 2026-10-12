@@ -46,6 +46,7 @@ pub(crate) mod prompt_recovery;
 mod prompt_worker;
 use decision_worker::{Admission as DecisionAdmission, DecisionCoordinator};
 pub enum Command {
+    Account(crate::settings::account::Effect),
     Cloudflare(crate::settings::cloudflare::Effect),
     StageFile(attachments::Submission),
     DiscardFile(attachments::Ticket),
@@ -126,6 +127,10 @@ pub enum Command {
 }
 #[derive(Clone)]
 pub enum Event {
+    AccountCompleted {
+        ticket: crate::settings::Ticket,
+        outcome: crate::settings::account::Outcome,
+    },
     CloudflareCompleted {
         ticket: crate::settings::Ticket,
         outcome: crate::settings::cloudflare::Outcome,
@@ -511,6 +516,54 @@ async fn next_terminal(
         None => std::future::pending().await,
     }
 }
+/// One account effect against the Host. Nothing here reads a token, and the
+/// destination stays in the backend: the browser effect only asks for the
+/// attempt's one-use capability to be spent.
+fn execute_account(
+    backend: &Backend,
+    effect: crate::settings::account::Effect,
+) -> crate::settings::account::Outcome {
+    use crate::settings::account::{Effect, Outcome};
+    let timeout = Duration::from_secs(10);
+    let result = match effect {
+        Effect::Subscribe { .. } => {
+            return match backend.request(CoreCommand::AccountSubscribe, timeout) {
+                Ok(PublicReply::Account(metadata)) => Outcome::Observed(metadata),
+                _ => Outcome::Unavailable,
+            };
+        }
+        Effect::Start { .. } | Effect::SignOut { .. } => {
+            let (locale, timezone_offset_seconds) = dsh_native_core::account_identity();
+            let command = match effect {
+                Effect::Start { .. } => CoreCommand::AccountStart {
+                    locale,
+                    timezone_offset_seconds,
+                },
+                _ => CoreCommand::AccountSignOut {
+                    locale,
+                    timezone_offset_seconds,
+                },
+            };
+            backend.request(command, timeout)
+        }
+        Effect::Cancel { attempt_id, .. } => {
+            backend.request(CoreCommand::AccountCancel { attempt_id }, timeout)
+        }
+        Effect::OpenBrowser {
+            attempt_id, permit, ..
+        } => {
+            return match backend.open_account_browser(&attempt_id, &permit) {
+                Ok(()) => Outcome::BrowserOpened,
+                Err(_) => Outcome::Unknown,
+            };
+        }
+    };
+    match result {
+        Ok(PublicReply::Account(metadata)) => Outcome::Observed(metadata),
+        Ok(_) => Outcome::Unknown,
+        Err(_) => Outcome::Unknown,
+    }
+}
 fn execute_cloudflare(
     backend: &Backend,
     effect: crate::settings::cloudflare::Effect,
@@ -668,6 +721,14 @@ fn cloudflare_reply(
 fn rejected(command: Command) -> Event {
     let error = "Native concurrent operation limit reached; retry explicitly".to_owned();
     match command {
+        Command::Account(effect) => {
+            let ticket = effect.ticket();
+            drop(effect);
+            Event::AccountCompleted {
+                ticket,
+                outcome: crate::settings::account::Outcome::NotSent,
+            }
+        }
         Command::Cloudflare(effect) => {
             let ticket = effect.ticket();
             drop(effect);
@@ -1098,6 +1159,12 @@ fn mutates_host_state(command: &Command) -> bool {
         | Command::SelectModel { .. }
         | Command::Create { .. }
         | Command::OpenWorkspace(_) => true,
+        Command::Account(effect) => matches!(
+            effect,
+            crate::settings::account::Effect::Start { .. }
+                | crate::settings::account::Effect::Cancel { .. }
+                | crate::settings::account::Effect::SignOut { .. }
+        ),
         Command::Cloudflare(effect) => matches!(
             effect,
             crate::settings::cloudflare::Effect::Save { .. }
@@ -2112,6 +2179,7 @@ async fn run(
                         }
                         continue;
                     },
+                    Command::Account(effect)=>{let backend=backend.clone();let ticket=effect.ticket();tasks.spawn_blocking(move||Event::AccountCompleted{ticket,outcome:execute_account(&backend,effect)});continue;},
                     Command::KeyMetadata(ticket)=>{let backend=backend.clone();tasks.spawn_blocking(move||Event::KeyMetadata{ticket,result:if key_guard(ticket,smoke){key_metadata(&backend)}else{Err(())}});continue;},
                     Command::SaveKey{ticket,secret}=>{if codex.busy()||cloudflare.busy()||!key_save_guard(ticket,smoke,key_saving.is_some(),plugins_active.is_some(),export_active.is_some()){drop(secret);if !publish(&events,Event::KeySaved{ticket,result:crate::settings::SaveResult::NotSent}){break Some("Native UI delivery queue overflow".into());}}else{key_saving=Some(ticket);let backend=backend.clone();tasks.spawn_blocking(move||save_key(&backend,ticket,secret,smoke));}continue;},
                     command=>command,
@@ -2122,6 +2190,7 @@ async fn run(
                     Command::OpenWorkspace(path)=>Event::WorkspaceOpened(client.workspace_create(path).await.map_err(|e|format!("Open workspace: {e}"))),
                     Command::Catalog(ticket)=>rejected(Command::Catalog(ticket)),
                     Command::Decision(_)=>Event::Fault("Decision bypassed worker admission".into()),
+                    Command::Account(_)=>Event::Fault("Account command bypassed worker admission".into()),
                     Command::SelectModel{generation,request}=>Event::Model{generation,result:client.select_model(request).await.map_err(|e|format!("Select model: {e}"))},
                     Command::Prompt{..}|Command::CheckSubmission(_)|Command::RejoinObservations{..}=>Event::Fault("Prompt bypassed worker ownership".into()),
                     Command::Cancel{..}=>Event::Fault("Cancellation bypassed priority dispatch".into()),

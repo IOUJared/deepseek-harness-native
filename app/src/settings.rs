@@ -5,6 +5,8 @@ use dsh_native_core::{OnboardingMetadata, SecretApiKey};
 use iced::widget::{button, column, container, row, scrollable, text_input};
 use iced::{Element, Length};
 const MAX_DRAFT: usize = 16_384;
+#[path = "account.rs"]
+pub(crate) mod account;
 #[path = "cloudflare.rs"]
 pub(crate) mod cloudflare;
 #[cfg(test)]
@@ -141,6 +143,7 @@ pub enum Action {
         ticket: Ticket,
         info: Info,
     },
+    Account(account::Action),
     Cloudflare(cloudflare::Action),
     Plugins(crate::plugins::Action),
     Codex(crate::codex::Action),
@@ -174,6 +177,7 @@ impl std::fmt::Debug for Action {
     }
 }
 pub enum Effect {
+    Account(account::Effect),
     Cloudflare(cloudflare::Effect),
     Plugins(crate::plugins::Effect),
     Codex(crate::codex::Effect),
@@ -198,6 +202,7 @@ pub struct Settings {
     shortcuts_open: bool,
     api_help_open: bool,
     context_policy_open: bool,
+    account: account::Controller,
     cloudflare: cloudflare::Controller,
     plugins: crate::plugins::Controller,
     codex: crate::codex::Controller,
@@ -223,6 +228,7 @@ impl Default for Settings {
             shortcuts_open: false,
             api_help_open: false,
             context_policy_open: false,
+            account: account::Controller::default(),
             cloudflare: cloudflare::Controller::default(),
             plugins: crate::plugins::Controller::default(),
             codex: crate::codex::Controller::default(),
@@ -297,7 +303,8 @@ impl Settings {
             enabled: enabled
                 && !self.pending()
                 && !self.codex.pending()
-                && !self.cloudflare.pending(),
+                && !self.cloudflare.pending()
+                && !self.account.pending(),
         }
     }
     fn codex_context(&self, enabled: bool) -> crate::codex::Context {
@@ -307,8 +314,29 @@ impl Settings {
             enabled: enabled
                 && !self.pending()
                 && !self.plugins.pending()
-                && !self.cloudflare.pending(),
+                && !self.cloudflare.pending()
+                && !self.account.pending(),
         }
+    }
+    /// Only the API login page runs the account flow, and only while no other
+    /// operation owns the panel.
+    fn account_enabled(&self, enabled: bool) -> bool {
+        enabled
+            && self.open
+            && self.page == Page::ApiLogin
+            && !self.pending()
+            && !self.plugins.pending()
+            && !self.codex.pending()
+            && !self.cloudflare.pending()
+    }
+    pub(crate) fn subscribe_account(&mut self) -> Option<account::Effect> {
+        self.account.subscribe_effect()
+    }
+    pub(crate) fn account_observed(&mut self, metadata: dsh_native_core::AccountMetadata) {
+        self.account.observed(metadata);
+    }
+    pub(crate) fn account_completed(&mut self, ticket: Ticket, outcome: account::Outcome) {
+        self.account.completed(ticket, outcome);
     }
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn cloudflare_ticket(&self) -> Ticket {
@@ -435,6 +463,7 @@ impl Settings {
         self.edit = Editor::default();
     }
     pub fn close(&mut self) {
+        self.account.leave();
         self.cloudflare.leave();
         self.plugins.leave();
         self.codex.leave();
@@ -597,6 +626,10 @@ impl Settings {
                 *expanded = !*expanded;
             }
             return None;
+        }
+        if let Action::Account(action) = action {
+            let enabled = self.account_enabled(enabled);
+            return self.account.handle(action, enabled).map(Effect::Account);
         }
         if let Action::Cloudflare(action) = action {
             let enabled =
@@ -964,7 +997,9 @@ impl Settings {
         let input_ticket = self.input_ticket();
         let can_save = self.can_save(enabled);
         let editable = self.paste_allowed(input_ticket, self.epoch, enabled);
+        let account = self.account.view(can_save).map(Action::Account);
         let mut body = column![
+            account,
             label("DeepSeek", TEXT).size(17),
             label("API key", ACCENT).size(16),
             label(

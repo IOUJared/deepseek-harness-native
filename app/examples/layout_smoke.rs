@@ -458,6 +458,7 @@ impl Fixture {
                 worker::Command::StageFile(_) => "StageFile",
                 worker::Command::DiscardFile(_) => "DiscardFile",
                 worker::Command::PromptFile { .. } => "PromptFile",
+                worker::Command::Account(_) => "Account",
                 worker::Command::Codex(_) => "Codex",
                 worker::Command::Cloudflare(_) => "Cloudflare",
                 worker::Command::Export(_) => "Export",

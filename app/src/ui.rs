@@ -1084,6 +1084,12 @@ impl App {
                     self.exporter
                         .finish(&submission.receipt, crate::exporter::Outcome::NotSent);
                 }
+                Command::Account(effect) => {
+                    let ticket = effect.ticket();
+                    drop(effect);
+                    self.settings
+                        .account_completed(ticket, crate::settings::account::Outcome::NotSent);
+                }
                 Command::Cloudflare(effect) => {
                     let ticket = effect.ticket();
                     drop(effect);
@@ -1760,8 +1766,18 @@ impl App {
             }
             Message::Settings(action) => {
                 let enabled = self.settings_enabled();
+                // Asking to sign in subscribes to the Host's account stream
+                // first, because the stream is what arms the attempt's browser.
+                if matches!(
+                    action,
+                    crate::settings::Action::Account(crate::settings::account::Action::Start)
+                ) && let Some(effect) = self.settings.subscribe_account()
+                {
+                    self.command(Command::Account(effect));
+                }
                 if let Some(effect) = self.settings.handle(action, self.transport_epoch, enabled) {
                     self.command(match effect {
+                        crate::settings::Effect::Account(effect) => Command::Account(effect),
                         crate::settings::Effect::Cloudflare(effect) => Command::Cloudflare(effect),
                         crate::settings::Effect::Codex(effect) => Command::Codex(effect),
                         crate::settings::Effect::Plugins(effect) => match effect {
@@ -2618,7 +2634,10 @@ impl App {
                     metadata
                         .phase
                         .map_or(String::new(), |phase| format!(" · {phase:?}"))
-                )
+                );
+                // The panel's own state, so the sign-in and sign-out controls
+                // follow the Host rather than a sentence.
+                self.settings.account_observed(metadata);
             }
             Event::Core(PublicEvent::Warning(warning)) => {
                 if self.ready
@@ -3264,6 +3283,9 @@ impl App {
             }
             Event::PluginsLoaded { ticket, result } => self.settings.plugins_loaded(ticket, result),
             Event::PluginSaved { ticket, result } => self.settings.plugin_saved(ticket, result),
+            Event::AccountCompleted { ticket, outcome } => {
+                self.settings.account_completed(ticket, outcome);
+            }
             Event::CloudflareCompleted { ticket, outcome } => {
                 self.settings.cloudflare_completed(ticket, outcome);
                 self.continue_cloudflare_connection();
