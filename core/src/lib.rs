@@ -216,18 +216,16 @@ pub enum AttemptPhase {
     Failed,
 }
 /// One sign-in attempt, as far as a UI needs it: an opaque id to cancel with,
-/// and the browser destination to open while the Host waits for the callback.
+/// and whether a browser destination is currently held for it.
+///
+/// The destination itself never appears here. It is Host configuration, it is
+/// retained privately and one-use, and the only thing a caller can do with it is
+/// ask the backend to open it once - which is also why this type carries no URL
+/// a log, a fixture or a Debug print could capture.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AccountAttempt {
     pub id: String,
-    pub authorize_url: Option<String>,
-}
-impl AccountAttempt {
-    /// The destination is Host configuration, so this checks its shape only; the
-    /// app checks it again, against the launcher's own rules, before opening it.
-    pub fn opens_browser(&self) -> bool {
-        self.authorize_url.is_some()
-    }
+    pub browser_available: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AccountMetadata {
@@ -322,6 +320,10 @@ struct State {
     cloudflare_browser: Option<browser::BrowserCapability>,
     cloudflare_opened: Option<String>,
     cloudflare_revoked: bool,
+    account: Option<AccountMetadata>,
+    account_browser: Option<browser::BrowserCapability>,
+    account_opened: Option<String>,
+    account_revoked: Option<String>,
     #[cfg(feature = "transport")]
     transport_client: Option<dsh_native_transport::NativeClient>,
     #[cfg(feature = "transport")]
@@ -667,6 +669,10 @@ impl Backend {
                             cloudflare_browser: None,
                             cloudflare_opened: None,
                             cloudflare_revoked: true,
+                            account: None,
+                            account_browser: None,
+                            account_opened: None,
+                            account_revoked: None,
                             #[cfg(feature = "transport")]
                             transport_client: None,
                             #[cfg(feature = "transport")]
@@ -883,6 +889,12 @@ impl Backend {
             {
                 return Err(Error::RequestFailed);
             }
+        }
+        if matches!(
+            &command,
+            Command::AccountCancel { .. } | Command::AccountSignOut { .. }
+        ) {
+            self.revoke_account_browser();
         }
         if matches!(
             &command,
@@ -1128,6 +1140,62 @@ impl Backend {
         if let Some(status) = state.cloudflare_auth.as_mut() {
             status.browser_available = false;
         }
+    }
+    /// Withdraw the account sign-in destination: no later event may re-arm the
+    /// one-use browser authority this run already spent or was told to drop.
+    pub fn revoke_account_browser(&self) {
+        let mut state = self.inner.state.0.lock().unwrap();
+        state.account_browser = None;
+        state.account_revoked = state
+            .account
+            .as_ref()
+            .and_then(|metadata| metadata.attempt.as_ref().map(|attempt| attempt.id.clone()));
+        if let Some(attempt) = state
+            .account
+            .as_mut()
+            .and_then(|metadata| metadata.attempt.as_mut())
+        {
+            attempt.browser_available = false;
+        }
+    }
+    /// Explicit worker-only browser launch for one sign-in attempt. The
+    /// destination is private and one-use: opening it once is the whole
+    /// capability, and success means the launcher exited, never that the user
+    /// signed in. No retry is performed.
+    pub fn open_account_browser(
+        &self,
+        attempt_id: &str,
+        permit: &std::sync::atomic::AtomicBool,
+    ) -> Result<(), Error> {
+        if !crate::account::valid_attempt_id(attempt_id) {
+            return Err(Error::InvalidCommand);
+        }
+        let child = {
+            let mut state = self.inner.state.0.lock().unwrap();
+            if self.inner.stopping.load(Ordering::Acquire) || state.root_exited {
+                return Err(Error::Stopping);
+            }
+            if self.inner.fault.load(Ordering::Acquire) {
+                return Err(Error::Protocol);
+            }
+            let waiting = state.account.as_ref().is_some_and(|metadata| {
+                metadata.phase == Some(AttemptPhase::WaitingBrowser)
+                    && metadata.attempt.as_ref().is_some_and(|attempt| {
+                        attempt.id == attempt_id && attempt.browser_available
+                    })
+            });
+            if !permit.load(Ordering::Acquire)
+                || state.account_revoked.as_deref() == Some(attempt_id)
+                || state.account_opened.as_deref() == Some(attempt_id)
+                || !waiting
+            {
+                return Err(Error::InvalidCommand);
+            }
+            let capability = state.account_browser.take().ok_or(Error::InvalidCommand)?;
+            state.account_opened = Some(attempt_id.to_owned());
+            capability.spawn()?
+        };
+        browser::wait(child)
     }
     /// The originating panel owns this atomic permit; close/cancel withdraws it synchronously.
     pub fn open_cloudflare_browser(

@@ -36,6 +36,18 @@ impl BrowserCapability {
             cloudflare: Some(setup),
         })
     }
+    /// A Platform sign-in destination: private, one-use, and shape-checked by
+    /// [`validate_account_destination`] before it is retained.
+    pub(crate) fn account(raw: String) -> Result<Self, Error> {
+        let bytes = SecretBytes::new(raw.into_bytes());
+        validate_account_destination(
+            std::str::from_utf8(bytes.as_slice()).map_err(|_| Error::Protocol)?,
+        )?;
+        Ok(Self {
+            bytes,
+            cloudflare: None,
+        })
+    }
     pub(crate) fn spawn(self) -> Result<Child, Error> {
         let text = std::str::from_utf8(self.bytes.as_slice()).map_err(|_| Error::Protocol)?;
         match &self.cloudflare {

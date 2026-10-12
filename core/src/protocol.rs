@@ -21,7 +21,7 @@ pub(crate) struct NativeAccountSessionTokenNativePrivateState {
 pub(crate) enum Event {
     Ready(PrivateEndpoint),
     Auth(Option<NativeAccountSessionTokenNativePrivateState>),
-    Account(AccountMetadata),
+    Account(AccountMetadata, Option<crate::browser::BrowserCapability>),
     Codex(
         crate::CodexMetadata,
         Option<crate::browser::BrowserCapability>,
@@ -110,7 +110,12 @@ fn session(value: &Value) -> Result<Option<NativeAccountSessionTokenNativePrivat
 }
 
 /// Narrow projection: no links, authorization URL, attempt ID, user ID, free text, tokens, or extra keys.
-fn account(value: &Value) -> Result<AccountMetadata, Error> {
+/// Project one account view, and retain its browser destination privately when
+/// the Host is waiting for a callback. The destination never enters the public
+/// metadata: a caller can ask for it to be opened, once, and nothing else.
+fn account(
+    value: &Value,
+) -> Result<(AccountMetadata, Option<crate::browser::BrowserCapability>), Error> {
     let status = match value["status"].as_str() {
         Some("signed-out") => AccountStatus::SignedOut,
         Some("credential-stored") => AccountStatus::CredentialStored,
@@ -135,33 +140,41 @@ fn account(value: &Value) -> Result<AccountMetadata, Error> {
     // The attempt a UI can act on: an id to cancel with, and the destination to
     // open while the Host waits. A malformed entry is refused rather than shown,
     // and no other field of the view is read at all.
+    let mut browser = None;
     let attempt = match (phase, attempt.is_null()) {
-        (Some(_), false) => {
+        (Some(phase), false) => {
             let id = attempt["id"].as_str().ok_or(Error::Protocol)?;
             if !crate::account::valid_attempt_id(id) {
                 return Err(Error::Protocol);
             }
-            let authorize_url = match attempt.get("authorizeUrl") {
+            let destination = match attempt.get("authorizeUrl") {
                 None | Some(Value::Null) => None,
-                Some(Value::String(url)) => {
-                    crate::browser::validate_account_destination(url)?;
-                    Some(url.clone())
-                }
+                Some(Value::String(url)) => Some(url),
                 Some(_) => return Err(Error::Protocol),
             };
+            // Only a waiting attempt can hand the user a browser, and only a
+            // destination that survives validation is retained at all.
+            if phase == AttemptPhase::WaitingBrowser
+                && let Some(url) = destination
+            {
+                browser = Some(crate::browser::BrowserCapability::account(url.clone())?);
+            }
             Some(AccountAttempt {
                 id: id.to_owned(),
-                authorize_url,
+                browser_available: browser.is_some(),
             })
         }
         (None, true) => None,
         _ => return Err(Error::Protocol),
     };
-    Ok(AccountMetadata {
-        status,
-        phase,
-        attempt,
-    })
+    Ok((
+        AccountMetadata {
+            status,
+            phase,
+            attempt,
+        },
+        browser,
+    ))
 }
 
 fn inspection(value: &Value) -> Inspection {
@@ -209,7 +222,14 @@ fn public_result(command: &str, value: &Value) -> Result<PublicReply, Error> {
         "codex-callback" => Ok(PublicReply::CodexCallbackAccepted(
             value["ok"].as_bool().ok_or(Error::Protocol)?,
         )),
-        "account-state" | "account-subscribe" => Ok(PublicReply::Account(account(value)?)),
+        // The three mutations answer with the same view the reads do. Their
+        // reply carries no browser: only the state stream arms that, so a reply
+        // arriving late can never hand out a second use of one destination.
+        "account-state" | "account-subscribe" | "account-start" | "account-cancel"
+        | "account-signout" => {
+            let (metadata, _browser) = account(value)?;
+            Ok(PublicReply::Account(metadata))
+        }
         "account-unsubscribe" if value["subscribed"] == false => Ok(PublicReply::Unsubscribed),
         #[cfg(feature = "transport")]
         "discover-session-agent" => crate::agent_discovery::decode(value),
@@ -288,7 +308,10 @@ pub(crate) fn parse(bytes: &[u8], expected_version: &str) -> Result<Event, Error
             Event::CloudflareAuth(metadata, setup, browser)
         }
         "platform-session" => Event::Auth(session(value.get("session").ok_or(Error::Protocol)?)?),
-        "account-state" => Event::Account(account(&value["state"])?),
+        "account-state" => {
+            let (metadata, browser) = account(&value["state"])?;
+            Event::Account(metadata, browser)
+        }
         "shutdown-complete" => Event::Acknowledged,
         "fatal" => Event::Fatal,
         "account-subscription-error" => Event::AccountSubscriptionError,
@@ -568,7 +591,11 @@ pub(crate) fn matches_reply(name: &str, reply: &PublicReply) -> bool {
             | ("open-workspace", PublicReply::WorkspaceAdded)
             | ("onboarding-read", PublicReply::Onboarding(_))
             | (
-                "account-state" | "account-subscribe",
+                "account-state"
+                    | "account-subscribe"
+                    | "account-start"
+                    | "account-cancel"
+                    | "account-signout",
                 PublicReply::Account(_)
             )
             | ("account-unsubscribe", PublicReply::Unsubscribed)

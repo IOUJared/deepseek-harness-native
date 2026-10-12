@@ -119,6 +119,7 @@ process.stdout.write('unframed PUBLIC_FAKE_SECRET\n');
 process.stderr.write('arbitrary PUBLIC_FAKE_SECRET\n');
 send({type:'unrecognized',value:'PUBLIC_FAKE_SECRET'});
 send({type:'account-state',state:{status:'signed-out',attempt:null,tokenValue:'PUBLIC_FAKE_SECRET'}});
+send({type:'account-state',state:{status:'signed-out',attempt:{phase:'waiting-browser',id:'attempt-1',authorizeUrl:'https://platform.example/dsh/authorize?state=attempt-1'},tokenValue:'PUBLIC_FAKE_SECRET'}});
 let pending='';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', chunk => {
@@ -264,15 +265,12 @@ fn public_events_and_results_never_contain_private_values() {
         // Every secret marker the fixture holds: the platform session token, its
         // request header and every token-shaped field.
         assert!(!public.contains("PUBLIC_FAKE"));
-        // The account view is the one public result that may carry a URL, because
-        // the Host publishes that browser destination for the user to open. It is
-        // the only exception: no reply names a host otherwise.
-        if !matches!(command, Command::AccountState | Command::AccountSubscribe) {
-            assert!(
-                !public.contains("http"),
-                "{command:?} leaked a URL: {public}"
-            );
-        }
+        // No public result names a host: the account view keeps the browser
+        // destination private and one-use, so even it carries only a flag.
+        assert!(
+            !public.contains("http"),
+            "{command:?} leaked a URL: {public}"
+        );
     }
     backend.stop().unwrap();
     for event in events.try_iter() {
@@ -401,16 +399,46 @@ fn the_account_view_projects_the_attempt_and_never_a_token() {
     assert_eq!(metadata.phase, Some(AttemptPhase::WaitingBrowser));
     let attempt = metadata.attempt.clone().expect("the attempt is projected");
     assert_eq!(attempt.id, "attempt-1");
-    assert!(attempt.opens_browser());
-    assert_eq!(
-        attempt.authorize_url.as_deref(),
-        Some("https://platform.example/dsh/authorize?state=attempt-1")
-    );
+    assert!(attempt.browser_available);
     let public = format!("{metadata:?}");
     assert!(!public.contains("PUBLIC_FAKE"), "{public}");
     assert!(
         !public.contains("usage"),
         "links are not part of the projection"
+    );
+    // The destination is authority, not state: it stays private and one-use, so
+    // no print of the projection can carry it. The attempt id is public by
+    // design, because cancelling needs it.
+    assert!(!public.contains("http"), "{public}");
+    assert!(public.contains("attempt-1"), "{public}");
+
+    // A waiting attempt without a destination arms nothing, and a phase past the
+    // browser holds no destination even when the view still names one.
+    let no_destination = account_reply(json!({
+        "status": "credential-stored",
+        "attempt": {"phase": "waiting-browser", "id": "attempt-1"}
+    }));
+    assert!(matches!(
+        no_destination,
+        PublicReply::Account(AccountMetadata {
+            attempt: Some(AccountAttempt {
+                browser_available: false,
+                ..
+            }),
+            ..
+        })
+    ));
+    let exchanging = account_reply(json!({
+        "status": "credential-stored",
+        "attempt": {"phase": "exchanging", "id": "attempt-1", "authorizeUrl": "https://platform.example/dsh/authorize"}
+    }));
+    let PublicReply::Account(metadata) = exchanging else {
+        panic!("account-state must answer with the account view");
+    };
+    assert_eq!(metadata.phase, Some(AttemptPhase::Exchanging));
+    assert_eq!(
+        metadata.attempt.map(|attempt| attempt.browser_available),
+        Some(false)
     );
 
     // A signed-out view has no attempt, and a malformed one is refused whole.
@@ -456,6 +484,69 @@ fn account_result(value: Value) -> Result<PublicReply, Error> {
 
 fn account_reply(value: Value) -> PublicReply {
     account_result(value).expect("a valid account view must parse")
+}
+
+#[test]
+fn a_waiting_attempt_arms_one_browser_and_the_destination_stays_private() {
+    let fixture = Fixture::new();
+    let (backend, events) = fixture.spawn(NORMAL);
+    backend.wait_ready().unwrap();
+
+    // The pushed attempt reaches the public channel as state, never as authority:
+    // the id cancels with it, the destination does not leave the backend.
+    let mut armed = false;
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while std::time::Instant::now() < deadline && !armed {
+        for event in events.try_iter() {
+            if let PublicEvent::Account(metadata) = &event {
+                let public = format!("{event:?}");
+                assert!(!public.contains("http"), "{public}");
+                assert!(!public.contains("PUBLIC_FAKE"), "{public}");
+                if let Some(attempt) = metadata.attempt.as_ref() {
+                    assert_eq!(attempt.id, "attempt-1");
+                    armed |= attempt.browser_available;
+                }
+            }
+        }
+        if !armed {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+    assert!(armed, "a waiting attempt must arm its browser");
+
+    // Only the named attempt opens, and only while its permit stands.
+    let withdrawn = std::sync::atomic::AtomicBool::new(false);
+    assert_eq!(
+        backend.open_account_browser("attempt-1", &withdrawn),
+        Err(Error::InvalidCommand),
+        "a withdrawn permit never opens a browser"
+    );
+    assert_eq!(
+        backend.open_account_browser("some-other-attempt", &permit()),
+        Err(Error::InvalidCommand),
+        "another attempt's id never opens this one"
+    );
+
+    // A cancel withdraws the authority for good: the destination is spent before
+    // the frame is sent, so a late event cannot arm it again.
+    backend
+        .request(
+            Command::AccountCancel {
+                attempt_id: "attempt-1".into(),
+            },
+            Duration::from_secs(1),
+        )
+        .unwrap();
+    assert_eq!(
+        backend.open_account_browser("attempt-1", &permit()),
+        Err(Error::InvalidCommand),
+        "a cancelled attempt never opens a browser"
+    );
+    assert!(backend.stop().unwrap().exited);
+}
+
+fn permit() -> std::sync::atomic::AtomicBool {
+    std::sync::atomic::AtomicBool::new(true)
 }
 
 #[test]

@@ -589,7 +589,39 @@ fn handle_event(inner: &Inner, event: Event) {
             drop(state);
             inner.emit(PublicEvent::CloudflareAuth(metadata));
         }
-        Event::Account(account) => inner.emit(PublicEvent::Account(account)),
+        Event::Account(account, browser) => {
+            // The destination is retained only while the Host is waiting for a
+            // callback, and never re-arms an attempt that already spent it or was
+            // withdrawn by a cancel or sign-out.
+            let mut account = account;
+            {
+                let mut state = inner.state.0.lock().unwrap();
+                if state.root_exited
+                    || inner.stopping.load(Ordering::Acquire)
+                    || inner.fault.load(Ordering::Acquire)
+                {
+                    return;
+                }
+                let attempt = account.attempt.as_ref().map(|attempt| attempt.id.clone());
+                let usable = account.phase == Some(crate::AttemptPhase::WaitingBrowser)
+                    && attempt
+                        .as_deref()
+                        .is_some_and(|id| state.account_revoked.as_deref() != Some(id))
+                    && attempt
+                        .as_deref()
+                        .is_some_and(|id| state.account_opened.as_deref() != Some(id));
+                if !usable {
+                    state.account_browser = None;
+                } else if browser.is_some() {
+                    state.account_browser = browser;
+                }
+                if let Some(attempt) = account.attempt.as_mut() {
+                    attempt.browser_available = state.account_browser.is_some();
+                }
+                state.account = Some(account.clone());
+            }
+            inner.emit(PublicEvent::Account(account));
+        }
         Event::Reply { id, command, reply } => {
             // Release request-map lock before taking private state (monitor uses state→map).
             let pending = inner.pending.lock().unwrap().remove(&id);
