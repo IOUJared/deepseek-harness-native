@@ -10,7 +10,7 @@ use dsh_native_core::{
 };
 use iced::{
     Element, Length,
-    widget::{button, checkbox, column, text_input},
+    widget::{button, checkbox, column, row, text_input},
 };
 use std::sync::{
     Arc,
@@ -766,262 +766,362 @@ impl Controller {
     pub fn view(&self, enabled: bool) -> Element<'_, Action> {
         let ticket = self.ticket();
         let editable = self.can_write(enabled) && !self.review;
-        let mut body = column![label("Cloudflare", TEXT).size(17),
-            label("Use Workers Free. Paid accounts can bill. This app cannot enforce your Cloudflare account plan or global quota.", DANGER),
-            label("Open the model selector and choose a Cloudflare model. Saving does not send a request or change this chat’s model. No account probes or automatic catalog switching.", MUTED),
-            button("Read metadata explicitly").style(design::ghost).on_press_maybe((enabled && !self.pending() && self.reading.is_none()).then_some(Action::Read(ticket)))].spacing(14);
-        if let Some(meta) = &self.metadata {
-            body = body.push(label(
-                format!(
-                    "Token configured={} · writable={} · revision={}",
-                    meta.token_configured, meta.writable, meta.revision
-                ),
-                MUTED,
-            ));
+        // The page leads with what has to be typed and the one action that
+        // connects. Everything that is a refinement, a fallback or a
+        // consequence lives under the disclosures below.
+        let port = if self.port.is_empty() {
+            "8977"
         } else {
-            body = body.push(label(
-                "Metadata unknown; read explicitly before editing or writing.",
-                MUTED,
-            ));
-        }
+            self.port.as_str()
+        };
         let active =
             self.auth.as_ref().is_some_and(|a| a.phase.active()) || self.connection.is_some();
         let connected = self.auth.as_ref().is_some_and(|a| {
             a.credential_stored && a.auth_mode == dsh_native_core::CloudflareAuthMode::Oauth
         });
-        body = body.push(label(
-            self.auth
-                .as_ref()
-                .map_or("Connection status unknown".to_owned(), |a| {
-                    use dsh_native_core::{
-                        CloudflareAuthError as Error, CloudflareAuthMode as Mode,
-                        CloudflareAuthPhase as Phase,
-                    };
-                    let mode = if a.auth_mode == Mode::Oauth {
-                        "Browser authentication"
-                    } else {
-                        "API token"
-                    };
-                    let state = match a.error_code {
-                        Some(Error::SetupRequired) => {
-                            "complete client setup and save the account ID"
-                        }
-                        Some(Error::CallbackUnavailable) => {
-                            "callback unavailable; check the registered port"
-                        }
-                        Some(Error::OauthDenied) => "authorization declined",
-                        Some(Error::OauthFailed) => "sign-in failed",
-                        Some(Error::ReconnectRequired) => "authorization needs renewal",
-                        Some(Error::Conflict) => "configuration changed; read metadata",
-                        Some(Error::Indeterminate) => {
-                            "outcome unknown; read metadata before changes"
-                        }
-                        None => match a.phase {
-                            Phase::Idle => {
-                                if a.credential_stored {
-                                    "credential stored"
-                                } else {
-                                    "not connected"
-                                }
-                            }
-                            Phase::Starting => "preparing sign-in",
-                            Phase::WaitingBrowser => "finish sign-in in your browser",
-                            Phase::Exchanging => "verifying authorization",
-                            Phase::Committing => "saving credential",
-                            Phase::Connected => "authorized",
-                            Phase::Cancelled => "sign-in cancelled",
-                            Phase::Failed => "sign-in failed",
-                            Phase::Indeterminate => "outcome unknown; read metadata before changes",
-                        },
-                    };
-                    format!(
-                        "{mode}: {state}{}",
-                        if a.retry_blocked && a.error_code != Some(Error::Indeterminate) {
-                            "; explicit read required"
-                        } else {
-                            ""
-                        }
-                    )
-                }),
-            if self
-                .auth
-                .as_ref()
-                .is_some_and(|a| a.retry_blocked || a.error_code.is_some())
-            {
-                DANGER
-            } else {
-                MUTED
-            },
-        ));
-        body = body.push(
-            button(if active {
-                "Cancel sign-in"
-            } else if connected {
-                "Cloudflare connected"
-            } else {
-                "Connect Cloudflare"
-            })
-            .style(design::primary)
-            .on_press_maybe(
-                (enabled
-                    && if active {
-                        self.cancel_pending.is_none()
-                    } else {
-                        !connected
-                            && !self.pending()
-                            && self.connection.is_none()
-                            && !self.require_read
-                            && !self.auth.as_ref().is_some_and(|a| a.retry_blocked)
-                    })
-                .then_some(if active {
-                    Action::CancelConnect(ticket)
-                } else {
-                    Action::Connect(ticket)
-                }),
+        let mut body = column![
+            label("Cloudflare", TEXT).size(17),
+            label(
+                "Register one account-private public OAuth client (PKCE S256, no secret), then paste its ID here.                  Workers Free only: a paid account can bill, and this app cannot check your plan or quota.",
+                DANGER,
             ),
-        );
-        if connected
-            || self.auth.as_ref().is_some_and(|a| {
-                a.auth_mode == dsh_native_core::CloudflareAuthMode::Oauth && a.retry_blocked
-            })
-        {
+        ]
+        .spacing(10);
+        body = body.push(label(self.status_line(), self.status_color()));
+        let primary = if active {
+            button("Cancel sign-in")
+                .style(design::danger)
+                .on_press_maybe(
+                    (enabled && self.cancel_pending.is_none())
+                        .then_some(Action::CancelConnect(ticket)),
+                )
+        } else if connected {
+            button("Cloudflare connected").style(design::primary)
+        } else {
+            button("Connect Cloudflare")
+                .style(design::primary)
+                .on_press_maybe(
+                    (enabled
+                        && !self.pending()
+                        && self.connection.is_none()
+                        && !self.require_read
+                        && !self.auth.as_ref().is_some_and(|a| a.retry_blocked))
+                    .then_some(Action::Connect(ticket)),
+                )
+        };
+        if connected {
             body = body.push(
-                button("Disconnect Cloudflare…")
-                    .style(design::ghost)
-                    .on_press_maybe(
+                row![
+                    primary,
+                    button("Disconnect…").style(design::ghost).on_press_maybe(
                         (enabled && !self.pending() && !active)
                             .then_some(Action::ReviewDisconnect(ticket)),
                     ),
+                ]
+                .spacing(6),
             );
+        } else {
+            body = body.push(primary);
         }
         if self.disconnect_review {
-            body=body.push(label("Disconnect disables both features and deletes the local OAuth grant. Issuer revocation is attempted but cannot be guaranteed.",DANGER))
-            .push(button("Confirm disconnect").style(design::ghost).on_press(Action::ConfirmDisconnect(ticket)))
-            .push(button("Cancel review").on_press(Action::Cancel(ticket)));
-        }
-        body = body.push(
-            button(if self.setup_open {
-                "Hide OAuth client setup"
-            } else {
-                "OAuth client setup…"
-            })
-            .style(design::ghost)
-            .on_press_maybe((enabled && !self.pending()).then_some(Action::ToggleSetup(ticket))),
-        );
-        if self.setup_open {
-            body=body.push(label("Register your own account-private public OAuth client (no client secret). Enter its exact registered scope IDs. PKCE S256 is automatic. Saving switches to browser authentication; features stay off until reviewed.",MUTED));
-            let client = text_input("Public client ID", &self.client_id)
-                .padding(12)
-                .style(design::field);
-            let scopes = text_input("Registered scope IDs (space separated)", &self.scopes)
-                .padding(12)
-                .style(design::field);
-            let port = text_input("Callback port (default 8977)", &self.port)
-                .padding(12)
-                .style(design::field);
             body = body
-                .push(if editable {
-                    client.on_input(move |v| Action::ClientId(ticket, v))
-                } else {
-                    client
-                })
-                .push(if editable {
-                    scopes.on_input(move |v| Action::Scopes(ticket, v))
-                } else {
-                    scopes
-                })
-                .push(if editable {
-                    port.on_input(move |v| Action::CallbackPort(ticket, v))
-                } else {
-                    port
-                })
                 .push(label(
-                    format!(
-                        "Registered redirect: http://127.0.0.1:{}/cloudflare/callback",
-                        self.port
-                    ),
-                    MUTED,
+                    "Disconnect disables both features and deletes the local OAuth grant. Issuer revocation is attempted but cannot be guaranteed.",
+                    DANGER,
                 ))
                 .push(
-                    button("Save browser setup")
-                        .style(design::ghost)
-                        .on_press_maybe(editable.then_some(Action::SaveSetup(ticket))),
-                );
+                    button("Confirm disconnect")
+                        .style(design::danger)
+                        .on_press(Action::ConfirmDisconnect(ticket)),
+                )
+                .push(button("Cancel review").on_press(Action::Cancel(ticket)));
         }
-        let account = text_input("Account ID (32 lowercase hex)", &self.account)
+        // The two values the connect flow cannot do without, with the redirect
+        // the client must be registered for.
+        body = body.push(setup_field(
+            "OAuth client ID",
+            "Public client ID from your Cloudflare client",
+            &self.client_id,
+            editable,
+            move |value| Action::ClientId(ticket, value),
+        ));
+        body = body.push(setup_field(
+            "Account ID",
+            "32 lowercase hex digits from the dashboard URL",
+            &self.account,
+            editable,
+            move |value| Action::Account(ticket, value),
+        ));
+        body = body.push(label(
+            format!("Register this redirect: http://127.0.0.1:{port}/cloudflare/callback"),
+            MUTED,
+        ));
+        if !connected {
+            let ready = editable
+                && !self.client_id.trim().is_empty()
+                && !self.account.trim().is_empty()
+                && valid_account(&self.account);
+            body = body.push(
+                button("Save OAuth client")
+                    .style(design::ghost)
+                    .on_press_maybe(ready.then_some(Action::SaveSetup(ticket))),
+            );
+        }
+        // Everything below is optional, secondary or a disclosure the user asked
+        // for; none of it is needed to connect an account.
+        body = body.push(disclosure(
+            self.setup_open,
+            "Client and feature details",
+            Action::ToggleSetup(ticket),
+            enabled && !self.pending(),
+        ));
+        if self.setup_open {
+            body = body
+                .push(label(
+                    "Scopes must be exactly what the client is registered for; the port must match the redirect above.",
+                    MUTED,
+                ))
+                .push(setup_field(
+                    "Registered scopes",
+                    "Space separated, e.g. account.read offline_access",
+                    &self.scopes,
+                    editable,
+                    move |value| Action::Scopes(ticket, value),
+                ))
+                .push(setup_field(
+                    "Callback port",
+                    "Registered redirect port (default 8977)",
+                    &self.port,
+                    editable,
+                    move |value| Action::CallbackPort(ticket, value),
+                ));
+            let models = checkbox(self.models).label("Workers AI models");
+            let browser = checkbox(self.browser).label("Browser Run");
+            let free = checkbox(self.free)
+                .label("Required: this account uses Workers Free for what is enabled");
+            body = body
+                .push(if editable {
+                    models.on_toggle(move |value| Action::Models(ticket, value))
+                } else {
+                    models
+                })
+                .push(if editable {
+                    browser.on_toggle(move |value| Action::Browser(ticket, value))
+                } else {
+                    browser
+                })
+                .push(if editable {
+                    free.on_toggle(move |value| Action::Free(ticket, value))
+                } else {
+                    free
+                })
+                .push(label(
+                    "The account ID, the feature switches and the Workers Free confirmation are saved together by the reviewed save below; enabling them stays off until you confirm it.",
+                    MUTED,
+                ))
+                .push(label(
+                    "Prefer an API token? It replaces browser authentication and needs no client.",
+                    MUTED,
+                ));
+            if let Some(auth) = &self.auth {
+                let (title, mode) = if auth.auth_mode == dsh_native_core::CloudflareAuthMode::Oauth
+                {
+                    (
+                        "Use an API token instead",
+                        dsh_native_core::CloudflareAuthMode::ApiToken,
+                    )
+                } else {
+                    (
+                        "Use browser authentication",
+                        dsh_native_core::CloudflareAuthMode::Oauth,
+                    )
+                };
+                body = body.push(
+                    button(title)
+                        .style(design::ghost)
+                        .on_press_maybe(editable.then_some(Action::UseAuthMode(ticket, mode))),
+                );
+            }
+            let token = text_input(
+                "API token (masked; blank keeps the stored one)",
+                self.token.as_str(),
+            )
+            .secure(true)
             .padding(12)
             .style(design::field);
-        body = body.push(if editable {
-            account.on_input(move |value| Action::Account(ticket, value))
-        } else {
-            account
-        });
-        if let Some(auth) = &self.auth {
-            let (title, mode) = if auth.auth_mode == dsh_native_core::CloudflareAuthMode::Oauth {
-                (
-                    "Use saved API token",
-                    dsh_native_core::CloudflareAuthMode::ApiToken,
-                )
+            body = body.push(if editable {
+                token.on_input(move |value| Action::Token(ticket, key_input(value)))
             } else {
-                (
-                    "Use browser authentication",
-                    dsh_native_core::CloudflareAuthMode::Oauth,
-                )
-            };
-            body=body.push(button(title).style(design::ghost).on_press_maybe(editable.then_some(Action::UseAuthMode(ticket,mode))))
-                .push(label("Changing authentication mode turns both features off. A nonblank API token save selects API-token mode; blank preserves the selected mode.",MUTED).size(12));
-        }
-        let token = text_input(
-            "API token (masked; blank keeps existing)",
-            self.token.as_str(),
-        )
-        .secure(true)
-        .padding(12)
-        .style(design::field);
-        body = body.push(if editable {
-            token.on_input(move |value| Action::Token(ticket, key_input(value)))
-        } else {
-            token
-        });
-        let models = checkbox(self.models).label("Enable Workers AI models");
-        let browser = checkbox(self.browser).label("Enable Browser Run");
-        let free = checkbox(self.free)
-            .label("REQUIRED: I confirm this account uses Workers Free for enabled features");
-        body = body
-            .push(if editable {
-                models.on_toggle(move |value| Action::Models(ticket, value))
-            } else {
-                models
-            })
-            .push(if editable {
-                browser.on_toggle(move |value| Action::Browser(ticket, value))
-            } else {
-                browser
-            })
-            .push(if editable {
-                free.on_toggle(move |value| Action::Free(ticket, value))
-            } else {
-                free
+                token
             });
+        }
         if self.review {
-            body = body.push(label(format!("Confirm save: account {} · models={} · browser={} · Workers Free attested={}. {}", self.account, self.models, self.browser, self.free, if self.token.as_str().is_empty() { "Keep existing token." } else { "Replace stored token." }), DANGER))
-                .push(button("Confirm Cloudflare save").style(design::primary).on_press_maybe(self.can_save(enabled).then_some(Action::Confirm(ticket))))
+            body = body
+                .push(label(
+                    format!(
+                        "Confirm save: account {} · models={} · browser={} · Workers Free attested={}. {}",
+                        self.account,
+                        self.models,
+                        self.browser,
+                        self.free,
+                        if self.token.as_str().is_empty() {
+                            "Keep existing token."
+                        } else {
+                            "Replace stored token."
+                        }
+                    ),
+                    DANGER,
+                ))
+                .push(
+                    button("Confirm Cloudflare save")
+                        .style(design::primary)
+                        .on_press_maybe(self.can_save(enabled).then_some(Action::Confirm(ticket))),
+                )
                 .push(button("Cancel review").on_press(Action::Cancel(ticket)));
         } else {
             body = body.push(
-                button("Review Cloudflare save")
+                button("Save account and features")
                     .style(design::primary)
                     .on_press_maybe(self.can_save(enabled).then_some(Action::Review(ticket))),
             );
         }
-        body = body.push(button("Disable both features").style(design::ghost).on_press_maybe(self.can_write(enabled).then_some(Action::Disable(ticket))))
-            .push(label("Disabling retains the token. Draft token clears on navigation, close, disconnect and submission. Masking is not memory protection; editor, clipboard, Node and kernel copies are outside owned-buffer wiping.", MUTED).size(12));
+        body = body.push(
+            row![
+                button("Read metadata").style(design::ghost).on_press_maybe(
+                    (enabled && !self.pending() && self.reading.is_none())
+                        .then_some(Action::Read(ticket)),
+                ),
+                button("Disable both features")
+                    .style(design::ghost)
+                    .on_press_maybe(self.can_write(enabled).then_some(Action::Disable(ticket))),
+            ]
+            .spacing(6),
+        );
+        body = body.push(label(
+            match &self.metadata {
+                Some(meta) => format!(
+                    "Token configured={} · writable={} · revision={}",
+                    meta.token_configured, meta.writable, meta.revision
+                ),
+                None => "Metadata not read yet; read it before editing or writing.".to_owned(),
+            },
+            MUTED,
+        ));
+        body = body.push(label(
+            "Saving sends no request and changes no chat model. Disabling retains the token; the token draft clears on navigation, close, disconnect and submission. Masking is not memory protection.",
+            MUTED,
+        ));
         if let Some((warning, attention)) = self.footer() {
             body = body.push(label(warning, if attention { DANGER } else { MUTED }));
         }
         body.width(Length::Fill).into()
     }
+    fn status_line(&self) -> String {
+        self.auth
+            .as_ref()
+            .map_or("Connection status unknown".to_owned(), |a| {
+                use dsh_native_core::{
+                    CloudflareAuthError as Error, CloudflareAuthMode as Mode,
+                    CloudflareAuthPhase as Phase,
+                };
+                let mode = if a.auth_mode == Mode::Oauth {
+                    "Browser authentication"
+                } else {
+                    "API token"
+                };
+                let state = match a.error_code {
+                    Some(Error::SetupRequired) => "client ID and account ID are needed",
+                    Some(Error::CallbackUnavailable) => {
+                        "callback unavailable; check the registered port"
+                    }
+                    Some(Error::OauthDenied) => "authorization declined",
+                    Some(Error::OauthFailed) => "sign-in failed",
+                    Some(Error::ReconnectRequired) => "authorization needs renewal",
+                    Some(Error::Conflict) => "configuration changed; read metadata",
+                    Some(Error::Indeterminate) => "outcome unknown; read metadata before changes",
+                    None => match a.phase {
+                        Phase::Idle => {
+                            if a.credential_stored {
+                                "credential stored"
+                            } else {
+                                "not connected"
+                            }
+                        }
+                        Phase::Starting => "preparing sign-in",
+                        Phase::WaitingBrowser => "finish sign-in in your browser",
+                        Phase::Exchanging => "verifying authorization",
+                        Phase::Committing => "saving credential",
+                        Phase::Connected => "authorized",
+                        Phase::Cancelled => "sign-in cancelled",
+                        Phase::Failed => "sign-in failed",
+                        Phase::Indeterminate => "outcome unknown; read metadata before changes",
+                    },
+                };
+                format!(
+                    "{mode}: {state}{}",
+                    if a.retry_blocked && a.error_code != Some(Error::Indeterminate) {
+                        "; explicit read required"
+                    } else {
+                        ""
+                    }
+                )
+            })
+    }
+    fn status_color(&self) -> iced::Color {
+        if self
+            .auth
+            .as_ref()
+            .is_some_and(|a| a.retry_blocked || a.error_code.is_some())
+        {
+            DANGER
+        } else {
+            MUTED
+        }
+    }
 }
+
+/// One labelled setup field: the placeholder says what to paste, the label says
+/// what it is, and a disabled field still shows what is stored.
+fn setup_field<'a>(
+    title: &'a str,
+    hint: &'a str,
+    value: &'a str,
+    editable: bool,
+    on_input: impl Fn(String) -> Action + 'a,
+) -> Element<'a, Action> {
+    let field = text_input(hint, value).padding(12).style(design::field);
+    column![
+        label(title, TEXT).size(12),
+        if editable {
+            field.on_input(on_input)
+        } else {
+            field
+        },
+    ]
+    .spacing(3)
+    .into()
+}
+
+/// A secondary section the user opens on purpose.
+fn disclosure<'a>(
+    open: bool,
+    title: &'a str,
+    action: Action,
+    enabled: bool,
+) -> Element<'a, Action> {
+    button(label(
+        if open {
+            format!("▾ {title}")
+        } else {
+            format!("▸ {title}")
+        },
+        MUTED,
+    ))
+    .style(design::ghost)
+    .on_press_maybe(enabled.then_some(action))
+    .into()
+}
+
 fn valid_account(account: &str) -> bool {
     account.is_empty()
         || (account.len() == 32
