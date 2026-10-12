@@ -2,7 +2,7 @@
 use super::{Editor, Input, InputValue, Ticket, key_input};
 use crate::{
     design,
-    ui::{DANGER, MUTED, TEXT, label},
+    ui::{ACCENT, DANGER, MUTED, TEXT, label},
 };
 use dsh_native_core::{
     CloudflareAuthPhase, CloudflareAuthStatus, CloudflareOauthSetup, CloudflareSnapshot,
@@ -17,9 +17,29 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
+/// The two Cloudflare pages that explain where an ID comes from. Constants this
+/// app ships, so there is no authority to validate and nothing to withdraw.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Guide {
+    OauthClient,
+    AccountId,
+}
+impl Guide {
+    pub fn url(self) -> &'static str {
+        match self {
+            Self::OauthClient => {
+                "https://developers.cloudflare.com/fundamentals/oauth/create-an-oauth-client/"
+            }
+            Self::AccountId => {
+                "https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/"
+            }
+        }
+    }
+}
 #[derive(Clone, Debug)]
 pub enum Action {
     Connect(Ticket),
+    CopyGuide(Ticket, Guide),
     CancelConnect(Ticket),
     ReviewDisconnect(Ticket),
     ConfirmDisconnect(Ticket),
@@ -273,6 +293,7 @@ impl Controller {
             | Action::Scopes(t, _)
             | Action::CallbackPort(t, _)
             | Action::SaveSetup(t)
+            | Action::CopyGuide(t, _)
             | Action::UseAuthMode(t, _) => *t,
             Action::Read(t)
             | Action::Account(t, _)
@@ -390,22 +411,13 @@ impl Controller {
                 None
             }
             Action::SaveSetup(_) if self.can_write(enabled) => {
-                let setup = CloudflareOauthSetup {
-                    client_id: self.client_id.clone(),
-                    scopes: self
-                        .scopes
-                        .split_ascii_whitespace()
-                        .map(str::to_owned)
-                        .collect(),
-                    callback_port: self.port.parse().ok()?,
+                let setup = match self.typed_setup() {
+                    Ok(setup) => setup,
+                    Err(reason) => {
+                        self.warning = Some((reason, true));
+                        return None;
+                    }
                 };
-                if !setup.valid(true) {
-                    self.warning = Some((
-                        "Invalid OAuth setup: use your own public client ID, exact registered scopes and a port from 1024 to 65535.",
-                        true,
-                    ));
-                    return None;
-                }
                 let revision = self.metadata.as_ref()?.revision;
                 self.serial += 1;
                 let ticket = self.ticket();
@@ -594,7 +606,7 @@ impl Controller {
                 self.stop_chain();
                 return None;
             }
-            if !auth.setup_configured || !auth.credential_writable || self.require_read {
+            if !auth.credential_writable || self.require_read {
                 self.warning = Some((
                     "Save your own OAuth client setup and manual Account ID before connecting.",
                     true,
@@ -602,6 +614,29 @@ impl Controller {
                 self.setup_open = true;
                 self.stop_chain();
                 return None;
+            }
+            if !auth.setup_configured {
+                // Connect is the only button the user should need: the client ID
+                // and scopes typed on the page are saved here, then the chain
+                // continues to the sign-in once the Host reports them saved.
+                let setup = match self.typed_setup() {
+                    Ok(setup) => setup,
+                    Err(reason) => {
+                        self.warning = Some((reason, true));
+                        self.setup_open = true;
+                        self.stop_chain();
+                        return None;
+                    }
+                };
+                let revision = self.metadata.as_ref()?.revision;
+                self.serial += 1;
+                let ticket = self.ticket();
+                self.auth_pending = Some((ticket, AuthOperation::Setup));
+                return Some(Effect::Setup {
+                    ticket,
+                    revision,
+                    setup,
+                });
             }
             let revision = self.metadata.as_ref()?.revision;
             let c = self.connection.as_mut()?;
@@ -852,21 +887,21 @@ impl Controller {
             editable,
             move |value| Action::Account(ticket, value),
         ));
-        body = body.push(label(
-            format!("Register this redirect: http://127.0.0.1:{port}/cloudflare/callback"),
-            MUTED,
-        ));
-        if !connected {
-            let ready = editable
-                && !self.client_id.trim().is_empty()
-                && !self.account.trim().is_empty()
-                && valid_account(&self.account);
-            body = body.push(
-                button("Save OAuth client")
-                    .style(design::ghost)
-                    .on_press_maybe(ready.then_some(Action::SaveSetup(ticket))),
-            );
-        }
+        body = body
+            .push(label(
+                format!("Register this redirect: http://127.0.0.1:{port}/cloudflare/callback"),
+                MUTED,
+            ))
+            .push(guide_row(
+                "Where to find the OAuth client ID",
+                Guide::OauthClient,
+                ticket,
+            ))
+            .push(guide_row(
+                "Where to find the account ID",
+                Guide::AccountId,
+                ticket,
+            ));
         // Everything below is optional, secondary or a disclosure the user asked
         // for; none of it is needed to connect an account.
         body = body.push(disclosure(
@@ -1016,6 +1051,34 @@ impl Controller {
         }
         body.width(Length::Fill).into()
     }
+    /// The client setup exactly as typed: the port defaults to the one the page
+    /// shows as the registered redirect, and scopes are the registered IDs in the
+    /// order the user wrote them.
+    fn typed_setup(&self) -> Result<CloudflareOauthSetup, &'static str> {
+        let port = if self.port.trim().is_empty() {
+            8977
+        } else {
+            self.port
+                .trim()
+                .parse()
+                .map_err(|_| "The callback port must be a number from 1024 to 65535.")?
+        };
+        let setup = CloudflareOauthSetup {
+            client_id: self.client_id.trim().to_owned(),
+            scopes: self
+                .scopes
+                .split_ascii_whitespace()
+                .map(str::to_owned)
+                .collect(),
+            callback_port: port,
+        };
+        if !setup.valid(true) {
+            return Err(
+                "Invalid OAuth setup: paste your own public client ID, its exact registered scopes and a port from 1024 to 65535.",
+            );
+        }
+        Ok(setup)
+    }
     fn status_line(&self) -> String {
         self.auth
             .as_ref()
@@ -1078,6 +1141,21 @@ impl Controller {
             MUTED
         }
     }
+}
+
+/// A documentation pointer: the label says what it explains, and the button
+/// copies the link so it can be opened without retyping a URL.
+fn guide_row<'a>(title: &'a str, guide: Guide, ticket: Ticket) -> Element<'a, Action> {
+    row![
+        label(title, MUTED).size(11).width(Length::Fill),
+        button(label("Copy link", ACCENT).size(11))
+            .style(design::ghost)
+            .padding([4, 8])
+            .on_press(Action::CopyGuide(ticket, guide)),
+    ]
+    .spacing(6)
+    .align_y(iced::Alignment::Center)
+    .into()
 }
 
 /// One labelled setup field: the placeholder says what to paste, the label says

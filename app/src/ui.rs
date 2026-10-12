@@ -1765,6 +1765,15 @@ impl App {
                 });
             }
             Message::Settings(action) => {
+                // A documentation link is the one settings action that reaches no
+                // Host state: the destination is a constant this app ships, so it
+                // is copied for the user to open rather than launched.
+                if let crate::settings::Action::Cloudflare(
+                    crate::settings::cloudflare::Action::CopyGuide(_, guide),
+                ) = &action
+                {
+                    return iced::clipboard::write(guide.url().to_owned());
+                }
                 let enabled = self.settings_enabled();
                 // Asking to sign in subscribes to the Host's account stream
                 // first, because the stream is what arms the attempt's browser.

@@ -325,6 +325,53 @@ fn oauth_ready() -> Controller {
     c
 }
 #[test]
+fn connect_saves_the_typed_client_and_then_starts_without_a_second_click() {
+    // A host that knows no setup yet, with the page holding what the user typed.
+    let mut c = ready();
+    c.client_id = "PUBLIC-typed-client".into();
+    c.scopes = "PUBLIC:scope".into();
+    c.port = String::new();
+    let Some(Effect::Setup { ticket, setup, .. }) = c.handle(Action::Connect(c.ticket()), 1, true)
+    else {
+        panic!("connect must save the client it was given")
+    };
+    assert_eq!(setup.client_id, "PUBLIC-typed-client");
+    assert_eq!(setup.scopes, vec!["PUBLIC:scope".to_owned()]);
+    assert_eq!(
+        setup.callback_port, 8977,
+        "the port shown as the registered redirect is the one saved"
+    );
+    // The chain waits for the save's own acknowledgement rather than starting a
+    // sign-in against a setup the Host has not accepted.
+    assert!(c.continue_connection(1, true).is_none());
+    let mut meta = snapshot();
+    meta.oauth_setup = setup.clone();
+    meta.auth_status.setup_configured = true;
+    c.completed(ticket, Outcome::Snapshot(meta));
+    let Some(Effect::Start { .. }) = c.continue_connection(1, true) else {
+        panic!("the same connect continues into the sign-in once the setup is saved")
+    };
+
+    // With nothing typed there is nothing to save, and the page still says so.
+    let mut empty = ready();
+    empty.scopes = "PUBLIC:scope".into();
+    empty.port = "8977".into();
+    assert!(
+        empty
+            .handle(Action::Connect(empty.ticket()), 1, true)
+            .is_none()
+    );
+    assert!(empty.setup_open, "an unsaveable setup opens its fields");
+    assert!(
+        empty
+            .warning
+            .as_ref()
+            .is_some_and(|(_, attention)| *attention),
+        "and says why"
+    );
+}
+
+#[test]
 fn oauth_click_has_one_browser_grant_and_does_not_enable_features() {
     let mut c = oauth_ready();
     let Some(Effect::Start { ticket, .. }) = c.handle(Action::Connect(c.ticket()), 1, true) else {
