@@ -342,6 +342,16 @@ impl Settings {
     pub(crate) fn cloudflare_fields(&self) -> Option<&cloudflare::Controller> {
         (self.open && self.page == Page::Cloudflare).then_some(&self.cloudflare)
     }
+    pub(crate) fn cloudflare_clipboard_result(
+        &mut self,
+        field: cloudflare::Field,
+        characters: usize,
+    ) {
+        self.cloudflare.clipboard_result(field, characters);
+    }
+    pub(crate) fn cloudflare_clipboard_empty(&mut self) {
+        self.cloudflare.clipboard_empty();
+    }
     pub(crate) fn account_observed(&mut self, metadata: dsh_native_core::AccountMetadata) {
         self.account.observed(metadata);
     }

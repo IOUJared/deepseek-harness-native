@@ -86,6 +86,9 @@ impl Field {
 pub enum Action {
     Connect(Ticket),
     CopyGuide(Ticket, Guide),
+    /// Read the clipboard into one named field. Answered by the app rather than
+    /// the Host, and offered as a button so it cannot depend on key delivery.
+    RequestPaste(Field),
     CancelConnect(Ticket),
     ReviewDisconnect(Ticket),
     ConfirmDisconnect(Ticket),
@@ -197,6 +200,8 @@ pub struct Controller {
     /// The field the user last edited, so a paste has a destination even when
     /// the widget tree cannot name the focused field.
     last_field: Option<Field>,
+    /// What the last clipboard action did, said on the page.
+    clipboard_notice: Option<String>,
     metadata: Option<CloudflareSnapshot>,
     account: String,
     token: Editor,
@@ -259,6 +264,26 @@ impl Controller {
     }
     /// Where an unaddressed paste goes: the field the user last edited, or the
     /// first still-empty field on a page nobody has typed in yet.
+    /// Record what a clipboard action did, in the words the page shows.
+    pub fn clipboard_result(&mut self, field: Field, characters: usize) {
+        self.clipboard_notice = Some(format!(
+            "Pasted {characters} character{} into {}.",
+            if characters == 1 { "" } else { "s" },
+            match field {
+                Field::ClientId => "the client ID",
+                Field::AccountId => "the account ID",
+                Field::Scopes => "the scopes",
+                Field::Port => "the callback port",
+            }
+        ));
+    }
+    pub fn clipboard_empty(&mut self) {
+        self.clipboard_notice = Some("The clipboard held no text; nothing was pasted.".to_owned());
+    }
+    pub fn clipboard_ignored(&mut self, field: Field) {
+        let _ = field;
+        self.clipboard_notice = Some("That field is read-only while this page is busy.".to_owned());
+    }
     pub fn paste_target(&self) -> Option<Field> {
         self.last_field.or_else(|| {
             Field::ALL
@@ -370,6 +395,7 @@ impl Controller {
             | Action::SaveSetup(t)
             | Action::CopyGuide(t, _)
             | Action::UseAuthMode(t, _) => *t,
+            Action::RequestPaste(_) => self.ticket(),
             Action::Read(t)
             | Action::Account(t, _)
             | Action::Token(t, _)
@@ -976,6 +1002,9 @@ impl Controller {
             editable,
             move |value| Action::Account(ticket, value),
         ));
+        if let Some(notice) = &self.clipboard_notice {
+            body = body.push(label(notice.clone(), MUTED).size(11));
+        }
         body = body
             .push(label(
                 format!("Register this redirect: http://127.0.0.1:{port}/cloudflare/callback"),
@@ -1263,13 +1292,25 @@ fn setup_field<'a>(
         .id(tag.id())
         .padding(12)
         .style(design::field);
+    // The button is the same read the shortcut performs, offered without a
+    // keyboard: a modal is exactly where a shortcut is easiest to miss.
+    let paste = button(label("Paste", ACCENT).size(11))
+        .style(design::ghost)
+        .padding([6, 9])
+        .on_press_maybe(editable.then_some(Action::RequestPaste(tag)));
     column![
         label(title, TEXT).size(12),
-        if editable {
-            field.on_input(on_input)
-        } else {
-            field
-        },
+        row![
+            if editable {
+                field.on_input(on_input)
+            } else {
+                field
+            }
+            .width(Length::Fill),
+            paste,
+        ]
+        .spacing(6)
+        .align_y(iced::Alignment::Center),
     ]
     .spacing(3)
     .into()

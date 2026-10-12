@@ -340,6 +340,11 @@ pub enum Message {
         id: Option<String>,
         text: String,
     },
+    /// A named field (or the page's target) and the clipboard text for it.
+    ClipboardPasteIntoField {
+        id: Option<String>,
+        text: Option<String>,
+    },
 }
 impl std::fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -791,6 +796,32 @@ impl App {
         }
         iced::clipboard::write(text)
     }
+    /// Read the clipboard for one named field, or for the page's own target.
+    fn read_clipboard_into(
+        &self,
+        field: Option<crate::settings::cloudflare::Field>,
+    ) -> Task<Message> {
+        if self.clipboard_field_ticket().is_none() {
+            return Task::none();
+        }
+        let id = field.map(|field| field.id().to_owned());
+        if wayland_session() {
+            return Task::perform(
+                async {
+                    let (sender, receiver) = tokio::sync::oneshot::channel();
+                    std::thread::spawn(move || {
+                        let _ = sender.send(native_clipboard::read_text());
+                    });
+                    receiver.await.ok().flatten()
+                },
+                move |text| Message::ClipboardPasteIntoField { id, text },
+            );
+        }
+        iced::clipboard::read().map(move |text| Message::ClipboardPasteIntoField {
+            id: id.clone(),
+            text,
+        })
+    }
     fn read_clipboard_for_field(&self) -> Task<Message> {
         if self.clipboard_field_ticket().is_none() {
             return Task::none();
@@ -811,7 +842,7 @@ impl App {
         }
         iced::clipboard::read().map(Message::ClipboardPasteText)
     }
-    fn paste_text_into_field(&self, text: Option<String>) -> Task<Message> {
+    fn paste_text_into_field(&mut self, text: Option<String>) -> Task<Message> {
         // A copied ID usually arrives with a trailing newline, which every field
         // validator here refuses, so take the first line and trim it.
         let text = text.map(|text| text.trim().to_owned());
@@ -821,9 +852,43 @@ impl App {
         if self.clipboard_field_ticket().is_none() {
             return Task::none();
         }
-        // Which field receives it is decided by the widget tree, not by the page:
-        // the paste goes wherever the caret is.
-        self.resolve_focused_field(move |id| Message::ClipboardPasteInto { id, text })
+        // No focus lookup on this path: a lookup that never answers would drop
+        // the paste silently, and the page's own target is deterministic.
+        self.update(Message::ClipboardPasteInto { id: None, text })
+    }
+    /// Paste for a named field, or the page's target, and say what happened.
+    fn paste_into_named_field(
+        &mut self,
+        id: Option<String>,
+        text: Option<String>,
+    ) -> Task<Message> {
+        let Some(ticket) = self.clipboard_field_ticket() else {
+            return Task::none();
+        };
+        let Some(text) = text
+            .map(|text| text.trim().to_owned())
+            .filter(|text| !text.is_empty())
+        else {
+            self.settings.cloudflare_clipboard_empty();
+            return Task::none();
+        };
+        let Some(cloudflare) = self.settings.cloudflare_fields() else {
+            return Task::none();
+        };
+        let field = id
+            .as_deref()
+            .and_then(crate::settings::cloudflare::Field::of)
+            .or_else(|| cloudflare.paste_target());
+        let Some(field) = field else {
+            self.settings.cloudflare_clipboard_empty();
+            return Task::none();
+        };
+        let current = field.value(cloudflare).to_owned();
+        let characters = text.chars().count();
+        self.settings.cloudflare_clipboard_result(field, characters);
+        self.update(Message::Settings(crate::settings::Action::Cloudflare(
+            field.paste(ticket, &current, &text),
+        )))
     }
     fn paste_into_focused_field(&mut self, id: Option<String>, text: String) -> Task<Message> {
         let Some(ticket) = self.clipboard_field_ticket() else {
@@ -1470,6 +1535,9 @@ impl App {
             Message::ClipboardPasteInto { id, text } => {
                 return self.paste_into_focused_field(id, text);
             }
+            Message::ClipboardPasteIntoField { id, text } => {
+                return self.paste_into_named_field(id, text);
+            }
             Message::ClipboardFocusedField(id) => return self.copy_field_text(id),
             Message::ClipboardCopied => return Task::none(),
             Message::Accessibility(request) => return self.accessibility_request(request),
@@ -1909,6 +1977,12 @@ impl App {
                 ) = &action
                 {
                     return iced::clipboard::write(guide.url().to_owned());
+                }
+                if let crate::settings::Action::Cloudflare(
+                    crate::settings::cloudflare::Action::RequestPaste(field),
+                ) = &action
+                {
+                    return self.read_clipboard_into(Some(*field));
                 }
                 let enabled = self.settings_enabled();
                 // Asking to sign in subscribes to the Host's account stream

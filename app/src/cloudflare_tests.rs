@@ -399,6 +399,34 @@ fn a_paste_lands_in_a_field_even_without_a_resolved_caret() {
 }
 
 #[test]
+fn a_named_paste_reaches_its_field_and_says_so() {
+    // The button path names the field, so it cannot depend on a focus lookup.
+    let mut c = ready();
+    let ticket = c.ticket();
+    let Action::Account(_, value) = Field::AccountId.paste(ticket, "", "a".repeat(32).as_str())
+    else {
+        panic!("account paste")
+    };
+    assert!(c.handle(Action::Account(ticket, value), 1, true).is_none());
+    assert_eq!(c.account, "a".repeat(32));
+    c.clipboard_result(Field::AccountId, 32);
+    assert!(
+        c.clipboard_notice
+            .as_deref()
+            .is_some_and(|notice| notice.contains("32 characters") && notice.contains("account ID")),
+        "the paste is reported: {:?}",
+        c.clipboard_notice
+    );
+    c.clipboard_empty();
+    assert!(
+        c.clipboard_notice
+            .as_deref()
+            .is_some_and(|notice| notice.contains("no text")),
+        "an empty clipboard is reported too"
+    );
+}
+
+#[test]
 fn connect_saves_the_typed_client_and_then_starts_without_a_second_click() {
     // A host that knows no setup yet, with the page holding what the user typed.
     let mut c = ready();
