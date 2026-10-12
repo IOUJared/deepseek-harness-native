@@ -798,10 +798,11 @@ impl App {
     }
     /// Read the clipboard for one named field, or for the page's own target.
     fn read_clipboard_into(
-        &self,
+        &mut self,
         field: Option<crate::settings::cloudflare::Field>,
     ) -> Task<Message> {
         if self.clipboard_field_ticket().is_none() {
+            self.settings.cloudflare_clipboard_closed();
             return Task::none();
         }
         let id = field.map(|field| field.id().to_owned());
@@ -822,7 +823,7 @@ impl App {
             text,
         })
     }
-    fn read_clipboard_for_field(&self) -> Task<Message> {
+    fn read_clipboard_for_field(&mut self) -> Task<Message> {
         if self.clipboard_field_ticket().is_none() {
             return Task::none();
         }
@@ -846,12 +847,16 @@ impl App {
         // A copied ID usually arrives with a trailing newline, which every field
         // validator here refuses, so take the first line and trim it.
         let text = text.map(|text| text.trim().to_owned());
-        let Some(text) = text.filter(|text| !text.is_empty()) else {
-            return Task::none();
-        };
         if self.clipboard_field_ticket().is_none() {
+            self.settings.cloudflare_clipboard_closed();
             return Task::none();
         }
+        let Some(text) = text.filter(|text| !text.is_empty()) else {
+            // Saying nothing here was the last silent failure: the read is what
+            // failed, and the page now says so.
+            self.settings.cloudflare_clipboard_empty();
+            return Task::none();
+        };
         // No focus lookup on this path: a lookup that never answers would drop
         // the paste silently, and the page's own target is deterministic.
         self.update(Message::ClipboardPasteInto { id: None, text })

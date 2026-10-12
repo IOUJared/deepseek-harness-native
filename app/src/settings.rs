@@ -349,6 +349,9 @@ impl Settings {
     ) {
         self.cloudflare.clipboard_result(field, characters);
     }
+    pub(crate) fn cloudflare_clipboard_closed(&mut self) {
+        self.cloudflare.clipboard_closed();
+    }
     pub(crate) fn cloudflare_clipboard_empty(&mut self) {
         self.cloudflare.clipboard_empty();
     }

@@ -277,6 +277,10 @@ impl Controller {
             }
         ));
     }
+    pub fn clipboard_closed(&mut self) {
+        self.clipboard_notice =
+            Some("The Cloudflare page is not the one on screen; nothing was pasted.".to_owned());
+    }
     pub fn clipboard_empty(&mut self) {
         self.clipboard_notice = Some("The clipboard held no text; nothing was pasted.".to_owned());
     }
@@ -484,6 +488,16 @@ impl Controller {
             }
             Action::ToggleSetup(_) => {
                 self.setup_open = !self.setup_open;
+                None
+            }
+            // A field edit while the page is read-only is refused, and says why:
+            // it looked identical to a broken paste before.
+            Action::ClientId(_, value) | Action::Account(_, value) if !self.can_write(enabled) => {
+                let _ = value;
+                self.warning = Some((
+                    "Read the Cloudflare metadata before editing: this page cannot write yet.",
+                    true,
+                ));
                 None
             }
             Action::ClientId(_, value) if self.can_write(enabled) => {
