@@ -171,6 +171,11 @@ pub const TABLE_PAD_V: f32 = 10.0;
 pub const TABLE_PAD_H: f32 = 16.0;
 pub const TABLE_MIN_COLUMN: f32 = 100.0;
 pub const TABLE_FILL_COLUMNS: usize = 4;
+/// The compact ladder narrows a table cell to `padding: 4px 8px` and lets it inherit the
+/// compact font (`MarkdownText.module.css:341-346`), so a table inside the reasoning body
+/// is shorter than one in the answer.
+pub const COMPACT_TABLE_PAD_V: f32 = 4.0;
+pub const COMPACT_TABLE_PAD_H: f32 = 8.0;
 /// The table's own line box on the body ladder: the reference pairs its 13px table
 /// text with 22px, not the 20px compact box.
 pub const TABLE_LINE: f32 = 22.0;

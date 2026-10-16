@@ -743,8 +743,9 @@ pub(crate) fn table_view(
         .len()
         .max(rows.iter().map(Vec::len).max().unwrap_or(0))
         .max(1);
-    let (_, floor) = table_column_width(columns, width);
-    let full = floor + 2.0 * design::TABLE_PAD_H;
+    let (pad_v, pad_h) = table_padding(ladder);
+    let (_, floor) = table_column_width(columns, width, ladder);
+    let full = floor + 2.0 * pad_h;
     let fills = columns < design::TABLE_FILL_COLUMNS || columns as f32 * full <= width;
     let cell_width = if fills {
         Length::Fill
@@ -757,10 +758,18 @@ pub(crate) fn table_view(
         cell_width,
         size.round() as u32,
         line,
+        (pad_v, pad_h),
         query,
     ));
     for row in rows {
-        table = table.push(table_row(row, cell_width, size.round() as u32, line, query));
+        table = table.push(table_row(
+            row,
+            cell_width,
+            size.round() as u32,
+            line,
+            (pad_v, pad_h),
+            query,
+        ));
     }
     let table: Element<'static, Message> = if fills {
         table.into()
@@ -784,16 +793,18 @@ fn table_row(
     width: Length,
     size: u32,
     line: native::LineHeight,
+    padding: (f32, f32),
     query: &str,
 ) -> Element<'static, Message> {
+    let (pad_v, pad_h) = padding;
     let last = cells.len().saturating_sub(1);
     let mut row = Row::new().width(Length::Fill);
     for (index, cell) in cells.iter().enumerate() {
         let mut pad = iced::Padding {
-            top: design::TABLE_PAD_V,
-            right: design::TABLE_PAD_H,
-            bottom: design::TABLE_PAD_V,
-            left: design::TABLE_PAD_H,
+            top: pad_v,
+            right: pad_h,
+            bottom: pad_v,
+            left: pad_h,
         };
         if index == 0 {
             pad.left = 0.0;
@@ -1057,9 +1068,16 @@ fn table_metrics(ladder: Ladder, delta_secondary: f32) -> (f32, native::LineHeig
 /// minimum, with the padding on both sides removed for the text itself. A table of
 /// fewer than four columns never needs the floor, which is exactly when the reference
 /// lets it fill the column.
-fn table_column_width(columns: usize, width: f32) -> (f32, f32) {
+fn table_padding(ladder: Ladder) -> (f32, f32) {
+    match ladder {
+        Ladder::Body => (design::TABLE_PAD_V, design::TABLE_PAD_H),
+        Ladder::Compact => (design::COMPACT_TABLE_PAD_V, design::COMPACT_TABLE_PAD_H),
+    }
+}
+fn table_column_width(columns: usize, width: f32, ladder: Ladder) -> (f32, f32) {
     let columns = columns.max(1);
-    let share = (width / columns as f32 - 2.0 * design::TABLE_PAD_H).max(24.0);
+    let (_, pad_h) = table_padding(ladder);
+    let share = (width / columns as f32 - 2.0 * pad_h).max(24.0);
     (
         share,
         share.max((design::TABLE_MIN_COLUMN - 2.0 * design::TABLE_PAD_H).max(24.0)),
@@ -1072,12 +1090,13 @@ fn table_row_height(
     ladder: Ladder,
 ) -> f32 {
     let (size, line) = table_metrics(ladder, delta_secondary);
-    let (share, _) = table_column_width(cells.len(), width);
+    let (pad_v, _) = table_padding(ladder);
+    let (share, _) = table_column_width(cells.len(), width, ladder);
     let tallest = cells
         .iter()
         .map(|cell| inline_height(cell, share, size, line))
         .fold(0.0_f32, f32::max);
-    tallest + 2.0 * design::TABLE_PAD_V
+    tallest + 2.0 * pad_v
 }
 fn table_height(
     header: &[formatted::Cell],
@@ -1754,6 +1773,34 @@ mod tests {
         assert_eq!(
             document_first_offset(&document, width, 0.0, 0.0, Ladder::Body, "target"),
             Some(expected)
+        );
+    }
+    #[test]
+    fn a_compact_table_row_is_shorter_than_a_body_row() {
+        // `MarkdownText.module.css:341-346`: `.compact :is(th, td) { padding: 4px 8px }`
+        // against the body ladder's `10px 16px`, so the same cells reserve less height.
+        let cells = [vec![formatted::Span {
+            text: "PUBLIC cell".into(),
+            bold: false,
+            italic: false,
+            code: false,
+            alt: false,
+        }]];
+        let body = table_row_height(&cells, 600.0, 0.0, Ladder::Body);
+        let compact = table_row_height(&cells, 600.0, 0.0, Ladder::Compact);
+        assert!(compact < body, "{compact} vs {body}");
+        // The delta is the padding pair plus the ladder's line box (22 body / 20 compact).
+        assert_eq!(
+            body - compact,
+            2.0 * (design::TABLE_PAD_V - design::COMPACT_TABLE_PAD_V)
+                + (design::TABLE_LINE - design::LINE_COMPACT)
+        );
+        // A wider text column follows the narrower padding too.
+        let (body_text, _) = table_column_width(1, 600.0, Ladder::Body);
+        let (compact_text, _) = table_column_width(1, 600.0, Ladder::Compact);
+        assert_eq!(
+            compact_text - body_text,
+            2.0 * (design::TABLE_PAD_H - design::COMPACT_TABLE_PAD_H)
         );
     }
     #[test]

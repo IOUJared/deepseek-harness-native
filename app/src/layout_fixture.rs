@@ -470,7 +470,7 @@ fn public_chat_records(preset: &str) -> Vec<Value> {
             for record in &mut records {
                 let event = &mut record["event"];
                 if event["type"] == "assistant/message" {
-                    let text = "### PUBLIC compact heading\n\nFirst thought paragraph with **bold** and `inline code`.\n\n1. First compact item\n2. Second compact item\n\n```rust\nlet PUBLIC_reasoning = 1;\n```\n\n> PUBLIC quoted thought.";
+                    let text = "### PUBLIC compact heading\n\nFirst thought paragraph with **bold** and `inline code`.\n\n1. First compact item\n2. Second compact item\n\n```rust\nlet PUBLIC_reasoning = 1;\n```\n\n| PUBLIC key | PUBLIC value |\n|---|---|\n| alpha | one |\n\n> PUBLIC quoted thought.";
                     // The reasoning text lives in the message content and again in the
                     // stream's reasoning frame and block-end, so all three move together.
                     for part in event["data"]["message"]["content"]

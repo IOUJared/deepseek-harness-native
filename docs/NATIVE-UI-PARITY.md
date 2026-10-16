@@ -68,7 +68,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Shutdown budgets | DMG shell: graceful 10 s → SIGTERM 5 s → SIGKILL 5 s (`apps/desktop/src/main.ts:3790-3807`) | native 3 s / 1 s / 1 s (`StopPolicy::default`), documented in `NATIVE-CLOSE.md#budgets-against-the-dmg-shell`; aligning needs a measured Host unwind, not the shell's figures |
 | Referenced-session summary | under a user bubble: `Referenced session · labels` at 13px/18px tertiary, labels from the following `session-reference` context record, joined with `, ` | `DisplayRow::references` + `REFERENCE_LINE`/`reference_line` and the row's geometry; `chat-references` preset |
 | Markdown image | unresolvable source renders the alt as tertiary italic; a failed load adds the destination when there is no alt (`imageAlt`, `radius-md` block) | `Span::alt` + `render.tsx:640,653`; no loading or decoding pipeline yet |
-| Markdown table | `th`/`td` `padding: 10px 16px`, first cell flush, last cell flush right, a rule under every row, `13px/22px`, fills under four columns and scrolls at a `100px` floor above it | `TABLE_PAD_*`/`TABLE_MIN_COLUMN`/`TABLE_FILL_COLUMNS`/`TABLE_LINE` + the shared `table_view`; `Block::Table` |
+| Markdown table | `th`/`td` `padding: 10px 16px` on the body ladder and `4px 8px` compact, first cell flush, last cell flush right, a rule under every row, `13px/22px` body and `13px/20px` compact, fills under four columns and scrolls at a `100px` floor above it | `TABLE_PAD_*`/`TABLE_MIN_COLUMN`/`TABLE_FILL_COLUMNS`/`TABLE_LINE` + the shared `table_view`; `Block::Table` |
 | Compact markdown | Reasoning body + trajectory detail use the secondary ladder: `p`/`ul`/`ol`/`blockquote` `4px 0`, `li` `2px`, headings `8px 0 4px` at the inherited size/600, `hr` `8px 0`, code `4px 0` in the surrounding colour, quote padding `8px` | `Ladder::Compact` + `COMPACT_*`; the reasoning body is parsed into the same block model |
 | Markdown rhythm | per-block margins, CSS-collapsed: `p` 16/16 · `h1–h3` 32/16 · `h4–h6` 16/16 · `li` 6 inside, list 16 at its edges · nested list 4 · `hr` 32/32 · code 16/11 · `h4–h6`+list 8 | `block_margins`/`document_gap` over `BLOCK_GAP`/`RULE_GAP`/`LIST_ITEM_GAP`/`NESTED_LIST_GAP`/`CODE_LAST_GAP`/`TIGHT_HEADING_GAP`; both renderers and the offset walk read them |
 | Width handles | 10px strip at lane ± 24 · `2px` glow `4px` in, `16px` core, hover/drag only | `WIDTH_HANDLE_*` + `HANDLE_GLOW_*`, hover/drag state, `native-width-handle-*` rects |
@@ -1147,3 +1147,18 @@ cell, so new findings go at the end of the file as plain paragraphs.
   model and reasoning chips with the geometry above, the menu and its badge, the
   confirmation guard, and the Host command that changes the preset — several items, each
   with its own capture, rather than one.
+
+- **Compact table cells — landed, capture-verified.** The table landed with one padding
+  pair for both ladders, but the sheet gives the compact one its own:
+  `.compact :is(th, td) { padding: 4px 8px; font: inherit }`
+  (`ui-primitives/markdown/MarkdownText.module.css:341-346`) against the body's
+  `10px 16px`. `design::COMPACT_TABLE_PAD_V`/`_H` and `conversation_content::
+  table_padding` now carry both, and the row height, the column width and the rendered
+  cells all read that one function, so the measurement and the render move together.
+  Verified in the reasoning body at the `chat-thoughts-markdown` preset, whose reasoning
+  now carries a two-column table: the grab shows the header and body rules with the
+  tighter cells, and `a_compact_table_row_is_shorter_than_a_body_row` pins the exact
+  delta — `2 × (10 − 4)` of padding plus the ladder's line box, `22 − 20` — so a future
+  change to either side fails the test rather than drifting.
+  `shots/61-compact-table-dp2.png` is the grab and `shots/61-compact-table.png` that run's
+  own frame.
