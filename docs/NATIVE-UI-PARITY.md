@@ -1181,12 +1181,18 @@ cell, so new findings go at the end of the file as plain paragraphs.
   preset that adds a badge and replaces the label and description with locale copy, and
   selecting full access passes through a `RiskConfirmation` step before it commits.
   Native keeps **no permission projection state** at all, so there is no chip, menu,
-  confirmation or command to align yet. Landing it means: projecting the Host's
-  permission catalog and current preset (the record kind `permission/preset` appears in
-  `chat_visibility_tests.rs`, so the stream carries it), a control-row chip beside the
-  model and reasoning chips with the geometry above, the menu and its badge, the
-  confirmation guard, and the Host command that changes the preset — several items, each
-  with its own capture, rather than one.
+  confirmation or command to align yet. Its two inputs split in a way worth knowing before
+  starting: the **current preset already arrives as a record** — `permission/preset` with
+  `data.preset` (`"workspace-write"` in `fixtures/chat-visibility.json`, listed in
+  `known.rs`, folded in reducer tests) — while the **catalog is a remote call, not a
+  record**: the reference fetches it through `ctx.remote.permissionPresets.catalog()`
+  with an ok/error result and its own pending/failure state
+  (`ui-permission-presets/src/client/catalog.ts:134-148`). So landing this means a
+  transport command wrapper for the catalog (the plan toggle's path is the nearest
+  existing shape), a projection for `data.preset`, the chip beside the model and
+  reasoning chips with the geometry above, the menu with its Auto-review badge, the
+  confirmation guard before full access commits, and the command that changes the preset
+  — several items, each with its own capture, rather than one.
 
 - **Compact table cells — landed, capture-verified.** The table landed with one padding
   pair for both ladders, but the sheet gives the compact one its own:
