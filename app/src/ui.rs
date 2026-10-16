@@ -725,6 +725,9 @@ pub struct App {
     agent_roster: Option<dsh_native_core::AgentPresetRoster>,
     /// The hero preset seat's selection list is open.
     agent_seat_open: bool,
+    /// The Host's refusal of the last pick, shown on the seat rather than dropped: a
+    /// `agentPreset/locked` message means the session had already started.
+    agent_seat_error: Option<String>,
     /// A write is in flight; the row is busy until its acknowledgement lands.
     permission_default_saving: bool,
     editor_undo: Vec<String>,
@@ -946,6 +949,7 @@ impl App {
                 permission_settings: None,
                 agent_roster: None,
                 agent_seat_open: false,
+                agent_seat_error: None,
                 permission_default_saving: false,
                 editor_undo: Vec::new(),
                 editor_redo: Vec::new(),
@@ -2862,14 +2866,22 @@ impl App {
             }
             Message::AgentPresetPick(id) => {
                 self.agent_seat_open = false;
-                // The selection is **not** wired, and this arm deliberately does not invent a
-                // path for it: the reference stages a pick through the remote API
-                // (`ctx.remote.agentPresets.select(session.id, staged)`,
-                // `ui-agent-preset/src/client/seat-store.ts:230`), which this app has no
-                // command for yet. An earlier revision of this arm submitted an invented
-                // `/agent <id>` composer line, which no Host command answers; it is removed
-                // rather than left to fail silently.
-                let _ = id;
+                // A new attempt clears the previous refusal, as the reference's store does.
+                self.agent_seat_error = None;
+                if let Some(session) = self.selected.clone() {
+                    self.command(Command::AgentPresetSelect {
+                        session,
+                        preset: id,
+                    });
+                }
+            }
+            Message::Worker(Event::AgentPresetSelected(result)) => {
+                match result {
+                    // The Host returns the committed identity, so the seat's own value follows
+                    // the Host rather than the click.
+                    Ok(_) => self.agent_seat_error = None,
+                    Err(message) => self.agent_seat_error = Some(message),
+                }
             }
             Message::TogglePermissionMenu if self.composer_visible() => {
                 self.permission_menu = !self.permission_menu;
@@ -8869,9 +8881,18 @@ impl App {
                 container(label("◈", MUTED).size(13))
                     .width(design::HERO_CHIP_GLYPH)
                     .align_x(iced::Alignment::Center),
-                label(preset.unwrap_or_else(|| "Preset".to_owned()), MUTED)
-                    .size(13)
-                    .line_height(iced::Pixels(design::CRUMB_LINE)),
+                label(
+                    self.agent_seat_error
+                        .clone()
+                        .unwrap_or_else(|| preset.unwrap_or_else(|| "Preset".to_owned())),
+                    if self.agent_seat_error.is_some() {
+                        DANGER
+                    } else {
+                        MUTED
+                    },
+                )
+                .size(13)
+                .line_height(iced::Pixels(design::CRUMB_LINE)),
                 label("⌄", MUTED).size(12).width(design::HERO_CHIP_CHEVRON),
             ]
             .spacing(design::HERO_CHIP_GAP)

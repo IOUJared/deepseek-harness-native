@@ -2219,3 +2219,18 @@ navigation, `subagentTiming`'s activity marker, and editable keybinding rebindin
    Verified: fixture **1114** exit 0, default **1107** exit 0, format-debt 0.
    The remaining half is the seat: its inert pick arm becomes the command, and the event's
    `Err` — which carries the `agentPreset/locked` code as a string — is what the seat announces.
+
+   **The seat's pick is wired, and a refusal is shown rather than dropped.**
+   `Message::AgentPresetPick` now issues `Command::AgentPresetSelect` for the selected session
+   and clears any previous refusal, exactly as the reference's store clears it on a new attempt;
+   `Event::AgentPresetSelected` carries the outcome, and a refusal is held in `agent_seat_error`
+   and rendered **in place of the preset name, in the danger colour** on the seat itself. That is
+   deliberately the smallest honest rendering: the reference announces a refusal through its chip,
+   and its exact announcement form has not been read, so this shows the Host's message where the
+   value would be instead of inventing a panel — and, importantly, instead of failing silently,
+   which an unwired pick had been doing since round 121.
+   Verified: fixture **1114** exit 0, default **1107** exit 0, format-debt 0.
+   **Not yet capture-verified, and stated rather than implied:** the refusal state is unreachable
+   in the fixture, which needs a setter for it. The seat's normal state is unchanged by this edit
+   — the chip renders the roster's name exactly as the round-120 capture shows — so the existing
+   grab still holds, and the refusal's own grab is the next step.
