@@ -7135,6 +7135,26 @@ impl App {
                             .padding([1, 2]),
                         );
                     }
+                    // The assistant tail closes with the clock, as the reference's
+                    // `.timeEnd` does: one pixel under the secondary size, with an
+                    // 8px left margin (`MessageIconActions.module.css:23-37`).
+                    if !human && let Some(clock) = local_hh_mm(record.time) {
+                        footer = footer.push(
+                            container(
+                                label(clock, MUTED).size(
+                                    (design::content_secondary(self.content_font_size) - 1.0)
+                                        .max(1.0)
+                                        .round() as u32,
+                                ),
+                            )
+                            .padding(iced::Padding {
+                                top: 0.0,
+                                right: 0.0,
+                                bottom: 0.0,
+                                left: 8.0,
+                            }),
+                        );
+                    }
                     let mut card = Column::new();
                     if chat_geometry::status_header(&record.role) {
                         card = card
