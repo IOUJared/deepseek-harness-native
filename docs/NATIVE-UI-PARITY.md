@@ -164,7 +164,14 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    own rule), refuses a catalog whose `defaultPreset` names nothing selectable, and
    `set_ack` accepts only `ok: true`. Its four tests join the Core suite, which reports
    **108 passed / 0 failed**;
-   (c) the worker/app plumbing. Corrected estimate: this is a **feature module, not three
+   (c) the worker/app plumbing, whose delivery shape is now pinned too: a worker arm
+   spawns the request and emits an `Event`, exactly as `app/src/worker.rs:2187` does for
+   `Command::Inspect` (`backend.request(CoreCommand::Inspect, …)` mapped into
+   `Event::Inspection`), so the catalog read is a `Command` variant, an arm in that shape
+   mapping `PublicReply::PermissionCatalog`, an `Event` variant, the app's handler and its
+   state — no sub-effect module is strictly required, since plain variants like
+   `AccountSubscribe` and `PluginsRead` already exist (`app/src/worker.rs:48-70`).
+   Corrected estimate: this is a **feature module, not three
    edits** — the app's `Command` enum (`app/src/worker.rs:48-70`) is a taxonomy whose every
    variant wraps that feature's own `Effect` enum (`crate::codex::Effect`,
    `crate::settings::cloudflare::Effect`), so permission needs its own effect type, its own
