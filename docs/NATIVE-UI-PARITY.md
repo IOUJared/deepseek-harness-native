@@ -1376,8 +1376,13 @@ cell, so new findings go at the end of the file as plain paragraphs.
   (x 158, y 701) above the chip, and the grab shows the title, the warning, the unticked
   acknowledgement and both buttons. `shots/64-permission-confirm-dp2.png` is the grab and
   `shots/64-permission-confirm.png` that run's own frame.
+  The second remainder is closed: the commit button now carries the primary style **only**
+  when the acknowledgement is ticked and a dimmed ghost style while it is not, so an inert
+  button no longer looks enabled on a safety control. Both forms are captured at the same
+  preset — `--permission-confirm true` for the unticked state and `--permission-confirm true
+  --permission-acknowledged true` for the ticked one (`shots/65-permission-confirm-enabled.png`
+  is the second); a new fixture setter carries the tick.
   Remainders, stated plainly: the guard is a panel anchored to the chip where the reference
   shows a modal over the conversation, so the *presentation* differs even though the copy,
-  the acknowledgement gate and the buttons match; the Enable button renders in the primary
-  style while unticked and is inert rather than visibly disabled; and the acknowledgement
+  the acknowledgement gate, the button styles and the actions match; and the acknowledgement
   only ticks from the box itself, since Iced's checkbox carries no label.

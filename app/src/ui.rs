@@ -4877,6 +4877,12 @@ impl App {
         self.permission_confirm = open.then(|| "full-access".to_owned());
         self.permission_acknowledged = false;
     }
+    /// Fixture-only: tick the risk acknowledgement, so a capture shows the enabled form of
+    /// the confirmation's commit button.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn set_permission_acknowledged(&mut self, acknowledged: bool) {
+        self.permission_acknowledged = acknowledged;
+    }
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn set_editor_menu(&mut self, open: bool) {
         self.editor_menu = open;
@@ -6140,13 +6146,28 @@ impl App {
     /// (`ui-permission-presets/src/client/locales.ts:34-38`). Enable stays disabled until
     /// the acknowledgement is ticked, which is what makes the guard meaningful.
     fn permission_confirm_view(&self) -> Element<'_, Message> {
-        let enable = button(label("Enable Full access", TEXT).size(13))
-            .style(design::primary)
-            .padding([4, 10])
-            .on_press_maybe(
-                self.permission_acknowledged
-                    .then_some(Message::PermissionConfirmEnable),
-            );
+        // An inert button that still looks enabled is a false signal on a safety control,
+        // so the tick is what gives it the primary style as well as its action.
+        let acknowledged = self.permission_acknowledged;
+        let enable = button(
+            label(
+                "Enable Full access",
+                if acknowledged { TEXT } else { MUTED },
+            )
+            .size(13),
+        )
+        .style(move |theme, status| {
+            if acknowledged {
+                design::primary(theme, status)
+            } else {
+                design::ghost(theme, status)
+            }
+        })
+        .padding([4, 10])
+        .on_press_maybe(
+            self.permission_acknowledged
+                .then_some(Message::PermissionConfirmEnable),
+        );
         container(
             Column::new()
                 .spacing(8)

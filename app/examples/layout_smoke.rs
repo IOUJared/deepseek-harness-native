@@ -125,6 +125,8 @@ struct Options {
     permission_menu: bool,
     /// Hold the full-access risk confirmation open for a capture.
     permission_confirm: bool,
+    /// Tick the risk acknowledgement, so the confirmation's enabled form is captured too.
+    permission_acknowledged: bool,
 }
 fn public_drop_file(value: String) -> Result<PathBuf, &'static str> {
     let path = PathBuf::from(value);
@@ -206,6 +208,7 @@ fn options() -> Result<Options, &'static str> {
             "--editor-menu",
             "--permission-menu",
             "--permission-confirm",
+            "--permission-acknowledged",
             "--scrolled-away",
             "--page-pending",
         ]
@@ -285,6 +288,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         width_handle_glow: match values.remove("--width-handle-glow") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        permission_acknowledged: match values.remove("--permission-acknowledged") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -529,6 +536,9 @@ impl Fixture {
         }
         if options.permission_confirm {
             app.set_permission_confirm(true);
+        }
+        if options.permission_acknowledged {
+            app.set_permission_acknowledged(true);
         }
         if options.scrolled_away {
             app.set_scrolled_away(true);
