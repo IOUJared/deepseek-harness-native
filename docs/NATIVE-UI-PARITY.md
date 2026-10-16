@@ -163,4 +163,11 @@ cell, so new findings go at the end of the file as plain paragraphs.
   threading the preset name into it (or adding a dedicated record builder) rather
   than editing the shared message, which would change every preset that includes
   it and the tests that count its rows.
+- **Attachment coverage, precisely.** Two different things are true and the
+  distinction matters: the *text* a file part produces is pinned by a unit test —
+  `reducer.rs:903` asserts `File · PUBLIC.bin · 0 bytes [preview unavailable]` —
+  while no fixture renders a message carrying a file part, so there is no capture
+  coverage of the row's layout. Changing the join in `content()` (`:769-770`) will
+  therefore fail that assertion by design, and the fixture work above is what adds
+  the layout half.
 
