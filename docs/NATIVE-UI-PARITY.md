@@ -64,6 +64,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Blockquote | `border-left: 2px solid label-caption` · `padding-left: 14px` · `margin: 16px 0 0` | `QUOTE_BAR`/`QUOTE_PAD`/`QUOTE_INSET`; a filled rule whose height is the paragraph's own measured height |
 | Editable context menu | Undo · Redo · — · Cut · Copy · Paste · — · Select all, each enabled from the edit flags, no accelerator labels, 180px panel | `editor_menu::entries`/`view` + a 100-step editor history; `native-editor-menu` rect |
 | Search offset | measured with the drawn block heights, collapsed gaps and the ladder, for the answer and the reasoning alike | `document_first_offset` + `document_first_offset_walks_drawn_heights_and_gaps` |
+| Referenced-session summary | under a user bubble: `Referenced session · labels` at 13px/18px tertiary, labels from the following `session-reference` context record, joined with `, ` | **not implemented** — recorded below with its mechanism and cost |
 | Markdown image | unresolvable source renders the alt as tertiary italic; a failed load adds the destination when there is no alt (`imageAlt`, `radius-md` block) | `Span::alt` + `render.tsx:640,653`; no loading or decoding pipeline yet |
 | Markdown table | `th`/`td` `padding: 10px 16px`, first cell flush, last cell flush right, a rule under every row, `13px/22px`, fills under four columns and scrolls at a `100px` floor above it | `TABLE_PAD_*`/`TABLE_MIN_COLUMN`/`TABLE_FILL_COLUMNS`/`TABLE_LINE` + the shared `table_view`; `Block::Table` |
 | Compact markdown | Reasoning body + trajectory detail use the secondary ladder: `p`/`ul`/`ol`/`blockquote` `4px 0`, `li` `2px`, headings `8px 0 4px` at the inherited size/600, `hr` `8px 0`, code `4px 0` in the surrounding colour, quote padding `8px` | `Ladder::Compact` + `COMPACT_*`; the reasoning body is parsed into the same block model |
@@ -1088,4 +1089,25 @@ cell, so new findings go at the end of the file as plain paragraphs.
   `https://`/local paths, which is a feature of its own rather than a measurement; until
   then every image takes the unresolvable branch, so a picture the reference would show
   appears here as its alt text.
+- **Referenced-session summary — recorded, not landed.** A user turn that triggered a
+  cross-session recall shows one line under its bubble: `.referenceSummary` at
+  `color: label-tertiary; font-size: 13px; line-height: 18px + delta_secondary`
+  (`ui-chat/src/client/chat/MessageItem.module.css:42-45`), rendered after the bubble
+  inside `.userStack` and before the action row
+  (`MessageItem.tsx:225-229`). The copy is `Referenced session · {labels}` with labels
+  joined by `, ` (`ui-chat/src/client/locale.ts:317-318`; the zh sheet uses `、`), and
+  the labels themselves come from the context record that *immediately follows* the
+  user message: `sessionRecallLabels(source)` returns `source.references[].label` when
+  `source.kind === 'session-reference'`
+  (`conversation-nodes/event-projection.ts:83-87`, attributed by
+  `chat-snapshot-builder.ts:515-541`).
+  Native already recognizes that record kind (`transcript_presentation.rs:41-52`) but
+  projects nothing from it, so the line has no counterpart. Deliberately **not**
+  half-landed: the labels are attributed to a row that was already folded and measured
+  when the context record arrives, so the change needs the reference labels in
+  `chat_geometry`'s cache key (today `(role, text, lane)`) plus a revision bump that
+  re-measures the earlier row, the row's own `18px + delta_secondary` line box as a
+  third ladder entry beside the body's 24 and the compact 20, and the trailing line in
+  the user stack — measurement, offsets and render together, which is a round of its
+  own rather than a piece of this one.
 
