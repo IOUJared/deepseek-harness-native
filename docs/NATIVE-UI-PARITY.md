@@ -1935,9 +1935,16 @@ cell, so new findings go at the end of the file as plain paragraphs.
    deployment's default in full ink, the others dim, and a declared preset whose activation
    failed in red and **unchoosable** — the reference keeps such a row visible precisely so a
    broken preset is not mistaken for an absent one
-   (`ui-agent-preset/src/client/index.ts:210-232`, `AgentPresetRow.broken`). A pick submits
-   `/agent <id>` through the same composer path the permission chip uses, so no new transport
-   is involved.
+   (`ui-agent-preset/src/client/index.ts:210-232`, `AgentPresetRow.broken`).
+   **A correction, because the first version of this entry was wrong.** It claimed a pick
+   submits `/agent <id>` through the composer, and the code did exactly that. Reading the
+   reference shows no such command exists: a pick is staged through the **remote API**,
+   `ctx.remote.agentPresets.select(session.id, staged)`
+   (`ui-agent-preset/src/client/seat-store.ts:230`). The invented composer line would have
+   failed silently against a real Host, which is the worst failure mode available, so the arm
+   now closes the list and does nothing, with the reason in the code. Wiring selection is its
+   own slice — bridge, Core and app plumbing for `select`, as the roster read needed for
+   `list` — and it is not claimed here.
    Verified at the hero fixture with a three-row roster — default, ordinary and broken: the
    grab shows `Implementer` in full ink, `Reviewer` dim and `Scout` red above the chip
    (`shots/76-agent-preset-seat-dp2.png`). Both suites green with exit codes captured.

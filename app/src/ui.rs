@@ -2862,14 +2862,14 @@ impl App {
             }
             Message::AgentPresetPick(id) => {
                 self.agent_seat_open = false;
-                // A preset is a property of the session the Host will start, so the pick is a
-                // command line into the composer, exactly as the picker's own surface does.
-                if let Some(session_id) = self.selected.clone() {
-                    self.command(Command::CommandsExecute {
-                        session_id,
-                        line: format!("/agent {id}"),
-                    });
-                }
+                // The selection is **not** wired, and this arm deliberately does not invent a
+                // path for it: the reference stages a pick through the remote API
+                // (`ctx.remote.agentPresets.select(session.id, staged)`,
+                // `ui-agent-preset/src/client/seat-store.ts:230`), which this app has no
+                // command for yet. An earlier revision of this arm submitted an invented
+                // `/agent <id>` composer line, which no Host command answers; it is removed
+                // rather than left to fail silently.
+                let _ = id;
             }
             Message::TogglePermissionMenu if self.composer_visible() => {
                 self.permission_menu = !self.permission_menu;
