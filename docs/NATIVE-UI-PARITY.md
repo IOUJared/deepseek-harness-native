@@ -170,4 +170,13 @@ cell, so new findings go at the end of the file as plain paragraphs.
   coverage of the row's layout. Changing the join in `content()` (`:769-770`) will
   therefore fail that assertion by design, and the fixture work above is what adds
   the layout half.
+- **Attachment fixture — the cheap route.** `public_tool_records()` is called from
+  three places (`layout_fixture.rs:533`, `:636`, `:642`), so adding a parameter
+  means editing all of them. Cheaper and smaller: keep it as a wrapper
+  (`fn public_tool_records() -> Vec<Value> { public_tool_records_with(None) }`) and
+  put the body in `public_tool_records_with(attachment: Option<&str>)`, so only the
+  new preset's call site asks for the file part and the three existing call sites
+  are untouched. The conditional then belongs at `:433`, where the first user
+  message's `content` array is built. Two edits plus the preset registration
+  (`PRESETS` and the `preset_size` arm, as `no-session` needed) instead of seven.
 
