@@ -214,6 +214,8 @@ pub enum Message {
     /// (`apps/desktop/src/main.ts:276-300`).
     EditorMenu(bool),
     EditorMenuAction(editor_menu::Action),
+    /// The hero preset chip's own press: a user action, and the roster read's only trigger.
+    AgentPresetSeat,
     /// Opens or dismisses the permission chip's menu.
     TogglePermissionMenu,
     /// Sends one permission preset as the command line the reference's picker submits.
@@ -2844,6 +2846,13 @@ impl App {
                 let preset = self.permission_confirm.take().unwrap_or_default();
                 self.permission_acknowledged = false;
                 self.send_permission_preset(&preset);
+            }
+            Message::AgentPresetSeat => {
+                // The read rides the press rather than a frame or a selection, which is the
+                // discipline the suites enforce: no read is queued without a user action.
+                if self.agent_roster.is_none() {
+                    self.command(Command::AgentPresetsRead);
+                }
             }
             Message::TogglePermissionMenu if self.composer_visible() => {
                 self.permission_menu = !self.permission_menu;
@@ -8806,10 +8815,44 @@ impl App {
         .padding(design::HERO_CHIP_PAD)
         .height(design::COMPOSER_CHIP_HEIGHT);
         let chip = container(chip).id("native-hero-workspace");
+        // `conversation.hero.agentPreset` (`ui-agent-preset/src/client/index.ts:210-214`): the
+        // new-session preset, which a session-less window cannot read from a projection. The
+        // press is also the read's trigger, because the app queues no read without a user
+        // action (the suite enforces that), and the selection list follows the roster's own
+        // default.
+        let preset = self.agent_roster.as_ref().and_then(|roster| {
+            roster
+                .presets
+                .iter()
+                .find(|row| row.is_default)
+                .map(|row| row.name.clone().unwrap_or_else(|| row.id.clone()))
+        });
+        let preset_chip = button(
+            row![
+                container(label("◈", MUTED).size(13))
+                    .width(design::HERO_CHIP_GLYPH)
+                    .align_x(iced::Alignment::Center),
+                label(preset.unwrap_or_else(|| "Preset".to_owned()), MUTED)
+                    .size(13)
+                    .line_height(iced::Pixels(design::CRUMB_LINE)),
+                label("⌄", MUTED).size(12).width(design::HERO_CHIP_CHEVRON),
+            ]
+            .spacing(design::HERO_CHIP_GAP)
+            .align_y(iced::Alignment::Center),
+        )
+        .on_press(Message::AgentPresetSeat)
+        .style(design::ghost)
+        .padding(design::HERO_CHIP_PAD)
+        .height(design::COMPOSER_CHIP_HEIGHT);
+        let preset_chip = container(preset_chip).id("native-hero-preset");
         container(
-            container(chip)
-                .width(Length::Fill)
-                .padding(design::HERO_ROW_PAD),
+            container(
+                row![chip, preset_chip]
+                    .spacing(design::HERO_CHIP_GAP)
+                    .align_y(iced::Alignment::Center),
+            )
+            .width(Length::Fill)
+            .padding(design::HERO_ROW_PAD),
         )
         .max_width(self.chat_cap() + design::COMPOSER_CARD_OVERHANG)
         .width(Length::Fill)

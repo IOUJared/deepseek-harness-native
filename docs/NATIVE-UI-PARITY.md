@@ -1916,3 +1916,16 @@ cell, so new findings go at the end of the file as plain paragraphs.
    moments a surface actually needs a preset name. That shrinks nothing and speeds nothing —
    but it is where this belongs, and both places are already the ones that would need the
    roster anyway.
+
+   **Hero chip landed, and its press is the read's only trigger.** The hero's chip row now
+   carries the reference's `conversation.hero.agentPreset` seat beside the workspace chip: a
+   glyph, the roster's own default name and the chevron, dimmed until the roster answers, and
+   it renders nothing rather than a guess when there is no roster — no session projection can
+   supply this one, which is why the read exists. Its press is the trigger, because the app
+   queues no read without a user action (the suites enforce that, twice over now), so the
+   action and the need are the same event.
+   Verified at the `hero-workspace-selected` fixture with a seeded roster: the grab shows
+   `◈ Implementer ⌄` beside `⌂ PUBLIC workspace ⌄`
+   (`shots/75-hero-preset-chip-dp2.png`). Both suites green with their exit codes captured.
+   Remaining from this read: the selection list behind the chevron, which the roster now makes
+   possible, and the subagent activity marker.
