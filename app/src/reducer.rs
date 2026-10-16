@@ -144,6 +144,21 @@ impl Transcript {
         &self.work
     }
     /// Project retained rows; cancellation, malformed/future records and Send gates are unchanged.
+    /// The most recent `permission/preset` record's preset, if the session carried one.
+    /// The record already reaches native (`fixtures/chat-visibility.json` opens with
+    /// `workspace-write`, `known.rs` lists the kind), and this is the projection the
+    /// reference's permission chip reads its current value from; the catalog it also
+    /// needs is a remote call, not a record
+    /// (`ui-permission-presets/src/client/catalog.ts:134-148`).
+    pub fn permission_preset(&self) -> Option<&str> {
+        self.records
+            .values()
+            .rev()
+            .filter(|record| record.event_type == "permission/preset")
+            // A malformed payload is skipped rather than erasing a known preset, the
+            // same way every other record projection here treats one.
+            .find_map(|record| record.data["preset"].as_str())
+    }
     pub fn display_rows(&self, records: bool) -> impl Iterator<Item = &DisplayRow> {
         self.rows.iter().filter(move |row| {
             !self
@@ -1216,6 +1231,25 @@ mod tests {
         )
         .unwrap();
         assert_eq!(s.rows[0].references.join(" | "), "PUBLIC keep");
+    }
+    #[test]
+    fn the_permission_preset_projects_the_latest_record_only() {
+        let preset = |seq: u64, value: Value| json!({"type":"event","event":{"type":"permission/preset","seq":seq,"time":1000+seq,"data":value}});
+        let mut s = Transcript::new(1);
+        s.apply(
+            1,
+            snapshot(vec![preset(0, json!({"preset":"read-only"}))], 0),
+        )
+        .unwrap();
+        assert_eq!(s.permission_preset(), Some("read-only"));
+        // A later record wins, whatever order the frame arrives in.
+        s.apply(1, frame(preset(1, json!({"preset":"workspace-write"}))))
+            .unwrap();
+        assert_eq!(s.permission_preset(), Some("workspace-write"));
+        // A malformed or missing value projects nothing rather than a guess.
+        s.apply(1, frame(preset(2, json!({})))).unwrap();
+        assert_eq!(s.permission_preset(), Some("workspace-write"));
+        assert_eq!(Transcript::new(1).permission_preset(), None);
     }
     #[test]
     fn stale_generation_does_not_change_session() {
