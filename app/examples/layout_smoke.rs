@@ -82,6 +82,7 @@ const KNOWN_IDS: &[&str] = &[
     "native-width-handle-right",
     "native-header",
     "native-header-crumbs",
+    "native-agent-preset",
     "native-file-open",
     "native-file-draft",
     "native-file-picker",

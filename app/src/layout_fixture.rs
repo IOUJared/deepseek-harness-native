@@ -61,6 +61,7 @@ pub const PRESETS: &[&str] = &[
     "long-user-message",
     "history-more",
     "chat-transcript",
+    "agent-preset",
     "chat-markdown",
     "chat-table",
     "chat-image",
@@ -213,6 +214,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "history-more"
         | "long-user-message"
         | "chat-transcript"
+        | "agent-preset"
         | "chat-markdown"
         | "chat-table"
         | "chat-image"
@@ -830,6 +832,7 @@ pub fn build(
             | "history-more"
             | "long-user-message"
             | "chat-transcript"
+            | "agent-preset"
             | "chat-markdown"
             | "chat-table"
             | "chat-image"
@@ -886,6 +889,7 @@ pub fn build(
             "projectedTokens":108000,"contextWindow":128000}}),
         "context-pressure-risk" => json!({"contextPressure":{"pressureTokens":131072,
             "projectedTokens":131072,"contextWindow":128000}}),
+        "agent-preset" => json!({"agentPreset":{"id":"implementer","name":"Implementer"}}),
         "plan-mode" => json!({"plan":{"active":true,"pending":false}}),
         "plan-mode-applying" => json!({"plan":{"active":true,"pending":true}}),
         "plan-mode-leaving" => json!({"plan":{"active":false,"pending":true}}),

@@ -542,7 +542,17 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    seven cases, so the app suite is **1114 passed** with it. (The first attempt used a closure
    for the emptiness check and failed to compile on lifetime inference; the filter form
    replaced it.)
-   The remaining half is the **label**: the reference turns the value into display text
+   **Label landed and capture-verified.** The session header leads its crumb trail with the
+   preset when the Host projects one, in dim ink at the trail's own size, and renders nothing
+   when it does not — the reference's leading negative-order band, matched in the one place
+   native has to put it. Since the projection carries no display name, the key stands in, as
+   the permission chip does without its catalog. Verified with a new `agent-preset` fixture
+   mode whose projection carries `{id: implementer, name: Implementer}`: the grab shows
+   `implementer` ahead of `PUBLIC local conversation`
+   (`shots/72-agent-preset-label-dp2.png`). The first capture attempt failed outright because
+   the fixture refuses an unregistered mode, which is the fixture doing its job.
+   The remaining half is the **hero chip** (the same preset for a session that has not
+   started), and the **label's display name**, which needs the agent-preset roster. the reference turns the value into display text
    through the agent-preset registry and its `settings.agentPreset` locale
    (`ui-agent-preset/src/client/index.ts:65`, `locales.ts:127`), so native needs either that
    roster read or a fallback to the raw key — the same choice the permission chip already
