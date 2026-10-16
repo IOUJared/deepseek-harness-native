@@ -164,7 +164,17 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    own rule), refuses a catalog whose `defaultPreset` names nothing selectable, and
    `set_ack` accepts only `ok: true`. Its four tests join the Core suite, which reports
    **108 passed / 0 failed**;
-   (c) the worker/app plumbing, whose delivery shape is now pinned too: a worker arm
+   (c) **done** — the catalog read is wired end to end: `Command::PermissionCatalogRead`
+   maps the Core's `PublicReply::PermissionCatalog` into `Event::PermissionCatalog`
+   (`app/src/worker.rs:2187-2188` is the shape), the app keeps the reply in
+   `permission_catalog`, the chip asks for it when its menu first opens, and the menu lists
+   the Host's own `options` with the design set only as the stand-in before a reply.
+   Verified with a fixture-seeded Host catalog (`--permission-catalog true`): the capture
+   shows the menu offering **"Ask every time"** — a name that exists only in the seeded
+   reply, replacing the design set's "Read only" — with the current preset in full ink.
+   Two corrections to earlier estimates are worth keeping: the delivery is the plain worker
+   event pattern, and no sub-effect module was required. (Superseded note follows.)
+   The worker/app plumbing, whose delivery shape is now pinned too: a worker arm
    spawns the request and emits an `Event`, exactly as `app/src/worker.rs:2187` does for
    `Command::Inspect` (`backend.request(CoreCommand::Inspect, …)` mapped into
    `Event::Inspection`), so the catalog read is a `Command` variant, an arm in that shape

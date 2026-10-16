@@ -57,6 +57,8 @@ pub enum Command {
     Codex(crate::codex::Effect),
     Export(crate::exporter::Submission),
     PluginsRead(crate::plugins::ReadTicket),
+    /// Read the Host's permission-preset catalog for the chip's menu.
+    PermissionCatalogRead,
     PluginSave {
         ticket: crate::plugins::WriteTicket,
         /// Boxed alongside [`crate::plugins::Effect::Save`]: the namespace view
@@ -127,6 +129,8 @@ pub enum Command {
 }
 #[derive(Clone)]
 pub enum Event {
+    /// The Host's permission-preset catalog, read once when the chip's menu opens.
+    PermissionCatalog(Result<dsh_native_core::PermissionCatalog, String>),
     AccountCompleted {
         ticket: crate::settings::Ticket,
         outcome: crate::settings::account::Outcome,
@@ -721,6 +725,8 @@ fn cloudflare_reply(
 fn rejected(command: Command) -> Event {
     let error = "Native concurrent operation limit reached; retry explicitly".to_owned();
     match command {
+        // A read-only catalog costs nothing to refuse, and the menu keeps the design set.
+        Command::PermissionCatalogRead => Event::PermissionCatalog(Err(error)),
         Command::Account(effect) => {
             let ticket = effect.ticket();
             drop(effect);
@@ -2184,8 +2190,10 @@ async fn run(
                     Command::SaveKey{ticket,secret}=>{if codex.busy()||cloudflare.busy()||!key_save_guard(ticket,smoke,key_saving.is_some(),plugins_active.is_some(),export_active.is_some()){drop(secret);if !publish(&events,Event::KeySaved{ticket,result:crate::settings::SaveResult::NotSent}){break Some("Native UI delivery queue overflow".into());}}else{key_saving=Some(ticket);let backend=backend.clone();tasks.spawn_blocking(move||save_key(&backend,ticket,secret,smoke));}continue;},
                     command=>command,
                 };
+                if matches!(command,Command::PermissionCatalogRead){let backend=backend.clone();tasks.spawn_blocking(move||Event::PermissionCatalog(match backend.request(CoreCommand::PermissionCatalog,Duration::from_secs(5)){Ok(PublicReply::PermissionCatalog(catalog))=>Ok(catalog),Ok(_)=>Err("Invalid Core permission catalog reply".into()),Err(e)=>Err(format!("Core permission catalog: {e}"))}));continue;}
                 if matches!(command,Command::Inspect){let backend=backend.clone();tasks.spawn_blocking(move||Event::Inspection(match backend.request(CoreCommand::Inspect,Duration::from_secs(5)){Ok(PublicReply::Inspection(value))=>Ok(value),Ok(_)=>Err("Invalid Core inspection reply".into()),Err(e)=>Err(format!("Core inspection: {e}"))}));continue;}
                 let client=client.clone();tasks.spawn(async move {match command {
+                    Command::PermissionCatalogRead=>Event::Fault("Permission catalog bypassed priority dispatch".into()),
                     Command::Create{workspace,cwd}=>Event::Created(client.session_create(SessionCreateRequest{workspace_id:workspace,cwd,..Default::default()}).await.map_err(|e|format!("New session: {e}"))),
                     Command::OpenWorkspace(path)=>Event::WorkspaceOpened(client.workspace_create(path).await.map_err(|e|format!("Open workspace: {e}"))),
                     Command::Catalog(ticket)=>rejected(Command::Catalog(ticket)),

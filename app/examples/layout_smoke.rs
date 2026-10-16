@@ -127,6 +127,8 @@ struct Options {
     permission_confirm: bool,
     /// Tick the risk acknowledgement, so the confirmation's enabled form is captured too.
     permission_acknowledged: bool,
+    /// Seed a Host-shaped catalog, so the menu's Host-driven list is captured.
+    permission_catalog: bool,
 }
 fn public_drop_file(value: String) -> Result<PathBuf, &'static str> {
     let path = PathBuf::from(value);
@@ -209,6 +211,7 @@ fn options() -> Result<Options, &'static str> {
             "--permission-menu",
             "--permission-confirm",
             "--permission-acknowledged",
+            "--permission-catalog",
             "--scrolled-away",
             "--page-pending",
         ]
@@ -288,6 +291,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         width_handle_glow: match values.remove("--width-handle-glow") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        permission_catalog: match values.remove("--permission-catalog") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -540,6 +547,9 @@ impl Fixture {
         if options.permission_acknowledged {
             app.set_permission_acknowledged(true);
         }
+        if options.permission_catalog {
+            app.set_permission_catalog();
+        }
         if options.scrolled_away {
             app.set_scrolled_away(true);
         }
@@ -608,6 +618,7 @@ impl Fixture {
                 worker::Command::Cloudflare(_) => "Cloudflare",
                 worker::Command::Export(_) => "Export",
                 worker::Command::PluginsRead(_) => "PluginsRead",
+                worker::Command::PermissionCatalogRead => "PermissionCatalogRead",
                 worker::Command::PluginSave { .. } => "PluginSave",
                 worker::Command::Manage(_) => "Manage",
                 worker::Command::Rename(_) => "Rename",

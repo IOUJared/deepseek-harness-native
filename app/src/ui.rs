@@ -707,6 +707,9 @@ pub struct App {
     /// acknowledgement is ticked. Full access never commits on one press.
     permission_confirm: Option<String>,
     permission_acknowledged: bool,
+    /// The Host's advertised presets, read when the menu first opens; the design set
+    /// stands in until the reply arrives.
+    permission_catalog: Option<dsh_native_core::PermissionCatalog>,
     editor_undo: Vec<String>,
     editor_redo: Vec<String>,
     draft_serial: u64,
@@ -922,6 +925,7 @@ impl App {
                 permission_menu: false,
                 permission_confirm: None,
                 permission_acknowledged: false,
+                permission_catalog: None,
                 editor_undo: Vec::new(),
                 editor_redo: Vec::new(),
                 draft_serial: 0,
@@ -2829,6 +2833,16 @@ impl App {
             }
             Message::TogglePermissionMenu if self.composer_visible() => {
                 self.permission_menu = !self.permission_menu;
+                // The reference reads the catalog when the picker opens; native does the
+                // same and keeps the design set until the reply lands.
+                if self.permission_menu && self.permission_catalog.is_none() {
+                    self.command(Command::PermissionCatalogRead);
+                }
+            }
+            Message::Worker(Event::PermissionCatalog(result)) => {
+                if let Ok(catalog) = result {
+                    self.permission_catalog = Some(catalog);
+                }
             }
             Message::PermissionPick(preset) if self.composer_visible() => {
                 self.permission_menu = false;
@@ -4877,6 +4891,32 @@ impl App {
         self.permission_confirm = open.then(|| "full-access".to_owned());
         self.permission_acknowledged = false;
     }
+    /// Fixture-only: stand in for the Host's catalog reply, so the menu's Host-driven list
+    /// is capturable without a running Host. The names are deliberately not the design set's.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn set_permission_catalog(&mut self) {
+        self.permission_catalog = Some(dsh_native_core::PermissionCatalog {
+            options: vec![
+                dsh_native_core::PresetOption {
+                    value: "ask".to_owned(),
+                    name: "Ask every time".to_owned(),
+                    description: Some("Confirm each change".to_owned()),
+                },
+                dsh_native_core::PresetOption {
+                    value: "workspace-write".to_owned(),
+                    name: "Workspace write".to_owned(),
+                    description: None,
+                },
+                dsh_native_core::PresetOption {
+                    value: "full-access".to_owned(),
+                    name: "Full access".to_owned(),
+                    description: None,
+                },
+            ],
+            default_options: Vec::new(),
+            default_preset: "ask".to_owned(),
+        });
+    }
     /// Fixture-only: tick the risk acknowledgement, so a capture shows the enabled form of
     /// the confirmation's commit button.
     #[cfg(feature = "public-layout-fixture")]
@@ -6228,15 +6268,28 @@ impl App {
     /// full ink. The Host's own catalog would extend this list once the catalog read lands.
     fn permission_menu_view(&self, current: &str) -> Element<'_, Message> {
         let mut items = Column::new().spacing(2);
-        for (value, name) in [
-            ("read-only", "Read only"),
-            ("workspace-write", "Workspace write"),
-            ("full-access", "Full access"),
-        ] {
+        // The Host's catalog when it has answered, the design set until then, so the menu
+        // never shows an invented preset once the deployment has spoken.
+        let offered: Vec<(String, String)> = match &self.permission_catalog {
+            Some(catalog) => catalog
+                .options
+                .iter()
+                .map(|option| (option.value.clone(), option.name.clone()))
+                .collect(),
+            None => [
+                ("read-only", "Read only"),
+                ("workspace-write", "Workspace write"),
+                ("full-access", "Full access"),
+            ]
+            .into_iter()
+            .map(|(value, name)| (value.to_owned(), name.to_owned()))
+            .collect(),
+        };
+        for (value, name) in offered {
             let ink = if value == current { TEXT } else { MUTED };
             items = items.push(
                 button(label(name, ink).size(13))
-                    .on_press(Message::PermissionPick(value.to_owned()))
+                    .on_press(Message::PermissionPick(value.clone()))
                     .style(design::ghost)
                     .padding([4, 8])
                     .width(Length::Fill),
