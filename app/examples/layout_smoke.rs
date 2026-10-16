@@ -130,6 +130,8 @@ struct Options {
     permission_acknowledged: bool,
     /// Seed a Host-shaped catalog, so the menu's Host-driven list is captured.
     permission_catalog: bool,
+    /// Seed a Host-shaped agent roster, so the label's display name is captured.
+    agent_roster: bool,
     /// Open the settings modal, so its General page is captured.
     settings: bool,
 }
@@ -215,6 +217,7 @@ fn options() -> Result<Options, &'static str> {
             "--permission-confirm",
             "--permission-acknowledged",
             "--permission-catalog",
+            "--agent-roster",
             "--settings",
             "--scrolled-away",
             "--page-pending",
@@ -299,6 +302,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         settings: match values.remove("--settings") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        agent_roster: match values.remove("--agent-roster") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -557,6 +564,9 @@ impl Fixture {
         }
         if options.permission_catalog {
             app.set_permission_catalog();
+        }
+        if options.agent_roster {
+            app.set_agent_roster();
         }
         if options.settings {
             app.set_settings_open();

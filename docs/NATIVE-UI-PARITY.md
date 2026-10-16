@@ -1854,3 +1854,13 @@ cell, so new findings go at the end of the file as plain paragraphs.
    which is how the permission catalog's plumbing landed too.
    Settling step: wire the request and the first consumer — the hero chip's default, which is
    the roster's own `isDefault` row.
+
+   **First payout, capture-verified.** The request now rides the app's existing proactive read
+   (`Command::CommandsList`'s own site), and the header label prefers the roster's own name for
+   the projected preset, falling back to the key until the roster answers — the same rule the
+   permission chip uses without its catalog. Verified with a fixture-seeded roster beside the
+   `agent-preset` projection: the label reads **`Implementer`** where the projection alone read
+   `implementer` (`shots/74-agent-preset-name-dp2.png`), which is the roster travelling bridge →
+   Core → worker → label as one path rather than four separate claims.
+   Remaining from this read: the hero chip's `isDefault` row, and the subagent activity marker
+   that needs the catalog entry's own `activity`.

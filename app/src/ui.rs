@@ -4978,6 +4978,20 @@ impl App {
     /// Fixture-only: stand in for the settings descriptor reply, so the General page's
     /// permission row is capturable without a running Host.
     #[cfg(feature = "public-layout-fixture")]
+    /// Fixture-only: stand in for the Host's roster reply, so the label's display name is
+    /// capturable without a running Host.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn set_agent_roster(&mut self) {
+        self.agent_roster = Some(dsh_native_core::AgentPresetRoster {
+            presets: vec![dsh_native_core::AgentPresetRow {
+                id: "implementer".to_owned(),
+                is_default: true,
+                name: Some("Implementer".to_owned()),
+                description: None,
+                broken: None,
+            }],
+        });
+    }
     pub(crate) fn set_permission_settings(&mut self, writable: bool) {
         self.permission_settings = Some(dsh_native_core::PermissionSettingsState {
             current_value: "workspace-write".to_owned(),
@@ -6214,6 +6228,7 @@ impl App {
         };
         self.commands_pending = true;
         self.command(Command::CommandsList(session_id));
+        self.command(Command::AgentPresetsRead);
     }
     /// Put keyboard focus back in the composer.
     ///
@@ -7171,9 +7186,23 @@ impl App {
         // wrong. The projection carries no display name, so the key stands in, as the
         // permission chip does without its catalog.
         if let Some(preset) = self.transcript.agent_preset() {
+            // The projection carries the key only; the roster carries the deployment's own
+            // name for it, and the key stands in until the roster answers -- the same
+            // fallback rule as the permission chip without its catalog.
+            let shown = self
+                .agent_roster
+                .as_ref()
+                .and_then(|roster| {
+                    roster
+                        .presets
+                        .iter()
+                        .find(|row| row.id == preset)
+                        .map(|row| row.name.clone().unwrap_or_else(|| row.id.clone()))
+                })
+                .unwrap_or_else(|| preset.to_owned());
             crumbs = crumbs.push(
                 container(
-                    label(preset.to_owned(), MUTED)
+                    label(shown, MUTED)
                         .size(design::CRUMB_SIZE)
                         .line_height(iced::Pixels(design::CRUMB_LINE))
                         .wrapping(iced::advanced::text::Wrapping::None),
