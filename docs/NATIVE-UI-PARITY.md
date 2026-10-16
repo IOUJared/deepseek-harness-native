@@ -2044,3 +2044,20 @@ navigation, `subagentTiming`'s activity marker, and editable keybinding rebindin
    Settling step: find how a bridge-side caller resolves an `Agent` (the Host's sessions service
    is the likely answer), then add `agent-preset-select` with the lock code surfaced, then
    replace the hero seat's inert arm and project `agent-preset/selected` for the current value.
+
+   **The probe answers itself against the bridge route.** `select` takes an `Agent`, and `Agent`
+   is imported as a live handle from `@deepseek-ai/dsh-agent`
+   (`agent-preset-registry/src/index.ts:8`), so the *remote* layer is what marshals the client's
+   `session.id` string into one — the registry's own decorator does that work, not its caller.
+   A bridge inside the Host process has no such handle to offer, which means **selection should
+   not be a bridge command at all**, and the earlier plan for it was shaped wrong.
+   The right route is the one native's transport already uses for the other remote families: the
+   decorator's name is the endpoint, so `@Remote('select')` is `agentPresets/select`, exactly as
+   `@Remote('list')` on the same registry is read through a `settings/describe`-style endpoint
+   and `pluginInventory/list` and `settings/mutate` are already wired
+   (`transport/src/http.rs:217-218`, `:658-692`). So the slice is transport endpoint, then Core
+   family, then the app — three pieces, but a different three from the ones item 11 first named,
+   and no bridge change at all.
+   Settling step: read one existing transport endpoint pair end to end (`pluginInventory/list`
+   is the closest: a read with no arguments) and mirror its shape for `agentPresets/select`,
+   carrying the `agentPreset/locked` code through as the refusal the seat announces.
