@@ -164,7 +164,14 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    enum showed that was optimistic. The app already compiles against the new Core variants;
    after (c) lands, (d) is the first visible change in this feature;
    (d) the chip, menu, Auto-review badge and confirmation guard, at the geometry below, with
-   a DP-2 capture.
+   a DP-2 capture. Two facts gathered for it: the reference's three permission glyphs are
+   SVGs with no DejaVu equivalent, so the chip needs a text stand-in the way the plan chip
+   uses `☑` — checked against DejaVuSans, `◈` (U+25C8), `▣` (U+25A3) and `⎔` (U+2394) are
+   covered while `⚿` (U+26BF) is not; and the chip's *disabled* form is a faithful state to
+   start from rather than a placeholder, since the reference renders exactly it when the
+   control is locked (`disabled={locked || leaving}`, `color: label-dimmed`). The one thing
+   still unlocated is the composer's control-row composition site: the model chip is built
+   at `app/src/model_controls.rs:343-355` and placed from `ui.rs`.
    The first two are Core-side and user-independent; the last needs a fixture flag once the
    chip exists.
    (Original note follows.)
