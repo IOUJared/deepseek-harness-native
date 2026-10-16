@@ -445,6 +445,11 @@ const ACTION_COPY: &str = "❐";
 const ACTION_EDIT: &str = "✎";
 /// The web's `.action { padding: 6px }` around a 15px glyph.
 const ACTION_PAD: f32 = 6.0;
+/// The reference's action glyphs are 15px inside the 28px target, and the
+/// assistant's completion row gives them two extra pixels
+/// (`MessageIconActions.module.css:79-87`).
+const ACTION_GLYPH: u32 = 15;
+const ACTION_GLYPH_END: u32 = 17;
 /// What a message row reserves for the gap plus the action row.
 fn action_footer(delta: f32) -> f32 {
     ACTION_GAP + ACTION_HEIGHT + delta
@@ -7036,6 +7041,13 @@ impl App {
                                 TEXT,
                             )
                         };
+                    // The assistant's completion row gives its glyph two extra
+                    // pixels, as the reference's data-clock='end' row does.
+                    let glyph = if human {
+                        ACTION_GLYPH
+                    } else {
+                        ACTION_GLYPH_END
+                    };
                     let mut footer = row![]
                         .spacing(ACTION_SPACING)
                         .height(ACTION_HEIGHT + self.content_delta());
@@ -7057,7 +7069,7 @@ impl App {
                             );
                     }
                     footer = footer.push(
-                        button(label(ACTION_COPY, MUTED).size(14))
+                        button(label(ACTION_COPY, MUTED).size(glyph))
                             .on_press_maybe(self.row_copy_source(record.key).is_some().then_some(
                                 Message::CopyReply {
                                     generation: self.generation,
@@ -7069,7 +7081,7 @@ impl App {
                     );
                     if human && self.transcript.editable_text(record.key).is_some() {
                         footer = footer.push(
-                            button(label(ACTION_EDIT, MUTED).size(14))
+                            button(label(ACTION_EDIT, MUTED).size(ACTION_GLYPH))
                                 .on_press_maybe(
                                     self.edit_message_allowed(self.generation, record.key)
                                         .then_some(Message::EditReply {
