@@ -127,7 +127,17 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    its alt text. Needs a decode plus texture path and a deliberate fetch policy: are
    `https://` URLs fetched, are local paths read, or neither? That policy is the user's
    call, and it decides whether the feature is safe to build at all.
-2. **Permission select — its runtime bridge is landed; the Core wiring and UI follow.**
+2. **Permission select — the mutation is a conversation command, so the chip mirrors the
+   plan chip.** Corrected again, and this one shrinks the feature: the package's own header
+   says the picker "submits the `/permission <preset>` command line, so both surfaces" agree,
+   and that "`/permission <preset>` still switches directly" (`ui-permission-presets/src/client/index.ts:3-11`).
+   The Host therefore owns a `/permission` command exactly as it owns `/plan`, and native
+   already submits composer lines for the plan chip (`app/src/plan_control.rs:44-54`). So the
+   chip needs **no new bridge, Core protocol or app plumbing to switch a preset** — it sends
+   `/permission <preset>` through the composer. The landed bridge, Core family and typed
+   client remain the *other* path the reference also uses (the remote `set`), and the
+   catalog read is still the one remote call; the previous note follows for that part.
+   (Original note, superseded for the mutation:)
    `core/runtime/permission.mjs` now answers `permission-catalog` and `permission-set` for
    the Host's `permissionPresets` service: the catalog is reduced to the three fields a
    client renders (`value`, `name`, an optional `description`) with the Host's own
@@ -164,7 +174,8 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    enum showed that was optimistic. The app already compiles against the new Core variants;
    after (c) lands, (d) is the first visible change in this feature;
    (d) the chip, menu, Auto-review badge and confirmation guard, at the geometry below, with
-   a DP-2 capture. Two facts gathered for it: the reference's three permission glyphs are
+   a DP-2 capture — and, given the `/permission` command, the menu can offer the presets the
+   Host already advertises to the command menu rather than waiting on the catalog read. Two facts gathered for it: the reference's three permission glyphs are
    SVGs with no DejaVu equivalent, so the chip needs a text stand-in the way the plan chip
    uses `☑` — checked against DejaVuSans, `◈` (U+25C8), `▣` (U+25A3) and `⎔` (U+2394) are
    covered while `⚿` (U+26BF) is not; and the chip's *disabled* form is a faithful state to
