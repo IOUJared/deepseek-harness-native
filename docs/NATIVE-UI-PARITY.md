@@ -542,10 +542,17 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    seven cases, so the app suite is **1114 passed** with it. (The first attempt used a closure
    for the emptiness check and failed to compile on lifetime inference; the filter form
    replaced it.)
-   **Label landed and capture-verified.** The session header leads its crumb trail with the
-   preset when the Host projects one, in dim ink at the trail's own size, and renders nothing
-   when it does not — the reference's leading negative-order band, matched in the one place
-   native has to put it. Since the projection carries no display name, the key stands in, as
+   **Label landed and capture-verified — on the second attempt, because the first put it on
+   the wrong side of the trail.** Reading `ui-subagent`'s own comment settles the band's
+   order: subagent lineage "leads the band, directly after the title crumbs", "ahead of Team
+   navigation (-20) and the preset label (-10)" (`ui-subagent/src/client/index.ts:83-92`).
+   Native keeps that lineage inside the crumb trail itself — the trail already marks a
+   subagent crumb at its own size — so the preset label belongs *after* the trail, not before
+   it. It now renders there: the grab reads `PUBLIC local conversation` then `implementer`
+   (`shots/73-agent-preset-label-ordered-dp2.png`), where the earlier
+   `shots/72-agent-preset-label-dp2.png` had the two the other way round. The first version
+   was a divergence native *introduced* while matching the reference, which is exactly the
+   kind a capture exists to catch. Since the projection carries no display name, the key stands in, as
    the permission chip does without its catalog. Verified with a new `agent-preset` fixture
    mode whose projection carries `{id: implementer, name: Implementer}`: the grab shows
    `implementer` ahead of `PUBLIC local conversation`

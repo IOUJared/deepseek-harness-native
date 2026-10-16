@@ -7115,23 +7115,6 @@ impl App {
         let mut crumbs = row![]
             .spacing(design::CRUMB_GAP)
             .align_y(iced::Alignment::Center);
-        // `ui-agent-preset/src/client/index.ts:214-220`: static session context occupies
-        // the header's leading band, ahead of everything the session is doing, so the
-        // preset label leads the trail. The display name is not in the projection, so the
-        // key stands in, as the permission chip does without its catalog.
-        if let Some(preset) = self.transcript.agent_preset() {
-            crumbs = crumbs.push(
-                container(
-                    label(preset.to_owned(), MUTED)
-                        .size(design::CRUMB_SIZE)
-                        .line_height(iced::Pixels(design::CRUMB_LINE))
-                        .wrapping(iced::advanced::text::Wrapping::None),
-                )
-                .id("native-agent-preset")
-                .padding(design::CRUMB_PAD)
-                .max_width(design::CRUMB_MAX),
-            );
-        }
         let last = trail.len().saturating_sub(1);
         for (index, (id, title, subagent)) in trail.into_iter().enumerate() {
             if index > 0 {
@@ -7170,6 +7153,26 @@ impl App {
                     .into()
             };
             crumbs = crumbs.push(crumb);
+        }
+        // `ui-subagent/src/client/index.ts:83-92` fixes the band's order in its own
+        // comment: subagent lineage "leads the band, directly after the title crumbs",
+        // "ahead of Team navigation (-20) and the preset label (-10)". Native keeps that
+        // lineage inside the trail itself, as the title's continuation, so the preset label
+        // belongs *after* the trail rather than before it -- which is where it started, and
+        // wrong. The projection carries no display name, so the key stands in, as the
+        // permission chip does without its catalog.
+        if let Some(preset) = self.transcript.agent_preset() {
+            crumbs = crumbs.push(
+                container(
+                    label(preset.to_owned(), MUTED)
+                        .size(design::CRUMB_SIZE)
+                        .line_height(iced::Pixels(design::CRUMB_LINE))
+                        .wrapping(iced::advanced::text::Wrapping::None),
+                )
+                .id("native-agent-preset")
+                .padding(design::CRUMB_PAD)
+                .max_width(design::CRUMB_MAX),
+            );
         }
         // The row's own box is the trail's intrinsic width, which is what a
         // capture can measure: one crumb, or the ancestors plus separators.
