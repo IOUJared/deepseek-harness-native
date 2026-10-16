@@ -1799,3 +1799,17 @@ cell, so new findings go at the end of the file as plain paragraphs.
    display name, subagent activity marker), which is a better ordering than the smallest-first
    list implied: one read unlocks three surfaces, whereas each of the three alone is blocked on
    it. Recorded before building any of them.
+
+   **The roster's Host API is now pinned, so the bridge slice can be written mechanically.**
+   `agentPresets` declares `@Remote('list') async remoteExportList(): Promise<AgentPresetRoster>`
+   — "Read the selection roster" — alongside `list(): Promise<AgentPreset[]>` and
+   `resolve(id?: string): Promise<AgentPreset>` ("Resolve an identity without starting an
+   Agent"), plus `register` and `inspectCompositions`
+   (`packages/extensions/tool-cordis/src/api-catalog.ts:133-165`). So one `list` read answers
+   all three waiting surfaces — the hero chip's default, the label's display name and the
+   lineage marker's activity — because the roster carries the identities, their labels and
+   their activation state; `resolve` is only needed if a surface must name a preset the roster
+   omits, and the reference itself treats an absent catalogue entry as a known-leaf case.
+   Settling step: add the bridge command beside `permission.mjs`'s pair (same shape: bounded
+   projection, `ok`/error envelope, tests in the package's own node suite), route it in the
+   supervisor, then take the Core family and the app plumbing as the catalog did.
