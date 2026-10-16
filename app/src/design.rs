@@ -206,6 +206,10 @@ pub fn content_delta_secondary(size: f32) -> f32 {
 /// 1280x820 assumed) and the lane/compact decisions ran on the wrong one.
 pub const WINDOW_WIDTH: f32 = 1280.0;
 pub const WINDOW_HEIGHT: f32 = 820.0;
+/// The DMG's window minimum, `min 520x600` in its own window options
+/// (`PARITY-INVENTORY.md` §Windows).
+pub const WINDOW_MIN_WIDTH: f32 = 520.0;
+pub const WINDOW_MIN_HEIGHT: f32 = 600.0;
 /// Web transcript column: `clamp(680px, 64% of the conversation column, 920px)`
 /// (ui-conversation `ConversationRoot`). `column` is the conversation pane
 /// width before its horizontal padding. Malformed input falls back to `CHAT`.

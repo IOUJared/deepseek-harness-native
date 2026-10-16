@@ -58,6 +58,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Conversation header | 76 min-h · bottom 0.5px seam · 30px title row · tabs 13/16 + 2px bar | padding `10px 28px 0 20px` (tabs) / `… 10px` (no tabs) + 1px seam; `HEADER_*`/`TAB_*` carry the rows (band 77) |
 | Header crumbs | `4px` gap · crumb `4px 8px` · radius md · cap 220px · 14/20 (subagent 12/18) · 14/20 caption `/` | `CRUMB_*`; the trail walks `parentSessionId` while the origin is a subagent |
 | Chat content width | `clamp(680, 64%, 920)` | `design::chat_width(pane)` clamp, bounded by the padded pane |
+| Window box | main 1280×820 · min 520×600 | `design::WINDOW_*`/`WINDOW_MIN_*`, pinned by `the_window_box_matches_the_reference` |
 | User bubble | `padding: 10px 16px` · radius xl · stack cap `min(content × 0.702, 82%)` | `USER_BUBBLE_PAD`/`_INSET`/`_RADIUS`/`_SHARE`; the cap follows the live lane |
 | Width handles | 10px strip at lane ± 24 · `2px` glow `4px` in, `16px` core, hover/drag only | `WIDTH_HANDLE_*` + `HANDLE_GLOW_*`, hover/drag state, `native-width-handle-*` rects |
 | Jump to latest | `34px` round floating button · slot `bottom: 16px` · right edge on the column (or `32px` in) · only while not following the tail | `TO_BOTTOM_*` + `native-to-bottom` rect; `design::LINE` hover, no shadow |
@@ -812,4 +813,19 @@ cell, so new findings go at the end of the file as plain paragraphs.
   parentheses, which the compiler caught, and the second run inserted them after the
   matching close paren. A surface's content box shrinks by the bar's width only while
   it actually overflows, which is also how the reference behaves.
+- **Window box — landed, source-pinned.** The DMG's own window options are a
+  `1280x820` main window with a `520x600` minimum (`PARITY-INVENTORY.md` §Windows,
+  read from `main.js`). Native already created the window at 1280x820 but floored it
+  at **760x560**, a value no reference carries.
+  `design::WINDOW_MIN_WIDTH`/`WINDOW_MIN_HEIGHT` now hold the reference minimum,
+  `main.rs` reads all four numbers from `design`, and a new
+  `the_window_box_matches_the_reference` test pins both the constants and the two
+  option lines so they cannot drift apart again.
+  Verification limits, stated plainly: this is a window option the toolkit hands to
+  the compositor, so nothing in the fixture surface can measure it — a fixture
+  window has `resizable: false`, and Hyprland's Lua `window.resize` dispatcher is
+  mouse-driven (`hl.bind(mainMod .. " + mouse:273", hl.dsp.window.resize(), { mouse
+  = true })` in the shipped config), so driving a programmatic below-minimum resize
+  is the same blocked input path the width-drag handles have. Confirming the clamp
+  by hand needs a drag on a real window: shrink it and check it stops at 520x600.
 

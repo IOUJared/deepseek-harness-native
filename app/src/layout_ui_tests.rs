@@ -210,6 +210,23 @@ fn settings_constructor_has_one_semantic_registration_source_guard() {
     );
 }
 #[test]
+fn the_window_box_matches_the_reference() {
+    // The DMG's window options are 1280x820 with a 520x600 minimum
+    // (`PARITY-INVENTORY.md` §Windows); the created window and its floor must both
+    // come from those four numbers rather than drifting apart.
+    assert_eq!(design::WINDOW_WIDTH, 1280.0);
+    assert_eq!(design::WINDOW_HEIGHT, 820.0);
+    assert_eq!(design::WINDOW_MIN_WIDTH, 520.0);
+    assert_eq!(design::WINDOW_MIN_HEIGHT, 600.0);
+    // Stable fragments: rustfmt may wrap the option lines, so the assertion pins
+    // the four constants' use rather than one exact line shape.
+    let main = include_str!("main.rs");
+    assert!(main.contains("design::WINDOW_WIDTH, design::WINDOW_HEIGHT"));
+    assert!(main.contains("min_size: Some(Size::new("));
+    assert!(main.contains("design::WINDOW_MIN_WIDTH"));
+    assert!(main.contains("design::WINDOW_MIN_HEIGHT"));
+}
+#[test]
 fn conversation_column_is_adaptive_and_fits_the_padded_pane() {
     let (mut app, mut queue) = app();
     for (width, height) in [

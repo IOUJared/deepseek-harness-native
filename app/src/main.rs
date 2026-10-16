@@ -104,8 +104,14 @@ fn main() -> iced::Result {
     )
     .title("DeepSeek Harness · Native")
     .window(window::Settings {
+        // The DMG's own window options: a 1280x820 main window with a 520x600
+        // minimum (`PARITY-INVENTORY.md` §Windows, from `main.js`). Native used a
+        // 760x560 minimum, which no reference value backs.
         size: Size::new(design::WINDOW_WIDTH, design::WINDOW_HEIGHT),
-        min_size: Some(Size::new(760.0, 560.0)),
+        min_size: Some(Size::new(
+            design::WINDOW_MIN_WIDTH,
+            design::WINDOW_MIN_HEIGHT,
+        )),
         resizable: true,
         platform_specific: window::settings::PlatformSpecific {
             application_id: "ai.deepseek.harness.native.app".into(),
