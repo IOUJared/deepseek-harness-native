@@ -347,8 +347,21 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    user's "keep settings minimal — no metadata lines, revision numbers or field counts"
    preference should deliberately omit. This is recorded as a survey with the filter stated,
    because treating all seven as divergences would contradict that preference.
-   Settling step: read each of the four remaining packages' registered row, then land the
-   functional ones and record the deliberate omissions with their reason.
+   **Audited, and only one of the seven is a live question.** Read directly:
+   `ui-chat` and `ui-conversation` register **no** General row at all — they matched the
+   earlier file scan through other slots, so two of the seven were false positives.
+   `ui-settings-general` registers two: `developer-tools` (order 15) and `current-version`
+   (order 100). Both are **deliberate omissions**: a version row is exactly the metadata the
+   "no revision numbers or field counts" preference excludes, and a developer-tools row has
+   no subject in an app with no webview and no embedded browser. `ui-shortcuts` and
+   `ui-theme` were already covered — a present disclosure and a deliberately fixed theme.
+   That leaves one genuine gap: `ui-settings-session-log` injects a row (order 90) whose
+   component is `UploadRow`, alongside a `session-log-upload-toast` overlay — it uploads the
+   session log for support. Native has the Trajectory tab but no upload affordance, and this
+   is a *functional* feature rather than a layout match, so it needs a decision: land the
+   row and its transport, or record it as out of scope with the reason. Not yet decided.
+   Settling step: read `UploadRow` and the transport it calls, then either land it as its
+   own item or record the omission and why.
 
 ## Verification log (append-only)
 
