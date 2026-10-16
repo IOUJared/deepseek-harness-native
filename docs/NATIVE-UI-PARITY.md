@@ -179,4 +179,12 @@ cell, so new findings go at the end of the file as plain paragraphs.
   are untouched. The conditional then belongs at `:433`, where the first user
   message's `content` array is built. Two edits plus the preset registration
   (`PRESETS` and the `preset_size` arm, as `no-session` needed) instead of seven.
+- **Attachment fixture — a trap, hit and recorded.** Inserting the conditional
+  *inside* the `json!` of the first user message does not compile: a macro body
+  cannot hold a `let`/`if` block (`unexpected end of macro invocation` at
+  `layout_fixture.rs:438`). The parts have to be built *before* the macro and
+  interpolated, e.g. collect `let mut parts = vec![json!({...text...})]`, push the
+  file part when requested, then pass `"content": parts` — which means moving the
+  existing `vec![event(0, "user/message", json!({…}))]` wrapper around it rather
+  than only editing the array in place.
 
