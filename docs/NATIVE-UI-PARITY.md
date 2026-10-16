@@ -2294,3 +2294,24 @@ navigation, `subagentTiming`'s activity marker, and editable keybinding rebindin
    Settling step: read the session-follow loop end to end (its subscribe, its publish and its
    cancel path), then mirror it for jobs. That is the last read before the slice, and it is the
    same shape the roster read needed once the pattern was identified.
+
+   **The follow loop, read end to end — jobs has an exact three-part template.**
+   - **The mux opens the stream.** The worker holds `selected: Option<NativeStream<SessionFollowFrame>>`
+     (`app/src/worker.rs:509`) and opens it through the live observation mux:
+     `mux.session_follow(SessionFollowRequest{address, max_messages, turn_window, assistant_stream})`
+     (`:1942`). So the transport already exposes *stream subscriptions*, and a jobs stream needs
+     the same shape — `mux.jobs_follow(...)`, `mux.jobs_list(...)` — rather than a new endpoint
+     kind.
+   - **The event loop selects and publishes.** `:2261` selects on the stream and publishes frames
+     to the app's feed: `publish(&events, Event::Selected{generation, frame})`. **This is the
+     pattern to copy verbatim for jobs**: select on the stream, publish a typed frame event.
+   - **The terminal path is explicit.** An error frame publishes `Event::FollowError{generation,
+     error}` and clears `selected`; a closed stream publishes the same event with "Session stream
+     closed; reload session" and clears it too (`:2261`). So cancellation is *state cleared on the
+     error path*, not a separate mechanism, and a jobs stream inherits that by construction.
+   Nothing about jobs is now unread: the controller declares `list` and `follow` streams plus
+   `kill` (`job-controller/src/index.ts:73-110`); the transport opens stream subscriptions through
+   the mux (`worker.rs:1942`); the loop publishes frames and clears on error (`:2261`); and the
+   app's `Feed`/`stream()` machinery already turns those events into an Iced subscription
+   (`:370-395`). The slice is three mirrored pieces and a header row, and all four have a template
+   inside this repository.
