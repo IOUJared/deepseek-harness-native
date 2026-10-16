@@ -7,7 +7,7 @@ use crate::{
 use dsh_native_core::{Inspection, PublicEvent, StopResult};
 use dsh_native_transport::dto::*;
 use iced::widget::{
-    Button, Column, Space, button, column, container, rich_text, row, scrollable, span, text,
+    Button, Column, Row, Space, button, column, container, rich_text, row, scrollable, span, text,
     text_editor, text_input,
 };
 use iced::{Color, Element, Length, Subscription, Task, Theme, keyboard, window};
@@ -489,6 +489,74 @@ fn flow_gap_before(rows: &[&DisplayRow], index: usize) -> f32 {
 /// is fixed (`MessageItem.module.css:320-332`): its name and meta lines are
 /// literals there, so no card measurement follows the content-size preference
 /// and `design::attachment_height` reserves exactly `64` per card.
+/// The composer's attachment rail. The reference lays staged attachments in a
+/// horizontal, 10px-gapped row of 64px-tall items inside `padding: 2px 10px 0`
+/// with a `-6px` bottom margin (`ComposerAttachments.module.css:1-8`,
+/// `AttachmentRail.module.css:8-30`), each file a 240x64 `FileCard` whose 18px
+/// round remove control sits 6px from its top-right corner
+/// (`FileCard.module.css:1-40, 77-96`). The control is always visible here: Iced
+/// would need per-card hover state to reveal it the way the reference does.
+fn composer_rail(items: Vec<(FileCard, Message)>) -> Option<Element<'static, Message>> {
+    if items.is_empty() {
+        return None;
+    }
+    let mut cards = Row::new()
+        .spacing(design::ATTACH_RAIL_GAP)
+        .align_y(iced::Alignment::Center);
+    for (file, remove) in items {
+        let icon = container(label(ATTACHMENT_GLYPH, TEXT).size(18))
+            .width(28)
+            .height(28)
+            .align_x(iced::Alignment::Center)
+            .align_y(iced::Alignment::Center);
+        let name = container(
+            label(file.name, TEXT)
+                .size(14)
+                .line_height(iced::Pixels(22.0))
+                .wrapping(iced::advanced::text::Wrapping::None),
+        )
+        .height(22)
+        .clip(true);
+        let meta = container(
+            label(file.meta, MUTED)
+                .size(12)
+                .line_height(iced::Pixels(15.0))
+                .wrapping(iced::advanced::text::Wrapping::None),
+        )
+        .height(15)
+        .clip(true);
+        // The card's 178px text column keeps the 28px icon and 12px paddings
+        // inside the reference's 240px width.
+        let body = container(row![icon, Column::new().push(name).push(meta)].spacing(10))
+            .padding([8, 12])
+            .align_y(iced::Alignment::Center)
+            .width(design::ATTACHMENT_CARD_WIDTH)
+            .height(design::ATTACHMENT_CARD_HEIGHT)
+            .style(design::elevated_surface);
+        let remove = container(
+            button(label("×", TEXT).size(12))
+                .on_press(remove)
+                .style(design::fill_solid)
+                .padding([0.0, 0.0])
+                .width(design::ATTACH_RAIL_REMOVE_SIZE)
+                .height(design::ATTACH_RAIL_REMOVE_SIZE),
+        )
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_x(iced::Alignment::End)
+        .align_y(iced::Alignment::Start)
+        .padding(design::ATTACH_RAIL_REMOVE_INSET);
+        let mut card = iced::widget::Stack::new().push(body);
+        card = card.push(remove);
+        cards = cards.push(card);
+    }
+    Some(
+        container(cards)
+            .id("native-composer-rail")
+            .padding(design::ATTACH_RAIL_PAD)
+            .into(),
+    )
+}
 fn attachment_cards(files: Vec<FileCard>) -> Element<'static, Message> {
     let mut cards = Column::new()
         .spacing(design::ATTACHMENT_CARD_GAP)
@@ -5563,8 +5631,49 @@ impl App {
         .width(Length::Fill)
         .into()
     }
+    /// The rail's items: every staged or in-flight attachment, with the ticket
+    /// its remove control must carry. The reference's rail shows the same set —
+    /// uploading, ready and failed cards alike.
+    fn composer_rail_items(&self) -> Vec<(FileCard, Message)> {
+        let mut items: Vec<(FileCard, Message)> = Vec::new();
+        for (ticket, metadata) in self.files.attachments() {
+            items.push((
+                FileCard {
+                    name: metadata.name.clone(),
+                    meta: crate::reducer::attachment_meta(&metadata.name, metadata.bytes),
+                },
+                Message::FileRemove(ticket.clone()),
+            ));
+        }
+        for (ticket, metadata, reading) in self.files.active() {
+            let (name, meta) = match (reading, metadata) {
+                (true, _) => ("Uploading…".to_owned(), "waiting for the Host".to_owned()),
+                (false, Some(metadata)) => (
+                    metadata.name.clone(),
+                    crate::reducer::attachment_meta(&metadata.name, metadata.bytes),
+                ),
+                (false, None) => ("Not staged".to_owned(), "no Host metadata".to_owned()),
+            };
+            items.push((FileCard { name, meta }, Message::FileRemove(ticket.clone())));
+        }
+        items
+    }
     fn file_controls(&self) -> Element<'_, Message> {
         let context = self.file_context();
+        // The fixture records this container's box, so a run whose rows have all
+        // moved to the rail must not emit a zero-height one: an empty body is no
+        // control at all.
+        let finishing = self.files.attachments().is_empty()
+            && self.files.active().is_empty()
+            && !self.files.editor_open()
+            && (self.files.pending() || self.files.prompt_pending() || self.local_files.busy());
+        if self.files.editor().is_none()
+            && !self.preview_current()
+            && self.files.notice().is_none()
+            && !finishing
+        {
+            return Space::new().height(0).into();
+        }
         let mut body = Column::new().spacing(5);
         if let Some((stamp, path)) = self.files.editor() {
             body = body.push(
@@ -5612,32 +5721,9 @@ impl App {
                     ),
             );
         }
-        for (ticket, metadata) in self.files.attachments() {
-            body = body.push(self.attachment_row(
-                ticket,
-                format!("File · {} · {} bytes", metadata.name, metadata.bytes),
-                "Remove",
-            ));
-        }
-        for (ticket, metadata, reading) in self.files.active() {
-            let title = match (reading, metadata) {
-                (true, _) => "Reading / uploading file…".to_owned(),
-                (false, Some(metadata)) => {
-                    format!("File · {} · {} bytes", metadata.name, metadata.bytes)
-                }
-                (false, None) => "File was not staged".to_owned(),
-            };
-            body = body.push(self.attachment_row(
-                ticket,
-                title,
-                if reading { "Cancel" } else { "Remove" },
-            ));
-        }
-        if self.files.attachments().is_empty()
-            && self.files.active().is_empty()
-            && !self.files.editor_open()
-            && (self.files.pending() || self.files.prompt_pending() || self.local_files.busy())
-        {
+        // Staged and in-flight attachments moved to the card's rail above the
+        // draft, exactly where the reference draws them.
+        if finishing {
             body = body.push(label("Previous file operation is finishing…", MUTED).size(11));
         }
         body = body.push(self.local_file_preview());
@@ -5904,7 +5990,13 @@ impl App {
             .pending
             .values()
             .any(|p| Some(&p.session) == self.selected.as_ref());
-        let mut inner = column![editor].spacing(design::COMPOSER_CARD_GAP);
+        // The reference renders the attachment rail as the card's first child,
+        // above the draft (`ConversationContent.tsx` composer bar).
+        let mut inner = Column::new().spacing(design::COMPOSER_CARD_GAP);
+        if let Some(rail) = composer_rail(self.composer_rail_items()) {
+            inner = inner.push(rail);
+        }
+        inner = inner.push(editor);
         if self.sidebar_organization.failure().is_some() {
             inner = inner.push(row![
                 label(
@@ -6335,7 +6427,7 @@ impl App {
             .spacing(design::RAIL_RHYTHM)
             .align_x(iced::Alignment::Center);
             return container(rail)
-                .padding(design::RAIL_PAD)
+                .padding(design::ATTACH_RAIL_PAD)
                 .width(width)
                 .height(Length::Fill)
                 .clip(true)

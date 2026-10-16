@@ -76,6 +76,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Composer seat | `.root` `0 16px 4px` · dock strip 4px · card = content + 32 | `COMPOSER_SEAT_PAD`/`COMPOSER_DOCK_GAP`/`COMPOSER_CARD_OVERHANG` |
 | Empty-state hero | headline + composer card centered as one stack, `gap: 12`; hero composer floor `52` | `HERO_GAP`/`HERO_INPUT_MIN`; `hero_pane` centers both, `COMPOSER_HERO_SEAT_PAD` drops the bottom pad |
 | Hero workspace chip | 28 min-h · `0 8px` · `gap: 4` · radius sm · 16px glyph + 12px chevron · row `0 16px 0 20px` + `margin-top: 4` | `HERO_CHIP_*`/`HERO_ROW_*`; opens native's sidebar workspace list |
+| Composer attachment rail | `padding: 2px 10px 0` · `-6px` pull · 10px gap · 64px items · 240×64 cards · 18px round remove 6px in | `ATTACH_RAIL_*`; the card's first child, above the draft |
 | Hero headline | mark + `Into the Unknown` in one centered row, `column-gap: 10`, `26/32` wt500 | `HERO_HEADLINE_GAP`/`HERO_TITLE_*`; the session-less state keeps native's own line |
 | Composer placeholder | `placeholder.hero` in the hero, `placeholder.default` docked | state-owned string in `composer()` |
 | Transcript side inset | `calc(clearance + 16px)` = 32 per side | `design::TRANSCRIPT_INSET`; `chat_lane` = `min(column − 64, chat_cap)` |
@@ -733,4 +734,33 @@ cell, so new findings go at the end of the file as plain paragraphs.
   Remainder: the reference's zoomed-out `.hint` line for an opening transcript
   (13/18 tertiary) has no native counterpart, because native has no partial-open
   state to show it in.
+- **Composer attachment rail — landed, rect- and capture-verified.** The reference
+  lays staged attachments in a horizontal, `10px`-gapped row of `64px`-tall items
+  inside `padding: 2px 10px 0` with a `-6px` bottom margin, at the card's first
+  child above the draft (`ComposerAttachments.module.css:1-8`,
+  `AttachmentRail.module.css:8-30`), each file a `240×64` card — a 28px glyph,
+  a `14px/22px` name and a `12px/15px` meta line, `0 12px` padding, `gap: 10px`,
+  `radius-lg` and a 0.5px hairline (`FileCard.module.css:1-40, 60-75`) — with an
+  `18px` round remove control 6px from its top-right corner, revealed on hover in
+  the reference (`FileCard.module.css:77-96`). Native rendered a **vertical column
+  of 12px text rows** ("File · name · bytes" + a Remove button) *below* the draft,
+  in its own file-controls block.
+  `ATTACH_RAIL_PAD`, `ATTACH_RAIL_GAP`, `ATTACH_RAIL_ITEM_HEIGHT`,
+  `ATTACH_RAIL_BOTTOM_PULL`, `ATTACH_RAIL_REMOVE_SIZE` and
+  `ATTACH_RAIL_REMOVE_INSET` carry the figures, `reducer::attachment_meta` shares
+  the reference's extension-and-size line with a message's cards, and `composer_rail`
+  draws the row as the card's first child while native's own path editor, consent
+  line, preview and notice stay below it.
+  Verified at the `file-ready-two` preset (two staged files): the rail's rect is
+  **66.0 × 510.0** — 64 + the 2px top pad tall, and `10 + 240 + 10 + 240 + 10` wide,
+  which is the reference's arithmetic exactly — and the grab shows both cards with
+  `BIN 4.9KB` / `TXT 2.0KB` metas and their round remove controls above the draft.
+  `shots/47-composer-rail-dp2.png` is the grab and `shots/47-composer-rail.png` that
+  run's own frame. The empty-state container this change left behind also had to
+  stop emitting a zero-height box: the fixture records that container's rect, and a
+  zero-height control fails its containment check, which the first capture caught.
+  Remainders: the remove control is always visible (the reference reveals it on card
+  hover, and Iced would need per-card hover state), the reference's 64×64 image
+  thumbnail has no native counterpart because native's rail holds files, and the
+  rail's edge arrows for horizontal overflow are not drawn.
 

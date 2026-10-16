@@ -270,6 +270,22 @@ pub const ATTACHMENT_CARD_HEIGHT: f32 = 64.0;
 /// `.userStack { gap: 8px }`, the gap between the attachment row and the bubble
 /// and between the cards themselves (`MessageItem.module.css:10-21`).
 pub const ATTACHMENT_CARD_GAP: f32 = 8.0;
+/// The composer's attachment rail (`ComposerAttachments.module.css:1-8`,
+/// `AttachmentRail.module.css:8-30`): `padding: 2px 10px 0` with a `-6px` bottom
+/// margin inside the card's 12px gap, a 10px gap between 64px-tall items, and an
+/// 18px round remove control 6px from each card's top-right corner
+/// (`FileCard.module.css:77-96`).
+pub const ATTACH_RAIL_PAD: iced::Padding = iced::Padding {
+    top: 2.0,
+    right: 10.0,
+    bottom: 0.0,
+    left: 10.0,
+};
+pub const ATTACH_RAIL_GAP: f32 = 10.0;
+pub const ATTACH_RAIL_ITEM_HEIGHT: f32 = 64.0;
+pub const ATTACH_RAIL_BOTTOM_PULL: f32 = -6.0;
+pub const ATTACH_RAIL_REMOVE_SIZE: f32 = 18.0;
+pub const ATTACH_RAIL_REMOVE_INSET: f32 = 6.0;
 /// The height `count` attachment cards add above a user bubble: one card each,
 /// `ATTACHMENT_CARD_GAP` between them, and the same gap before the bubble when
 /// one is drawn. The reservation and the view both read this, so a card cannot

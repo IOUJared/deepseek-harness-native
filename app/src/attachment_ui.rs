@@ -98,7 +98,7 @@ impl App {
             ));
         }
     }
-    fn preview_current(&self) -> bool {
+    pub(super) fn preview_current(&self) -> bool {
         self.local_files.preview_stamp.is_some_and(|stamp| {
             self.files
                 .editor()

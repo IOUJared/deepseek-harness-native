@@ -68,6 +68,7 @@ const KNOWN_IDS: &[&str] = &[
     "native-send-control",
     "native-model-controls",
     "native-reasoning-control",
+    "native-composer-rail",
     "native-hero-workspace",
     "native-load-older",
     "native-plan-control",

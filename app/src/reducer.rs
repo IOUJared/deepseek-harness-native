@@ -812,6 +812,24 @@ fn file_size_text(bytes: u64) -> String {
 /// A file part as its card. The meta is the reference's
 /// `[EXT, SIZE].filter(Boolean).join(' ')` (`MessageItem.tsx:213-214`), so an
 /// extension-less name shows the size alone.
+/// The reference's `FileCard` meta line for a typed Host attachment: the
+/// extension in upper case (bounded) and the reference's size text, or the size
+/// alone when the name has no extension (`FileCard.tsx:22-34`,
+/// `ui-primitives/file-size.ts:8-15`). Shared by a message's cards and the
+/// composer's rail so both read the same rules.
+pub(crate) fn attachment_meta(name: &str, bytes: u64) -> String {
+    let extension: String = file_extension(name)
+        .to_uppercase()
+        .chars()
+        .take(8)
+        .collect();
+    let size = file_size_text(bytes);
+    if extension.is_empty() {
+        size
+    } else {
+        format!("{extension} {size}")
+    }
+}
 fn file_card(attachment: &Value) -> Option<FileCard> {
     let (name, bytes) = file_identity(attachment)?;
     let extension: String = file_extension(&name)
