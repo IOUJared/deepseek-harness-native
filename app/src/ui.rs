@@ -5031,19 +5031,53 @@ impl App {
     /// and unknown event kinds live.
     fn transcript_tabs(&self) -> Element<'_, Message> {
         let expanded = self.records_expanded;
-        let tab = move |text: &'static str, active: bool| {
-            button(label(text, if active { ACCENT } else { MUTED }).size(12))
-                .padding([5, 12])
-                .style(move |theme, status| design::navigation(theme, status, active))
-                .on_press_maybe(
-                    (self.layout_controls_enabled() && !active).then_some(Message::ToggleRecords),
+        // The web's `.tab` (`ConversationRoot.module.css:203-231`): a `13px/16px`
+        // label with no horizontal padding, a 9px under-pad, and a 2px
+        // business-blue bar that ends flush with the header's seam. The strip
+        // gaps its tabs 36px and starts 8px inside the header's own inset
+        // (`:193-201`). Native keeps `design::ghost`'s hover surface, which the
+        // web's plain transparent tab does not draw.
+        let tab = move |text: &'static str, active: bool| -> Element<'_, Message> {
+            let bar = container(Space::new().height(design::TAB_BAR).width(Length::Fill))
+                .width(Length::Fill)
+                .style(move |_| {
+                    if active {
+                        design::bar(ACCENT)
+                    } else {
+                        container::Style::default()
+                    }
+                });
+            // The bar spans the tab's own text width, which only the stack's base
+            // layer knows: a `Fill` width inside a `Stack` resolves against the
+            // base's size, so the tab stays text-wide.
+            iced::widget::Stack::new()
+                .push(
+                    column![
+                        button(
+                            label(text, if active { ACCENT } else { MUTED })
+                                .size(13)
+                                .line_height(iced::Pixels(design::TAB_LINE)),
+                        )
+                        .padding([0.0, 0.0])
+                        .style(design::ghost)
+                        .on_press_maybe(
+                            (self.layout_controls_enabled() && !active)
+                                .then_some(Message::ToggleRecords),
+                        ),
+                        Space::new().height(design::TAB_PAD_BOTTOM),
+                    ]
+                    .align_x(iced::Alignment::Center),
                 )
+                .push(
+                    container(bar)
+                        .height(Length::Fill)
+                        .align_y(iced::Alignment::End),
+                )
+                .into()
         };
         row![tab("Chat", !expanded), tab("Trajectory", expanded)]
-            .spacing(6)
-            // horizontal padding belongs to the header band the tabs now live in,
-            // so the tabs line up with the title.
-            .padding([2, 0])
+            .spacing(design::TAB_GAP)
+            .padding([0.0, design::HEADER_TABS_INSET])
             .into()
     }
     fn transcript_tabs_visible(&self) -> bool {
@@ -5263,7 +5297,10 @@ impl App {
         if let Some(session) = observed.filter(|session| session.running) {
             identity = identity.push(self.working_badge(session));
         }
-        let mut actions = row![identity].spacing(6).align_y(iced::Alignment::Center);
+        let mut actions = row![identity]
+            .spacing(6)
+            .height(design::HEADER_TITLE_ROW)
+            .align_y(iced::Alignment::Center);
         if self.panel_stop_visible() {
             actions = actions.push(self.stop_button());
         }
@@ -5281,7 +5318,9 @@ impl App {
             )
             .on_press(Message::ToggleConversationMenu)
             .style(design::ghost)
-            .padding([8, 10]),
+            // The web's title row is 30px tall (`ConversationRoot.module.css:72-79`),
+            // so this control fits that row rather than setting its own.
+            .padding([7, 10]),
         );
         let mut header = column![actions].spacing(6);
         if !routine_status(&self.status) {
@@ -5324,7 +5363,11 @@ impl App {
         }
         let mut band = column![header];
         if self.transcript_tabs_visible() {
-            band = band.push(self.transcript_tabs());
+            // The web's tab strip carries its own 10px top margin
+            // (`ConversationRoot.module.css:199`).
+            band = band
+                .push(Space::new().height(design::HEADER_TABS_GAP))
+                .push(self.transcript_tabs());
         }
         container(column![
             container(band)

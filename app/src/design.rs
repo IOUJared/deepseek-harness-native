@@ -447,6 +447,16 @@ pub fn card(background: Color, radius: f32) -> container::Style {
 /// this palette's `LINE`; native's elevation ladder puts the fill at `OVERLAY`
 /// above `BASE`/`SURFACE`, so the card keeps the reference's visible hairline
 /// instead of `card`'s same-as-fill stroke. The web's soft shadow is not drawn.
+/// A flat filled strip: the header's 2px tab bar, which the web draws with
+/// `border-radius: 2px` in the business-blue accent
+/// (`ConversationRoot.module.css:218-231`).
+pub fn bar(color: Color) -> container::Style {
+    container::Style {
+        background: Some(color.into()),
+        border: border(2.0, Color::TRANSPARENT, 0.0),
+        ..Default::default()
+    }
+}
 pub fn elevated_surface(_: &Theme) -> container::Style {
     container::Style {
         background: Some(OVERLAY.into()),
@@ -521,6 +531,19 @@ pub const COMPOSER_SEAT_PAD: iced::Padding = iced::Padding {
 };
 pub const COMPOSER_DOCK_GAP: f32 = 4.0;
 pub const COMPOSER_CARD_OVERHANG: f32 = 32.0;
+/// The conversation header's own rows, from the web's `ConversationRoot`: the
+/// title row has `min-height: 30px` (`:72-79`), the tab strip sits `10px` under
+/// it with a `36px` gap and an `8px` leading inset (`:193-201`), and each tab is
+/// `13px/16px` with a `9px` under-pad and a `2px` bar that ends flush with the
+/// header's seam (`:203-231`). Those plus the header's `10px` top inset and
+/// `9px` bottom inset are the web's 76px band.
+pub const HEADER_TITLE_ROW: f32 = 30.0;
+pub const HEADER_TABS_GAP: f32 = 10.0;
+pub const HEADER_TABS_INSET: f32 = 8.0;
+pub const TAB_GAP: f32 = 36.0;
+pub const TAB_LINE: f32 = 16.0;
+pub const TAB_PAD_BOTTOM: f32 = 9.0;
+pub const TAB_BAR: f32 = 2.0;
 /// The fade itself: transparent at the top, base colour by its bottom, so
 /// scrolled content dissolves instead of meeting the composer at a hard edge.
 ///

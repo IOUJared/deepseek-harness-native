@@ -54,7 +54,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | New-session row | 38 h · 8/12 pad · radius md · elevated fill + 0.5px border | `NEW_SESSION_*` + `design::elevated`, 2px inset, 12px below |
 | Sidebar search | 30 h expanded · `0.5px` l4 hairline · radius md · 13/18 text | `design::search_field` + `SEARCH_*` |
 | Browser section header | 36 h · gap 4 · 4px trailing margin · 28px icon controls | `SECTION_HEADER_*` box; label and text stand-ins keep native's hint tier |
-| Conversation header | 76 min-h · bottom 0.5px seam · title 30 row | padding `10px 28px 0 20px` (tabs) / `… 10px` (no tabs) + 1px seam; row heights emerge, no min-height |
+| Conversation header | 76 min-h · bottom 0.5px seam · 30px title row · tabs 13/16 + 2px bar | padding `10px 28px 0 20px` (tabs) / `… 10px` (no tabs) + 1px seam; `HEADER_*`/`TAB_*` carry the rows (band 77) |
 | Chat content width | `clamp(680, 64%, 920)` | `design::chat_width(pane)` clamp, bounded by the padded pane |
 | User bubble max-width | `min(70.2% · content, 82%)` | content-sized, fixed 640 cap (≈70.2% of the widest column) |
 | Assistant text | unboxed, full content column | unboxed, spans the shared content column |
@@ -438,4 +438,29 @@ cell, so new findings go at the end of the file as plain paragraphs.
   One native remainder: the `[10, 20]` seat's 10px top gap is gone because the
   web's composer has no top padding — the transcript's own 16px scroller inset
   provides the separation, which is how the web's numbers add up.
+- **Conversation header rows and tab strip — landed, capture-verified.** The web
+  builds its 76px band out of rows: a `min-height: 30px` title row
+  (`ConversationRoot.module.css:72-79`), a tab strip `10px` below it with a
+  `36px` gap and an `8px` leading inset (`:193-201`), and per tab a `13px/16px`
+  label with *no* horizontal padding, a `9px` under-pad and a `2px` bar that ends
+  flush with the header's rule (`:203-231`). Native had a 32px title row (the
+  `More ▾` control's own `[8, 10]` padding), a `[2, 0]`-padded row of 12px pill
+  tabs with a 6px gap, an OVERLAY pill as the active state, and no bar.
+  `HEADER_TITLE_ROW` (30), `HEADER_TABS_GAP` (10), `HEADER_TABS_INSET` (8),
+  `TAB_GAP` (36), `TAB_LINE` (16), `TAB_PAD_BOTTOM` (9) and `TAB_BAR` (2) carry
+  the figures, `design::bar` draws the strip, and each tab is a `Stack` whose
+  base layer is the label column — a `Fill`-width bar inside a `Stack` resolves
+  against the base's size, which is how the bar spans exactly the tab's text
+  width without measuring it. **The first capture caught the alternative**: a
+  plain `column![label, pad, bar]` let the `Fill` bar inflate the tab, and the
+  two tabs split the strip and rendered centred and far apart.
+  Verified from the fixture's own `native-header` rect and the grab: the band is
+  **77.0** tall against 71.2 before (the web's rows sum to 75 plus the 2px bar,
+  which the web overlaps onto its 0.5px rule; native's ends flush at the seam
+  instead, hence 77 against 76), and the active tab's bar measures exactly 2px
+  (`y 104..105`) spanning 30px — the `Chat` label's own width — with the seam at
+  `y 106`. `shots/36-header-tabs-dp2.png` is the grab and
+  `shots/36-header-tabs.png` that run's frame (matching at 4.9 mean absolute
+  difference). Native keeps `design::ghost`'s hover surface on the tabs, which
+  the web's plain transparent tab does not draw.
 
