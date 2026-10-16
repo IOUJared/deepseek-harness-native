@@ -131,8 +131,11 @@ fn inline<'a>(spans: &'a [formatted::Span], size: u32) -> Element<'a, Message> {
         .into()
 }
 fn view(document: &formatted::Document) -> Element<'_, Message> {
-    let mut body = Column::new().spacing(12).width(Length::Fill);
-    for block in &document.blocks {
+    // The document's own rhythm, shared with the transcript: the reference spaces
+    // paragraphs by 16px and steps a following `h1`-`h3` up to 32px
+    // (`ui-primitives/markdown/MarkdownText.module.css:15-44`).
+    let mut body = Column::new().spacing(design::BLOCK_GAP).width(Length::Fill);
+    for (index, block) in document.blocks.iter().enumerate() {
         let rendered: Element<'_, Message> = match block {
             formatted::Block::Heading { level, spans } => {
                 inline(spans, design::heading_size(*level).round() as u32)
@@ -201,7 +204,15 @@ fn view(document: &formatted::Document) -> Element<'_, Message> {
                 })
                 .into(),
         };
-        body = body.push(rendered);
+        let extra = super::conversation_content::block_extra_top(block, index == 0);
+        body = body.push(if extra > 0.0 {
+            Column::new()
+                .push(Space::new().height(extra))
+                .push(rendered)
+                .into()
+        } else {
+            rendered
+        });
     }
     body.into()
 }

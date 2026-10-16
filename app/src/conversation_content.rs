@@ -1,7 +1,7 @@
 //! Bounded, inert native reply presentation. Source text never becomes a URI or command.
 use super::{FONT, MUTED, Message, TEXT, design, detail_panel::formatted, label};
 use iced::advanced::text::{self as native, Paragraph as _};
-use iced::widget::{Column, button, container, rich_text, row, scrollable, span, text};
+use iced::widget::{Column, Space, button, container, rich_text, row, scrollable, span, text};
 use iced::{Element, Font, Length, Pixels, Size, alignment};
 use std::{
     cell::{Cell, RefCell},
@@ -175,7 +175,7 @@ impl Prepared {
             REASONING_ROW + self.delta
         };
         if let Some(document) = &self.document {
-            for block in &document.blocks {
+            for (index, block) in document.blocks.iter().enumerate() {
                 let found = match block {
                     formatted::Block::Paragraph {
                         spans,
@@ -222,6 +222,7 @@ impl Prepared {
                     return (y + offset).clamp(0.0, self.body_height(width, expanded));
                 }
                 y += block_height(block, width, self.delta, self.delta_secondary)
+                    + block_extra_top(block, index == 0)
                     + design::BLOCK_GAP;
             }
             0.0
@@ -701,6 +702,18 @@ fn inline_view(
 fn heading_size(level: u8) -> u32 {
     design::heading_size(level).round() as u32
 }
+/// The extra top margin a block carries beyond the column's uniform gap. The
+/// reference's `h1`–`h3` are `margin: 32px 0 16px` against a paragraph's `16px 0`,
+/// so only a heading that is not the document's first block adds the difference
+/// (`MarkdownText.module.css:15-44`); `h4`–`h6` share the paragraph rhythm.
+pub(crate) fn block_extra_top(block: &formatted::Block, first: bool) -> f32 {
+    match block {
+        formatted::Block::Heading { level, .. } if !first && *level <= 3 => {
+            design::HEADING_EXTRA_TOP
+        }
+        _ => 0.0,
+    }
+}
 fn block_height(block: &formatted::Block, width: f32, delta: f32, delta_secondary: f32) -> f32 {
     match block {
         formatted::Block::Paragraph {
@@ -748,7 +761,10 @@ fn document_height(
     document
         .blocks
         .iter()
-        .map(|block| block_height(block, width, delta, delta_secondary))
+        .enumerate()
+        .map(|(index, block)| {
+            block_height(block, width, delta, delta_secondary) + block_extra_top(block, index == 0)
+        })
         .sum::<f32>()
         + document.blocks.len().saturating_sub(1) as f32 * design::BLOCK_GAP
 }
@@ -861,9 +877,10 @@ fn document_view(
                     .into()
             }
         };
+        let extra = block_extra_top(block, index == 0);
         body = body.push(
-            container(content)
-                .height(block_height(block, width, delta, delta_secondary))
+            container(Column::new().push(Space::new().height(extra)).push(content))
+                .height(block_height(block, width, delta, delta_secondary) + extra)
                 .clip(true),
         );
     }
@@ -1158,6 +1175,42 @@ mod tests {
         let _ = p.view(320.0, true);
     }
 
+    #[test]
+    fn heading_margins_step_up_like_the_reference() {
+        // `MarkdownText.module.css:15-44`: paragraphs are `margin: 16px 0` and
+        // `h1`-`h3` are `margin: 32px 0 16px`, so a heading that follows another
+        // block carries the difference on top of the column's uniform gap.
+        let paragraph = || formatted::Block::Paragraph {
+            spans: Vec::new(),
+            indent: 0,
+            marker: None,
+            quote: false,
+        };
+        let heading = |level| formatted::Block::Heading {
+            level,
+            spans: Vec::new(),
+        };
+        assert_eq!(block_extra_top(&heading(1), true), 0.0);
+        assert_eq!(
+            block_extra_top(&heading(2), false),
+            design::HEADING_EXTRA_TOP
+        );
+        assert_eq!(
+            block_extra_top(&heading(3), false),
+            design::HEADING_EXTRA_TOP
+        );
+        assert_eq!(block_extra_top(&heading(4), false), 0.0);
+        assert_eq!(block_extra_top(&paragraph(), false), 0.0);
+        // The document height and the block walk read the same rule.
+        let document = formatted::Document {
+            blocks: vec![paragraph(), heading(2)],
+        };
+        let sum = block_height(&paragraph(), 400.0, 0.0, 0.0)
+            + block_height(&heading(2), 400.0, 0.0, 0.0)
+            + design::HEADING_EXTRA_TOP
+            + design::BLOCK_GAP;
+        assert_eq!(document_height(&document, 400.0, 0.0, 0.0), sum);
+    }
     #[test]
     fn native_first_match_offsets_reach_long_wrapped_plain_formatted_code_and_reasoning() {
         let prefix = "PUBLIC words filling the paragraph. ".repeat(80);

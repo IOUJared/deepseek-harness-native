@@ -61,6 +61,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Window box | main 1280×820 · min 520×600 | `design::WINDOW_*`/`WINDOW_MIN_*`, pinned by `the_window_box_matches_the_reference` |
 | User bubble | `padding: 10px 16px` · radius xl · stack cap `min(content × 0.702, 82%)` | `USER_BUBBLE_PAD`/`_INSET`/`_RADIUS`/`_SHARE`; the cap follows the live lane |
 | Code block | `radius-lg` · banner `9px 14px` at 11/18 · `pre` `padding: 16px` · code `11px/19px` · banner one step over the block | `CODE_FONT`/`CODE_LINE`/`CODE_PAD`/`CODE_BANNER_*`/`CODE_CHROME`; both renderers and the offset path read them |
+| Markdown rhythm | `p { margin: 16px 0 }` · `h1–h3 { margin: 32px 0 16px }` · lists `16px` with 6px items | `BLOCK_GAP` + `HEADING_EXTRA_TOP` via `block_extra_top`, shared by the transcript and the details panel |
 | Width handles | 10px strip at lane ± 24 · `2px` glow `4px` in, `16px` core, hover/drag only | `WIDTH_HANDLE_*` + `HANDLE_GLOW_*`, hover/drag state, `native-width-handle-*` rects |
 | Jump to latest | `34px` round floating button · slot `bottom: 16px` · right edge on the column (or `32px` in) · only while not following the tail | `TO_BOTTOM_*` + `native-to-bottom` rect; `design::LINE` hover, no shadow |
 | Scrollbars | `5px` bar · invisible rail · `scrollbar-bg-l1` thumb, `hover-l1` on hover, declared for every element | `SCROLLBAR_WIDTH` + `design::scrollbar`/`scrollable_style` on all 18 scrollers; `LINE`/`MUTED` as the l1 pair |
@@ -857,4 +858,31 @@ cell, so new findings go at the end of the file as plain paragraphs.
   the 11px label's line box as 16 rather than the requested 18, and the reference's
   `margin: 16px 0` / `margin-bottom: 11px` rhythm around a code block is not modelled
   — native spaces blocks through its own flow gaps.
+- **Markdown block rhythm — partially landed; heading step verified, list items
+  recorded.** The reference gives each markdown block its own margins rather than one
+  uniform gap: `p { margin: 16px 0 }`, `h1`-`h3 { margin: 32px 0 16px }`, `h4`-`h6
+  { margin: 16px 0 }`, lists `margin: 16px 0` with `padding-left: 18px` and
+  `li:not(:first-child) { margin-top: 6px }`, and a list item's own first/last child
+  margins are zeroed (`ui-primitives/markdown/MarkdownText.module.css:15-44,102-140`).
+  Native has **three** different rhythms for that one document: the transcript's
+  document view spaces blocks by `BLOCK_GAP` (16), the details panel spaced its body
+  by **12**, and neither modelled a heading's taller margin.
+  `design::HEADING_EXTRA_TOP` (32 − 16) plus a shared
+  `conversation_content::block_extra_top(block, first)` now carry the heading step;
+  the transcript's render loop, its `document_height` and its first-match offset walk
+  all add it, and the details panel reads the same helper with `BLOCK_GAP` instead of
+  its own 12. A new `heading_margins_step_up_like_the_reference` test pins the rule
+  (`h1`-`h3` after another block, `h4`-`h6` and paragraphs unchanged) and the
+  document height's arithmetic.
+  Verified at `assistant-details-formatted`: the paragraph pitch between body bands
+  measures **25/26/25** rows in the grab where the same preset measured **21/22/21**
+  under the details panel's 12px spacing — the +4 the 16px rhythm asks for.
+  `shots/51-markdown-rhythm-dp2.png` is the grab and `shots/51-markdown-rhythm.png`
+  that run's own frame.
+  Remainders, recorded rather than half-done: the reference's `li:not(:first-child)`
+  6px item margin cannot be expressed while native's list items are sibling blocks in
+  a fixed-spacing column, so native still spaces them by `BLOCK_GAP`; the code block's
+  `margin-bottom: 11px` and the first block's own top margin are likewise not
+  modelled. Closing those needs a per-block margin model in the document layout
+  (heights, render and offsets together), which is a larger change than this pass.
 

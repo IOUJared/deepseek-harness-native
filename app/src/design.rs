@@ -126,6 +126,12 @@ pub const SECONDARY_SIZE: f32 = 13.0;
 /// with `gap: 16px` (`AssistantMarkdown.module.css:20`) and its markdown blocks
 /// carry `margin: 16px 0` (`MarkdownText.module.css:33`), where native used 12.
 pub const BLOCK_GAP: f32 = 16.0;
+/// The reference's headings step their margins up: `h1`–`h3` carry
+/// `margin: 32px 0 16px` where paragraphs carry `16px 0`, so a heading that follows
+/// another block sits `BLOCK_GAP` plus this much below it
+/// (`ui-primitives/markdown/MarkdownText.module.css:15-44`). `h4`–`h6` keep the
+/// paragraph rhythm.
+pub const HEADING_EXTRA_TOP: f32 = 32.0 - BLOCK_GAP;
 /// The gap between two conversation flow rows. The web gives every flow sibling
 /// `margin-top: var(--dsh-chat-flow-gap, 6px)` (`ChatView.module.css:60-71`), so
 /// two process rows sit 6px apart.
