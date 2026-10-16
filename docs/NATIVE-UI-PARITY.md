@@ -2405,3 +2405,16 @@ for the 520×600 floor; one live close-timing run for the shutdown budgets; and 
 policy. Still toolkit-blocked: the inline-code chip. Still authorized but unstarted: editable
 keybinding rebinding (store first), team navigation (unaudited), and the session-log row's present
 state, which needs a Host that advertises that namespace.
+
+   **The mux's stream shape, read: a `Kind`, its args, and `open`.** Every stream subscription is
+   three parts — `pub async fn session_follow(&self, request) -> Result<NativeStream<…>>` validates
+   the request, then calls `self.open(Kind::Session, request_args(request)?).await`
+   (`transport/src/mux.rs:308-317`), beside `events()` and `control()` which open `Kind::Events`
+   and `Kind::Control` with empty args (`:318-322`). So a stream family is a **`Kind` variant**
+   plus a typed request and a `NativeStream<Frame>` return, and the `Kind` enum is the stream
+   table the way `Endpoint` is the request table.
+   For jobs that means: `Kind::JobsList` and `Kind::JobsFollow` (or one kind with a method
+   argument, if the table names the endpoint that way), each with its request type, each returning
+   `NativeStream<JobListFrame>`/`NativeStream<JobFollowFrame>`, and a `JobView`-shaped frame
+   projection beside the session follow's. The one thing to read next is the `Kind` enum's own
+   name table, which is one line and settles whether the endpoint is named per kind or per method.
