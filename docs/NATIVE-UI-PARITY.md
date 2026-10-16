@@ -2061,3 +2061,22 @@ navigation, `subagentTiming`'s activity marker, and editable keybinding rebindin
    Settling step: read one existing transport endpoint pair end to end (`pluginInventory/list`
    is the closest: a read with no arguments) and mirror its shape for `agentPresets/select`,
    carrying the `agentPreset/locked` code through as the refusal the seat announces.
+
+   **The endpoint template is read end to end, so the slice is mechanical.** A transport call is
+   one line plus a projection — `plugin_inventory` is
+   `crate::plugin::project_inventory(self.invoke(Endpoint::PluginInventory, json!({})).await?)`
+   (`transport/src/http.rs:658-660`) — with the endpoint's own name in the `Endpoint` table
+   (`:218` for `pluginInventory/list`, beside `settings/describe`, `settings/mutate`,
+   `terminal/create` and the rest at `:214-222`), and per-endpoint failure codes mapped where
+   the reply is inspected (`:443-460`, e.g. `session/fork-unavailable`,
+   `terminal/limit-reached`) — which is where an `agentPreset/locked` refusal belongs.
+   So `agentPresets/select` needs exactly three edits to the transport: an `Endpoint` variant
+   with its name, a `pub async fn agent_preset_select(…)` calling `invoke`,
+   and an error arm. Then the Core family and the app's pick, as every other command has
+   travelled.
+   **One unknown remains, and it is not guessed:** the wire argument names. The client calls
+   `remote.agentPresets.select(session.id, staged)` positionally, while the registry declares
+   `select(agent: Agent, agentPreset: string)` — so the JSON keys are a marshalling detail of
+   the remote layer, unread, and they must be read from a real request or from the marshaller
+   before this endpoint is written. That is the last thing between this specification and a
+   slice that can be built without inventing anything.
