@@ -5444,9 +5444,9 @@ impl App {
             64
         };
         let mut identity = row![
-            label(short(&heading, title_limit), TEXT)
-                .size(18)
+            container(self.header_crumbs(&heading, title_limit))
                 .width(Length::Fill)
+                .clip(true)
         ]
         .spacing(8)
         .align_y(iced::Alignment::Center)
@@ -6447,6 +6447,100 @@ impl App {
             _ => return,
         };
         self.title_updates.insert(id.clone(), (seq, value));
+    }
+    /// The header's breadcrumb trail: the selected session and, while it is a
+    /// subagent, its ancestors. The reference walks `parentId` while
+    /// `origin === 'subagent'` and renders every crumb in one `4px`-gapped row —
+    /// ancestors as `4px 8px`-padded links that select that session, the current
+    /// one as plain primary text in the same box, and a `14px` caption `/`
+    /// between them (`ConversationSession.tsx:25-43, 73-104`,
+    /// `ConversationRoot.module.css:102-146`). The heading arrives already
+    /// shortened, because Iced has no ellipsis and a wrapped crumb would grow
+    /// the header.
+    fn header_crumbs(&self, heading: &str, title_limit: usize) -> Element<'_, Message> {
+        let mut trail: Vec<(SessionId, String, bool)> = Vec::new();
+        let mut seen = std::collections::BTreeSet::new();
+        let mut cursor = self.selected.clone();
+        while let Some(id) = cursor {
+            if !seen.insert(id.clone()) {
+                break;
+            }
+            let Some(summary) = self.sessions.get(&id) else {
+                break;
+            };
+            let subagent = summary.origin.is_some();
+            let title = if Some(&id) == self.selected.as_ref() {
+                heading.to_owned()
+            } else {
+                short(&self.session_title(summary), title_limit)
+            };
+            trail.push((id.clone(), title, subagent));
+            if !subagent {
+                break;
+            }
+            cursor = summary.parent_session_id.clone();
+        }
+        trail.reverse();
+        // No selected session is the session-less header: one plain current crumb.
+        if trail.is_empty() {
+            return container(
+                container(
+                    label(heading.to_owned(), TEXT)
+                        .size(design::CRUMB_SIZE)
+                        .line_height(iced::Pixels(design::CRUMB_LINE))
+                        .wrapping(iced::advanced::text::Wrapping::None),
+                )
+                .padding(design::CRUMB_PAD)
+                .max_width(design::CRUMB_MAX),
+            )
+            .id("native-header-crumbs")
+            .into();
+        }
+        let mut crumbs = row![]
+            .spacing(design::CRUMB_GAP)
+            .align_y(iced::Alignment::Center);
+        let last = trail.len().saturating_sub(1);
+        for (index, (id, title, subagent)) in trail.into_iter().enumerate() {
+            if index > 0 {
+                crumbs = crumbs.push(
+                    label("/", MUTED)
+                        .size(design::CRUMB_SIZE)
+                        .line_height(iced::Pixels(design::CRUMB_LINE)),
+                );
+            }
+            let current = index == last;
+            let size = if subagent {
+                design::CRUMB_SUBAGENT_SIZE
+            } else {
+                design::CRUMB_SIZE
+            };
+            let line = if subagent {
+                design::CRUMB_SUBAGENT_LINE
+            } else {
+                design::CRUMB_LINE
+            };
+            let ink = if current { TEXT } else { MUTED };
+            let text = label(title, ink)
+                .size(size)
+                .line_height(iced::Pixels(line))
+                .wrapping(iced::advanced::text::Wrapping::None);
+            let boxed = container(text)
+                .padding(design::CRUMB_PAD)
+                .max_width(design::CRUMB_MAX);
+            let crumb: Element<'_, Message> = if current {
+                boxed.into()
+            } else {
+                button(boxed)
+                    .on_press(Message::Select(id))
+                    .style(design::ghost)
+                    .padding([0.0, 0.0])
+                    .into()
+            };
+            crumbs = crumbs.push(crumb);
+        }
+        // The row's own box is the trail's intrinsic width, which is what a
+        // capture can measure: one crumb, or the ancestors plus separators.
+        container(crumbs).id("native-header-crumbs").into()
     }
     fn session_title(&self, session: &SessionSummary) -> String {
         let value = self

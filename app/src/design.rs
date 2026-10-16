@@ -614,6 +614,23 @@ pub const PLAN_CHIP_FILL_DIM: Color = Color::from_rgba(0.77, 0.65, 0.91, 0.07);
 /// from the pane edge once the column is narrower — holding a 34px round
 /// floating button with a `100px` radius, the floating fill, the panel elevation
 /// shadow and the primary label ink.
+/// The header's breadcrumb trail (`ConversationRoot.module.css:102-146`): 4px
+/// between segments, each crumb a `4px 8px`-padded `radius-md` box capped at
+/// 220px, `14px/20px` in the tertiary colour — primary and weight 500 for the
+/// current session — with subagent crumbs at `12px/18px`, and a `14px/20px`
+/// caption `/` separator between them.
+pub const CRUMB_GAP: f32 = 4.0;
+pub const CRUMB_PAD: iced::Padding = iced::Padding {
+    top: 4.0,
+    right: 8.0,
+    bottom: 4.0,
+    left: 8.0,
+};
+pub const CRUMB_MAX: f32 = 220.0;
+pub const CRUMB_SIZE: f32 = 14.0;
+pub const CRUMB_LINE: f32 = 20.0;
+pub const CRUMB_SUBAGENT_SIZE: f32 = 12.0;
+pub const CRUMB_SUBAGENT_LINE: f32 = 18.0;
 pub const TO_BOTTOM_SIZE: f32 = 34.0;
 pub const TO_BOTTOM_INSET: f32 = 16.0;
 pub const TO_BOTTOM_EDGE: f32 = 32.0;

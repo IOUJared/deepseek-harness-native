@@ -21,6 +21,7 @@ mod usage_preferences;
 
 pub const PRESETS: &[&str] = &[
     "no-session",
+    "subagent-trail",
     "wide-welcome",
     "narrow-welcome",
     "tiny-welcome",
@@ -193,7 +194,8 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "model-metadata"
         | "model-metadata-expanded"
         | "working-conversation"
-        | "working-phase-6" => Some((Size::new(1040.0, 700.0), 1.0)),
+        | "working-phase-6"
+        | "subagent-trail" => Some((Size::new(1040.0, 700.0), 1.0)),
         "working-narrow" => Some((Size::new(760.0, 560.0), 1.0)),
         "chat-submitted"
         | "chat-preparation-error"
@@ -640,6 +642,30 @@ pub fn build(
         }))
         .expect("fixed PUBLIC navigation metadata");
         app.sessions.insert(summary.session_id.clone(), summary);
+    }
+    if preset == "subagent-trail" {
+        // A subagent child under its parent, so the header's breadcrumb trail
+        // renders an ancestor crumb and its `/` separator
+        // (`ConversationSession.tsx:25-43`).
+        let parent: SessionSummary = serde_json::from_value(json!({
+            "agentAvailable":true, "sessionId":"PUBLIC-layout-parent", "updatedAt":950,
+            "running":false, "blank":false, "cwd":"/PUBLIC-layout-fixture/workspace",
+            "projections":{"kind":"cached","asOfSeq":-1,
+                "values":{"title":"PUBLIC parent conversation"}}
+        }))
+        .expect("fixed PUBLIC parent metadata");
+        app.sessions.insert(parent.session_id.clone(), parent);
+        let child: SessionSummary = serde_json::from_value(json!({
+            "agentAvailable":true, "sessionId":"PUBLIC-layout-child", "updatedAt":960,
+            "running":false, "blank":false,
+            "parentSessionId":"PUBLIC-layout-parent", "origin":"subagent",
+            "cwd":"/PUBLIC-layout-fixture/workspace",
+            "projections":{"kind":"cached","asOfSeq":-1,
+                "values":{"title":"PUBLIC subagent child"}}
+        }))
+        .expect("fixed PUBLIC child metadata");
+        app.selected = Some(child.session_id.clone());
+        app.sessions.insert(child.session_id.clone(), child);
     }
     if preset == "navigation-tiny" {
         // Fixed PUBLIC synthetic history makes the real session-list scrolling meaningful.

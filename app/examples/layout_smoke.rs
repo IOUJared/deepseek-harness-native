@@ -73,6 +73,7 @@ const KNOWN_IDS: &[&str] = &[
     "native-width-handle-left",
     "native-width-handle-right",
     "native-header",
+    "native-header-crumbs",
     "native-file-open",
     "native-file-draft",
     "native-file-picker",

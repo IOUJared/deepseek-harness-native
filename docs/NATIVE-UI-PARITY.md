@@ -56,6 +56,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Browser section header | 36 h · gap 4 · 4px trailing margin · 28px icon controls | `SECTION_HEADER_*` box; label and text stand-ins keep native's hint tier |
 | Sidebar rail | 56 wide · `18px 10px 6px` seat · 36×36 controls · 12px rhythm | `design::RAIL`/`RAIL_PAD`/`RAIL_CONTROL`/`RAIL_RHYTHM`; the plus and gear are verified DejaVu glyphs |
 | Conversation header | 76 min-h · bottom 0.5px seam · 30px title row · tabs 13/16 + 2px bar | padding `10px 28px 0 20px` (tabs) / `… 10px` (no tabs) + 1px seam; `HEADER_*`/`TAB_*` carry the rows (band 77) |
+| Header crumbs | `4px` gap · crumb `4px 8px` · radius md · cap 220px · 14/20 (subagent 12/18) · 14/20 caption `/` | `CRUMB_*`; the trail walks `parentSessionId` while the origin is a subagent |
 | Chat content width | `clamp(680, 64%, 920)` | `design::chat_width(pane)` clamp, bounded by the padded pane |
 | Width handles | 10px strip at lane ± 24 · `2px` glow `4px` in, `16px` core, hover/drag only | `WIDTH_HANDLE_*` + `HANDLE_GLOW_*`, hover/drag state, `native-width-handle-*` rects |
 | Jump to latest | `34px` round floating button · slot `bottom: 16px` · right edge on the column (or `32px` in) · only while not following the tail | `TO_BOTTOM_*` + `native-to-bottom` rect; `design::LINE` hover, no shadow |
@@ -655,4 +656,31 @@ cell, so new findings go at the end of the file as plain paragraphs.
   Native draws no shadow (its documented palette-only elevation stance), and its
   control follows the transcript's own box rather than the reference's sticky
   composer-height offset, which is the same 16px once the composer is on screen.
+- **Header breadcrumb trail — landed, rect- and capture-verified.** The
+  reference's header title is a breadcrumb trail: `ConversationSession.tsx:25-43`
+  walks `parentId` while a session's origin is `subagent`, and `:73-104` renders
+  each crumb in one `4px`-gapped row — ancestors as links that select that session,
+  the current one as plain text, with a `14px/20px` caption `/` before every crumb
+  but the first. The crumb box is `padding: 4px 8px`, `radius-md`,
+  `max-width: 220px`, `14px/20px` tertiary text (primary for the current session),
+  dropping to `12px/18px` for subagent crumbs
+  (`ConversationRoot.module.css:102-146`). Native drew the title as an **18px**
+  plain label truncated by character count, with no box and no ancestry.
+  `CRUMB_GAP`, `CRUMB_PAD`, `CRUMB_MAX`, `CRUMB_SIZE`/`CRUMB_LINE` and
+  `CRUMB_SUBAGENT_SIZE`/`CRUMB_SUBAGENT_LINE` carry the figures, `header_crumbs`
+  builds the trail from the summaries the app already holds, and the row carries a
+  `native-header-crumbs` id whose own box is the trail's intrinsic width.
+  Verified on DP-2 at two presets: a new `subagent-trail` fixture (parent plus a
+  `parentSessionId`/`origin: subagent` child, its metadata in the same
+  `SessionSummary` DTO the app already deserializes) reports a crumbs box of
+  **375.1 × 28.0**, and the single-crumb `conversation` preset **198.0 × 28.0** —
+  both **28.0 tall**, which is the crumb's `4 + 20 + 4`, and the 177px difference is
+  the ancestor crumb plus its separator. The grabs show
+  `PUBLIC parent conversation / PUBLIC subagent child` with the ancestor in the
+  tertiary colour at 14px and the current crumb smaller, and the single crumb
+  alone. `shots/44-header-crumbs-dp2.png` (own frame `shots/44-header-crumbs.png`)
+  and `shots/44-header-crumb-single-dp2.png` are those grabs.
+  Remainders: native's palette has no `label-caption` tier, so the separator reuses
+  `MUTED`, and Iced has no text ellipsis, so a long crumb is still shortened by
+  character count before its 220px box clips it.
 
