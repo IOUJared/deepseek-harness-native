@@ -358,10 +358,16 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    That leaves one genuine gap: `ui-settings-session-log` injects a row (order 90) whose
    component is `UploadRow`, alongside a `session-log-upload-toast` overlay — it uploads the
    session log for support. Native has the Trajectory tab but no upload affordance, and this
-   is a *functional* feature rather than a layout match, so it needs a decision: land the
-   row and its transport, or record it as out of scope with the reason. Not yet decided.
-   Settling step: read `UploadRow` and the transport it calls, then either land it as its
-   own item or record the omission and why.
+   is a *functional* feature rather than a layout match — but reading it corrects the first
+   guess: this row is **not** an upload action. Its own header calls it the "General settings
+   companion for the Host Session-log upload configuration"
+   (`ui-settings-session-log/src/client/index.ts:1`), its face is `setEnabled` over an
+   `UploadPreference` (`index.ts:26-37`, `upload-preference.ts:17-30`), and the upload itself
+   is the Host's, not the row's. So it is an on/off preference write — the same shape as the
+   permission default row landed above, through the same settings path — and turning it on
+   is the user's own explicit act rather than something this row does on its behalf.
+   Settling step: read `UploadRow.tsx` for its copy and states, then land it as a boolean
+   settings row through the same descriptor read and write, with its own capture.
 
 ## Verification log (append-only)
 
