@@ -116,6 +116,37 @@ Remaining unqualified native work is unchanged: physical input/IME, CJK, accessi
 
 Native geometry/cache tests, `layout_smoke` PUBLIC fixtures, App reducer tests, and `docs/FEATURE-PARITY.md` status. Source-only comparison is not visual parity; rendered capture status is recorded in the handoff.
 
+## Open items
+
+Everything below is proven against the reference and deliberately not landed yet, with
+the one step that would settle each. Nothing here is a measurement anyone can read off
+the CSS alone; each needs a decision, a live run, or a feature-sized build.
+
+1. **Markdown images — the resolvable branch.** Native renders the alt fallback
+   (`render.tsx:640,653`) and documents it; a picture the reference would show appears as
+   its alt text. Needs a decode plus texture path and a deliberate fetch policy: are
+   `https://` URLs fetched, are local paths read, or neither? That policy is the user's
+   call, and it decides whether the feature is safe to build at all.
+2. **Permission select.** The chip, its menu, the Auto-review preset with its badge, the
+   risk confirmation before full access, and the Host command that changes the preset.
+   Recorded with its exact geometry and package parts in the verification log below; it is
+   several items, each with its own capture, not one.
+3. **Shutdown budgets.** Native stops a Host in 3 s / 1 s / 1 s where the DMG shell waits
+   10 s / 5 s / 5 s (`NATIVE-CLOSE.md#budgets-against-the-dmg-shell`). Settling it needs a
+   live run: start against the real backend, begin a turn, close the window, and time from
+   the close request to the shutdown acknowledgement. Until that number exists the native
+   budget stays as it is.
+4. **The window floor, by hand.** The DMG's own window options say `min 520x600`
+   (`main.ts`) and native now uses those figures, but nothing programmatic can drag a
+   window below its floor: fixture windows are `resizable: false` and Hyprland's Lua
+   `window.resize` is mouse-driven. Drag a real window edge inwards and confirm it stops
+   at 520x600.
+5. **The reference screenshot.** The supplied 1980x1319 PNG
+   (`sha256:b8e164f5…`) is not in this workspace, so first-line offsets, bubble-side gaps
+   and tool-row rhythm stay CSS-derived. Placing it under
+   `/home/jared/Documents/deepseek-harness/default-workspace/` would let those be measured
+   from pixels instead.
+
 ## Verification log (append-only)
 
 Entries here are appended, never inserted: earlier notes were lost because they
