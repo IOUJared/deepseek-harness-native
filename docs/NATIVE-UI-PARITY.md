@@ -141,7 +141,16 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    window below its floor: fixture windows are `resizable: false` and Hyprland's Lua
    `window.resize` is mouse-driven. Drag a real window edge inwards and confirm it stops
    at 520x600.
-5. **The reference screenshot.** The supplied 1980x1319 PNG
+5. **Inline code chips.** The reference draws an inline code run as a chip:
+   `background-color: markdown-inline-code`, `border: 0.5px solid border-l1`,
+   `border-radius: radius-sm`, `padding: 0 5px`, at `0.875em` mono
+   (`MarkdownText.module.css:163-174`). Native renders the run in the mono family and
+   `FOAM` but with no chip: Iced's `rich_text` spans carry no background, and the only
+   alternative is rendering each inline code run as its own widget, which would need an
+   inline-flow layout the toolkit does not provide. Blocked on toolkit capability rather
+   than on a decision; a chip would need either a per-span background in Iced or a
+   text-layout rework that preserves wrapping inside a paragraph.
+6. **The reference screenshot.** The supplied 1980x1319 PNG
    (`sha256:b8e164f5…`) is not in this workspace, so first-line offsets, bubble-side gaps
    and tool-row rhythm stay CSS-derived. Placing it under
    `/home/jared/Documents/deepseek-harness/default-workspace/` would let those be measured
@@ -1193,3 +1202,14 @@ cell, so new findings go at the end of the file as plain paragraphs.
   change to either side fails the test rather than drifting.
   `shots/61-compact-table-dp2.png` is the grab and `shots/61-compact-table.png` that run's
   own frame.
+
+- **Inline code chip — recorded, blocked by the toolkit.** The reference's inline code is
+  a chip, not coloured text: `background-color: var(--dsw-alias-markdown-inline-code)`,
+  `border: 0.5px solid var(--dsw-alias-border-l1)`, `border-radius: var(--dsw-radius-sm)`,
+  `padding: 0 5px`, `font-size: 0.875em !important` in the mono family
+  (`ui-primitives/markdown/MarkdownText.module.css:163-174`). Native draws the run in the
+  mono family with the `FOAM` ink but no chip, because an Iced `rich_text` span cannot
+  carry a background and the paragraph's wrapping lives in that one text widget; drawing
+  a chip would mean splitting a paragraph into a flow of widgets, which the toolkit has
+  no inline-flow layout for. Recorded with its values so that whichever comes first — a
+  per-span background upstream or a text-layout rework here — has the measurement ready.
