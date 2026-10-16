@@ -716,6 +716,9 @@ pub struct App {
     /// until the descriptor answers, which is also how the row stays hidden when the
     /// deployment exposes no permission settings.
     permission_settings: Option<dsh_native_core::PermissionSettingsState>,
+    /// The Host's agent-preset roster, once its read answers. `None` keeps every surface
+    /// that reads it hidden rather than showing a guessed name.
+    agent_roster: Option<dsh_native_core::AgentPresetRoster>,
     /// A write is in flight; the row is busy until its acknowledgement lands.
     permission_default_saving: bool,
     editor_undo: Vec<String>,
@@ -935,6 +938,7 @@ impl App {
                 permission_acknowledged: false,
                 permission_catalog: None,
                 permission_settings: None,
+                agent_roster: None,
                 permission_default_saving: false,
                 editor_undo: Vec::new(),
                 editor_redo: Vec::new(),
@@ -2852,6 +2856,11 @@ impl App {
             Message::Worker(Event::PermissionCatalog(result)) => {
                 if let Ok(catalog) = result {
                     self.permission_catalog = Some(catalog);
+                }
+            }
+            Message::Worker(Event::AgentPresets(result)) => {
+                if let Ok(roster) = result {
+                    self.agent_roster = Some(roster);
                 }
             }
             Message::Worker(Event::PermissionSettings(result)) => {

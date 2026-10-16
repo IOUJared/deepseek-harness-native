@@ -1841,3 +1841,16 @@ cell, so new findings go at the end of the file as plain paragraphs.
    state; the lesson is to prefer anchors that survive formatting.
    Settling step: the app plumbing, then the hero chip, the label's display name and the
    subagent activity marker.
+
+   **App plumbing landed.** `Event::AgentPresets` and `Command::AgentPresetsRead` carry the
+   roster on the same worker-event pattern as the catalog and settings reads, `rejected()`
+   answers the refusal, the late dispatch marks a bypass, the example's exhaustive classifier
+   grew its arm, and the app holds the reply in `agent_roster`. Anchors were chosen
+   line-based this round precisely because the previous round's exact-text anchors had been
+   reordered by formatting; the script inserted by matching the dispatch line rather than
+   quoting it, and every edit applied first time.
+   No consumer reads `agent_roster` yet, so nothing sends the read either — the three surfaces
+   are the next change, and wiring the request belongs with them rather than ahead of them,
+   which is how the permission catalog's plumbing landed too.
+   Settling step: wire the request and the first consumer — the hero chip's default, which is
+   the roster's own `isDefault` row.
