@@ -1769,3 +1769,21 @@ cell, so new findings go at the end of the file as plain paragraphs.
    surfaces they feed. Check first whether native's composer context readout already covers
    `tokenUsage` under its own `contextPressure` projection, since that would make one of the
    two a deliberate duplicate rather than a gap.
+
+   **Both consumers read, and they point different ways.**
+   `subagentTiming` feeds `SubagentHeaderLineage.tsx:83-84`, which uses
+   `subagentTiming.lastTurnCompleted === true` (`:244`) — so the reference's lineage row, the
+   same band native's crumb trail occupies, also carries each subagent's **completion state**.
+   That is functional rather than decorative (a running subagent is not a finished one), it
+   rides a projection native already parses, and it is cheap: an accessor beside
+   `agent_preset` plus a marker on the subagent crumb.
+   `tokenUsage` is **not** a session projection at all — it is derived per turn
+   (`ui-chat/src/client/conversation-nodes/turn-tail.ts:90-99`, from a `turn/start` event) and
+   rendered by `StatsPills.tsx:46`. Per-turn token accounting at the turn tail is exactly the
+   kind of chat metadata the user's own rule excludes ("Chat should show only clean
+   conversation content"), and native already states context budget in the composer, so this
+   one is recorded as a **deliberate omission** rather than a gap — the second such call in
+   this document, and the first where the exclusion comes from a stated preference rather than
+   from an absent capability.
+   Settling step: land the `subagentTiming` accessor and the crumb marker with a capture, and
+   leave `tokenUsage` omitted with the reason above.
