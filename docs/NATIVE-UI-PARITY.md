@@ -390,6 +390,26 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    simply call it: it needs either that read generalised to a second panel identity or its
    own small read over the same namespace family. So the row is one slice — but one that
    includes a scoping change, not a pure UI addition.
+   **Answered definitively, and the answer is the cheap one — with a precedent in this very
+   tree.** The transport read is namespace-generic: `settings/describe` is called with an
+   empty args object and every advertised namespace is projected with no allowlist or prefix
+   filter (`transport/src/plugin.rs:279-320`), so `session-log-deepseek` reads like any other
+   namespace as long as the Host advertises it as live. The `ReadTicket`'s `panel` is a
+   **UI-controller identity, not an authority check** — the worker validates only the epoch
+   (`app/src/worker.rs:1007`), and the controller drops a result whose panel does not match
+   its own (`app/src/plugins.rs:471-477`). The precedent is the DeepSeek page: it reuses the
+   *same* controller and ticket and renders one namespace, with its visibility widened to
+   cover a second page — `visible: self.open && matches!(self.page, Page::Plugins |
+   Page::ApiLogin)`, whose own comment says the page "renders the one `llm-deepseek`
+   namespace, so it needs the same live-settings authority as the plugin panel"
+   (`app/src/settings.rs:350-353`, spot-checked; the render call is at `:1266`). The write
+   needs nothing new either: `PluginSave` already carries `expected_revision` and the
+   transport re-validates field membership, value and writability
+   (`transport/src/plugin.rs:547`, `transport/src/http.rs:667-692`).
+   So the row is three app-side edits — add `Page::General` to that visibility, call
+   `view_namespace` for `session-log-deepseek`, and render its boolean with `PluginSave` —
+   and the earlier claim that it needed "a scoping change" was the third wrong guess in a
+   row about the same fact.
    The path is now narrowed another step: the config-forms read does **not** travel through
    the fork supervisor at all — `fork-supervisor.mjs` knows only the bridge commands native
    declares there, and `PluginSettings`-style commands appear nowhere in it — so the
