@@ -2334,3 +2334,17 @@ navigation, `subagentTiming`'s activity marker, and editable keybinding rebindin
    The **one thing still unread** is the row's own form: `JobListAction.tsx` and its stylesheet
    have not been read, so what the row looks like — a chip, a count, a badge with states — is
    genuinely unknown, and it is the read before the row is drawn, not after.
+
+   **The row's form, read: it is a list, not a chip — and that is the last unknown gone except
+   its copy.** `JobListAction.tsx` renders each job as a row carrying a **state dot**
+   (`<StateDot state={dotState(job.status)}/>`), the producer's **label** (with a `title`), the
+   **kind**, a **status/detail**, a **duration** whose title distinguishes live from done, and an
+   **expandable chevron** — beside a compact variant with the same dot, kind, label and status
+   (`ui-jobs/src/client/JobListAction.tsx:196-233`). The expansion is what the `output` frames
+   from `jobs/follow` feed, which is why the follow stream exists beside the list stream.
+   So the header surface is an **action that opens a list of job rows**, not a badge or a count,
+   and the app-side UI is: a panel list with a state dot per row, the label as the primary line,
+   kind plus status as the secondary, and expansion doing nothing until output streaming is
+   wired — which should be stated as a remainder rather than faked.
+   The only thing left unread is the copy: the header action's own label and the state words live
+   in the package's locales, and reading them is a one-line step before the row is drawn.
