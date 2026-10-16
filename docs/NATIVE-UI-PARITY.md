@@ -2432,3 +2432,20 @@ state, which needs a Host that advertises that namespace.
    kind, status, duration and expansion; and the copy, including a counted header action, two
    sections, a clear and a two-click kill. **Nothing here needs a guess**, which is the first
    time that can be said of a whole feature in this document.
+
+   **The request shapes, and a semantic that would have been easy to get wrong.** The two
+   requests are small and specific:
+   `JobListRequest { sessionId: SessionId }` — a **required** session, so the list is per-session
+   (`job-controller/src/types.ts:15-17`) — and
+   `JobFollowRequest { sessionId?: SessionId, jobId: JobId, offset?: number, … }` — an optional
+   session, a **required job id** and an offset to resume from (`:49-60`).
+   The list frame's own comment carries the semantic: it is "the complete set the session can
+   see — its own jobs plus every unowned job — after a lifecycle change. **Whole-set
+   replacement**, so a reconnect's first frame is already the truth" (`:19-24`). So the app's
+   projection must **replace** its rows on every list frame rather than merge them, and a
+   reconnect needs no special case because the first frame is already complete.
+   That is a correction to the previous round's claim that nothing here needed a guess: the
+   request arguments had not been read, and reading them produced both the wire shapes
+   (`sessionId`, `jobId`, `offset`) and a replacement rule that a merge-based implementation
+   would have violated silently. The claim was one round early; the design is now complete with
+   it satisfied.
