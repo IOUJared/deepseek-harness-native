@@ -127,7 +127,18 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    its alt text. Needs a decode plus texture path and a deliberate fetch policy: are
    `https://` URLs fetched, are local paths read, or neither? That policy is the user's
    call, and it decides whether the feature is safe to build at all.
-2. **Permission select — buildable in this repository, starting with its runtime bridge.**
+2. **Permission select — its runtime bridge is landed; the Core wiring and UI follow.**
+   `core/runtime/permission.mjs` now answers `permission-catalog` and `permission-set` for
+   the Host's `permissionPresets` service: the catalog is reduced to the three fields a
+   client renders (`value`, `name`, an optional `description`) with the Host's own
+   "missing label falls back to the preset key" rule, a set carries a bounded session and
+   preset name and surfaces a refusal as a bounded error, and nothing else on the wire
+   ever reaches it. Its `core/runtime/permission.test.mjs` joins the existing
+   `node --test core/runtime/*.test.mjs` gate (`scripts/verify-native.py:65`), which now
+   reports **414 pass / 0 fail** with the four new cases included.
+   Still to come: routing the two commands from the Core's command surface, the chip, the
+   menu, the Auto-review badge and the confirmation guard, at the geometry below.
+   (Original note follows.)
    The wiring, read from the Codex bridge: a bridge is a `core/runtime/<name>.mjs` exporting
    a factory (`createCodexBridge`) whose `switch (command.type)` answers fixed commands
    (`codex.mjs:322-324`); it is embedded in the Core binary by adding a

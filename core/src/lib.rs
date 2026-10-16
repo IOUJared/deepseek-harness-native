@@ -562,6 +562,7 @@ impl Backend {
             ),
             ("supervisor.mjs", include_str!("../runtime/supervisor.mjs")),
             ("codex.mjs", include_str!("../runtime/codex.mjs")),
+                ("permission.mjs", include_str!("../runtime/permission.mjs")),
             ("cloudflare.mjs", include_str!("../runtime/cloudflare.mjs")),
             (
                 "codex-runtime-values.mjs",
