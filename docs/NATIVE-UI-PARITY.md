@@ -2162,3 +2162,15 @@ navigation, `subagentTiming`'s activity marker, and editable keybinding rebindin
    rule — new code arrives with a verifier — is not satisfied for it. That is the first thing
    the next round should do, alongside the `agentPreset/locked` error arm, which is the last
    transport edit and the one that turns the Host's refusal into the seat's announcement.
+
+   **Both follow-ups landed, so the transport half is complete and verified.** The
+   `agentPreset/locked` refusal now maps to `Error::RemoteCode("agentPreset/locked")` — the
+   variant this crate keeps for "one of the Host's own error codes, recognized because it
+   identifies a refusal this app must distinguish" (`transport/src/lib.rs:34-39`), which is
+   exactly what the seat's announcement needs. And `agent_preset_of` has its unit test: both
+   accepted shapes (a bare string, or an object with `agentPreset`/`id`) plus six refusals —
+   empty, `{}`, a number, null, a non-string preset and an oversized one.
+   `cargo test` for the crate now reports three targets green — **17, 82 and 7 doctests, exit 0**
+   — where the previous run showed two. The third is a test target that my new module appears to
+   have enabled or joined; the counts are recorded as observed rather than explained, since the
+   honest statement is that I have not traced why it was not listed before.

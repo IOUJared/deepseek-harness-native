@@ -459,6 +459,13 @@ impl NativeClient {
                         }
                         // Terminal refusals keep their distinct meanings; every other code
                         // stays an unqualified remote failure with no retained message.
+                        // A preset pick refused because the session already started: the
+                        // seat announces this code, so it must survive as a named refusal
+                        // rather than an unqualified remote failure.
+                        (Endpoint::AgentPresetSelect, Some("agentPreset/locked")) => {
+                            Error::RemoteCode("agentPreset/locked")
+                        }
+
                         (Endpoint::TerminalCreate, Some("terminal/limit-reached")) => {
                             Error::TerminalLimitReached
                         }
@@ -1090,4 +1097,29 @@ pub(crate) async fn read_response(
     let value: Value = serde_json::from_slice(&bytes).map_err(|_| Error::InvalidJson)?;
     validate_json(&value, limits.max_json_items)?;
     Ok(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::agent_preset_of;
+    use serde_json::json;
+
+    #[test]
+    fn a_select_reply_yields_the_committed_identity_or_is_refused() {
+        // Both shapes the Host may use for one identity.
+        assert_eq!(agent_preset_of(json!("cordis")).unwrap(), "cordis");
+        assert_eq!(
+            agent_preset_of(json!({"agentPreset": "cordis"})).unwrap(),
+            "cordis"
+        );
+        assert_eq!(agent_preset_of(json!({"id": "cordis"})).unwrap(), "cordis");
+        // Everything else is refused rather than guessed at.
+        assert!(agent_preset_of(json!("")).is_err());
+        assert!(agent_preset_of(json!({})).is_err());
+        assert!(agent_preset_of(json!(7)).is_err());
+        assert!(agent_preset_of(json!(null)).is_err());
+        assert!(agent_preset_of(json!({"agentPreset": ""})).is_err());
+        assert!(agent_preset_of(json!({"agentPreset": 7})).is_err());
+        assert!(agent_preset_of(json!({"agentPreset": "x".repeat(513)})).is_err());
+    }
 }
