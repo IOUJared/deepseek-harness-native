@@ -153,13 +153,16 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    own rule), refuses a catalog whose `defaultPreset` names nothing selectable, and
    `set_ack` accepts only `ok: true`. Its four tests join the Core suite, which reports
    **108 passed / 0 failed**;
-   (c) the worker/app plumbing, whose template is the runtime-preferences pair: the app's
-   `Command` enum (`app/src/worker.rs:48`) gains a permission effect, the worker answers it
-   with `backend.request(CoreCommand::PermissionCatalog, timeout)` plus a projection
-   (`app/src/codex_worker.rs:308-320` is the shape: request, then `project_runtime(...)`),
-   and the reply reaches the app as a message the update handles — three edits plus their
-   tests, after which (d) is the first visible change in this feature;
-   (the app already compiles against the new Core variants);
+   (c) the worker/app plumbing. Corrected estimate: this is a **feature module, not three
+   edits** — the app's `Command` enum (`app/src/worker.rs:48-70`) is a taxonomy whose every
+   variant wraps that feature's own `Effect` enum (`crate::codex::Effect`,
+   `crate::settings::cloudflare::Effect`), so permission needs its own effect type, its own
+   worker handler that calls `backend.request(CoreCommand::PermissionCatalog, timeout)` and
+   projects the reply the way `app/src/codex_worker.rs:308-320` does for
+   `CodexRuntimeRead`/`Save`, its own app message and its own state to hold the catalog the
+   chip will read. An earlier revision of this entry called it three edits, and reading the
+   enum showed that was optimistic. The app already compiles against the new Core variants;
+   after (c) lands, (d) is the first visible change in this feature;
    (d) the chip, menu, Auto-review badge and confirmation guard, at the geometry below, with
    a DP-2 capture.
    The first two are Core-side and user-independent; the last needs a fixture flag once the
