@@ -127,8 +127,12 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    its alt text. Needs a decode plus texture path and a deliberate fetch policy: are
    `https://` URLs fetched, are local paths read, or neither? That policy is the user's
    call, and it decides whether the feature is safe to build at all.
-2. **Permission select — gated on a Host bridge method that does not exist.** The Host
-   owns permissions as *remote API methods*, not a conversation command:
+2. **Permission select — buildable in this repository, starting with its runtime bridge.**
+   (Corrected: an earlier revision called this gate "outside the app crate" and that was
+   wrong — native owns its bridge scripts, `core/runtime/*.mjs`, and `codex.mjs:322-324` is
+   the pattern to copy: a `switch (command.type)` over fixed commands such as
+   `codex-runtime-read` and `codex-runtime-save`.) The Host owns permissions as *remote API
+   methods*, not a conversation command:
    `permissionPresets.catalog(): PermissionCatalog` and
    `permissionPresets.set(session, name)` — "record a changed preset, then update each
    changed knob through its own setter"
@@ -1221,7 +1225,7 @@ cell, so new findings go at the end of the file as plain paragraphs.
   (`packages/extensions/tool-cordis/src/api-catalog.ts:1689-1703`), and plan mode's
   contrast is explicit in the same catalog — it owns "the `/plan` command"
   (`:1706-1716`), which is why the plan chip could be a composer line and this cannot. The
-  feature is therefore transport-gated: the runtime bridge has to expose `catalog` and
+  feature is therefore bridge-gated, and the bridge is native's own (`core/runtime/*.mjs`, the `codex.mjs` fixed-command pattern), so it has to expose `catalog` and
   `set` before any chip is honest, and the native projection already landed is the only
   part that did not depend on them.
 
