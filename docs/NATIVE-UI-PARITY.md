@@ -2132,3 +2132,19 @@ navigation, `subagentTiming`'s activity marker, and editable keybinding rebindin
    `wire`, `lookup`) is not the transport's actual shape, and only a working call site settles
    that. No unknowns remain, and the transport edits can be written against a precedent inside
    this repository rather than a reference interpretation.
+
+   **The transport attempt was reverted, and the reason is mechanical rather than conceptual.**
+   The method, its projection and the `name()` arm were written against a precedent inside this
+   repository, but the `Endpoint` enum variant never landed: my insertion pattern matched a
+   line the enum does not use, so the crate failed to compile with
+   `no variant named AgentPresetSelect`. It was reverted (`git checkout -- transport/src/http.rs`)
+   and the transport suite is back to **82 passed plus 7 doctests, exit 0**.
+   The enum's real shape is now recorded, because it is what the next attempt needs:
+   `enum Endpoint` sits at `transport/src/http.rs:162` and its variants are bare,
+   one-per-line, with `PluginInventory` present (the name table's arm is separate). So the
+   variant goes in that list, not near the table.
+   Two of this session's scripted edits have now split a visibility keyword from its item or
+   missed a list's real shape; both were caught by the compiler before any commit, and both are
+   the same class of failure — pattern-matching text instead of reading the target. The slice
+   itself is unchanged and fully specified: endpoint variant, client method with the
+   `{agentId, agentPreset}` body, projection, error arm, Core family, app pick.
