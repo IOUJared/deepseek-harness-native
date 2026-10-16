@@ -477,8 +477,26 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    neither is claimed either way. That is the shape of this audit: reading a slot produces
    named rows, and each becomes a deliberate difference, an unsupported feature, or the next
    thing to read.
-   Settling step: read the `ui-deliverables` row and `ui-chat`'s own tail registration, then
-   `conversation.session.header.actions`.
+   **Second read, and it names a real feature gap.** `ui-deliverables` puts a *deliverables*
+   row at the turn tail: its injected face carries a changes **diff** (`diffs.state`,
+   `loadChangesDiff(sessionId, seq, index)`), a changes **summary**
+   (`summaries.state`, `loadChangesSummary(sessionId, seq)`), and a presented-file **opener**
+   (`opener.state`, `openPresented(sessionId, seq, index, action, application)`), with a
+   `deliverables.file.actions` child list and the whole thing gated on
+   `ctx.configForms.developerTools.enabled`
+   (`ui-deliverables/src/client/index.ts:60-74`). So the reference shows, after each turn, what
+   that turn changed — files, a diff to inspect and a summary — where native shows per-tool
+   rows with their own `+N −N` counts and an expandable detail, which is the part the user's
+   own screenshot preference asked for and is why the two are not the same thing: native has
+   the *counts*, not the *changes view*. That makes this the third category in this audit's
+   taxonomy — a functional gap of feature size — rather than a placement difference, and it
+   is recorded as such rather than quietly matched, since a diff viewer also decides what
+   data the conversation holds.
+   `ui-chat`'s own tail registration was **not located** in its package index this round, so
+   it remains unread rather than assumed absent.
+   Settling step: read `conversation.session.header.actions`, then locate `ui-chat`'s
+   registration; decide with the user whether a changes view belongs in this app at all,
+   given the tool rows already carry counts and the detail panel already holds full records.
 
 Entries here are appended, never inserted: earlier notes were lost because they
 were anchored onto rows of a markdown table above and collapsed into a single
