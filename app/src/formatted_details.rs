@@ -8,6 +8,9 @@ pub(super) const INPUT_BYTES: usize = 32 * 1024;
 const TEXT_BYTES: usize = 64 * 1024;
 const BLOCKS: usize = 128;
 const SPANS: usize = 1024;
+/// Cells per row, and rows per table, stay bounded like every other block list.
+const CELLS: usize = 64;
+const ROWS: usize = 128;
 const NESTING: usize = 16;
 
 pub struct Span {
@@ -16,6 +19,10 @@ pub struct Span {
     pub italic: bool,
     pub code: bool,
 }
+
+/// One table cell's inline runs. A cell holds no block structure: `pulldown-cmark`
+/// emits only inline events inside `TableCell`.
+pub type Cell = Vec<Span>;
 
 pub enum Block {
     Paragraph {
@@ -31,6 +38,12 @@ pub enum Block {
     Code {
         language: Option<String>,
         text: String,
+        indent: u8,
+    },
+    /// A GitHub table (`Options::ENABLE_TABLES`): the first row is the header.
+    Table {
+        header: Vec<Cell>,
+        rows: Vec<Vec<Cell>>,
         indent: u8,
     },
     Rule,
@@ -89,6 +102,25 @@ struct Code {
 }
 
 #[derive(Default)]
+struct Table {
+    header: Vec<Cell>,
+    rows: Vec<Vec<Cell>>,
+    row: Vec<Cell>,
+    /// True while the head section's cells are open; the head is the first row.
+    head: bool,
+}
+impl Table {
+    fn finish_row(&mut self) {
+        let row = std::mem::take(&mut self.row);
+        if self.head {
+            self.header = row;
+        } else {
+            self.rows.push(row);
+        }
+    }
+}
+
+#[derive(Default)]
 struct Builder {
     blocks: Vec<Block>,
     frames: Vec<Frame>,
@@ -99,6 +131,7 @@ struct Builder {
     italic: usize,
     inline: Option<Inline>,
     code: Option<Code>,
+    table: Option<Table>,
     text_bytes: usize,
     spans: usize,
 }
@@ -365,7 +398,46 @@ impl Builder {
                 self.ensure_inline()?;
                 destination = Some(dest_url.into_string());
             }
-            // Images, HTML, tables and all other unsupported tags fail closed.
+            Tag::Table(_) => {
+                // A table's cells carry the inline machinery, so a table inside a
+                // list or quote cannot keep its provenance in this flat model.
+                if self.table.is_some()
+                    || self.inline.is_some()
+                    || !self.frames.is_empty()
+                    || !self.lists.is_empty()
+                    || self.quotes != 0
+                {
+                    return Err(Failure::Unsupported);
+                }
+                self.table = Some(Table::default());
+            }
+            Tag::TableHead => {
+                let table = self.table.as_mut().ok_or(Failure::Unsupported)?;
+                if table.head || !table.header.is_empty() || !table.rows.is_empty() {
+                    return Err(Failure::Unsupported);
+                }
+                table.head = true;
+            }
+            Tag::TableRow => {
+                let table = self.table.as_mut().ok_or(Failure::Unsupported)?;
+                if !table.row.is_empty() {
+                    return Err(Failure::Unsupported);
+                }
+            }
+            Tag::TableCell => {
+                if self.inline.is_some() || self.table.is_none() {
+                    return Err(Failure::Unsupported);
+                }
+                self.inline = Some(Inline {
+                    heading: None,
+                    explicit: true,
+                    indent: 0,
+                    marker: None,
+                    quote: false,
+                    spans: Vec::new(),
+                });
+            }
+            // Images, HTML and all other unsupported tags fail closed.
             _ => return Err(Failure::Unsupported),
         }
         self.frames.push(Frame { end, destination });
@@ -409,6 +481,43 @@ impl Builder {
                 self.text(" (", false)?;
                 self.text(&destination, false)?;
                 self.text(")", false)?;
+            }
+            TagEnd::TableCell => {
+                let cell = self.inline.take().ok_or(Failure::Unsupported)?.spans;
+                let table = self.table.as_mut().ok_or(Failure::Unsupported)?;
+                if table.row.len() >= CELLS {
+                    return Err(Failure::Blocks);
+                }
+                table.row.push(cell);
+            }
+            TagEnd::TableRow => {
+                let table = self.table.as_mut().ok_or(Failure::Unsupported)?;
+                if table.head && table.row.is_empty() {
+                    return Err(Failure::Unsupported);
+                }
+                if table.rows.len() >= ROWS {
+                    return Err(Failure::Blocks);
+                }
+                table.finish_row();
+            }
+            TagEnd::TableHead => {
+                let table = self.table.as_mut().ok_or(Failure::Unsupported)?;
+                if !table.head || table.row.is_empty() {
+                    return Err(Failure::Unsupported);
+                }
+                table.finish_row();
+                table.head = false;
+            }
+            TagEnd::Table => {
+                let table = self.table.take().ok_or(Failure::Unsupported)?;
+                if table.header.is_empty() || table.head {
+                    return Err(Failure::Unsupported);
+                }
+                self.push(Block::Table {
+                    header: table.header,
+                    rows: table.rows,
+                    indent: self.indent(),
+                })?;
             }
             _ => return Err(Failure::Unsupported),
         }
@@ -689,12 +798,57 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn tables_keep_their_header_inline_runs_and_bounds() {
+        let document = document("| a | *b* |\n|---|---|\n| `c` | d |\n| e | f |\n");
+        let (header, rows, indent) = match &document.blocks[0] {
+            Block::Table {
+                header,
+                rows,
+                indent,
+            } => (header, rows, *indent),
+            _ => panic!("expected table"),
+        };
+        assert_eq!(indent, 0);
+        assert_eq!(header.len(), 2);
+        assert_eq!(joined(&header[0]), "a");
+        assert!(header[1][0].italic);
+        assert_eq!(rows.len(), 2);
+        assert!(rows[0][0][0].code);
+        assert_eq!(joined(&rows[1][0]), "e");
+        // A table stays out of list/quote provenance, which the flat block model cannot
+        // represent, and its rows are bounded like the other block lists.
+        failure("> | a |\n> |---|\n> | b |\n", Failure::Unsupported);
+        let mut rows = String::from("| a |\n|---|\n");
+        for index in 0..ROWS {
+            rows.push_str(&format!("| {index} |\n"));
+        }
+        assert!(parse(&rows).is_ok());
+        rows.push_str("| over |\n");
+        failure(&rows, Failure::Blocks);
+        // Cells per row are bounded too.
+        // The per-row cell cap is exercised through the event stream directly:
+        // pulldown-cmark normalises column counts from the syntax, so a hand-written
+        // 65-column table never reaches the cell push unchanged.
+        let mut events = vec![
+            Event::Start(Tag::Table(Vec::new())),
+            Event::Start(Tag::TableHead),
+        ];
+        for _ in 0..=CELLS {
+            events.push(Event::Start(Tag::TableCell));
+            events.push(Event::Text(CowStr::from("a")));
+            events.push(Event::End(TagEnd::TableCell));
+        }
+        events.push(Event::End(TagEnd::TableHead));
+        events.push(Event::End(TagEnd::Table));
+        assert_eq!(build(events).err(), Some(Failure::Blocks));
+    }
+    #[test]
     fn unsupported_content_anywhere_fails_whole_source() {
         for source in [
             "before\n\n![alt](image.png)\n\nafter",
             "before <b>html</b> after",
             "before\n\n<div>html</div>\n",
-            "before\n\n| a | b |\n|---|---|\n| c | d |\n",
             "> # heading",
             "- # heading",
             "> ---",

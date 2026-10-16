@@ -1,7 +1,7 @@
 //! Bounded, inert native reply presentation. Source text never becomes a URI or command.
 use super::{FONT, MUTED, Message, TEXT, design, detail_panel::formatted, label};
 use iced::advanced::text::{self as native, Paragraph as _};
-use iced::widget::{Column, Space, button, container, rich_text, row, scrollable, span, text};
+use iced::widget::{Column, Row, Space, button, container, rich_text, row, scrollable, span, text};
 use iced::{Element, Font, Length, Pixels, Size, alignment};
 use std::{
     cell::{Cell, RefCell},
@@ -156,6 +156,12 @@ impl Prepared {
                                 .is_some_and(|source| contains(&source, query))
                         }
                         formatted::Block::Code { text, .. } => contains(text, query),
+                        formatted::Block::Table { header, rows, .. } => {
+                            header.iter().chain(rows.iter().flatten()).any(|cell| {
+                                joined_text(cell.iter().map(|part| part.text.as_str()))
+                                    .is_some_and(|source| contains(&source, query))
+                            })
+                        }
                         formatted::Block::Rule => false,
                     })
                 },
@@ -708,6 +714,105 @@ fn inline_runs(parts: &[formatted::Span]) -> Vec<native::Span<'static, (), Font>
         })
         .collect()
 }
+/// The reference's table, shared by every renderer: a header row and body rows whose
+/// cells are `padding: 10px 16px` with the first cell's left padding and the last
+/// cell's right padding trimmed, and a one-pixel rule under every row standing in for
+/// the sheet's `border-bottom` (Iced's `Border` has no per-side widths)
+/// (`ui-primitives/markdown/MarkdownText.module.css:235-283`). Fewer than four columns
+/// fill the column; a wider table keeps the reference's `100px` column floor and
+/// scrolls sideways.
+pub(crate) fn table_view(
+    header: &[formatted::Cell],
+    rows: &[Vec<formatted::Cell>],
+    indent: u8,
+    width: f32,
+    delta_secondary: f32,
+    ladder: Ladder,
+    query: &str,
+) -> Element<'static, Message> {
+    let (size, line) = table_metrics(ladder, delta_secondary);
+    let columns = header
+        .len()
+        .max(rows.iter().map(Vec::len).max().unwrap_or(0))
+        .max(1);
+    let (_, floor) = table_column_width(columns, width);
+    let full = floor + 2.0 * design::TABLE_PAD_H;
+    let fills = columns < design::TABLE_FILL_COLUMNS || columns as f32 * full <= width;
+    let cell_width = if fills {
+        Length::Fill
+    } else {
+        Length::Fixed(full)
+    };
+    let mut table = Column::new().width(if fills { Length::Fill } else { Length::Shrink });
+    table = table.push(table_row(
+        header,
+        cell_width,
+        size.round() as u32,
+        line,
+        query,
+    ));
+    for row in rows {
+        table = table.push(table_row(row, cell_width, size.round() as u32, line, query));
+    }
+    let table: Element<'static, Message> = if fills {
+        table.into()
+    } else {
+        scrollable(table)
+            .direction(design::scrollbar_horizontal())
+            .style(design::scrollable_style)
+            .width(Length::Fill)
+            .into()
+    };
+    container(table)
+        .width(Length::Fill)
+        .padding(iced::Padding {
+            left: indent as f32 * 18.0,
+            ..iced::Padding::ZERO
+        })
+        .into()
+}
+fn table_row(
+    cells: &[formatted::Cell],
+    width: Length,
+    size: u32,
+    line: native::LineHeight,
+    query: &str,
+) -> Element<'static, Message> {
+    let last = cells.len().saturating_sub(1);
+    let mut row = Row::new().width(Length::Fill);
+    for (index, cell) in cells.iter().enumerate() {
+        let mut pad = iced::Padding {
+            top: design::TABLE_PAD_V,
+            right: design::TABLE_PAD_H,
+            bottom: design::TABLE_PAD_V,
+            left: design::TABLE_PAD_H,
+        };
+        if index == 0 {
+            pad.left = 0.0;
+        }
+        if index == last {
+            pad.right = 0.0;
+        }
+        row = row.push(
+            container(
+                Column::new()
+                    .push(inline_view(cell, size, line, query))
+                    .push(
+                        container(Space::new().height(1))
+                            .width(Length::Fill)
+                            .style(|_| container::Style {
+                                background: Some(design::LINE.into()),
+                                ..Default::default()
+                            }),
+                    ),
+            )
+            .padding(pad)
+            .width(width)
+            .clip(true),
+        );
+    }
+    row.into()
+}
 /// The height of a blockquote's rule: the paragraph's own measured height, which the
 /// details panel cannot recompute from its fixed 15px body size.
 pub(crate) fn quote_bar_height(spans: &[formatted::Span]) -> f32 {
@@ -842,6 +947,7 @@ pub(crate) fn block_margins(
     let previous = index.checked_sub(1).map(|i| &blocks[i]);
     let next = blocks.get(index + 1);
     match block {
+        formatted::Block::Table { .. } if ladder == Ladder::Body => (0.0, 0.0),
         formatted::Block::Heading { level, .. } => {
             let top = if *level <= 3 {
                 ladder.heading_gap()
@@ -856,6 +962,11 @@ pub(crate) fn block_margins(
             };
             (top, bottom)
         }
+        // The body ladder's table wrapper has no margin of its own — the sheet's
+        // `.tableScroll` sets only `max-width` and the overflow — so its rhythm comes
+        // from the neighbouring blocks' collapsed margins. The compact sheet does give
+        // it `margin: 4px 0` (`MarkdownText.module.css:192-196,375-378`).
+        formatted::Block::Table { .. } => (ladder.gap(), ladder.gap()),
         formatted::Block::Rule => (ladder.rule_gap(), ladder.rule_gap()),
         formatted::Block::Code { .. } => {
             let bottom = if next.is_some() {
@@ -924,6 +1035,55 @@ pub(crate) fn document_gap(blocks: &[formatted::Block], index: usize, ladder: La
         .1
         .max(block_margins(blocks, index, ladder).0)
 }
+/// The table's text size and line box: the reference pairs the secondary size with a
+/// 22px box on the body ladder, and the compact ladder inherits its own 20px box.
+fn table_metrics(ladder: Ladder, delta_secondary: f32) -> (f32, native::LineHeight) {
+    let size = design::SECONDARY_SIZE + delta_secondary;
+    match ladder {
+        Ladder::Body => (size, design::table_line(delta_secondary)),
+        Ladder::Compact => (size, design::compact_line(delta_secondary)),
+    }
+}
+/// The width one column gets: an even share, floored at the reference's `100px`
+/// minimum, with the padding on both sides removed for the text itself. A table of
+/// fewer than four columns never needs the floor, which is exactly when the reference
+/// lets it fill the column.
+fn table_column_width(columns: usize, width: f32) -> (f32, f32) {
+    let columns = columns.max(1);
+    let share = (width / columns as f32 - 2.0 * design::TABLE_PAD_H).max(24.0);
+    (
+        share,
+        share.max((design::TABLE_MIN_COLUMN - 2.0 * design::TABLE_PAD_H).max(24.0)),
+    )
+}
+fn table_row_height(
+    cells: &[formatted::Cell],
+    width: f32,
+    delta_secondary: f32,
+    ladder: Ladder,
+) -> f32 {
+    let (size, line) = table_metrics(ladder, delta_secondary);
+    let (share, _) = table_column_width(cells.len(), width);
+    let tallest = cells
+        .iter()
+        .map(|cell| inline_height(cell, share, size, line))
+        .fold(0.0_f32, f32::max);
+    tallest + 2.0 * design::TABLE_PAD_V
+}
+fn table_height(
+    header: &[formatted::Cell],
+    rows: &[Vec<formatted::Cell>],
+    width: f32,
+    _delta: f32,
+    delta_secondary: f32,
+    ladder: Ladder,
+) -> f32 {
+    table_row_height(header, width, delta_secondary, ladder)
+        + rows
+            .iter()
+            .map(|row| table_row_height(row, width, delta_secondary, ladder))
+            .sum::<f32>()
+}
 fn block_height(
     block: &formatted::Block,
     width: f32,
@@ -977,6 +1137,18 @@ fn block_height(
                 true,
             ) + design::CODE_CHROME
         }
+        formatted::Block::Table {
+            header,
+            rows,
+            indent,
+        } => table_height(
+            header,
+            rows,
+            width - *indent as f32 * 18.0,
+            delta,
+            delta_secondary,
+            ladder,
+        ),
         formatted::Block::Rule => 1.0,
     }
 }
@@ -1056,6 +1228,24 @@ pub(crate) fn document_first_offset(
                 true,
             )
             .map(|offset| offset + design::CODE_BANNER_HEIGHT + design::CODE_PAD),
+            // A table's cells are searched row by row at the height each row
+            // reserves, so a header match and a body match land where they are drawn.
+            formatted::Block::Table { header, rows, .. } => {
+                let mut inner = 0.0;
+                for (index, row) in std::iter::once(header).chain(rows.iter()).enumerate() {
+                    let height = table_row_height(row, width, delta_secondary, ladder);
+                    let found = row.iter().find_map(|cell| {
+                        first_offset(inline_runs(cell), query, width, size, line, FONT, false)
+                            .map(|offset| inner + offset)
+                    });
+                    if let Some(offset) = found {
+                        return Some(y + gap + offset);
+                    }
+                    inner += height;
+                    let _ = index;
+                }
+                None
+            }
             formatted::Block::Rule => None,
         };
         if let Some(offset) = found {
@@ -1219,6 +1409,11 @@ fn document_view(
                     .clip(true)
                     .into()
             }
+            formatted::Block::Table {
+                header,
+                rows,
+                indent,
+            } => table_view(header, rows, *indent, width, delta_secondary, ladder, query),
             formatted::Block::Rule => {
                 container(iced::widget::Space::new().height(1).width(Length::Fill))
                     .style(|_| container::Style {

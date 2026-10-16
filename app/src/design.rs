@@ -161,6 +161,22 @@ pub const COMPACT_RULE_GAP: f32 = 8.0;
 pub const COMPACT_LIST_ITEM_GAP: f32 = 2.0;
 pub const COMPACT_QUOTE_PAD: f32 = 8.0;
 pub const COMPACT_QUOTE_INSET: f32 = QUOTE_BAR + COMPACT_QUOTE_PAD;
+/// The reference's markdown table (`MarkdownText.module.css:235-283`): `th` and `td`
+/// are `padding: 10px 16px`, the first cell loses its left padding and the last its
+/// right, the header carries a `border-bottom` one step stronger than the body's, and
+/// the text is `13px/22px` on the body ladder (`--dsw-font-markdown-table`,
+/// `gradient-shadow-text.css:117`). A table of fewer than four columns fills the
+/// column; a wider one keeps a `100px` floor per column and scrolls sideways.
+pub const TABLE_PAD_V: f32 = 10.0;
+pub const TABLE_PAD_H: f32 = 16.0;
+pub const TABLE_MIN_COLUMN: f32 = 100.0;
+pub const TABLE_FILL_COLUMNS: usize = 4;
+/// The table's own line box on the body ladder: the reference pairs its 13px table
+/// text with 22px, not the 20px compact box.
+pub const TABLE_LINE: f32 = 22.0;
+pub fn table_line(delta_secondary: f32) -> iced::advanced::text::LineHeight {
+    iced::advanced::text::LineHeight::Absolute(iced::Pixels(TABLE_LINE + delta_secondary))
+}
 /// The gap between two conversation flow rows. The web gives every flow sibling
 /// `margin-top: var(--dsh-chat-flow-gap, 6px)` (`ChatView.module.css:60-71`), so
 /// two process rows sit 6px apart.
@@ -783,6 +799,15 @@ pub fn fill_solid(_: &Theme, status: button::Status) -> button::Style {
 pub const SCROLLBAR_WIDTH: f32 = 5.0;
 pub fn scrollbar() -> iced::widget::scrollable::Direction {
     iced::widget::scrollable::Direction::Vertical(
+        iced::widget::scrollable::Scrollbar::default()
+            .width(SCROLLBAR_WIDTH)
+            .scroller_width(SCROLLBAR_WIDTH),
+    )
+}
+/// A horizontal scroller with the same skin, for surfaces the reference scrolls
+/// sideways (a table wider than its column).
+pub fn scrollbar_horizontal() -> iced::widget::scrollable::Direction {
+    iced::widget::scrollable::Direction::Horizontal(
         iced::widget::scrollable::Scrollbar::default()
             .width(SCROLLBAR_WIDTH)
             .scroller_width(SCROLLBAR_WIDTH),

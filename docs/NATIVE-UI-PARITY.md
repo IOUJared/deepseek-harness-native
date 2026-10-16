@@ -64,6 +64,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Blockquote | `border-left: 2px solid label-caption` · `padding-left: 14px` · `margin: 16px 0 0` | `QUOTE_BAR`/`QUOTE_PAD`/`QUOTE_INSET`; a filled rule whose height is the paragraph's own measured height |
 | Editable context menu | Undo · Redo · — · Cut · Copy · Paste · — · Select all, each enabled from the edit flags, no accelerator labels, 180px panel | `editor_menu::entries`/`view` + a 100-step editor history; `native-editor-menu` rect |
 | Search offset | measured with the drawn block heights, collapsed gaps and the ladder, for the answer and the reasoning alike | `document_first_offset` + `document_first_offset_walks_drawn_heights_and_gaps` |
+| Markdown table | `th`/`td` `padding: 10px 16px`, first cell flush, last cell flush right, a rule under every row, `13px/22px`, fills under four columns and scrolls at a `100px` floor above it | `TABLE_PAD_*`/`TABLE_MIN_COLUMN`/`TABLE_FILL_COLUMNS`/`TABLE_LINE` + the shared `table_view`; `Block::Table` |
 | Compact markdown | Reasoning body + trajectory detail use the secondary ladder: `p`/`ul`/`ol`/`blockquote` `4px 0`, `li` `2px`, headings `8px 0 4px` at the inherited size/600, `hr` `8px 0`, code `4px 0` in the surrounding colour, quote padding `8px` | `Ladder::Compact` + `COMPACT_*`; the reasoning body is parsed into the same block model |
 | Markdown rhythm | per-block margins, CSS-collapsed: `p` 16/16 · `h1–h3` 32/16 · `h4–h6` 16/16 · `li` 6 inside, list 16 at its edges · nested list 4 · `hr` 32/32 · code 16/11 · `h4–h6`+list 8 | `block_margins`/`document_gap` over `BLOCK_GAP`/`RULE_GAP`/`LIST_ITEM_GAP`/`NESTED_LIST_GAP`/`CODE_LAST_GAP`/`TIGHT_HEADING_GAP`; both renderers and the offset walk read them |
 | Width handles | 10px strip at lane ± 24 · `2px` glow `4px` in, `16px` core, hover/drag only | `WIDTH_HANDLE_*` + `HANDLE_GLOW_*`, hover/drag state, `native-width-handle-*` rects |
@@ -912,11 +913,13 @@ cell, so new findings go at the end of the file as plain paragraphs.
   under the uniform 16px gap — the 10px the 16-to-6 item margin asks for — while the
   code block's own lines keep their 19px pitch. `shots/52-block-margins-dp2.png` is the
   grab and `shots/52-block-margins.png` that run's own frame.
-  Remainders: the reference's first block's top margin and the document's trailing
-  margin are still not modelled — its margins sit inside a padded body, while native's
-  row geometry owns the leading and trailing space; settling whether the browser adds
-  them needs a measurement against the running web UI, and the supplied reference
-  screenshot is not present in this workspace (only the two GTK palette previews are).
+  The first and last block margins were open at the time and are now settled **from
+  source**: the same sheet zeroes them — `.markdown > *:first-child, .markdown
+  p:first-child { margin-top: 0 !important }` and the matching `:last-child` rule
+  (`MarkdownText.module.css:286-294`). Native therefore already matched the reference
+  by giving the first block no leading margin and the document no trailing one, and no
+  change was needed; the only reason it looked open was that the rule lives in the
+  table section of the sheet, which had not been read yet.
 - **Blockquote — landed, capture-verified.** The reference draws a blockquote as
   `border-left: 2px solid var(--dsw-alias-label-caption)` with `padding-left: 14px` and
   `margin: 16px 0 0` (`ui-primitives/markdown/MarkdownText.module.css:151-156`), so its
@@ -1024,4 +1027,39 @@ cell, so new findings go at the end of the file as plain paragraphs.
   enabled because Iced exposes no edit flags for them, the caret lands where
   `Content::with_text` puts it after an Undo (Iced has no text-plus-caret restore), and
   the same menu is not yet offered on the settings and rename text inputs.
+- **Markdown tables — landed, capture-verified.** A GitHub table used to fail the whole
+  parse: `Tag::Table` fell through `Builder::start`'s catch-all, `parse` returned
+  `Failure::Unsupported`, and the entire assistant reply degraded to raw plain text —
+  losing its headings, lists, code and links with it. The reference renders tables
+  (`ui-primitives/markdown/MarkdownText.module.css:192-283`, tokens at
+  `ui-theme/src/styles/gradient-shadow-text.css:117,124`).
+  `formatted::Block::Table { header, rows, indent }` now holds a table's cells as inline
+  runs (the head is the first row, `Options::ENABLE_TABLES` was already on), with the
+  same bounds as every other block list: `CELLS` 64 per row, `ROWS` 128, and the shared
+  byte/span charges. The geometry (`table_height`/`table_row_height`) measures each row
+  as its tallest cell at that column's width, and one shared `table_view` draws it for
+  the transcript, the reasoning and the details panel: `padding: 10px 16px` per cell,
+  the first cell's left and the last cell's right padding trimmed, a one-pixel rule
+  under every row standing in for the sheet's per-side `border-bottom`, `13px` text on
+  the ladder's own line box (22px on the body ladder, 20px compact), a fill under four
+  columns and the reference's `100px` column floor with a horizontal scroller — and the
+  horizontal skin from the same scrollbar constants — above it. The search walk and
+  `matches` cover cells too.
+  Verified at a new `chat-table` preset: the grab shows a paragraph, a three-column
+  table whose header and body rows carry their rules with the first column flush, the
+  inline runs inside cells (`one` as a code chip, **bold** in bold) and a paragraph
+  after it. `shots/57-markdown-table-dp2.png` is the grab, `shots/57-markdown-table.png`
+  that run's own frame, and a copy is under `app/evidence/`. The parser test
+  `tables_keep_their_header_inline_runs_and_bounds` pins the header/row/inline shape,
+  the refusal of a table inside a list or quote (the flat model cannot keep
+  provenance), the row cap, and the cell cap through a direct event stream. Both suites
+  green (1107 fixture / 1100 app), format-debt 0, and the release fixture example
+  builds.
+  Deliberate differences: the sheet's `border-bottom` is 0.5px and native's rule is one
+  pixel (Iced's `Border` has no per-side widths, so it is a filled strip inside the
+  cell), header and body rules share `LINE` where the sheet steps `border-l3` over
+  `border-l2`, the reference reveals a wide table's bar on hover where native always
+  shows it, and the header's weight-500 face has no DejaVu equivalent, so it matches
+  the body's face rather than a heavier bold. A table's own margin is zero on the body
+  ladder (the sheet gives `.tableScroll` no margin) and 4px compact.
 

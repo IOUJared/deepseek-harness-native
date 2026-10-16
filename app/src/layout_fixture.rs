@@ -62,6 +62,7 @@ pub const PRESETS: &[&str] = &[
     "history-more",
     "chat-transcript",
     "chat-markdown",
+    "chat-table",
     "chat-thoughts",
     "chat-thoughts-markdown",
     "chat-search-thoughts",
@@ -211,6 +212,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "long-user-message"
         | "chat-transcript"
         | "chat-markdown"
+        | "chat-table"
         | "chat-thoughts"
         | "chat-thoughts-markdown"
         | "chat-search-thoughts"
@@ -391,6 +393,18 @@ fn public_chat_records(preset: &str) -> Vec<Value> {
                     "everySeconds":300,"scheduledAt":"2026-08-31T00:00:00.000Z"}}}}));
         }
         return records;
+    }
+    if preset == "chat-table" {
+        // A table and a narrow three-column table, with paragraphs on both sides so a
+        // grab shows the rhythm around them. The reference renders these; the parser
+        // used to fail the whole reply instead (`MarkdownText.module.css:235-283`).
+        return vec![
+            json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,"surfaceOp":"append","data":{"id":"PUBLIC-user","role":"user","source":{"kind":"user"},"content":[{"type":"text","text":"PUBLIC show a native table."}]}}}),
+            json!({"type":"event","event":{"type":"assistant/message","seq":1,"time":1001,"surfaceOp":"append","data":{"turn":1,"step":1,"usage":{"inputTokens":100,"cacheReadTokens":40,"cacheWriteTokens":10,"outputTokens":20,"reasoningTokens":8,"totalTokens":170},"stream":[
+                {"type":"reasoning-chunks","time0":1001,"index":0,"dt":[],"texts":["PUBLIC table reasoning."]},
+                {"type":"text-chunks","time0":1001,"index":1,"dt":[],"texts":["PUBLIC paragraph before the table.\n\n| Column | PUBLIC value | Notes |\n|---|---|---|\n| Alpha | `one` | First row with **bold** |\n| Beta | two | Second row |\n| Gamma | three | Third row |\n\nPUBLIC paragraph after the table."]}
+            ]}}}),
+        ];
     }
     if matches!(
         preset,
@@ -790,6 +804,7 @@ pub fn build(
             | "long-user-message"
             | "chat-transcript"
             | "chat-markdown"
+            | "chat-table"
             | "chat-search-thoughts"
             | "chat-thoughts"
             | "chat-thoughts-markdown"

@@ -7,6 +7,10 @@ use iced::{Element, Font, Length};
 #[path = "formatted_details.rs"]
 pub mod formatted;
 
+/// The width a details-panel table fills: the panel is a fixed-width column, and the
+/// shared view only uses this to choose between filling and scrolling.
+const AT_DETAIL_WIDTH: f32 = 640.0;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Stamp {
     pub generation: u64,
@@ -215,6 +219,22 @@ fn view(document: &formatted::Document) -> Element<'_, Message> {
                     .clip(true)
                     .into()
             }
+            // The reference's table text stays at the secondary 13px/22px in its own
+            // ladder, so the panel reuses the shared view rather than inventing a
+            // second one (`MarkdownText.module.css:235-283`).
+            formatted::Block::Table {
+                header,
+                rows,
+                indent,
+            } => super::conversation_content::table_view(
+                header,
+                rows,
+                *indent,
+                AT_DETAIL_WIDTH,
+                0.0,
+                super::conversation_content::Ladder::Body,
+                "",
+            ),
             formatted::Block::Rule => container(Space::new().height(1).width(Length::Fill))
                 .style(|_| container::Style {
                     background: Some(design::LINE.into()),
