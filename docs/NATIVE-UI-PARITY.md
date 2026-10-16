@@ -57,6 +57,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Sidebar rail | 56 wide · `18px 10px 6px` seat · 36×36 controls · 12px rhythm | `design::RAIL`/`RAIL_PAD`/`RAIL_CONTROL`/`RAIL_RHYTHM`; the plus and gear are verified DejaVu glyphs |
 | Conversation header | 76 min-h · bottom 0.5px seam · 30px title row · tabs 13/16 + 2px bar | padding `10px 28px 0 20px` (tabs) / `… 10px` (no tabs) + 1px seam; `HEADER_*`/`TAB_*` carry the rows (band 77) |
 | Chat content width | `clamp(680, 64%, 920)` | `design::chat_width(pane)` clamp, bounded by the padded pane |
+| Width handles | 10px strip at lane ± 24 · `2px` glow `4px` in, `16px` core, hover/drag only | `WIDTH_HANDLE_*` + `HANDLE_GLOW_*`, hover/drag state, `native-width-handle-*` rects |
 | User bubble max-width | `min(70.2% · content, 82%)` | content-sized, fixed 640 cap (≈70.2% of the widest column) |
 | Assistant text | unboxed, full content column | unboxed, spans the shared content column |
 | Message flow gap | 6 process / 12 response / 16 turn | `design::FLOW_GAP`/`RESPONSE_GAP` ladder 6/12; the 16px `turn-process` row is Trajectory-only |
@@ -578,4 +579,31 @@ cell, so new findings go at the end of the file as plain paragraphs.
   the scale-1.0 compact preset. The banner detector's 0.90 coverage floor also only
   held at a 1040px window (the pink title is fixed-width), so it now floors at
   0.75 with the title check carrying the identification.
+- **Width handles — landed, rect- and pixel-verified.** The reference positions
+  each handle absolutely: a strip `width: min(10px, …)` with its inner edge
+  `24px` beyond the content column (`ConversationRoot.module.css:259-281`), and a
+  `.widthHandle::after` glow of `2px` held `4px` in from that inner edge, whose
+  gradient window is a `16px` solid core fading to transparent by `36px` either
+  way, `opacity: 0` at rest and `1` on hover or while dragging, centred on the
+  pointer's Y with a `50%` fallback (`:289-323`). Native had the strip's own
+  geometry right — `WIDTH_HANDLE_WIDTH` 10 and `WIDTH_HANDLE_OFFSET` 24 — but drew
+  no affordance at all.
+  `design::HANDLE_GLOW_WIDTH` (2), `HANDLE_GLOW_INSET` (4) and `HANDLE_GLOW_CORE`
+  (16) carry the figures, `Message::WidthHandleHover` with `MouseArea::on_enter` /
+  `on_exit` lights the hovered side, the drag lights its own side, and each strip
+  now carries a recorded id so the fixture reports its box.
+  Verified at `tool-activity-attachment` (1040 wide): the fixture's rects put the
+  strips at `x 276.0` and `x 1014.0`, both 10.0 wide — the lane's 310..990 edges
+  minus and plus the 24px offset, exactly the reference's placement — and with
+  `--width-handle-glow true` the grab carries a 2px bar in each strip (`x 279..280`
+  and `1017..1018`) spanning 17 rows around the strip's vertical centre, which is
+  the 16px core at the reference's 50% fallback; without the flag those columns
+  hold no ink, matching the reference's resting `opacity: 0`.
+  `shots/41-width-handle-glow-dp2.png` is the grab and
+  `shots/41-width-handle-glow.png` that run's own frame.
+  Iced has no gradient, so native draws the solid core and leaves the 36px fade
+  out, and it follows the reference's own 50% fallback rather than publishing the
+  pointer's Y every frame, so a drag's glow does not travel with the cursor. The
+  hero state draws no handles: the reference renders width controls only inside
+  the active phase, and its empty state has none.
 

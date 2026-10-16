@@ -29,6 +29,15 @@ pub const RAIL_PAD: iced::Padding = iced::Padding {
 };
 pub const RAIL_CONTROL: f32 = 36.0;
 pub const RAIL_RHYTHM: f32 = 12.0;
+/// The transcript width handles' hover/drag affordance: a `2px` bar held `4px`
+/// in from the strip's inner edge, whose visible window is a `16px` solid core
+/// centred on the pointer with a fade to transparent by `36px` each way, and
+/// whose resting opacity is `0` (`ConversationRoot.module.css:289-317`, with the
+/// published `--dsh-width-handle-pointer-y` defaulting to `50%`). Iced has no
+/// gradient, so native draws the solid core and centres it.
+pub const HANDLE_GLOW_WIDTH: f32 = 2.0;
+pub const HANDLE_GLOW_INSET: f32 = 4.0;
+pub const HANDLE_GLOW_CORE: f32 = 16.0;
 /// Sidebar column metrics, each from the web's own rule
 /// (`ui-sidebar/SidebarRoot.module.css`, `ui-workspace/.../Rows.module.css`):
 /// `.root { padding: 6px var(--dsh-sidebar-inline-padding) }` with the inline

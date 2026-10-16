@@ -68,6 +68,8 @@ const KNOWN_IDS: &[&str] = &[
     "native-send-control",
     "native-model-controls",
     "native-reasoning-control",
+    "native-width-handle-left",
+    "native-width-handle-right",
     "native-header",
     "native-file-open",
     "native-file-draft",
@@ -95,6 +97,9 @@ struct Options {
     /// Render every tool row as hovered, so a capture shows the chevron swap that
     /// otherwise needs a pointer.
     hover_tool_row: bool,
+    /// Render both width handles' glow, so a capture shows the affordance that
+    /// otherwise needs a pointer over a 10px strip.
+    width_handle_glow: bool,
 }
 fn public_drop_file(value: String) -> Result<PathBuf, &'static str> {
     let path = PathBuf::from(value);
@@ -171,6 +176,7 @@ fn options() -> Result<Options, &'static str> {
             "--content-size",
             "--focus-composer",
             "--hover-tool-row",
+            "--width-handle-glow",
         ]
         .contains(&key.as_str())
         {
@@ -244,6 +250,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         hover_tool_row: match values.remove("--hover-tool-row") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        width_handle_glow: match values.remove("--width-handle-glow") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -449,6 +459,9 @@ impl Fixture {
         // capture can show them.
         if options.hover_tool_row {
             app.set_hover_all_activities(true);
+        }
+        if options.width_handle_glow {
+            app.set_width_handle_glow(true);
         }
         let mut report = ui::layout_fixture::metadata(&app, &options.mode);
         report["pid"] = json!(std::process::id());

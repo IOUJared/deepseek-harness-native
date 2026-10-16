@@ -356,6 +356,7 @@ pub enum Message {
         text: Option<String>,
     },
     /// A conversation-width handle was pressed.
+    WidthHandleHover(design::WidthSide, bool),
     WidthDragStart(design::WidthSide),
     /// A cursor sample while a width drag is in flight.
     WidthDragMove(f32),
@@ -584,6 +585,8 @@ pub struct App {
     native_home: Option<std::path::PathBuf>,
     /// In-flight width drag; `None` when no handle is held.
     width_drag: Option<WidthDrag>,
+    /// Which width handle the pointer is over, for the reference's glow.
+    width_hover: Option<design::WidthSide>,
     /// Focus requests from a later launch of this profile. Set by `main` after
     /// boot, because the instance claim is taken before the App exists.
     pub(crate) focus_source: crate::single_instance::Source,
@@ -595,6 +598,9 @@ pub struct App {
     /// path otherwise reaches.
     #[cfg(feature = "public-layout-fixture")]
     hover_all_activities: bool,
+    /// Render the width handles' glow, so a capture shows an affordance that
+    /// otherwise needs a pointer.
+    width_handle_glow: bool,
     /// The transcript content size, defaulting to the web's own default.
     content_font_size: f32,
     workspace_path: String,
@@ -799,10 +805,12 @@ impl App {
                 chat_width_preference,
                 native_home,
                 width_drag: None,
+                width_hover: None,
                 focus_source: crate::single_instance::Source::disabled(),
                 hovered_activity: None,
                 #[cfg(feature = "public-layout-fixture")]
                 hover_all_activities: false,
+                width_handle_glow: false,
                 content_font_size,
                 workspace_path,
                 workspace_controls: false,
@@ -1383,13 +1391,61 @@ impl App {
     /// the scroll model changes. Only the handles are interactive; the spacers
     /// between them are not, so the transcript underneath still receives input.
     fn width_handles(&self, lane: f32) -> Element<'_, Message> {
+        // The reference's glow is a 2px bar 4px in from the strip's inner edge,
+        // drawn only while hovering or dragging, and positioned at the pointer's
+        // Y with a 50% fallback (`ConversationRoot.module.css:289-317`). Native
+        // draws the solid core (Iced has no gradient) at that fallback.
         let handle = |side| {
-            iced::widget::MouseArea::new(
-                Space::new().width(WIDTH_HANDLE_WIDTH).height(Length::Fill),
+            let lit = self.width_hover == Some(side)
+                || self
+                    .width_drag
+                    .as_ref()
+                    .is_some_and(|drag| drag.side == side)
+                || self.width_handle_fixture_glow();
+            // Only the 2px bar is painted; the strip around it stays transparent.
+            let bar = container(Space::new().height(design::HANDLE_GLOW_CORE))
+                .width(design::HANDLE_GLOW_WIDTH)
+                .style(move |_| {
+                    if lit {
+                        design::bar(MUTED)
+                    } else {
+                        container::Style::default()
+                    }
+                });
+            let glow = container(bar)
+                .width(WIDTH_HANDLE_WIDTH)
+                .height(Length::Fill)
+                .align_y(iced::Alignment::Center)
+                .align_x(match side {
+                    // The bar sits on the strip's inner edge: toward the
+                    // transcript for the left handle, away for the right one.
+                    design::WidthSide::Left => iced::Alignment::End,
+                    design::WidthSide::Right => iced::Alignment::Start,
+                })
+                .padding(match side {
+                    design::WidthSide::Left => iced::Padding {
+                        right: design::HANDLE_GLOW_INSET,
+                        ..iced::Padding::ZERO
+                    },
+                    design::WidthSide::Right => iced::Padding {
+                        left: design::HANDLE_GLOW_INSET,
+                        ..iced::Padding::ZERO
+                    },
+                });
+            let strip = container(
+                iced::widget::MouseArea::new(glow)
+                    .interaction(iced::mouse::Interaction::ResizingHorizontally)
+                    .on_press(Message::WidthDragStart(side))
+                    .on_release(Message::WidthDragEnd)
+                    .on_enter(Message::WidthHandleHover(side, true))
+                    .on_exit(Message::WidthHandleHover(side, false)),
             )
-            .interaction(iced::mouse::Interaction::ResizingHorizontally)
-            .on_press(Message::WidthDragStart(side))
-            .on_release(Message::WidthDragEnd)
+            .width(WIDTH_HANDLE_WIDTH)
+            .height(Length::Fill);
+            match side {
+                design::WidthSide::Left => strip.id("native-width-handle-left"),
+                design::WidthSide::Right => strip.id("native-width-handle-right"),
+            }
         };
         row![
             Space::new().width(Length::Fill),
@@ -2288,6 +2344,16 @@ impl App {
                 return self.update(Message::Settings(crate::settings::Action::Close));
             }
             Message::Resized(size) => self.resize_layout(size),
+            Message::WidthHandleHover(side, inside) => {
+                // Enter and exit both arrive; only the side the pointer actually
+                // left clears, so crossing the transcript cannot drop a live hover.
+                if inside {
+                    self.width_hover = Some(side);
+                } else if self.width_hover == Some(side) {
+                    self.width_hover = None;
+                }
+                return Task::none();
+            }
             Message::WidthDragStart(side) => {
                 // The web's `onStart` returns the width currently displayed, and
                 // the drag moves from there rather than from the stored value.
@@ -4557,6 +4623,18 @@ impl App {
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn set_hover_all_activities(&mut self, hover: bool) {
         self.hover_all_activities = hover;
+    }
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn set_width_handle_glow(&mut self, glow: bool) {
+        self.width_handle_glow = glow;
+    }
+    /// The fixture's glow override; a real run reads only the pointer.
+    fn width_handle_fixture_glow(&self) -> bool {
+        #[cfg(feature = "public-layout-fixture")]
+        if self.width_handle_glow {
+            return true;
+        }
+        false
     }
     /// Set the transcript content size directly, without touching a preference
     /// file. The public layout fixture uses this to render a size the control
@@ -11301,6 +11379,26 @@ mod tests {
         assert!(app.settings_enabled());
         // Startup catalog loading must not cause Settings/key/plugin reads.
         assert!(receiver.try_recv().is_err());
+    }
+    #[test]
+    fn width_handle_hover_lights_only_the_side_the_pointer_left() {
+        let (mut app, _) = app();
+        assert_eq!(app.width_hover, None);
+        let _ = app.update(Message::WidthHandleHover(design::WidthSide::Left, true));
+        assert_eq!(app.width_hover, Some(design::WidthSide::Left));
+        // An exit for the other side cannot clear a live hover.
+        let _ = app.update(Message::WidthHandleHover(design::WidthSide::Right, false));
+        assert_eq!(app.width_hover, Some(design::WidthSide::Left));
+        let _ = app.update(Message::WidthHandleHover(design::WidthSide::Left, false));
+        assert_eq!(app.width_hover, None);
+        // A drag lights its own side independent of hover, as the web's
+        // `[data-dragging]` does.
+        let _ = app.update(Message::WidthDragStart(design::WidthSide::Right));
+        assert!(
+            app.width_drag
+                .as_ref()
+                .is_some_and(|drag| drag.side == design::WidthSide::Right)
+        );
     }
     #[test]
     fn failed_backend_start_leaves_a_bounded_crash_record() {
