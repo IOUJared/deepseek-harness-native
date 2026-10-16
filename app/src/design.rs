@@ -591,6 +591,23 @@ pub const TAB_BAR: f32 = 2.0;
 /// at `secondary − 2` = 11px, and the `+N -M` counts written with an ASCII
 /// hyphen; they take the success/error pair only while the row is hovered or
 /// expanded, staying muted at rest.
+/// The plan-mode chip the reference puts in the control row's leading `.modes`
+/// group beside the attach control: `height: 28px`, `padding: 0 8px`, `gap: 4px`,
+/// `radius-sm`, a 14px glyph slot, a `13px/20px` label in the business-primary
+/// colour over the business-tertiary fill, and a 6%-mixed fill on hover
+/// (`PlanModeControl.module.css:4-40`, `InputBar.tsx:442-450`). Native's palette
+/// has no business pair, so the fill is a 14% accent tint under `ACCENT` text.
+pub const PLAN_CHIP_PAD: iced::Padding = iced::Padding {
+    top: 0.0,
+    right: 8.0,
+    bottom: 0.0,
+    left: 8.0,
+};
+pub const PLAN_CHIP_GAP: f32 = 4.0;
+pub const PLAN_CHIP_GLYPH: f32 = 14.0;
+pub const PLAN_CHIP_FILL: Color = Color::from_rgba(0.77, 0.65, 0.91, 0.14);
+pub const PLAN_CHIP_HOVER: Color = Color::from_rgba(0.77, 0.65, 0.91, 0.22);
+pub const PLAN_CHIP_FILL_DIM: Color = Color::from_rgba(0.77, 0.65, 0.91, 0.07);
 pub const DIFF_STAT_LEFT: f32 = 10.0;
 pub const DIFF_STAT_SIZE: f32 = 11.0;
 /// The fade itself: transparent at the top, base colour by its bottom, so

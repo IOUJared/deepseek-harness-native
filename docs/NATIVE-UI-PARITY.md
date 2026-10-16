@@ -68,6 +68,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Composer input | `min-height: 36` · `4px 8px 0 14px` · 14-line text cap 336 | `COMPOSER_INPUT_*`, one-line floor 36, 14 lines (8 in a short window) |
 | Composer control row | `2px 8px 6px` · gap 12 | `COMPOSER_ROW_PAD`/`COMPOSER_ROW_GAP` |
 | Composer model chip | `.select` 28 h · `0 20px 0 8px` · radius sm · transparent · 13/20 | `COMPOSER_CHIP_*` + `design::ghost`; in the trailing group |
+| Composer plan chip | 28 h · `0 8px` · `gap: 4` · 14px glyph slot · radius sm · business tertiary/primary · 6% hover mix | `PLAN_CHIP_*`; in the leading group while plan mode is on, dimmed while a toggle is in flight |
 | Send / stop control | 34×34 circle · info fill · icon glyph | 34 h · `COMPOSER_CONTROL_HEIGHT`; native keeps the words and its fills |
 | Composer seat | `.root` `0 16px 4px` · dock strip 4px · card = content + 32 | `COMPOSER_SEAT_PAD`/`COMPOSER_DOCK_GAP`/`COMPOSER_CARD_OVERHANG` |
 | Empty-state hero | headline + composer card centered as one stack, `gap: 12`; hero composer floor `52` | `HERO_GAP`/`HERO_INPUT_MIN`; `hero_pane` centers both, `COMPOSER_HERO_SEAT_PAD` drops the bottom pad |
@@ -606,4 +607,28 @@ cell, so new findings go at the end of the file as plain paragraphs.
   pointer's Y every frame, so a drag's glow does not travel with the cursor. The
   hero state draws no handles: the reference renders width controls only inside
   the active phase, and its empty state has none.
+- **Composer plan chip — landed, rect- and capture-verified.** The reference puts
+  its plan-mode control in the control row's leading `.modes` group beside the
+  attach control (`InputBar.tsx:442-450`) as a chip of `height: 28px`,
+  `padding: 0 8px`, `gap: 4px`, `radius-sm`, a 14px glyph slot, a `13px/20px` label
+  in the business-primary colour over the business-tertiary fill, a 6%-mixed fill
+  on hover and `opacity: 0.6` while disabled or leaving
+  (`PlanModeControl.module.css:4-40`). Native drew "Plan mode" as a 10px text
+  button **below the card** in the metadata strip, with no chip geometry.
+  `PLAN_CHIP_PAD`, `PLAN_CHIP_GAP`, `PLAN_CHIP_GLYPH`, the tertiary/primary pair
+  (`PLAN_CHIP_FILL`, `PLAN_CHIP_HOVER`, `PLAN_CHIP_FILL_DIM`) and a
+  `native-plan-control` id carry the figures; the chip rides the leading group, and
+  the strip keeps only the in-flight line so a pending toggle stays visible.
+  Verified at the `plan-mode` preset (760x560): the fixture's
+  `native-plan-control` rect is **28.0 tall at `x 158.4`** — the row's 12px gap
+  after `native-file-open` (80 + 66.4) — with the model chip and send control
+  unchanged in the trailing group, and the grab shows the accent-tinted `☑ Plan`
+  chip in the row with the standing `Plan · 1/2 · next: …` line below.
+  `shots/42-plan-chip-dp2.png` (own frame `shots/42-plan-chip.png`) is that grab.
+  The pending branch is fixture-covered too: a `--plan-pending` flag now holds a
+  toggle in flight, and `shots/42-plan-chip-pending-dp2.png` shows the dimmed chip
+  with the strip's `Plan mode` line.
+  Remainders: the web's chip swaps a plan outline for a circled close while
+  hovered, which native does not (its hover is the fill mix), and the reference's
+  sibling *permission* select has no native counterpart at all.
 

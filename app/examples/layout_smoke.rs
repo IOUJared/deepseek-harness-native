@@ -68,6 +68,7 @@ const KNOWN_IDS: &[&str] = &[
     "native-send-control",
     "native-model-controls",
     "native-reasoning-control",
+    "native-plan-control",
     "native-width-handle-left",
     "native-width-handle-right",
     "native-header",
@@ -100,6 +101,8 @@ struct Options {
     /// Render both width handles' glow, so a capture shows the affordance that
     /// otherwise needs a pointer over a 10px strip.
     width_handle_glow: bool,
+    /// Hold a plan toggle in flight, so a capture shows the chip's disabled state.
+    plan_pending: bool,
 }
 fn public_drop_file(value: String) -> Result<PathBuf, &'static str> {
     let path = PathBuf::from(value);
@@ -177,6 +180,7 @@ fn options() -> Result<Options, &'static str> {
             "--focus-composer",
             "--hover-tool-row",
             "--width-handle-glow",
+            "--plan-pending",
         ]
         .contains(&key.as_str())
         {
@@ -254,6 +258,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         width_handle_glow: match values.remove("--width-handle-glow") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        plan_pending: match values.remove("--plan-pending") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -462,6 +470,9 @@ impl Fixture {
         }
         if options.width_handle_glow {
             app.set_width_handle_glow(true);
+        }
+        if options.plan_pending {
+            app.set_plan_pending(true);
         }
         let mut report = ui::layout_fixture::metadata(&app, &options.mode);
         report["pid"] = json!(std::process::id());

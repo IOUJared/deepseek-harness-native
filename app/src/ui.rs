@@ -4628,6 +4628,12 @@ impl App {
     pub(crate) fn set_width_handle_glow(&mut self, glow: bool) {
         self.width_handle_glow = glow;
     }
+    /// Fixture-only: hold a plan toggle in flight, so a capture can show the
+    /// chip's disabled state and the strip's in-flight line.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn set_plan_pending(&mut self, pending: bool) {
+        self.plan_toggle_pending = pending;
+    }
     /// The fixture's glow override; a real run reads only the pointer.
     fn width_handle_fixture_glow(&self) -> bool {
         #[cfg(feature = "public-layout-fixture")]
@@ -5791,6 +5797,53 @@ impl App {
     }
     /// The plan-mode control for the selected session, from the Host's advertised
     /// commands and the Host's own `plan` projection.
+    /// The plan-mode chip the reference seats in the control row's leading group.
+    /// It exists only while the Host's `plan` projection says the mode is on — the
+    /// reference's chip likewise only offers to turn it off — and it is inert
+    /// while a toggle is in flight, drawing that state dimmed.
+    fn plan_chip(&self) -> Option<Element<'_, Message>> {
+        let control = self.plan_control();
+        control.mode?;
+        let actionable = control.visible() && !control.pending && self.composer_visible();
+        // The reference disables the chip while a toggle is in flight
+        // (`disabled={locked || leaving}` under `opacity: 0.6`).
+        let (ink, fill) = if control.pending {
+            (MUTED, design::PLAN_CHIP_FILL_DIM)
+        } else {
+            (ACCENT, design::PLAN_CHIP_FILL)
+        };
+        let chip = container(
+            button(
+                row![
+                    // DejaVu carries the ballot-with-check glyph; the reference
+                    // draws its own plan outline in this 14px slot.
+                    label("☑", ink).size(12).width(design::PLAN_CHIP_GLYPH),
+                    label("Plan", ink).size(13),
+                ]
+                .spacing(design::PLAN_CHIP_GAP)
+                .align_y(iced::Alignment::Center),
+            )
+            .on_press_maybe(actionable.then_some(Message::TogglePlanMode))
+            .style(move |theme, status| {
+                let mut style = design::ghost(theme, status);
+                style.background = Some(
+                    if matches!(status, button::Status::Hovered) {
+                        design::PLAN_CHIP_HOVER
+                    } else {
+                        fill
+                    }
+                    .into(),
+                );
+                style.border.radius = design::RADIUS_SM.into();
+                style
+            })
+            .padding(design::PLAN_CHIP_PAD)
+            .height(design::COMPOSER_CHIP_HEIGHT),
+        )
+        .id("native-plan-control")
+        .into();
+        Some(chip)
+    }
     fn plan_control(&self) -> plan_control::Control {
         plan_control::Control {
             offer: plan_control::Offer::from_published(self.plan_published),
@@ -5972,62 +6025,70 @@ impl App {
         );
         // The web's `.row` pads itself 2/8/6 and gaps its groups by 12px
         // (`InputBar.module.css:251-260`); the card contributes no side padding.
+        // The web's left group holds its own command control; native's attach
+        // affordance has no counterpart box there, so it keeps its label and takes
+        // the chip height. The plan chip follows it, and only exists while the
+        // mode is on, so the row's 12px gap cannot leave a phantom slot.
+        let mut controls = row![
+            container(
+                button(
+                    label(
+                        if self.files.count() == 0 {
+                            "+ Attach".to_owned()
+                        } else {
+                            format!(
+                                "+ Attach · {}/{}",
+                                self.files.count(),
+                                attachment_draft::MAX_ATTACHMENTS
+                            )
+                        },
+                        MUTED,
+                    )
+                    .size(11)
+                )
+                .on_press_maybe(
+                    (self.file_context().allowed
+                        && !self.files.editor_open()
+                        && !self.files.at_capacity()
+                        && !self.files.pending()
+                        && !self.files.prompt_pending()
+                        && !self.local_files.busy())
+                    .then_some(Message::FileChoose)
+                )
+                .style(design::ghost)
+                .padding([6, 9])
+                .height(design::COMPOSER_CHIP_HEIGHT)
+            )
+            .id("native-file-open"),
+        ];
+        if let Some(chip) = self.plan_chip() {
+            controls = controls.push(chip);
+        }
+        controls = controls
+            .push(Space::new().width(Length::Fill))
+            // The web puts the model select in the trailing group beside the send
+            // control (`InputBar.tsx:450-486`).
+            .push(self.model_control())
+            .push(self.stop_button())
+            .push(
+                container(
+                    button(
+                        text(if sending { "Sending…" } else { "Send ↑" })
+                            .font(FONT)
+                            .size(13),
+                    )
+                    .on_press_maybe(allowed.then_some(Message::Send))
+                    .style(design::primary)
+                    .padding([8, 14])
+                    .height(design::COMPOSER_CONTROL_HEIGHT),
+                )
+                .id("native-send-control"),
+            );
         inner = inner.push(
             container(
-                row![
-                    // The web's left group holds its own command control; native's
-                    // attach affordance has no counterpart box there, so it keeps
-                    // its label and takes the chip height.
-                    container(
-                        button(
-                            label(
-                                if self.files.count() == 0 {
-                                    "+ Attach".to_owned()
-                                } else {
-                                    format!(
-                                        "+ Attach · {}/{}",
-                                        self.files.count(),
-                                        attachment_draft::MAX_ATTACHMENTS
-                                    )
-                                },
-                                MUTED,
-                            )
-                            .size(11)
-                        )
-                        .on_press_maybe(
-                            (self.file_context().allowed
-                                && !self.files.editor_open()
-                                && !self.files.at_capacity()
-                                && !self.files.pending()
-                                && !self.files.prompt_pending()
-                                && !self.local_files.busy())
-                            .then_some(Message::FileChoose)
-                        )
-                        .style(design::ghost)
-                        .padding([6, 9])
-                        .height(design::COMPOSER_CHIP_HEIGHT)
-                    )
-                    .id("native-file-open"),
-                    Space::new().width(Length::Fill),
-                    // The web puts the model select in the trailing group beside
-                    // the send control (`InputBar.tsx:450-486`).
-                    self.model_control(),
-                    self.stop_button(),
-                    container(
-                        button(
-                            text(if sending { "Sending…" } else { "Send ↑" })
-                                .font(FONT)
-                                .size(13)
-                        )
-                        .on_press_maybe(allowed.then_some(Message::Send))
-                        .style(design::primary)
-                        .padding([8, 14])
-                        .height(design::COMPOSER_CONTROL_HEIGHT)
-                    )
-                    .id("native-send-control")
-                ]
-                .spacing(design::COMPOSER_ROW_GAP)
-                .align_y(iced::Alignment::Center),
+                controls
+                    .spacing(design::COMPOSER_ROW_GAP)
+                    .align_y(iced::Alignment::Center),
             )
             .padding(design::COMPOSER_ROW_PAD)
             .width(Length::Fill),
@@ -6093,28 +6154,14 @@ impl App {
                 None => format!("Plan · {done}/{total}"),
             });
         let mut metadata = row![];
-        // Plan mode comes from the Host's { active, pending } projection. It is
-        // actionable only where the Host also advertises the `plan` command; the
-        // display follows the projection, never the request that was sent.
+        // Plan mode's actionable control now rides the card's own control row as
+        // the reference draws it (`PlanModeControl.module.css`), so the strip
+        // keeps only the in-flight status it can add: the projection still owns
+        // the mode, and a pending toggle stays visible while it settles.
         let control = self.plan_control();
         if let Some(mode) = control.mode {
-            let text = if control.pending {
-                format!("{} · sending", mode.label())
-            } else {
-                mode.label().to_owned()
-            };
-            if control.visible() {
-                metadata = metadata.push(
-                    button(label(text, ACCENT).size(10))
-                        .padding([2, 4])
-                        .style(design::ghost)
-                        .on_press_maybe(
-                            (!control.pending && self.composer_visible())
-                                .then_some(Message::TogglePlanMode),
-                        ),
-                );
-            } else {
-                metadata = metadata.push(label(text, ACCENT).size(10));
+            if control.pending {
+                metadata = metadata.push(label(mode.label(), ACCENT).size(10));
             }
         }
         if let Some(plan) = plan {
