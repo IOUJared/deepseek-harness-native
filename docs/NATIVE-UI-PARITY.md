@@ -1193,6 +1193,17 @@ cell, so new findings go at the end of the file as plain paragraphs.
   reasoning chips with the geometry above, the menu with its Auto-review badge, the
   confirmation guard before full access commits, and the command that changes the preset
   — several items, each with its own capture, rather than one.
+  Two more facts from sizing that work. First, **native's command surface is the composer
+  line, not a bespoke transport call**: the plan chip sends `/plan` or `/plan off` through
+  the conversation (`app/src/plan_control.rs:44-54`, `Control::press`), so a permission
+  chip has to find the equivalent. Second, searching the client packages finds **only the
+  catalog read** — `permissionPresets.catalog()` is the sole `permissionPresets.` call
+  anywhere under `packages/client` — so the mutation that changes a preset is *not* a
+  client-side call and its wire shape is still unlocated. That is the first question to
+  answer before writing the chip: how a preset change is expressed (a Host command in the
+  command catalog, a conversation command, or a remote mutation like the catalog read),
+  because that decides whether native can send it through the composer or needs a new
+  transport path.
 
 - **Compact table cells — landed, capture-verified.** The table landed with one padding
   pair for both ladders, but the sheet gives the compact one its own:
