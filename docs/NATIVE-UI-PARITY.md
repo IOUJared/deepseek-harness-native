@@ -58,6 +58,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Conversation header | 76 min-h · bottom 0.5px seam · 30px title row · tabs 13/16 + 2px bar | padding `10px 28px 0 20px` (tabs) / `… 10px` (no tabs) + 1px seam; `HEADER_*`/`TAB_*` carry the rows (band 77) |
 | Header crumbs | `4px` gap · crumb `4px 8px` · radius md · cap 220px · 14/20 (subagent 12/18) · 14/20 caption `/` | `CRUMB_*`; the trail walks `parentSessionId` while the origin is a subagent |
 | Chat content width | `clamp(680, 64%, 920)` | `design::chat_width(pane)` clamp, bounded by the padded pane |
+| User bubble | `padding: 10px 16px` · radius xl · stack cap `min(content × 0.702, 82%)` | `USER_BUBBLE_PAD`/`_INSET`/`_RADIUS`/`_SHARE`; the cap follows the live lane |
 | Width handles | 10px strip at lane ± 24 · `2px` glow `4px` in, `16px` core, hover/drag only | `WIDTH_HANDLE_*` + `HANDLE_GLOW_*`, hover/drag state, `native-width-handle-*` rects |
 | Jump to latest | `34px` round floating button · slot `bottom: 16px` · right edge on the column (or `32px` in) · only while not following the tail | `TO_BOTTOM_*` + `native-to-bottom` rect; `design::LINE` hover, no shadow |
 | Load earlier | centered row · button `4px 12px` · radius sm · `12px` secondary on the hover-solid fill · disabled while loading | `design::fill_solid` + `native-load-older` rect; the duplicate left native's own bar |
@@ -763,4 +764,28 @@ cell, so new findings go at the end of the file as plain paragraphs.
   hover, and Iced would need per-card hover state), the reference's 64×64 image
   thumbnail has no native counterpart because native's rail holds files, and the
   rail's edge arrows for horizontal overflow are not drawn.
+- **User bubble box and cap — landed, capture-verified.** The reference's user
+  bubble is `padding: 10px 16px` with `border-radius: var(--dsw-radius-xl)` inside a
+  `.userStack` capped at `min(calc(var(--dsh-chat-content-width, 748px) * 0.702),
+  82%)` — the figma 525px cap held as the 525/748 share of the *live* width axis,
+  where the 82% half never binds (`MessageItem.module.css:10-40`). Native drew the
+  bubble with `padding: [10, 14]`, `RADIUS_LG` and a **fixed** `min(lane − 8, 640)`
+  cap, so on any column narrower than 920 its bubble stayed 640 wide.
+  `USER_BUBBLE_PAD`, `USER_BUBBLE_INSET` (the 32px both sides the geometry
+  reserves), `USER_BUBBLE_RADIUS` (`RADIUS_XL`), `USER_BUBBLE_SHARE` and
+  `USER_STACK_SHARE` carry the figures; the measurement bound and the drawn box both
+  read them, `MIN_LANE` rose to 47 (0.702 of the lane must cover the inset plus a
+  pixel of body), and the human branch measures with the bubble's own inset instead
+  of the assistant body's 28.
+  Verified at a new `long-user-message` preset — the shared fixture's only user text
+  is 22 characters, so nothing reached a cap before this: at the 1040-wide window the
+  bubble's fill spans **465px**, inside the lane's 477.4 cap, where the previous
+  fixed cap drew it ~640 (175px wider). `shots/48-user-bubble-cap-dp2.png` is the
+  grab and `shots/48-user-bubble-cap.png` that run's own frame.
+  Five existing tests pinned the old arithmetic and moved with the rule rather than
+  around it: the 640 ceiling became the share, the user-cap test now asserts the cap
+  *follows* the lane (it was named for ignoring it), the malformed-width floor became
+  the bubble's own minimum, and the two scroll rewrap fixtures needed a longer PUBLIC
+  row so the wide and narrow lanes still land on different line counts under the
+  smaller cap.
 

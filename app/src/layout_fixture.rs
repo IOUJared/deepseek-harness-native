@@ -58,6 +58,7 @@ pub const PRESETS: &[&str] = &[
     "chat-preparation-error",
     "chat-stream-live",
     "chat-context-rewrite",
+    "long-user-message",
     "history-more",
     "chat-transcript",
     "chat-markdown",
@@ -205,6 +206,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "chat-stream-live"
         | "chat-context-rewrite"
         | "history-more"
+        | "long-user-message"
         | "chat-transcript"
         | "chat-markdown"
         | "chat-thoughts"
@@ -406,11 +408,25 @@ fn public_chat_records(preset: &str) -> Vec<Value> {
     }
     if matches!(
         preset,
-        "chat-transcript" | "chat-context-rewrite" | "history-more"
+        "chat-transcript" | "chat-context-rewrite" | "history-more" | "long-user-message"
     ) {
         let value: Value =
             serde_json::from_str(include_str!("../fixtures/chat-visibility.json")).unwrap();
         let mut records = value["records"].as_array().unwrap().clone();
+        if preset == "long-user-message" {
+            // The fixture's only user text is 22 characters, which never reaches
+            // the reference's share-of-column bubble cap; this preset lengthens it
+            // so a capture measures the cap rather than the content width.
+            for record in &mut records {
+                let event = &mut record["event"];
+                if event["type"] == "user/message" {
+                    event["data"]["content"] = json!([{
+                        "type": "text",
+                        "text": "PUBLIC long user input for the bubble cap: this sentence is deliberately far wider than the reference's 0.702 share of the conversation column, so the bubble must clamp to that share instead of growing with its own text."
+                    }]);
+                }
+            }
+        }
         if preset == "chat-context-rewrite" {
             records.push(json!({"type":"event","event":{"type":"user/message","seq":15,"time":1015,"surfaceOp":{"op":"replace","startSeq":8,"endSeq":13},"sourceEventSeqs":[8,11,13],"data":{"content":[{"type":"text","text":"PUBLIC model-only context summary: not a chat replacement"}]}}}));
         }
@@ -732,6 +748,7 @@ pub fn build(
             | "chat-stream-live"
             | "chat-context-rewrite"
             | "history-more"
+            | "long-user-message"
             | "chat-transcript"
             | "chat-markdown"
             | "chat-thoughts"

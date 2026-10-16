@@ -7883,9 +7883,9 @@ impl App {
                         if !record.text.is_empty() || record.files.is_empty() {
                             stack = stack.push(
                                 container(card.push(body))
-                                    .padding([10, 14])
+                                    .padding(design::USER_BUBBLE_PAD)
                                     .width(geometry.width)
-                                    .style(|_| design::card(OVERLAY, design::RADIUS_LG)),
+                                    .style(|_| design::card(OVERLAY, design::USER_BUBBLE_RADIUS)),
                             );
                         }
                         column![stack, Space::new().height(ACTION_GAP), footer]

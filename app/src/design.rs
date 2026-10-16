@@ -303,6 +303,24 @@ pub fn attachment_height(count: usize, has_bubble: bool) -> f32 {
 // sm≈8, md=12, lg=16, xl=20. Native rounds sm to 9 and lg to 18; panel stays a
 // tighter 20 than the web 28. Keep these stable — the parity skill forbids
 // arbitrary redesigns.
+/// The user bubble's own box (`MessageItem.module.css:22-40`): `padding: 10px
+/// 16px`, `border-radius: var(--dsw-radius-xl)`, filled with the bubble token and
+/// capped by `.userStack`'s `max-width: min(calc(var(--dsh-chat-content-width,
+/// 748px) * 0.702), 82%)` — the figma 525px cap held as the 525/748 share of the
+/// live width axis (`:10-21`). The 82% half never binds below a 748px column, and
+/// above it 0.702 of the axis is still the smaller term.
+pub const USER_BUBBLE_PAD: iced::Padding = iced::Padding {
+    top: 10.0,
+    right: 16.0,
+    bottom: 10.0,
+    left: 16.0,
+};
+/// The bubble's inner horizontal inset the geometry reserves: both sides of
+/// [`USER_BUBBLE_PAD`], so measurement and render cannot drift.
+pub const USER_BUBBLE_INSET: f32 = 32.0;
+pub const USER_BUBBLE_RADIUS: f32 = RADIUS_XL;
+pub const USER_BUBBLE_SHARE: f32 = 0.702;
+pub const USER_STACK_SHARE: f32 = 0.82;
 pub const RADIUS_SM: f32 = 9.0;
 pub const RADIUS_MD: f32 = 12.0;
 pub const RADIUS_LG: f32 = 18.0;

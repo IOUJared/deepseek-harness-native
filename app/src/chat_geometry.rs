@@ -44,7 +44,10 @@ const PREVIEW_LINES: f32 = 4.0;
 pub(crate) const TOOL_BODY_GAP: f32 = 4.0;
 /// The horizontal inset a row body is measured and rendered at, so the two agree.
 pub(crate) const BODY_INSET: f32 = 28.0;
-const MIN_LANE: f32 = 37.0; // Outer 8 + inner 28 + at least 1px of body width.
+/// The narrowest lane whose user bubble still has room: the reference's 0.702
+/// share must cover the 32px bubble inset plus one pixel of body. Below this the
+/// lane is malformed and takes [`MALFORMED_LANE`].
+const MIN_LANE: f32 = 47.0;
 const MAX_LANE: f32 = 4096.0;
 const MALFORMED_LANE: f32 = 104.0; // Outer 8 + ordinary minimum bubble 96.
 const FONT: Font = Font::with_name("DejaVu Sans");
@@ -123,8 +126,13 @@ impl Cache {
         // content width. Fixed-height tools/opaque rows still need their actual
         // lane for card width. The fixed user cap keeps extra empty lane width
         // from re-measuring ordinary user rows during a resize.
+        // The reference caps the user stack at `min(content * 0.702, 82%)`
+        // (`MessageItem.module.css:10-21`); both terms move with the live column,
+        // so a narrow lane narrows the bubble instead of holding a fixed cap.
+        let user_cap =
+            (lane * crate::design::USER_BUBBLE_SHARE).min(lane * crate::design::USER_STACK_SHARE);
         let measurement_width = if human {
-            (lane - 8.0).min(640.0)
+            (lane - 8.0).min(user_cap)
         } else if assistant {
             lane - 8.0
         } else {
@@ -171,9 +179,14 @@ impl Cache {
                 let max_width = measurement_width;
                 #[cfg(feature = "public-layout-fixture")]
                 let shaped = std::time::Instant::now();
+                let inset = if human {
+                    crate::design::USER_BUBBLE_INSET
+                } else {
+                    BODY_INSET
+                };
                 let paragraph = NativeParagraph::with_text(text::Text {
                     content: preview,
-                    bounds: Size::new(max_width - BODY_INSET, f32::INFINITY),
+                    bounds: Size::new(max_width - inset, f32::INFINITY),
                     // Measured at the size the transcript draws, so a content-size
                     // preference cannot reserve height for a smaller text than the
                     // one that renders (which clipped the last wrapped line).
@@ -199,7 +212,7 @@ impl Cache {
                     // Word wrapping may leave an unbreakable token wider than its bound.
                     // Keep the row bounded and let the rendering parent's body clip it.
                     let measured_width = if measured.width.is_finite() {
-                        measured.width.max(0.0).ceil() + BODY_INSET
+                        measured.width.max(0.0).ceil() + inset
                     } else {
                         max_width
                     };
@@ -358,13 +371,20 @@ mod tests {
         assert!(cache.entries.borrow().is_empty());
     }
     #[test]
-    fn user_cap_ignores_extra_lane_width_while_the_assistant_column_follows_it() {
+    fn user_cap_follows_the_column_share_while_the_assistant_column_follows_the_lane() {
         let cache = Cache::default();
-        // Above the 640 user cap, extra empty lane width cannot re-measure a
-        // user row, so the cached geometry is reused without a new shape.
-        let human = cache.geometry(1, "You", "PUBLIC", 740.0);
-        assert_eq!(cache.geometry(1, "You", "PUBLIC", 4096.0), human);
-        assert_eq!(cache.shapes.get(), 1);
+        // The reference caps the user stack at `min(content * 0.702, 82%)`, so a
+        // wider lane widens the bubble: the two lanes must measure differently
+        // rather than reuse one fixed-cap geometry.
+        let long = "PUBLIC words ".repeat(80);
+        let wide = cache.geometry(1, "You", &long, 4096.0).width;
+        let narrow = cache.geometry(1, "You", &long, 740.0).width;
+        assert!(wide > narrow, "{wide} must exceed {narrow}");
+        // Word wrapping leaves the widest line at or under the paragraph bound, so
+        // the bubble sits at or under the cap rather than exactly on it.
+        assert!(narrow <= 740.0 * crate::design::USER_BUBBLE_SHARE + 1.0);
+        assert!(narrow > 740.0 * crate::design::USER_BUBBLE_SHARE - 64.0);
+        assert_eq!(cache.shapes.get(), 2);
         // The unboxed assistant column tracks the shared content width.
         let assistant = cache.geometry(2, "Assistant", "PUBLIC", 850.0);
         assert_eq!(assistant.width, 842.0);
@@ -372,13 +392,15 @@ mod tests {
             cache.geometry(2, "Assistant", "PUBLIC", 1200.0).width,
             1192.0
         );
-        assert_eq!(cache.shapes.get(), 3);
+        assert_eq!(cache.shapes.get(), 4);
         let tool = cache.geometry(3, "Tool call", "PUBLIC", 740.0);
         assert_ne!(
             cache.geometry(3, "Tool call", "PUBLIC", 800.0).width,
             tool.width
         );
-        assert_eq!(cache.shapes.get(), 3);
+        // Two user lanes and two assistant lanes; a tool row's width is arithmetic
+        // on the lane, so it never shapes.
+        assert_eq!(cache.shapes.get(), 4);
     }
     #[test]
     fn cached_geometry_matches_fresh_native_oracle_across_caps_roles_and_unicode() {
@@ -569,7 +591,9 @@ mod tests {
                 {
                     let cap = PREVIEW_LINES * crate::design::LINE_BODY;
                     assert!(
-                        geometry.width >= 29.0
+                        // The narrowest accepted lane's 0.702 share is 32.99, so the
+                        // floor is the bubble's own minimum rather than a round 33.
+                        geometry.width >= 32.0
                             && (crate::design::LINE_BODY..=cap).contains(&geometry.body_height)
                     );
                     assert_eq!(geometry.height, chrome_height(role) + geometry.body_height);
@@ -600,7 +624,10 @@ mod tests {
             }
         );
         let long = "PUBLIC words ".repeat(80);
-        assert!(cache.geometry(4, "You", &long, 1000.0).width <= 640.0);
+        assert!(
+            cache.geometry(4, "You", &long, 1000.0).width
+                <= 1000.0 * crate::design::USER_BUBBLE_SHARE
+        );
         // The unboxed assistant column spans the lane less its outer padding.
         assert_eq!(cache.geometry(5, "Assistant", "Hi", 1000.0).width, 992.0);
         assert_eq!(

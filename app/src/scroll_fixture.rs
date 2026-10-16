@@ -41,8 +41,10 @@ pub struct Rig {
     metrics: Metrics,
 }
 fn record(seq: u64) -> Value {
-    // A bounded PUBLIC word line near the wide-lane limit exercises native rewrap.
-    let text = format!("PUBLIC durable row {seq}: {}", "wide ".repeat(9));
+    // A bounded PUBLIC word line long enough that the reference's 0.702-of-column
+    // bubble cap yields different line counts at the wide and narrow target lanes,
+    // which is what exercises native rewrap.
+    let text = format!("PUBLIC durable row {seq}: {}", "wide ".repeat(26));
     json!({"type":"event","event":{"type":"user/message","seq":seq,"time":1000+seq,"surfaceOp":"append","data":{"content":[{"type":"text","text":text}]}}})
 }
 impl Rig {
