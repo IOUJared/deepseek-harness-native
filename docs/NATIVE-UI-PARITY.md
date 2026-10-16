@@ -445,7 +445,28 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    existed in both cases (config forms here, the `/permission` command line earlier), while
    the *scoping* and the *surface* did not.
 
-## Verification log (append-only)
+9. **The conversation and shell slot inventory — the next audit surface.** The settings
+   survey found two real gaps (the permission default row and the session-log preference), so
+   the same method applied to the composer, conversation and shell families yields this
+   inventory from the reference's own registrations: `shell.overlay` (20 registrations),
+   `conversation.session.header.actions` (7), `conversation.input.overlay` (7),
+   `conversation.hero.workspace.directoryFlow` (7), `conversation.composer` (6),
+   `conversation.chat.turnTail` (6), `conversation.chat.node` (6),
+   `conversation.session.header.utilities` (5), `shell.leading` (4), `conversation.view` (3),
+   `conversation.trajectory.images` (3), `conversation.plan-review.actions` (3),
+   `shell.quota-notice` (2), `shell.bottom` (2), `conversation.session.header.lineage` (2),
+   `conversation.session.header.corner` (2), `conversation.message.images` (2) and
+   `conversation.input.plan` (2).
+   This is an inventory, not a divergence list: native deliberately diverges where the user's
+   own layout preferences apply (its ChatGPT-desktop-inspired hierarchy, its Trajectory tab
+   standing in for trajectory slots, its composer controls in fixed places), so each slot
+   must be checked against native and against those preferences rather than matched
+   wholesale. The method that worked for settings is the method here too: read what each
+   registration actually renders, then land the functional gaps and record the deliberate
+   omissions with their reason.
+   Settling step: work the list in order of user-visible weight, starting with
+   `conversation.chat.turnTail` and `conversation.session.header.actions`, since both concern
+   controls a user reaches for directly rather than decoration.
 
 Entries here are appended, never inserted: earlier notes were lost because they
 were anchored onto rows of a markdown table above and collapsed into a single
