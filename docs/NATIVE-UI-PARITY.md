@@ -2208,3 +2208,14 @@ navigation, `subagentTiming`'s activity marker, and editable keybinding rebindin
    Also recorded: the round-133 negative was correct, but this round's *first* attempt at it was
    nearly discredited by a grep whose output a broken pipe had truncated. Re-running it without
    truncation is what confirmed it, and the same care is why the boundary was found at all.
+
+   **Worker half landed, in the layer round 134 identified.** `Event::AgentPresetSelected(
+   Result<String, String>)` and `Command::AgentPresetSelect { session, preset }` now exist, and
+   the late dispatch arm calls `client.agent_preset_select(&session, &preset)` — the transport
+   method added in round 131 — mapped into the event exactly as the neighbouring
+   `Command::Create` arm awaits its client call. Both exhaustive matches that the new variant
+   breaks (`rejected()` and the fixture's command classifier) answer it, the latter reporting
+   the variant's own name so the fixture still never serialises content.
+   Verified: fixture **1114** exit 0, default **1107** exit 0, format-debt 0.
+   The remaining half is the seat: its inert pick arm becomes the command, and the event's
+   `Err` — which carries the `agentPreset/locked` code as a string — is what the seat announces.

@@ -61,6 +61,11 @@ pub enum Command {
     PermissionCatalogRead,
     /// Read the Host's agent-preset roster for the hero chip and the header label.
     AgentPresetsRead,
+    /// Stage one advertised agent preset for a session that has not started its first turn.
+    AgentPresetSelect {
+        session: dsh_native_transport::dto::SessionId,
+        preset: String,
+    },
     /// Read the deployment's new-session permission default for the settings row.
     PermissionSettingsRead,
     /// Persist the new-session default preset at the descriptor's own revision.
@@ -142,6 +147,8 @@ pub enum Event {
     PermissionCatalog(Result<dsh_native_core::PermissionCatalog, String>),
     /// Every declared agent preset, for the hero chip, the header label and the lineage.
     AgentPresets(Result<dsh_native_core::AgentPresetRoster, String>),
+    /// The committed identity of an agent preset picked for a session that had not started.
+    AgentPresetSelected(Result<String, String>),
     /// The deployment's new-session permission default, for the settings row.
     PermissionSettings(Result<dsh_native_core::PermissionSettingsState, String>),
     /// The acknowledgement of a new-session default write.
@@ -744,6 +751,7 @@ fn rejected(command: Command) -> Event {
         Command::PermissionCatalogRead => Event::PermissionCatalog(Err(error)),
         Command::PermissionSettingsRead => Event::PermissionSettings(Err(error)),
         Command::AgentPresetsRead => Event::AgentPresets(Err(error)),
+        Command::AgentPresetSelect { .. } => Event::AgentPresetSelected(Err(error)),
         Command::PermissionDefaultSet { .. } => Event::PermissionDefaultSet(Err(error)),
         Command::Account(effect) => {
             let ticket = effect.ticket();
@@ -2219,6 +2227,7 @@ async fn run(
                     Command::AgentPresetsRead=>Event::Fault("Agent presets bypassed priority dispatch".into()),
                     Command::PermissionDefaultSet{..}=>Event::Fault("Permission default bypassed priority dispatch".into()),
                     Command::Create{workspace,cwd}=>Event::Created(client.session_create(SessionCreateRequest{workspace_id:workspace,cwd,..Default::default()}).await.map_err(|e|format!("New session: {e}"))),
+                    Command::AgentPresetSelect{session,preset}=>Event::AgentPresetSelected(client.agent_preset_select(&session,&preset).await.map_err(|error|format!("Agent preset: {error}"))),
                     Command::OpenWorkspace(path)=>Event::WorkspaceOpened(client.workspace_create(path).await.map_err(|e|format!("Open workspace: {e}"))),
                     Command::Catalog(ticket)=>rejected(Command::Catalog(ticket)),
                     Command::Decision(_)=>Event::Fault("Decision bypassed worker admission".into()),
