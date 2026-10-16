@@ -4957,7 +4957,9 @@ impl App {
         };
         row![tab("Chat", !expanded), tab("Trajectory", expanded)]
             .spacing(6)
-            .padding([2, 28])
+            // horizontal padding belongs to the header band the tabs now live in,
+            // so the tabs line up with the title.
+            .padding([2, 0])
             .into()
     }
     fn transcript_tabs_visible(&self) -> bool {
@@ -4988,10 +4990,9 @@ impl App {
             } else {
                 self.transcript_view()
             };
-            let mut content = column![self.header()].spacing(4).height(Length::Fill);
-            if self.transcript_tabs_visible() {
-                content = content.push(self.transcript_tabs());
-            }
+            // The tabs live inside the header band, as the reference's one
+            // header region holds both, so nothing is pushed between them.
+            let mut content = column![self.header()].height(Length::Fill);
             content = content.push(body);
             if include_composer {
                 content = content.push(self.composer());
@@ -5223,10 +5224,21 @@ impl App {
                 .height(94),
             );
         }
+        let mut band = column![header];
+        if self.transcript_tabs_visible() {
+            band = band.push(self.transcript_tabs());
+        }
         container(column![
-            container(header)
+            container(band)
                 .id("native-header")
-                .padding([14, 20])
+                // `ConversationRoot.module.css:15-23`: one header region holding
+                // the title and the tabs, `padding: 10px 28px 0 20px`.
+                .padding(iced::Padding {
+                    top: 10.0,
+                    right: 28.0,
+                    bottom: 0.0,
+                    left: 20.0,
+                })
                 .width(Length::Fill),
             // Conversation header seam: the web's 0.5px `border-l3` rule
             // drawn at one native device pixel (docs/NATIVE-UI-PARITY.md).
