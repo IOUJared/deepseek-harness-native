@@ -28,6 +28,9 @@ const ACTIVITY_HEIGHT: f32 = 40.0;
 /// because sibling modules import their colours from `crate::ui`.
 pub(crate) use crate::design::{ACCENT, BASE, DANGER, MUTED, OVERLAY, SURFACE, TEXT};
 pub const FONT: iced::Font = iced::Font::with_name("DejaVu Sans");
+/// The code font the web gives tool-body text and the diff totals
+/// (`ToolRow.module.css:64-69` names `--ds-font-family-code`).
+const MONO: iced::Font = iced::Font::with_name("DejaVu Sans Mono");
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Effort {
     id: String,
@@ -7222,14 +7225,36 @@ impl App {
                 ]
                 .spacing(7)
                 .align_y(iced::Alignment::Center);
-                // Edit size rides after the target, like the web's diff stat.
-                if let Some((added, removed)) = activity.edits {
+                // The web's diff totals ride after the summary: 10px to their
+                // left, the code font at `secondary - 2` = 11px, an ASCII hyphen,
+                // and the success/error pair only while the row is hovered or
+                // expanded — at rest they stay muted. A failed call drops them
+                // (`ToolRow.tsx:185-190, 248-250`, `ToolRow.module.css:64-77`).
+                if let Some((added, removed)) = activity.edits
+                    && !activity.failed
+                {
+                    let cue = hovered || expanded;
                     line = line.push(
-                        row![
-                            label(format!("+{added}"), design::FOAM).size(10),
-                            label(format!("−{removed}"), DANGER).size(10),
-                        ]
-                        .spacing(3),
+                        container(
+                            row![
+                                label(format!("+{added}"), if cue { design::FOAM } else { MUTED })
+                                    .size(design::DIFF_STAT_SIZE)
+                                    .font(MONO),
+                                // The web writes a literal space between the two
+                                // counts; at this size that is the same width as
+                                // this gap.
+                                label(format!("-{removed}"), if cue { DANGER } else { MUTED })
+                                    .size(design::DIFF_STAT_SIZE)
+                                    .font(MONO),
+                            ]
+                            .spacing(3),
+                        )
+                        .padding(iced::Padding {
+                            top: 0.0,
+                            right: 0.0,
+                            bottom: 0.0,
+                            left: design::DIFF_STAT_LEFT,
+                        }),
                     );
                 }
                 // Suffix stays outside the clipped label; output cannot look like a new call.

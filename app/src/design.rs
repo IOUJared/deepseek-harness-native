@@ -544,6 +544,13 @@ pub const TAB_GAP: f32 = 36.0;
 pub const TAB_LINE: f32 = 16.0;
 pub const TAB_PAD_BOTTOM: f32 = 9.0;
 pub const TAB_BAR: f32 = 2.0;
+/// The edit stat a tool row appends after its summary
+/// (`ui-tool/.../ToolRow.module.css:64-77`): `margin-left: 10px`, the code font
+/// at `secondary − 2` = 11px, and the `+N -M` counts written with an ASCII
+/// hyphen; they take the success/error pair only while the row is hovered or
+/// expanded, staying muted at rest.
+pub const DIFF_STAT_LEFT: f32 = 10.0;
+pub const DIFF_STAT_SIZE: f32 = 11.0;
 /// The fade itself: transparent at the top, base colour by its bottom, so
 /// scrolled content dissolves instead of meeting the composer at a hard edge.
 ///

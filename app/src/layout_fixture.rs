@@ -110,6 +110,7 @@ pub const PRESETS: &[&str] = &[
     "tool-activity-details",
     "tool-activity-expanded",
     "tool-activity-attachment",
+    "tool-activity-edit-error",
     "context-injects",
     "assistant-tool-call",
     "assistant-tool-call-expanded",
@@ -172,9 +173,10 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "assistant-details-fallback" => Some((Size::new(1040.0, 900.0), 1.0)),
         "assistant-details-narrow" => Some((Size::new(760.0, 840.0), 1.0)),
         "chat-search-narrow" => Some((Size::new(760.0, 840.0), 1.5)),
-        "tool-activity" | "tool-activity-expanded" | "tool-activity-attachment" => {
-            Some((Size::new(1040.0, 1040.0), 1.0))
-        }
+        "tool-activity"
+        | "tool-activity-expanded"
+        | "tool-activity-attachment"
+        | "tool-activity-edit-error" => Some((Size::new(1040.0, 1040.0), 1.0)),
         "context-injects" | "context-injects-trajectory" => Some((Size::new(1040.0, 900.0), 1.0)),
         "assistant-tool-call" | "assistant-tool-call-expanded" => {
             Some((Size::new(1040.0, 760.0), 1.0))
@@ -424,6 +426,27 @@ fn public_tool_records() -> Vec<Value> {
     public_tool_records_with(None)
 }
 
+/// The tool fixture with its Edit result recorded as an error, so the reference's
+/// rule that a failed call drops its diff totals (`ToolRow.tsx:185-190`) has
+/// fixture coverage. Only the recorded error flag and body change; no file was
+/// written and no tool ran.
+fn public_tool_edit_error_records() -> Vec<Value> {
+    let mut records = public_tool_records();
+    for record in &mut records {
+        let event = &mut record["event"];
+        if event["type"] == "tool/result"
+            && event["data"]["message"]["toolCallId"] == "PUBLIC-edit-call"
+        {
+            event["data"]["message"]["isError"] = json!(true);
+            event["data"]["message"]["content"] = json!([{
+                "type":"text",
+                "text":"PUBLIC synthetic edit failure. No file was written."
+            }]);
+        }
+    }
+    records
+}
+
 /// The same records with an optional `file` content part on the first user
 /// message, so a preset can render the attachment card the reference stacks
 /// above the bubble (`MessageItem.tsx:194-221`). A macro body cannot hold the
@@ -650,6 +673,8 @@ pub fn build(
         ]
     } else if preset == "tool-activity-attachment" {
         public_tool_records_with(Some("PUBLIC-note.txt"))
+    } else if preset == "tool-activity-edit-error" {
+        public_tool_edit_error_records()
     } else if preset.starts_with("tool-activity") || preset.starts_with("title-controls") {
         public_tool_records()
     } else if preset.starts_with("assistant-tool-call") {
@@ -1728,7 +1753,22 @@ mod tests {
                 assert_eq!(app.transcript.rows()[0].role, "You");
                 assert_eq!(app.transcript.rows()[7].role, "Assistant");
                 assert_eq!(report["publicToolSummaryCount"], 6);
-                assert_eq!(report["publicRecordedErrorMarkerCount"], 1);
+                // The failed-edit preset records a second error marker; every
+                // other tool-activity preset keeps the single Bash failure.
+                assert_eq!(
+                    report["publicRecordedErrorMarkerCount"],
+                    if preset == "tool-activity-edit-error" {
+                        2
+                    } else {
+                        1
+                    }
+                );
+                if preset == "tool-activity-edit-error" {
+                    // The edit call keeps its recorded totals; the render is what
+                    // drops them, so the model still carries them.
+                    assert_eq!(app.transcript.activity(3).unwrap().edits, Some((1, 1)));
+                    assert!(app.transcript.activity(4).unwrap().failed);
+                }
                 // The attachment preset is the only one whose user message
                 // carries a file part; every other tool-activity preset keeps
                 // the file text inside the joined body, so this also pins that

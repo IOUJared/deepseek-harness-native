@@ -61,7 +61,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Message flow gap | 6 process / 12 response / 16 turn | `design::FLOW_GAP`/`RESPONSE_GAP` ladder 6/12; the 16px `turn-process` row is Trajectory-only |
 | Tool activity | compact unboxed single muted line | compact unboxed single muted line, expands in place |
 | Tool-row file path | grey **dotted** underline, clickable | solid `MUTED` underline (Read/Edit/Write) |
-| Edit diff stat | parsed-result diff `+N -M` after the summary | call-argument line diff `+N −M` after the target |
+| Edit diff stat | `+N -M`, code font 11px, 10px left margin, muted until hover/expanded, dropped on error | same call-argument totals; `DIFF_STAT_*` + ASCII `-`, cued colours, dropped when the row failed |
 | Composer card | panel 28 · `padding-top: 8` · `gap: 12` · input-major + l2 hairline | `RADIUS_XL` 20; `COMPOSER_CARD_*` + `design::elevated_surface` |
 | Composer input | `min-height: 36` · `4px 8px 0 14px` · 14-line text cap 336 | `COMPOSER_INPUT_*`, one-line floor 36, 14 lines (8 in a short window) |
 | Composer control row | `2px 8px 6px` · gap 12 | `COMPOSER_ROW_PAD`/`COMPOSER_ROW_GAP` |
@@ -463,4 +463,39 @@ cell, so new findings go at the end of the file as plain paragraphs.
   `shots/36-header-tabs.png` that run's frame (matching at 4.9 mean absolute
   difference). Native keeps `design::ghost`'s hover surface on the tabs, which
   the web's plain transparent tab does not draw.
+- **Edit diff stat — landed, capture-verified, and the table row corrected.** The
+  table above used to say the web reads a *parsed-result* diff where native counts
+  call-argument lines. That was wrong: `ui-tool/.../models/diff-card-model.ts`
+  derives the hunks from the *call arguments* for `edit`/`write`/
+  `str_replace_editor`, and only falls back to opaque result metadata
+  (`narrowDiffs`) when the call itself does not parse. `ToolRow.tsx:185` then
+  totals those hunks with `diffTotals`, so native's `activity::edit_totals`
+  lineage already matches the reference's primary path. What actually differed
+  was the rendering and the cue rules:
+  - `ToolRow.module.css:64-77`: the stat sits `margin-left: 10px`, in the code
+    font at `secondary − 2` = 11px, and the two counts are `+N` and an ASCII
+    `-M` separated by a literal space. Native drew them at 10px in the body font
+    with a `−` (U+2212) and a 3px gap, at the row's trailing edge.
+  - The `+`/`-` pair takes `--dsw-alias-state-success-primary` /
+    `--dsw-alias-state-error-primary` **only while the row is hovered or
+    expanded**; at rest they stay muted. Native coloured them unconditionally.
+  - `ToolRow.tsx:186-190`: `settledWithCue = state === 'error' || 'stopped'`
+    drops the stat entirely for a failed call.
+  `design::DIFF_STAT_LEFT` (10) and `DIFF_STAT_SIZE` (11) carry the figures, the
+  stat uses the code font with an ASCII hyphen, and native's existing
+  hover/expanded predicates (`activity_hovered`, `activity_is_expanded`) drive the
+  cue colours while a failed row drops the stat.
+  Coverage came first for the third rule: `layout_fixture` gained a
+  `tool-activity-edit-error` preset (`public_tool_edit_error_records`, a
+  post-processing rewrite of the shared records in the same shape
+  `public_tool_call_records` already uses) that records the Edit result as an
+  error, so the failed branch renders in a fixture instead of only in theory.
+  Verified from three DP-2 grabs of the same preset: at rest the Edit rows' ink
+  spans `x 948..976` in MUTED only; with `--hover-tool-row` the same span carries
+  FOAM (`x 907..959`) and DANGER (`x 924..975`) pixels; and in the failed-edit
+  preset the failed Edit row drops the stat and shows its recorded-error suffix
+  (`x 903..976`, DANGER) while the call row above keeps its totals.
+  `shots/37-diff-stat-dp2.png`, `shots/37-diff-stat-hover-dp2.png` and
+  `shots/37-diff-stat-error-dp2.png` are those grabs
+  (`shots/37-diff-stat.png` is the first run's own frame).
 
