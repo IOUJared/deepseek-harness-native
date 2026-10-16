@@ -551,8 +551,19 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    `implementer` ahead of `PUBLIC local conversation`
    (`shots/72-agent-preset-label-dp2.png`). The first capture attempt failed outright because
    the fixture refuses an unregistered mode, which is the fixture doing its job.
-   The remaining half is the **hero chip** (the same preset for a session that has not
-   started), and the **label's display name**, which needs the agent-preset roster. the reference turns the value into display text
+   The remaining half is **not** a cheap sibling, and reading native's hero shows why. The
+   reference's hero chip is `conversation.hero.agentPreset`, and the point of that slot is the
+   **new-session** default — a session that has not started has no `agentPreset` projection to
+   read, so the chip's value comes from the deployment's roster rather than from the transcript
+   the label above uses. Native's hero does exist and already carries a chip of the same shape
+   — `native-hero-workspace` with the `design::HERO_CHIP_*` constants
+   (`app/src/ui.rs:8742-8777`) — so the *drawing* is a small mirror of that row, but the
+   *value* depends on the roster read.
+   So both remaining pieces of this item — the hero chip and the label's display name — sit
+   behind the same missing read: the agent-preset roster, which the package reaches through
+   `remote.agentPresets` (`ui-agent-preset/src/client/index.ts:65`). That makes it the same
+   three-step shape the permission catalog needed (bridge, Core family, app plumbing) rather
+   than one more UI edit, and it is recorded as such before any of it is built. the reference turns the value into display text
    through the agent-preset registry and its `settings.agentPreset` locale
    (`ui-agent-preset/src/client/index.ts:65`, `locales.ts:127`), so native needs either that
    roster read or a fallback to the raw key — the same choice the permission chip already
