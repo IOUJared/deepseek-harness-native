@@ -410,6 +410,18 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    `view_namespace` for `session-log-deepseek`, and render its boolean with `PluginSave` —
    and the earlier claim that it needed "a scoping change" was the third wrong guess in a
    row about the same fact.
+   **Landed.** `plugin_context` now includes `Page::General` in its visibility, and the
+   General page renders the `session-log-deepseek` namespace with the same
+   `view_namespace` call the DeepSeek page uses. Verified so far in the state that matters
+   most for honesty: with no Host advertising that namespace, the row renders **nothing at
+   all** rather than a label for a setting that does not exist, which is the reference's own
+   rule for a preference row whose host exposes nothing
+   (`shots/71-session-log-row-absent-dp2.png` shows the General page with the permission row
+   present and no session-log row). Its *present* state is **not** capture-verified: the
+   fixture's backend advertises no namespaces, and faking the plugins controller's snapshot
+   is not something this fixture can do, so the visible row rests on the DeepSeek page's
+   identical precedent rather than on a grab. Stated as a blocker rather than claimed as
+   parity, per this document's rule about unavailable rendering.
    The path is now narrowed another step: the config-forms read does **not** travel through
    the fork supervisor at all — `fork-supervisor.mjs` knows only the bridge commands native
    declares there, and `PluginSettings`-style commands appear nowhere in it — so the

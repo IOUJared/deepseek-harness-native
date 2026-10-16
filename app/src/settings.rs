@@ -347,9 +347,11 @@ impl Settings {
     fn plugin_context(&self, enabled: bool) -> crate::plugins::Context {
         crate::plugins::Context {
             epoch: self.epoch,
-            // The DeepSeek page renders the one `llm-deepseek` namespace, so it
-            // needs the same live-settings authority as the plugin panel.
-            visible: self.open && matches!(self.page, Page::Plugins | Page::ApiLogin),
+            // Pages that render one backend namespace each -- `llm-deepseek` on the DeepSeek
+            // page, `session-log-deepseek` on General -- need the same live-settings authority
+            // as the plugin panel.
+            visible: self.open
+                && matches!(self.page, Page::Plugins | Page::ApiLogin | Page::General),
             enabled: enabled
                 && !self.pending()
                 && !self.codex.pending()
@@ -1104,6 +1106,18 @@ impl Settings {
                     );
                 }
             }
+        }
+        // The reference's `ui-settings-session-log` row: a single boolean in the
+        // `session-log-deepseek` namespace, rendered by the same namespace view the DeepSeek
+        // page uses, so no bridge, Core or worker work is involved
+        // (`ui-settings-session-log/src/client/index.ts:26-37`).
+        let context = self.plugin_context(true);
+        match self.plugins.view_namespace(context, "session-log-deepseek") {
+            Some(editor) => body = body.push(editor.map(Action::Plugins)),
+            // Nothing at all when the Host advertises no such namespace, rather than a label
+            // for a setting that does not exist -- the same rule the reference's preference
+            // rows follow when their host exposes nothing.
+            None => {}
         }
         body = body.push(self.info_button(
             Info::ContextPolicy,
