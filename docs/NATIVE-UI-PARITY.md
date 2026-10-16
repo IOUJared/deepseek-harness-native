@@ -1965,3 +1965,56 @@ cell, so new findings go at the end of the file as plain paragraphs.
    roster read (`api-catalog.ts:133-165`) and its row shape (`:4605-4611`).
    Standing rule, alongside the exit-status rule: **a path claim needs an implementation line,
    and a doc comment is not one.**
+
+11. **Agent-preset selection — specified, not built.** The reference has two entry points over
+   one store: `select(id)` stages and then **immediately applies**
+   (`select(id)` = `stage(id)` + `apply()`), and `stage(id, introduce)` stages *without*
+   applying for a flow that starts the receiving session afterwards — the settings creator
+   entry — because "`select()`'s immediate apply would meet the still-current running session
+   and drop the stage as unservable" (`ui-agent-preset/src/client/seat-store.ts:120-150`). The
+   apply is the remote call `ctx.remote.agentPresets.select(session.id, staged)` (`:230`); a
+   refusal is stored for the chip's announcement **and** returned to callers, and a `busy`
+   store short-circuits to `undefined`.
+   So the hero seat's pick needs: a staged preset with an `introduce` flag, an apply command,
+   and a refusal path that is both shown and returnable. That is bridge, Core and app
+   plumbing for one `select` command — the same three slices `list` needed — and the hero seat's
+   menu is already built to call it, with its pick arm deliberately inert until it exists.
+   Settling step: add the `select` bridge command beside `agent-presets`, then the Core family,
+   then replace the inert arm with the staged pick plus its refusal announcement.
+
+## Handoff summary (append-only)
+
+Work landed this session, all of it local and unpushed, with every gate green
+(fixture 1114, default 1107, Core 112, transport 82 + 7 doctests, runtime node 419,
+format 0):
+
+- **Permission select**, complete against the reference: the chip, the Host-driven menu with
+  the `EXP` Auto badge, `/permission <preset>` as the mutation (a real command, cited to
+  `ui-permission-presets/src/client/index.ts:126`), the full-access risk confirmation with the
+  sheet's verbatim copy and acknowledgement gate, and the new-session default row in Settings —
+  all captured.
+- **Session-log preference row** on the General page, riding the config-forms path with
+  `Page::General` added to that page's visibility, hidden entirely when the Host advertises no
+  such namespace. Its *present* state is **not** capture-verified: the fixture's backend
+  advertises no namespaces. Recorded as a blocker, not as parity.
+- **Agent preset**: the roster read end to end (bridge, Core, plumbing) with three captured
+  payouts — the header label's display name, the hero seat, and the seat's list rendering the
+  roster's default, ordinary and broken states. Selection is item 11 above.
+- **Corrections on record**: an invented `/agent` pick path, removed; the wide-table pad landed
+  only after its capture was inspected; a red tree committed once because a piped `tail`
+  swallowed a failing suite's status.
+
+Two standing rules, both earned here:
+
+1. **Any gate whose status gates a commit must have its exit code captured in a variable.**
+   A `cargo test … | tail` returns `tail`'s status and cannot fail a chain.
+2. **A path claim needs an implementation line.** A doc comment is not one — that is exactly
+   how the invented `/agent` line survived a commit.
+
+Still needing the user: the reference screenshot at
+`/home/jared/Documents/deepseek-harness/default-workspace/reference.png`; a real window-edge
+drag for the 520×600 floor; one live close-timing run for the shutdown budgets; and the image
+fetch policy. Still blocked on the toolkit: the inline-code chip. Still unsupported and named
+as such: scheduled tasks, the deliverables changes view (deliberately omitted), jobs, team
+navigation, `subagentTiming`'s activity marker, and editable keybinding rebinding
+(authorized, not started).
