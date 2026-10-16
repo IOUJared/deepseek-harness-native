@@ -1949,3 +1949,19 @@ cell, so new findings go at the end of the file as plain paragraphs.
    grab shows `Implementer` in full ink, `Reviewer` dim and `Scout` red above the chip
    (`shots/76-agent-preset-seat-dp2.png`). Both suites green with exit codes captured.
    Remaining from this read: the subagent activity marker. Then jobs and team navigation.
+
+   **Wire-path audit, prompted by the invented pick.** Every claim this document makes about a
+   transport path is now checked against an implementation line rather than a doc comment.
+   The permission pick passes: the reference's own picker calls
+   `const result = await live.command(\`/permission ${preset}\`)`
+   (`ui-permission-presets/src/client/index.ts:126`), the same string this app submits, so the
+   chip's command line is real and was previously cited only to the package header
+   (`:3-11`) — the implementation is the stronger citation and is recorded here.
+   The agent pick failed the same audit and has been removed (`57f6bf3`), because
+   `ctx.remote.agentPresets.select(session.id, staged)` is a remote call, not a command.
+   The other paths this document asserts were cited from the start: the catalog read and its
+   `set` (`api-catalog.ts:1666-1703`), the session-log namespace and its config-forms write
+   (`ui-settings-session-log/src/client/index.ts:26-32`, `transport/src/plugin.rs:547`), the
+   roster read (`api-catalog.ts:133-165`) and its row shape (`:4605-4611`).
+   Standing rule, alongside the exit-status rule: **a path claim needs an implementation line,
+   and a doc comment is not one.**
