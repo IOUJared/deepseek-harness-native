@@ -62,6 +62,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | User bubble | `padding: 10px 16px` · radius xl · stack cap `min(content × 0.702, 82%)` | `USER_BUBBLE_PAD`/`_INSET`/`_RADIUS`/`_SHARE`; the cap follows the live lane |
 | Code block | `radius-lg` · banner `9px 14px` at 11/18 · `pre` `padding: 16px` · code `11px/19px` · banner one step over the block | `CODE_FONT`/`CODE_LINE`/`CODE_PAD`/`CODE_BANNER_*`/`CODE_CHROME`; both renderers and the offset path read them |
 | Blockquote | `border-left: 2px solid label-caption` · `padding-left: 14px` · `margin: 16px 0 0` | `QUOTE_BAR`/`QUOTE_PAD`/`QUOTE_INSET`; a filled rule whose height is the paragraph's own measured height |
+| Search offset | measured with the drawn block heights, collapsed gaps and the ladder, for the answer and the reasoning alike | `document_first_offset` + `document_first_offset_walks_drawn_heights_and_gaps` |
 | Compact markdown | Reasoning body + trajectory detail use the secondary ladder: `p`/`ul`/`ol`/`blockquote` `4px 0`, `li` `2px`, headings `8px 0 4px` at the inherited size/600, `hr` `8px 0`, code `4px 0` in the surrounding colour, quote padding `8px` | `Ladder::Compact` + `COMPACT_*`; the reasoning body is parsed into the same block model |
 | Markdown rhythm | per-block margins, CSS-collapsed: `p` 16/16 · `h1–h3` 32/16 · `h4–h6` 16/16 · `li` 6 inside, list 16 at its edges · nested list 4 · `hr` 32/32 · code 16/11 · `h4–h6`+list 8 | `block_margins`/`document_gap` over `BLOCK_GAP`/`RULE_GAP`/`LIST_ITEM_GAP`/`NESTED_LIST_GAP`/`CODE_LAST_GAP`/`TIGHT_HEADING_GAP`; both renderers and the offset walk read them |
 | Width handles | 10px strip at lane ± 24 · `2px` glow `4px` in, `16px` core, hover/drag only | `WIDTH_HANDLE_*` + `HANDLE_GLOW_*`, hover/drag state, `native-width-handle-*` rects |
@@ -968,4 +969,27 @@ cell, so new findings go at the end of the file as plain paragraphs.
   compact document, so a match inside formatted reasoning can sit a few pixels from its
   glyph (the row's own height and the drawn blocks are exact); the trajectory table's
   compact markdown is a native surface of its own and was not touched.
+- **Reasoning search offset — landed, capture-verified.** The offset recorded above as a
+  remainder walked the reasoning's plain text while the body drew a compact document.
+  `conversation_content::document_first_offset` now holds one walk for both the answer
+  and the reasoning — the same `block_height`, the same `document_gap` and the same
+  `Ladder` the render uses — and the reasoning takes it whenever it parsed, keeping the
+  plain-text walk only for the unparsed fallback. `compact_heading_spans` is shared by
+  the measurement, the render and this walk so a compact heading is measured with the
+  bold spans it is drawn with.
+  The walk's arithmetic was wrong for two blocks even before the compact work, and the
+  new `document_first_offset_walks_drawn_heights_and_gaps` test caught it: it added a
+  `BLOCK_GAP` after every block (a leftover from the uniform-`Column::spacing` era,
+  double-counting once round 24 moved the gaps inside each block's container) while
+  never adding the *next* block's leading gap. It now advances by exactly
+  `gap + block_height` per block and returns `y + gap + offset`, which is what the
+  render reserves.
+  Verified end to end with a new `chat-search-thoughts` preset, which is the first
+  fixture that drives the real search path (`SearchInput` at a set serial) against
+  formatted reasoning: the grab shows the search field at `1/1 messages` with the
+  transcript scrolled so the tint sits exactly on `Second compact item` inside the
+  compact list. `shots/55-reasoning-search-dp2.png` is the grab and
+  `shots/55-reasoning-search.png` that run's own frame.
+  Remaining: the trajectory table's compact markdown is a native surface of its own and
+  was not touched.
 

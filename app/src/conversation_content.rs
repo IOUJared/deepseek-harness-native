@@ -164,18 +164,33 @@ impl Prepared {
     /// Body-relative native glyph position; hidden thoughts require expansion first.
     pub fn first_match_offset(&self, width: f32, expanded: bool, query: &str) -> f32 {
         let width = bounded_width(width);
-        if expanded
-            && let Some(offset) = first_offset(
-                vec![span(self.reasoning.clone()).color(MUTED)],
-                query,
-                bounded_width(width - design::CONTENT_INSET),
-                self.reasoning_size(),
-                design::compact_line(self.delta_secondary),
-                FONT,
-                false,
-            )
-        {
-            return self.content_inset() + offset;
+        if expanded {
+            let inner = bounded_width(width - self.content_inset());
+            // The reasoning is drawn as a compact document when it parses, so its
+            // search offset walks that same document; otherwise it stays the plain
+            // text the fallback view draws.
+            let found = match &self.reasoning_document {
+                Some(document) => document_first_offset(
+                    document,
+                    inner,
+                    self.delta,
+                    self.delta_secondary,
+                    Ladder::Compact,
+                    query,
+                ),
+                None => first_offset(
+                    vec![span(self.reasoning.clone()).color(MUTED)],
+                    query,
+                    bounded_width(width - design::CONTENT_INSET),
+                    self.reasoning_size(),
+                    design::compact_line(self.delta_secondary),
+                    FONT,
+                    false,
+                ),
+            };
+            if let Some(offset) = found {
+                return self.content_inset() + offset;
+            }
         }
         let mut y = if self.reasoning.is_empty() {
             0.0
@@ -183,69 +198,38 @@ impl Prepared {
             REASONING_ROW
                 + REASONING_BODY_PAD
                 + self.delta
-                + plain_height(
-                    &self.reasoning,
-                    bounded_width(width - self.content_inset()),
-                    self.reasoning_size(),
-                    design::compact_line(self.delta_secondary),
-                    FONT,
-                    false,
-                )
+                + match &self.reasoning_document {
+                    Some(document) => document_height(
+                        document,
+                        bounded_width(width - self.content_inset()),
+                        self.delta,
+                        self.delta_secondary,
+                        Ladder::Compact,
+                    ),
+                    None => plain_height(
+                        &self.reasoning,
+                        bounded_width(width - self.content_inset()),
+                        self.reasoning_size(),
+                        design::compact_line(self.delta_secondary),
+                        FONT,
+                        false,
+                    ),
+                }
         } else {
             REASONING_ROW + self.delta
         };
         if let Some(document) = &self.document {
-            for (index, block) in document.blocks.iter().enumerate() {
-                let found = match block {
-                    formatted::Block::Paragraph {
-                        spans,
-                        indent,
-                        marker,
-                        quote,
-                    } => first_offset(
-                        inline_runs(spans),
-                        query,
-                        width
-                            - *indent as f32 * 18.0
-                            - if marker.is_some() { 36.0 } else { 0.0 }
-                            - if *quote { design::QUOTE_INSET } else { 0.0 },
-                        self.body_size(),
-                        design::body_line(self.delta),
-                        FONT,
-                        false,
-                    ),
-                    formatted::Block::Heading { spans, level } => first_offset(
-                        inline_runs(spans),
-                        query,
-                        width,
-                        heading_size(*level) as f32 + self.delta,
-                        design::body_line(self.delta),
-                        FONT,
-                        false,
-                    ),
-                    // The same code metrics the block is drawn and measured with:
-                    // the 11px code font, the 19px code line, and the banner plus
-                    // the pre's top padding above the text.
-                    formatted::Block::Code { text, language, .. } => first_offset(
-                        highlight(text, language.as_deref()),
-                        query,
-                        width,
-                        design::CODE_FONT as f32 + self.delta_secondary,
-                        design::code_line(self.delta_secondary),
-                        MONO,
-                        true,
-                    )
-                    .map(|offset| offset + design::CODE_BANNER_HEIGHT + design::CODE_PAD),
-                    formatted::Block::Rule => None,
-                };
-                if let Some(offset) = found {
-                    return (y + offset).clamp(0.0, self.body_height(width, expanded));
-                }
-                y += block_height(block, width, self.delta, self.delta_secondary, Ladder::Body)
-                    + document_gap(&document.blocks, index, Ladder::Body)
-                    + design::BLOCK_GAP;
-            }
-            0.0
+            return document_first_offset(
+                document,
+                width,
+                self.delta,
+                self.delta_secondary,
+                Ladder::Body,
+                query,
+            )
+            .map_or(0.0, |offset| {
+                (y + offset).clamp(0.0, self.body_height(width, expanded))
+            });
         } else {
             first_offset(
                 vec![span(self.answer.clone()).color(TEXT)],
@@ -811,6 +795,20 @@ impl Ladder {
         }
     }
 }
+/// A compact heading is `font: inherit; font-weight: 600`
+/// (`MarkdownText.module.css:336-341`): the body's size drawn bold, so both the
+/// measurement and the render must use the bold spans.
+pub(crate) fn compact_heading_spans(spans: &[formatted::Span]) -> Vec<formatted::Span> {
+    spans
+        .iter()
+        .map(|part| formatted::Span {
+            text: part.text.clone(),
+            bold: true,
+            italic: part.italic,
+            code: part.code,
+        })
+        .collect()
+}
 fn is_item(block: &formatted::Block) -> bool {
     matches!(
         block,
@@ -950,16 +948,25 @@ fn block_height(
         ),
         // A compact heading keeps the body's size and weight
         // (`MarkdownText.module.css:336-341`).
-        formatted::Block::Heading { level, spans } => inline_height(
-            spans,
-            width,
-            if ladder == Ladder::Compact {
-                ladder.size(delta, delta_secondary)
+        formatted::Block::Heading { level, spans } => {
+            let bold;
+            let spans = if ladder == Ladder::Compact {
+                bold = compact_heading_spans(spans);
+                bold.as_slice()
             } else {
-                heading_size(*level) as f32 + delta
-            },
-            ladder.line(delta, delta_secondary),
-        ),
+                spans.as_slice()
+            };
+            inline_height(
+                spans,
+                width,
+                if ladder == Ladder::Compact {
+                    ladder.size(delta, delta_secondary)
+                } else {
+                    heading_size(*level) as f32 + delta
+                },
+                ladder.line(delta, delta_secondary),
+            )
+        }
         formatted::Block::Code { text, .. } => {
             plain_height(
                 text,
@@ -972,6 +979,93 @@ fn block_height(
         }
         formatted::Block::Rule => 1.0,
     }
+}
+/// The first match's offset inside a parsed document, measured with the same block
+/// heights and collapsed gaps the document is drawn with — including the ladder, so a
+/// compact document is searched at the size it is rendered. `None` when nothing in the
+/// document matches.
+pub(crate) fn document_first_offset(
+    document: &formatted::Document,
+    width: f32,
+    delta: f32,
+    delta_secondary: f32,
+    ladder: Ladder,
+    query: &str,
+) -> Option<f32> {
+    let size = ladder.size(delta, delta_secondary);
+    let line = ladder.line(delta, delta_secondary);
+    let mut y = 0.0;
+    for (index, block) in document.blocks.iter().enumerate() {
+        // The render puts each block's collapsed gap inside that block's container,
+        // above its content, so a match sits after its own block's gap.
+        let gap = document_gap(&document.blocks, index, ladder);
+        let found = match block {
+            formatted::Block::Paragraph {
+                spans,
+                indent,
+                marker,
+                quote,
+            } => first_offset(
+                inline_runs(spans),
+                query,
+                width
+                    - *indent as f32 * 18.0
+                    - if marker.is_some() { 36.0 } else { 0.0 }
+                    - if *quote { ladder.quote_inset() } else { 0.0 },
+                size,
+                line,
+                FONT,
+                false,
+            ),
+            formatted::Block::Heading { level, spans } => {
+                let bold;
+                let spans = if ladder == Ladder::Compact {
+                    bold = compact_heading_spans(spans);
+                    bold.as_slice()
+                } else {
+                    spans.as_slice()
+                };
+                first_offset(
+                    inline_runs(spans),
+                    query,
+                    width,
+                    if ladder == Ladder::Compact {
+                        size
+                    } else {
+                        heading_size(*level) as f32 + delta
+                    },
+                    if ladder == Ladder::Compact {
+                        line
+                    } else {
+                        design::body_line(delta)
+                    },
+                    FONT,
+                    false,
+                )
+            }
+            // The same code metrics the block is drawn and measured with: the 11px
+            // code font, the 19px code line, and the banner plus the pre's top padding
+            // above the text.
+            formatted::Block::Code { text, language, .. } => first_offset(
+                highlight(text, language.as_deref()),
+                query,
+                width,
+                design::CODE_FONT as f32 + delta_secondary,
+                design::code_line(delta_secondary),
+                MONO,
+                true,
+            )
+            .map(|offset| offset + design::CODE_BANNER_HEIGHT + design::CODE_PAD),
+            formatted::Block::Rule => None,
+        };
+        if let Some(offset) = found {
+            return Some(y + gap + offset);
+        }
+        // Exactly what the render reserves: the collapsed gap in front of the block
+        // plus the block's own height.
+        y += gap + block_height(block, width, delta, delta_secondary, ladder);
+    }
+    None
 }
 fn document_height(
     document: &formatted::Document,
@@ -1051,15 +1145,7 @@ fn document_view(
             formatted::Block::Heading { level, spans } => {
                 if ladder == Ladder::Compact {
                     // `font: inherit; font-weight: 600` — the body's size, bold.
-                    let bold: Vec<formatted::Span> = spans
-                        .iter()
-                        .map(|part| formatted::Span {
-                            text: part.text.clone(),
-                            bold: true,
-                            italic: part.italic,
-                            code: part.code,
-                        })
-                        .collect();
+                    let bold = compact_heading_spans(spans);
                     inline_view(&bold, text_size.round() as u32, text_line, query)
                 } else {
                     inline_view(
@@ -1440,6 +1526,28 @@ mod tests {
         let _ = p.view(320.0, true);
     }
 
+    #[test]
+    fn document_first_offset_walks_drawn_heights_and_gaps() {
+        // The walk must reserve exactly what the render reserves: the leading block's
+        // height plus the collapsed gap in front of the next one. Adding the gap a
+        // second time (as the uniform-spacing era did) drifts by a gap per block.
+        let cache = Cache::default();
+        let source = "PUBLIC first paragraph.\n\n```rust\nTARGET\n```";
+        let p = cache.prepare(1, 1, String::new(), source.into());
+        let width = 400.0;
+        let offset = p.first_match_offset(width, false, "target");
+        let document = formatted::parse(source).unwrap();
+        let expected = block_height(&document.blocks[0], width, 0.0, 0.0, Ladder::Body)
+            + document_gap(&document.blocks, 1, Ladder::Body)
+            + design::CODE_BANNER_HEIGHT
+            + design::CODE_PAD;
+        assert!((offset - expected).abs() < 0.5, "{offset} vs {expected}");
+        // And the same document at the compact ladder walks the compact heights.
+        assert_eq!(
+            document_first_offset(&document, width, 0.0, 0.0, Ladder::Body, "target"),
+            Some(expected)
+        );
+    }
     #[test]
     fn block_margins_follow_the_reference_rhythm() {
         // `MarkdownText.module.css`: `p { margin: 16px 0 }`, `h1`-`h3`

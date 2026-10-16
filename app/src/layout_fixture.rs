@@ -64,6 +64,7 @@ pub const PRESETS: &[&str] = &[
     "chat-markdown",
     "chat-thoughts",
     "chat-thoughts-markdown",
+    "chat-search-thoughts",
     "chat-edit-review",
     "chat-search",
     "chat-recovered",
@@ -212,6 +213,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "chat-markdown"
         | "chat-thoughts"
         | "chat-thoughts-markdown"
+        | "chat-search-thoughts"
         | "chat-edit-review"
         | "chat-search"
         | "chat-recovered"
@@ -415,11 +417,12 @@ fn public_chat_records(preset: &str) -> Vec<Value> {
             | "history-more"
             | "long-user-message"
             | "chat-thoughts-markdown"
+            | "chat-search-thoughts"
     ) {
         let value: Value =
             serde_json::from_str(include_str!("../fixtures/chat-visibility.json")).unwrap();
         let mut records = value["records"].as_array().unwrap().clone();
-        if preset == "chat-thoughts-markdown" {
+        if matches!(preset, "chat-thoughts-markdown" | "chat-search-thoughts") {
             // The shared fixture's reasoning is one plain sentence, so nothing reached
             // the reference's compact markdown ladder (`MarkdownText.module.css:330-370`);
             // this preset gives the reasoning a heading, list, code block and quote.
@@ -787,6 +790,7 @@ pub fn build(
             | "long-user-message"
             | "chat-transcript"
             | "chat-markdown"
+            | "chat-search-thoughts"
             | "chat-thoughts"
             | "chat-thoughts-markdown"
             | "chat-edit-review"
@@ -864,11 +868,23 @@ pub fn build(
         drop(app.update(Message::ToggleThoughts(ticket)));
         assert!(app.thoughts_expanded.contains(&1));
     }
-    if preset == "chat-thoughts-markdown" {
+    if matches!(preset, "chat-thoughts-markdown" | "chat-search-thoughts") {
         // The shared fixture's assistant reply is seq 11.
         let ticket = app.reply_parts(11).unwrap().ticket.unwrap();
         drop(app.update(Message::ToggleThoughts(ticket)));
         assert!(app.thoughts_expanded.contains(&11));
+    }
+    if preset == "chat-search-thoughts" {
+        // Drives the real search path so a grab can check the highlight sits on the
+        // glyph it matched inside formatted reasoning.
+        app.search_open = true;
+        app.search_serial = 7;
+        drop(app.update(Message::SearchInput {
+            generation: app.generation,
+            serial: 7,
+            query: "Second compact".into(),
+        }));
+        assert_eq!(app.search_query, "Second compact");
     }
     if preset == "chat-edit-review" {
         app.editor = iced::widget::text_editor::Content::with_text(
