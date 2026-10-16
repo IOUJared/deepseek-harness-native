@@ -2264,3 +2264,19 @@ navigation, `subagentTiming`'s activity marker, and editable keybinding rebindin
    Settling step: read the job controller's client API — what it subscribes to and what a job
    entry carries — before sizing the app-side work. If the API is a subscription, this is a
    stream family and should be built like one rather than bolted onto the command pattern.
+
+   **Settled: jobs are a stream family, with two streams and one command.** The controller
+   declares `@Remote({ mode: 'stream' }) list(request, signal): AsyncIterable<JobListFrame>`
+   and `@Remote({ mode: 'stream' }) follow(request, signal): AsyncIterable<JobFollowFrame>`,
+   plus `@Remote('kill') kill(request): JobKillValue`
+   (`packages/api/job-controller/src/index.ts:73-110`; the package's own `observe.ts`, `wake.ts`
+   and `rows.ts` sit beside them). So the header row is driven by a **list stream** and a
+   **follow stream**, both cancellable through an `AbortSignal` the remote carrier owns.
+   That is good news for cost and bad news for the plan I would otherwise have written: a jobs
+   row is not a command to bolt on, but this app already runs stream families — the account
+   state and the session follow loop both subscribe and apply frames — so a jobs stream has a
+   precedent in-repo to mirror rather than a new mechanism to invent.
+   Settling step: read one of this app's existing stream subscriptions end to end (the account
+   subscription is the closest, being a small typed frame stream), then mirror its shape for
+   `jobs/list` and `jobs/follow`, with `kill` as an ordinary command beside them. Only after
+   that does the header row itself become a UI change.
