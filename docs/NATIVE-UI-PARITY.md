@@ -54,6 +54,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | New-session row | 38 h · 8/12 pad · radius md · elevated fill + 0.5px border | `NEW_SESSION_*` + `design::elevated`, 2px inset, 12px below |
 | Sidebar search | 30 h expanded · `0.5px` l4 hairline · radius md · 13/18 text | `design::search_field` + `SEARCH_*` |
 | Browser section header | 36 h · gap 4 · 4px trailing margin · 28px icon controls | `SECTION_HEADER_*` box; label and text stand-ins keep native's hint tier |
+| Sidebar rail | 56 wide · `18px 10px 6px` seat · 36×36 controls · 12px rhythm | `design::RAIL`/`RAIL_PAD`/`RAIL_CONTROL`/`RAIL_RHYTHM`; the plus and gear are verified DejaVu glyphs |
 | Conversation header | 76 min-h · bottom 0.5px seam · 30px title row · tabs 13/16 + 2px bar | padding `10px 28px 0 20px` (tabs) / `… 10px` (no tabs) + 1px seam; `HEADER_*`/`TAB_*` carry the rows (band 77) |
 | Chat content width | `clamp(680, 64%, 920)` | `design::chat_width(pane)` clamp, bounded by the padded pane |
 | User bubble max-width | `min(70.2% · content, 82%)` | content-sized, fixed 640 cap (≈70.2% of the widest column) |
@@ -552,4 +553,29 @@ cell, so new findings go at the end of the file as plain paragraphs.
   (`ConversationContent.tsx:112-133`, `.heroWorkspaceRow` with `margin-top: 4px`
   and `padding: 0 16px 0 20px`) has no native counterpart yet — native's workspace
   seat lives in the sidebar.
+- **Sidebar rail — landed, rect- and pixel-verified.** The reference's rail spec is
+  explicit in `SidebarRoot.module.css:34-37`: "36x36 control boxes centered in the
+  56px rail (10px side padding), 12px vertical rhythm, 18px from the rail top to
+  the whale's box". Native's rail was 68 wide with `padding: 18px 8px`, 8px between
+  controls and text buttons whose boxes were whatever their padding produced.
+  `design::RAIL` (56), `RAIL_PAD` (18/10/6/10), `RAIL_CONTROL` (36) and
+  `RAIL_RHYTHM` (12) carry the figures, and the rail's controls take those boxes.
+  Two labels cannot fit a 36px box — "+ New" wrapped and "Settings" clipped,
+  because a single word clips rather than wraps — so the rail now draws the plus
+  and the gear its reference icon buttons draw (`+` U+002B and `⚙` U+2699, both
+  verified present in the shipped DejaVu Sans), with "Chats" still a word and the
+  settings accessibility node unchanged.
+  Verified from the fixture's own rects at the `tool-activity-narrow` preset (a
+  1000px-breakpoint compact window, so the rail renders) and the grab:
+  `native-settings-entry` **36.0 × 36.0 at x 10.0** (was a padded text button),
+  `native-header` x **56.0** (the rail's own width; was 68), and in the grab the
+  brand's filled box measures **rows 49..84 = 36 tall, cols 9..44 = 36 wide** —
+  the banner's 32px plus the 18px rail seat, at the 10px side padding.
+  `shots/40-sidebar-rail-dp2.png` is the grab and `shots/40-sidebar-rail.png` that
+  run's own frame (matching at 5.5 mean absolute difference).
+  Note for future captures: `tiny-welcome` renders at scale 1.25, so its own frame
+  (950×750) cannot be diffed against a 1.0-scale grab; `tool-activity-narrow` is
+  the scale-1.0 compact preset. The banner detector's 0.90 coverage floor also only
+  held at a 1040px window (the pink title is fixed-width), so it now floors at
+  0.75 with the title check carrying the identification.
 

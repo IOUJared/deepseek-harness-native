@@ -5215,11 +5215,14 @@ impl App {
         // `radius-md` (`SidebarRoot.module.css:493-505`); the rail keeps the
         // compact control it already had.
         let entry = if compact {
-            button(label("Settings", MUTED).size(10))
+            // "Settings" cannot fit the reference's 36px rail box (single words
+            // clip rather than wrap), so the rail shows the gear the web's own
+            // icon button draws; the accessibility node keeps the name.
+            button(label("⚙", MUTED).size(15))
                 .on_press(Message::Settings(crate::settings::Action::Open))
                 .style(design::ghost)
-                .padding([12, 2])
                 .width(Length::Fill)
+                .height(design::RAIL_CONTROL)
         } else {
             button(label("Settings", MUTED).size(14))
                 .on_press(Message::Settings(crate::settings::Action::Open))
@@ -6157,25 +6160,33 @@ impl App {
     fn sidebar(&self) -> Element<'_, Message> {
         let width = self.sidebar_motion.value();
         if self.compact() || width < 185.0 {
+            // The reference's rail spec is 36x36 control boxes centered in the
+            // 56px rail (10px side padding), an 18px top seat and a 12px
+            // vertical rhythm (`SidebarRoot.module.css:34-37`). Native's labels
+            // stand in for the web's icon buttons and take those boxes.
             let rail = column![
                 brand(),
+                // A 36px box cannot hold "+ New"; the reference's rail is
+                // icon-only anyway, so the new-session control is its plus and
+                // the word survives in the expanded sidebar. `+` and the gear
+                // below are glyphs DejaVu Sans carries.
                 button(label("Chats", MUTED).size(11))
                     .on_press(Message::ToggleSidebar)
                     .style(design::ghost)
-                    .padding([12, 4])
-                    .width(Length::Fill),
-                button(label("+ New", TEXT).size(11))
+                    .width(Length::Fill)
+                    .height(design::RAIL_CONTROL),
+                button(label("+", TEXT).size(16))
                     .on_press_maybe(self.can_create().then_some(Message::NewSession))
                     .style(design::ghost)
-                    .padding([12, 4])
-                    .width(Length::Fill),
+                    .width(Length::Fill)
+                    .height(design::RAIL_CONTROL),
                 Space::new().height(Length::Fill),
                 self.settings_entry(true)
             ]
-            .spacing(8)
+            .spacing(design::RAIL_RHYTHM)
             .align_x(iced::Alignment::Center);
             return container(rail)
-                .padding([18, 8])
+                .padding(design::RAIL_PAD)
                 .width(width)
                 .height(Length::Fill)
                 .clip(true)

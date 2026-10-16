@@ -15,7 +15,20 @@ pub const FOAM: Color = Color::from_rgb8(0x9c, 0xcf, 0xd8);
 pub const GOLD: Color = Color::from_rgb8(0xf6, 0xc1, 0x77);
 pub const LINE: Color = Color::from_rgb8(0x40, 0x3d, 0x52);
 pub const SIDEBAR: f32 = 260.0;
-pub const RAIL: f32 = 68.0;
+/// The collapsed rail's width: the reference's rail spec is "36x36 control boxes
+/// centered in the 56px rail (10px side padding)" (`SidebarRoot.module.css:34-37`),
+/// so 10 + 36 + 10. Native used 68.
+pub const RAIL: f32 = 56.0;
+/// The rail's own seat, `padding: 18px 10px 6px` with a 12px vertical rhythm and
+/// 36px control boxes (`SidebarRoot.module.css:34-37`, `:155-170`).
+pub const RAIL_PAD: iced::Padding = iced::Padding {
+    top: 18.0,
+    right: 10.0,
+    bottom: 6.0,
+    left: 10.0,
+};
+pub const RAIL_CONTROL: f32 = 36.0;
+pub const RAIL_RHYTHM: f32 = 12.0;
 /// Sidebar column metrics, each from the web's own rule
 /// (`ui-sidebar/SidebarRoot.module.css`, `ui-workspace/.../Rows.module.css`):
 /// `.root { padding: 6px var(--dsh-sidebar-inline-padding) }` with the inline
