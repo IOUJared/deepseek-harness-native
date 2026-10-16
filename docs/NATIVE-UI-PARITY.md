@@ -1787,3 +1787,15 @@ cell, so new findings go at the end of the file as plain paragraphs.
    from an absent capability.
    Settling step: land the `subagentTiming` accessor and the crumb marker with a capture, and
    leave `tokenUsage` omitted with the reason above.
+
+   **The marker is gated too, and reading it re-orders the queue.** The reference's lineage row
+   derives each entry's state from two sources: its `activity` comes from the **catalog
+   entry** (`entry.activity === 'running'`), and `completed` additionally requires the
+   projection's `subagentTiming.lastTurnCompleted === true`; the three rendered states are
+   running, completed and inactive, composed into a secondary line with the title and mode
+   (`SubagentHeaderLineage.tsx:236-252`). So the marker needs the **roster read**, not just the
+   projection — the same read the hero chip and the display name need.
+   That makes the roster the **single unblocking item** for three pieces at once (hero chip,
+   display name, subagent activity marker), which is a better ordering than the smallest-first
+   list implied: one read unlocks three surfaces, whereas each of the three alone is blocked on
+   it. Recorded before building any of them.
