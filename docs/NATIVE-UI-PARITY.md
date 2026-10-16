@@ -371,12 +371,18 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    `namespace = 'session-log-deepseek'` and a locale of `settings.sessionLog`
    (`index.ts:26-32`). Config forms are the same generic machinery native's plugin settings
    already read and write (`PluginsRead`/`PluginSave` over a `SettingsNamespaceView`), so
-   this row needs **no new bridge, Core or worker work** — only the row itself, its boolean
-   write through the existing path, and a capture. That is one slice, not three, and it is
-   the second time this session that checking the reference's own mechanism replaced an
-   assumed three-slice plan with an existing facility (the first was `/permission`).
-   Settling step: read `UploadRow.tsx` for its copy and states, then land it as a boolean
-   row over the existing config-forms path, with its own capture.
+   this row reaches the **same wire family** native already speaks — but the mechanism is not
+   free to reuse, and an earlier revision of this entry claimed it was. Native's config-forms
+   read is scoped to the plugins panel by a `ReadTicket { epoch, panel, serial }`
+   (`app/src/plugins.rs:16-21`) driven from that panel's state, so a General-page row cannot
+   simply call it: it needs either that read generalised to a second panel identity or its
+   own small read over the same namespace family. So the row is one slice — but one that
+   includes a scoping change, not a pure UI addition.
+   Settling step: read `UploadRow.tsx`'s copy and states, then land the row with either the
+   generalised read or a dedicated one, and capture it. The correction is recorded because
+   "native already has this machinery" has now twice proved only half true: the mechanism
+   existed in both cases (config forms here, the `/permission` command line earlier), while
+   the *scoping* and the *surface* did not.
 
 ## Verification log (append-only)
 
