@@ -1,5 +1,6 @@
 mod codex;
 mod config;
+mod crash_log;
 mod design;
 mod export_file;
 mod exporter;
@@ -74,7 +75,21 @@ fn main() -> iced::Result {
         match worker::start(options.backend.clone(), options.smoke.is_some()) {
             Ok(value) => value,
             Err(error) => {
-                eprintln!("{error}");
+                // The shell keeps a bounded crash report for a failed start; a
+                // launch from a desktop entry otherwise leaves no trace. The
+                // record never replaces the failure being reported.
+                let summary = error.to_string();
+                match crash_log::write(
+                    &options.backend.native_home,
+                    &crash_log::Record {
+                        source: "host-start",
+                        summary: &summary,
+                        detail: &summary,
+                    },
+                ) {
+                    Some(path) => eprintln!("{error}\nWrote {}", path.display()),
+                    None => eprintln!("{error}"),
+                }
                 std::process::exit(1);
             }
         };

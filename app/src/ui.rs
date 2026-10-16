@@ -1302,6 +1302,23 @@ impl App {
     fn chat_cap(&self) -> f32 {
         design::chat_width_with(self.content_column(), self.chat_width_preference)
     }
+    /// Write the bounded crash report for a fatal backend fault.
+    /// Silent by design, like the reference: the report is a file under
+    /// `<home>/logs` and the in-window status keeps showing the cause. Smoke and
+    /// keyless runs hold no native home and therefore write nothing.
+    fn record_start_failure(&self, cause: &str) {
+        let Some(home) = self.native_home.as_ref() else {
+            return;
+        };
+        let _ = crate::crash_log::write(
+            home,
+            &crate::crash_log::Record {
+                source: "host-start",
+                summary: cause,
+                detail: cause,
+            },
+        );
+    }
     /// Persist the layout preference. Reached only from an explicit gesture
     /// commit, never per frame, so the small synchronous write stays bounded.
     fn save_layout_preference(&self) {
@@ -3981,6 +3998,11 @@ impl App {
             Event::KeyMetadata { ticket, result } => self.settings.metadata(ticket, result),
             Event::KeySaved { ticket, result } => self.settings.saved(ticket, result),
             Event::Fault(error) => {
+                // A Core start failure arrives here as `Core start: <cause>`
+                // (worker.rs publishes it before `Event::Stopped`), and the shell
+                // keeps a bounded report for exactly that class of failure
+                // (`main.js:7647-7742`). Written before the status is replaced.
+                self.record_start_failure(&error);
                 self.pending.disconnect();
                 self.files.disconnect();
                 self.management.disconnect();
@@ -11268,6 +11290,34 @@ mod tests {
         assert!(app.settings_enabled());
         // Startup catalog loading must not cause Settings/key/plugin reads.
         assert!(receiver.try_recv().is_err());
+    }
+    #[test]
+    fn failed_backend_start_leaves_a_bounded_crash_record() {
+        let (mut app, _) = app();
+        let home = std::env::temp_dir().join(format!("dsh-fault-record-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        app.native_home = Some(home.clone());
+        // The production path: `worker::run` publishes this exact shape before it
+        // publishes `Event::Stopped(Err(..))`, and `NoBackendStarted` is only the
+        // already-closing branch.
+        let _ = app.receive(Event::Fault("Core start: PUBLIC backend cause".into()));
+        let _ = app.receive(Event::Stopped(Err(
+            "Core did not start; inspect startup error".into(),
+        )));
+        let names: Vec<String> = std::fs::read_dir(home.join("logs"))
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names.len(), 1, "{names:?}");
+        let text = std::fs::read_to_string(home.join("logs").join(&names[0])).unwrap();
+        assert!(text.contains("source: host-start"), "{text}");
+        // The report carries the cause, and the status keeps showing it rather
+        // than a path.
+        assert!(text.contains("Core start: PUBLIC backend cause"), "{text}");
+        assert_eq!(app.status, "Core did not start; inspect startup error");
+        std::fs::remove_dir_all(&home).unwrap();
     }
     #[test]
     fn fault_disables_settings_and_all_carrier_decisions() {
