@@ -144,6 +144,20 @@ impl Transcript {
         &self.work
     }
     /// Project retained rows; cancellation, malformed/future records and Send gates are unchanged.
+    /// The session's agent preset, from the Host's own `agentPreset` projection
+    /// (`ui-agent-preset/src/client/seat-store.ts:253`). The projection may carry it as a
+    /// string or as an object with an `id`, so both shapes are read; the display name is not
+    /// in this projection, so a caller falls back to the key, exactly as the permission chip
+    /// does when the catalog is absent.
+    pub fn agent_preset(&self) -> Option<&str> {
+        match self.projections.get("agentPreset")? {
+            serde_json::Value::String(value) => (!value.is_empty()).then_some(value.as_str()),
+            value => value
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .filter(|id| !id.is_empty()),
+        }
+    }
     /// The most recent `permission/preset` record's preset, if the session carried one.
     /// The record already reaches native (`fixtures/chat-visibility.json` opens with
     /// `workspace-write`, `known.rs` lists the kind), and this is the projection the
@@ -1171,6 +1185,37 @@ mod tests {
     }
     fn user(seq: u64, text: &str) -> Value {
         json!({"type":"event","event":{"type":"user/message","seq":seq,"time":1000,"data":{"role":"user","id":"m1","source":{"kind":"user"},"content":[{"type":"text","text":text}]},"surfaceOp":"append"}})
+    }
+    #[test]
+    fn the_agent_preset_projects_only_the_hosts_own_value() {
+        let with = |values: Value| {
+            let mut s = Transcript::new(1);
+            s.apply(
+                1,
+                frame(
+                    json!({"type":"snapshot","records":[],"cursor":0,"hasMore":false,
+                    "header":{"version":4,"id":"s1","createdAt":1000,"isSeeded":false},
+                    "projections":{"asOfSeq":0,"values":values},"assistantStream":{"revision":0}}),
+                ),
+            )
+            .unwrap();
+            s
+        };
+        // Absent, empty and malformed all mean no preset rather than an empty label.
+        assert_eq!(with(json!({})).agent_preset(), None);
+        assert_eq!(with(json!({"agentPreset":""})).agent_preset(), None);
+        assert_eq!(with(json!({"agentPreset":{}})).agent_preset(), None);
+        assert_eq!(with(json!({"agentPreset":{"id":""}})).agent_preset(), None);
+        assert_eq!(with(json!({"agentPreset":7})).agent_preset(), None);
+        // Both shapes the Host may use, and the string form wins nothing else.
+        assert_eq!(
+            with(json!({"agentPreset":"reviewer"})).agent_preset(),
+            Some("reviewer")
+        );
+        assert_eq!(
+            with(json!({"agentPreset":{"id":"implementer","name":"Implementer"}})).agent_preset(),
+            Some("implementer")
+        );
     }
     #[test]
     fn snapshot_append_replace_and_source_citations() {

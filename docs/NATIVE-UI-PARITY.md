@@ -536,6 +536,12 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    values (`app/src/layout_fixture.rs:884-898`). So the agent preset's value is reachable
    without any new read — a typed accessor beside `permission_preset`, of the kind already
    written for the plan and permission presets.
+   **Accessor landed.** `Transcript::agent_preset()` reads the Host's own projection, taking
+   the string form or an object's `id`, and refusing empty, numeric or malformed values
+   instead of producing an empty label; its test feeds real snapshot frames and asserts all
+   seven cases, so the app suite is **1114 passed** with it. (The first attempt used a closure
+   for the emptiness check and failed to compile on lifetime inference; the filter form
+   replaced it.)
    The remaining half is the **label**: the reference turns the value into display text
    through the agent-preset registry and its `settings.agentPreset` locale
    (`ui-agent-preset/src/client/index.ts:65`, `locales.ts:127`), so native needs either that
