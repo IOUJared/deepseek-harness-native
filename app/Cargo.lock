@@ -1001,6 +1001,7 @@ dependencies = [
  "futures-util",
  "iced",
  "image",
+ "libc",
  "png",
  "pulldown-cmark",
  "raw-window-handle 0.6.2",

@@ -422,6 +422,22 @@ const ACTION_GAP: f32 = 6.0;
 const ACTION_HEIGHT: f32 = 28.0;
 /// The gap between the actions themselves, which the web sets to 8px.
 const ACTION_SPACING: f32 = 8.0;
+/// The local wall-clock `HH:MM` the reference's `.timeStart` shows beside a user
+/// message's actions (`MessageIconActions.module.css:13-19`). `None` when the
+/// platform cannot resolve the zone, so the label is simply omitted.
+fn local_hh_mm(millis: i64) -> Option<String> {
+    let seconds = millis.div_euclid(1000);
+    let time = libc::time_t::try_from(seconds).ok()?;
+    let mut tm = std::mem::MaybeUninit::<libc::tm>::uninit();
+    // SAFETY: `localtime_r` writes into the `tm` this frame owns and reads only
+    // `time`; it is the thread-safe form and retains no pointer to either.
+    let filled = unsafe { libc::localtime_r(&time, tm.as_mut_ptr()) };
+    if filled.is_null() {
+        return None;
+    }
+    let tm = unsafe { tm.assume_init() };
+    Some(format!("{:02}:{:02}", tm.tm_hour, tm.tm_min))
+}
 /// Action targets are icon buttons, as the reference draws them (a copy mark and
 /// a pencil), not words. `❐` and `✎` are the shapes DejaVu Sans actually has;
 /// the web's own outline icons live in `ui-primitives/icons`.
@@ -7015,19 +7031,37 @@ impl App {
                                 TEXT,
                             )
                         };
-                    let mut footer = row![
+                    let mut footer = row![]
+                        .spacing(ACTION_SPACING)
+                        .height(ACTION_HEIGHT + self.content_delta());
+                    // Only a user message carries the clock, as the web's
+                    // `.timeStart` does; the assistant tail keeps `.timeEnd`.
+                    if human && let Some(clock) = local_hh_mm(record.time) {
+                        footer =
+                            footer.push(
+                                container(label(clock, MUTED).size(
+                                    design::content_secondary(self.content_font_size).round()
+                                        as u32,
+                                ))
+                                .padding(iced::Padding {
+                                    top: 0.0,
+                                    right: 12.0,
+                                    bottom: 0.0,
+                                    left: 0.0,
+                                }),
+                            );
+                    }
+                    footer = footer.push(
                         button(label(ACTION_COPY, MUTED).size(14))
                             .on_press_maybe(self.row_copy_source(record.key).is_some().then_some(
                                 Message::CopyReply {
                                     generation: self.generation,
-                                    key: record.key
-                                }
+                                    key: record.key,
+                                },
                             ))
                             .style(design::ghost)
-                            .padding([ACTION_PAD, ACTION_PAD])
-                    ]
-                    .spacing(ACTION_SPACING)
-                    .height(ACTION_HEIGHT + self.content_delta());
+                            .padding([ACTION_PAD, ACTION_PAD]),
+                    );
                     if human && self.transcript.editable_text(record.key).is_some() {
                         footer = footer.push(
                             button(label(ACTION_EDIT, MUTED).size(14))
