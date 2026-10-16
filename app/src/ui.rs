@@ -1407,8 +1407,15 @@ impl App {
             14.0
         };
         let rows = (self.editor.text().lines().count().max(1) as f32).min(max_rows);
+        // The hero's floor is the reference's two-line 52px box; the docked
+        // floor is its one-line 36px.
+        let floor = if self.hero_active() {
+            design::HERO_INPUT_MIN
+        } else {
+            design::COMPOSER_INPUT_MIN
+        };
         (rows * line + design::COMPOSER_INPUT_CHROME)
-            .max(design::COMPOSER_INPUT_MIN)
+            .max(floor)
             .round()
     }
     fn sidebar_target(&self) -> f32 {
@@ -5092,30 +5099,50 @@ impl App {
             && !self.mcp.is_open()
             && self.detail.is_none()
     }
+    /// True when the pane shows the empty-state hero instead of a conversation:
+    /// the transcript is the active view and has no row to render, live partial
+    /// included. The reference centers its hero strip and the composer card as
+    /// one stack in that state (`ConversationContent.tsx:164-171`,
+    /// `HeroShell.module.css:5-21`).
+    fn hero_active(&self) -> bool {
+        self.transcript_tabs_visible()
+            && self.transcript.partial().is_none()
+            && self
+                .transcript
+                .display_rows(self.records_expanded)
+                .next()
+                .is_none()
+    }
     fn presentation_shell(&self, include_composer: bool) -> Element<'_, Message> {
         let main: Element<'_, Message> = if self.sidebar_sheet && !include_composer {
             self.navigation_sheet()
         } else {
-            let body = if self.conversation_menu {
-                self.conversation_menu_view()
+            // The hero and the composer are one centered stack in the
+            // reference, so the empty state owns its own pane instead of a
+            // centered body above a docked composer.
+            let hero_pane = include_composer && self.hero_active();
+            let (body, composer_inline) = if self.conversation_menu {
+                (self.conversation_menu_view(), false)
             } else if self.capabilities {
-                self.capabilities_view()
+                (self.capabilities_view(), false)
             } else if self.work_open {
-                self.work_panel_view()
+                (self.work_panel_view(), false)
             } else if self.terminal.is_open() {
-                self.terminal_view()
+                (self.terminal_view(), false)
             } else if self.mcp.is_open() {
-                self.mcp_view()
+                (self.mcp_view(), false)
             } else if let Some(detail) = &self.detail {
-                self.detail_view(detail)
+                (self.detail_view(detail), false)
+            } else if hero_pane {
+                (self.hero_pane(), true)
             } else {
-                self.transcript_view()
+                (self.transcript_view(), false)
             };
             // The tabs live inside the header band, as the reference's one
             // header region holds both, so nothing is pushed between them.
             let mut content = column![self.header()].height(Length::Fill);
             content = content.push(body);
-            if include_composer {
+            if include_composer && !composer_inline {
                 content = content.push(self.composer());
             }
             container(content)
@@ -6089,7 +6116,11 @@ impl App {
                 .width(Length::Fill),
         )
         .center_x(Length::Fill)
-        .padding(design::COMPOSER_SEAT_PAD)
+        .padding(if self.hero_active() {
+            design::COMPOSER_HERO_SEAT_PAD
+        } else {
+            design::COMPOSER_SEAT_PAD
+        })
         .into()
     }
     fn sidebar(&self) -> Element<'_, Message> {
@@ -7665,7 +7696,18 @@ impl App {
         }
         chat.push(overlaid).height(Length::Fill).into()
     }
+    /// The centered empty-state body used where no composer follows (the
+    /// sidebar sheet); with a composer the hero and the card share `hero_pane`.
     fn welcome(&self, records: usize) -> Element<'_, Message> {
+        scrollable(
+            container(self.hero_strip(records))
+                .center_x(Length::Fill)
+                .center_y(Length::Fill),
+        )
+        .height(Length::Fill)
+        .into()
+    }
+    fn hero_strip(&self, records: usize) -> Element<'_, Message> {
         let selected = self.selected.is_some();
         let mut hero = column![
             brand(),
@@ -7732,15 +7774,25 @@ impl App {
                 .size(12),
             );
         }
-        let hero = container(hero)
+        container(hero)
             .padding(30)
             .max_width(620)
-            .width(Length::Fill);
-        scrollable(
-            container(hero)
-                .center_x(Length::Fill)
-                .center_y(Length::Fill),
+            .width(Length::Fill)
+            .into()
+    }
+    /// The empty-state pane: the hero strip and the composer card as one
+    /// vertically centered stack, which is how the reference lays its hero out
+    /// (`ConversationContent.tsx:164-171`, `HeroShell.module.css:5-21`).
+    fn hero_pane(&self) -> Element<'_, Message> {
+        let records = self.transcript.display_rows(true).count();
+        container(
+            column![self.hero_strip(records), self.composer()]
+                .spacing(design::HERO_GAP)
+                .align_x(iced::Alignment::Center)
+                .width(Length::Fill),
         )
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
         .height(Length::Fill)
         .into()
     }

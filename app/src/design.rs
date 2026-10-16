@@ -531,6 +531,20 @@ pub const COMPOSER_SEAT_PAD: iced::Padding = iced::Padding {
 };
 pub const COMPOSER_DOCK_GAP: f32 = 4.0;
 pub const COMPOSER_CARD_OVERHANG: f32 = 32.0;
+/// The empty-state hero: the reference stacks its headline and the composer card
+/// with a 12px gap inside a centered shell (`HeroShell.module.css:5-21`,
+/// `ConversationContent.tsx:164-171`), and the composer's own `.hero` variant
+/// raises the draft floor to `52px` — two 24px lines and the 4px top pad —
+/// instead of the docked 36px, and drops the seat's bottom pad
+/// (`InputBar.module.css:26-30, 232-236`).
+pub const HERO_GAP: f32 = 12.0;
+pub const HERO_INPUT_MIN: f32 = 52.0;
+pub const COMPOSER_HERO_SEAT_PAD: iced::Padding = iced::Padding {
+    top: 0.0,
+    right: 16.0,
+    bottom: 0.0,
+    left: 16.0,
+};
 /// The conversation header's own rows, from the web's `ConversationRoot`: the
 /// title row has `min-height: 30px` (`:72-79`), the tab strip sits `10px` under
 /// it with a `36px` gap and an `8px` leading inset (`:193-201`), and each tab is

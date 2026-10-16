@@ -68,6 +68,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Composer model chip | `.select` 28 h · `0 20px 0 8px` · radius sm · transparent · 13/20 | `COMPOSER_CHIP_*` + `design::ghost`; in the trailing group |
 | Send / stop control | 34×34 circle · info fill · icon glyph | 34 h · `COMPOSER_CONTROL_HEIGHT`; native keeps the words and its fills |
 | Composer seat | `.root` `0 16px 4px` · dock strip 4px · card = content + 32 | `COMPOSER_SEAT_PAD`/`COMPOSER_DOCK_GAP`/`COMPOSER_CARD_OVERHANG` |
+| Empty-state hero | headline + composer card centered as one stack, `gap: 12`; hero composer floor `52` | `HERO_GAP`/`HERO_INPUT_MIN`; `hero_pane` centers both, `COMPOSER_HERO_SEAT_PAD` drops the bottom pad |
 | Transcript side inset | `calc(clearance + 16px)` = 32 per side | `design::TRANSCRIPT_INSET`; `chat_lane` = `min(column − 64, chat_cap)` |
 | Menu | 13 px · blur 40 · hairline | native panel, no blur |
 
@@ -498,4 +499,27 @@ cell, so new findings go at the end of the file as plain paragraphs.
   `shots/37-diff-stat-dp2.png`, `shots/37-diff-stat-hover-dp2.png` and
   `shots/37-diff-stat-error-dp2.png` are those grabs
   (`shots/37-diff-stat.png` is the first run's own frame).
+- **Empty-state hero — landed, capture-verified.** The reference's empty state is
+  not a centered body above a docked composer: `ConversationContent.tsx:164-171`
+  renders the `HeroShell` and the input bar inside one `composerStack`, and
+  `HeroShell.module.css:5-21` centers that stack (`align-items: center`,
+  `justify-content: center`, `height: 100%`) with a `12px` gap. The composer's own
+  `.hero` variant raises the draft floor to `52px` — two 24px lines and the 4px
+  top pad — instead of the docked 36px, and the hero keeps no bottom pad on the
+  seat (`InputBar.module.css:26-30, 232-236`). Native centered a *separate*
+  welcome scrollable and docked the composer under it, always on the 36px floor.
+  `HERO_GAP`, `HERO_INPUT_MIN` and `COMPOSER_HERO_SEAT_PAD` carry the figures, a
+  new `hero_active()` decides the state (the transcript is the active view and has
+  no row to render, a live partial included), `welcome()` split into the hero
+  content plus a centered wrapper for the no-composer case, and `hero_pane()`
+  stacks the hero and the composer centred in the pane.
+  Verified on DP-2 at the `wide-welcome` preset
+  (`shots/38-hero-pane-dp2.png`, that run's own frame `shots/38-hero-pane.png`,
+  matching at 3.0 mean absolute difference): the composer card's box moves from
+  `y 551..703` — flush with the bottom of the 732px window — to `y 454..567`,
+  directly under the hero title at `y 343..365`, and it grows from 97px docked to
+  **112px**, which is the 52px hero floor in place of the 36px docked one. The
+  fixture's own frame also fixed a capture-tooling bug found here: `dsh-pick.py`
+  hard-coded the tool-activity frame's 1040x1072, so the 1040x732 welcome preset
+  crashed the picker; it now takes the window size from the fixture's own frame.
 
