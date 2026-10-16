@@ -5232,12 +5232,24 @@ impl App {
             container(band)
                 .id("native-header")
                 // `ConversationRoot.module.css:15-23`: one header region holding
-                // the title and the tabs, `padding: 10px 28px 0 20px`.
-                .padding(iced::Padding {
-                    top: 10.0,
-                    right: 28.0,
-                    bottom: 0.0,
-                    left: 20.0,
+                // the title and the tabs, `padding: 10px 28px 0 20px`. Without
+                // tabs the same sheet restores a 10px bottom padding and drops
+                // the min-height (`:27-30`), which is what keeps a blank session's
+                // title off the seam.
+                .padding(if self.transcript_tabs_visible() {
+                    iced::Padding {
+                        top: 10.0,
+                        right: 28.0,
+                        bottom: 0.0,
+                        left: 20.0,
+                    }
+                } else {
+                    iced::Padding {
+                        top: 10.0,
+                        right: 28.0,
+                        bottom: 10.0,
+                        left: 20.0,
+                    }
                 })
                 .width(Length::Fill),
             // Conversation header seam: the web's 0.5px `border-l3` rule
