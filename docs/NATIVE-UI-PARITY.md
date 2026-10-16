@@ -2449,3 +2449,21 @@ state, which needs a Host that advertises that namespace.
    (`sessionId`, `jobId`, `offset`) and a replacement rule that a merge-based implementation
    would have violated silently. The claim was one round early; the design is now complete with
    it satisfied.
+
+   **The placement and the wire conventions, read — so jobs' transport half can be written with
+   no reading at all.** Both live in `transport/src/dto.rs`: `SessionFollowRequest` is a **struct**
+   (`:433-441`) whose optional fields carry `#[serde(skip_serializing_if = "Option::is_none")]`,
+   and `SessionFollowFrame` is a **tagged enum** (`:553-559`) whose variants carry
+   `#[serde(rename = "snapshot")]` and the like. So jobs' transport half is:
+   - in `dto.rs`: `JobListRequest { session_id }`, `JobFollowRequest { session_id?,
+     skip-if-none; job_id; offset?, skip-if-none }`, a `JobView { id, kind, label, owner?,
+     status }`, a `JobListFrame { jobs }`, and a `JobFollowFrame` tagged enum with `opened {
+     job, from }` and `output { … }`;
+   - in `mux.rs`: `Kind::JobList` → `jobs/list` and `Kind::JobFollow` → `jobs/follow`, with
+     `jobs_list(session_id)` and `jobs_follow(request)` shaped exactly like `session_follow`
+     (`:308-317`);
+   - plus a unit test per projection, as the roster and select projections have.
+   Two wire keys come from the request types and one rule from the list frame's comment
+   (`sessionId` required, `jobId` required with an optional `offset`, and **whole-set
+   replacement**). Everything else is a mirror of code already in this repository, which is the
+   strongest position any item in this document has reached.
