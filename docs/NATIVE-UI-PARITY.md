@@ -2348,3 +2348,23 @@ navigation, `subagentTiming`'s activity marker, and editable keybinding rebindin
    wired — which should be stated as a remainder rather than faked.
    The only thing left unread is the copy: the header action's own label and the state words live
    in the package's locales, and reading them is a one-line step before the row is drawn.
+
+   **The copy re-sizes jobs from a header row to a panel, and that is worth saying plainly.**
+   `ui-jobs`' locales (`ui-jobs/src/client/locales.ts:1-28`) carry far more than a button label:
+   - `count.live` renders **"{count} background tasks running"** and `count.idle` **"{count}
+     background tasks"**, so the header *action* is a live count;
+   - `section.live`, `section.settledCount` ("finished {count}") and `section.clear` mean the
+     list behind it has **two sections and a clear action**;
+   - `status.running`, `.stopping`, `.completed`, `.killed`, `.failed` are **five** row states —
+     matching the state dot read last round;
+   - `row.expandAria` and `row.collapseAria` name the expansion as the job's **live output**;
+   - `kill.stop`, `kill.confirm` ("click again to confirm") and `kill.confirmAction` make each
+     row's stop a **two-step confirmation**, and `kill.failed` covers the refusal.
+   So the audit's original phrase — "background jobs, order 20" as one of three header rows —
+   understated it by a lot. Jobs is a **panel**: a counted header action, two sections, a clear,
+   per-row dots, labels, kinds, statuses, durations, output expansion and a confirmed kill. That
+   is six or seven pieces of UI rather than one, and it should be planned as its own feature
+   rather than slipped in beside the preset label.
+   This is the sixth time this session that reading a thing changed what it is — and the second
+   time the change moved an item from *one row* to *a feature*, which is precisely the inflation
+   the audit taxonomy exists to prevent in the other direction.
