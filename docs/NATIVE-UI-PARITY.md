@@ -61,6 +61,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Window box | main 1280×820 · min 520×600 | `design::WINDOW_*`/`WINDOW_MIN_*`, pinned by `the_window_box_matches_the_reference` |
 | User bubble | `padding: 10px 16px` · radius xl · stack cap `min(content × 0.702, 82%)` | `USER_BUBBLE_PAD`/`_INSET`/`_RADIUS`/`_SHARE`; the cap follows the live lane |
 | Code block | `radius-lg` · banner `9px 14px` at 11/18 · `pre` `padding: 16px` · code `11px/19px` · banner one step over the block | `CODE_FONT`/`CODE_LINE`/`CODE_PAD`/`CODE_BANNER_*`/`CODE_CHROME`; both renderers and the offset path read them |
+| Blockquote | `border-left: 2px solid label-caption` · `padding-left: 14px` · `margin: 16px 0 0` | `QUOTE_BAR`/`QUOTE_PAD`/`QUOTE_INSET`; a filled rule whose height is the paragraph's own measured height |
 | Markdown rhythm | per-block margins, CSS-collapsed: `p` 16/16 · `h1–h3` 32/16 · `h4–h6` 16/16 · `li` 6 inside, list 16 at its edges · nested list 4 · `hr` 32/32 · code 16/11 · `h4–h6`+list 8 | `block_margins`/`document_gap` over `BLOCK_GAP`/`RULE_GAP`/`LIST_ITEM_GAP`/`NESTED_LIST_GAP`/`CODE_LAST_GAP`/`TIGHT_HEADING_GAP`; both renderers and the offset walk read them |
 | Width handles | 10px strip at lane ± 24 · `2px` glow `4px` in, `16px` core, hover/drag only | `WIDTH_HANDLE_*` + `HANDLE_GLOW_*`, hover/drag state, `native-width-handle-*` rects |
 | Jump to latest | `34px` round floating button · slot `bottom: 16px` · right edge on the column (or `32px` in) · only while not following the tail | `TO_BOTTOM_*` + `native-to-bottom` rect; `design::LINE` hover, no shadow |
@@ -913,4 +914,26 @@ cell, so new findings go at the end of the file as plain paragraphs.
   row geometry owns the leading and trailing space; settling whether the browser adds
   them needs a measurement against the running web UI, and the supplied reference
   screenshot is not present in this workspace (only the two GTK palette previews are).
+- **Blockquote — landed, capture-verified.** The reference draws a blockquote as
+  `border-left: 2px solid var(--dsw-alias-label-caption)` with `padding-left: 14px` and
+  `margin: 16px 0 0` (`ui-primitives/markdown/MarkdownText.module.css:151-156`), so its
+  rule sits on the block's left edge and its text starts 16px in.
+  Native drew a `│` glyph in **`FOAM`** — a teal accent from the palette's decorative
+  rung, not a caption colour — inside a 20px box, reserved 20px for it in both the
+  height and the offset paths, and gave the paragraph the ordinary 16/16 paragraph
+  margins. `QUOTE_BAR` (2), `QUOTE_PAD` (14) and `QUOTE_INSET` (16) now carry the
+  figures, the rule is a `MUTED` filled container whose height comes from the same
+  `inline_height` measurement that sizes the paragraph (stemming from the paragraph's
+  own spans, so the rule spans exactly the text it marks), the two geometry sites
+  reserve the reference inset, and `block_margins` gives a blockquote the 16/0 the
+  sheet asks for. The details panel reads the same constants instead of its own glyph.
+  Verified at `assistant-details-formatted`: the rule measures **2** columns at
+  `x 325..326` — the panel's content edge — spanning both quoted lines in the grab,
+  where the previous render put the glyph inside a 20px box.
+  `shots/53-blockquote-dp2.png` is the grab and `shots/53-blockquote.png` that run's own
+  frame.
+  Note on the mechanism: Iced's `Border` has no per-side widths, so the rule is a filled
+  container rather than a real left border, and its height is passed in from the
+  measurement instead of stretching — that is why it is derived rather than `Fill`,
+  which resolved to zero inside the row.
 

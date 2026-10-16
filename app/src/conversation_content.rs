@@ -188,7 +188,7 @@ impl Prepared {
                         width
                             - *indent as f32 * 18.0
                             - if marker.is_some() { 36.0 } else { 0.0 }
-                            - if *quote { 20.0 } else { 0.0 },
+                            - if *quote { design::QUOTE_INSET } else { 0.0 },
                         self.body_size(),
                         design::body_line(self.delta),
                         FONT,
@@ -675,6 +675,11 @@ fn inline_runs(parts: &[formatted::Span]) -> Vec<native::Span<'static, (), Font>
         })
         .collect()
 }
+/// The height of a blockquote's rule: the paragraph's own measured height, which the
+/// details panel cannot recompute from its fixed 15px body size.
+pub(crate) fn quote_bar_height(spans: &[formatted::Span]) -> f32 {
+    inline_height(spans, 400.0, 15.0, design::body_line(0.0))
+}
 fn inline_height(
     parts: &[formatted::Span],
     width: f32,
@@ -758,7 +763,12 @@ pub(crate) fn block_margins(blocks: &[formatted::Block], index: usize) -> (f32, 
             };
             (design::BLOCK_GAP, bottom)
         }
-        formatted::Block::Paragraph { marker, indent, .. } => {
+        formatted::Block::Paragraph {
+            marker,
+            indent,
+            quote,
+            ..
+        } => {
             if marker.is_some() {
                 // A list item carries the list's own margins at the group's edges and
                 // the item gap inside it (`MarkdownText.module.css:102-113`); a
@@ -782,6 +792,10 @@ pub(crate) fn block_margins(blocks: &[formatted::Block], index: usize) -> (f32, 
                     design::BLOCK_GAP
                 };
                 (top, bottom)
+            } else if *quote {
+                // `blockquote { margin: 16px 0 0 }`: the following block's own top
+                // margin supplies the collapsed gap below it.
+                (design::BLOCK_GAP, 0.0)
             } else if *indent > 0 {
                 // Inside a list item the reference zeroes the first and last child's
                 // margins, so the item itself owns the rhythm.
@@ -813,7 +827,7 @@ fn block_height(block: &formatted::Block, width: f32, delta: f32, delta_secondar
             width
                 - *indent as f32 * 18.0
                 - if marker.is_some() { 36.0 } else { 0.0 }
-                - if *quote { 20.0 } else { 0.0 },
+                - if *quote { design::QUOTE_INSET } else { 0.0 },
             design::BODY_SIZE + delta,
             design::body_line(delta),
         ),
@@ -877,7 +891,24 @@ fn document_view(
                 let mut line =
                     row![iced::widget::Space::new().width(*indent as f32 * 18.0)].spacing(0);
                 if *quote {
-                    line = line.push(container(label("│", design::FOAM)).width(20));
+                    // `MarkdownText.module.css:151-156`: a 2px caption-coloured rule
+                    // with 14px of padding after it. Its height is the paragraph's own
+                    // measured height, so the rule spans exactly the text it marks.
+                    let bar = inline_height(
+                        spans,
+                        width - design::QUOTE_INSET,
+                        design::BODY_SIZE + delta,
+                        design::body_line(delta),
+                    );
+                    line = line.push(
+                        container(Space::new().width(design::QUOTE_BAR))
+                            .height(bar)
+                            .style(|_| container::Style {
+                                background: Some(design::MUTED.into()),
+                                ..Default::default()
+                            }),
+                    );
+                    line = line.push(Space::new().width(design::QUOTE_PAD));
                 }
                 if let Some(marker) = marker {
                     line = line.push(

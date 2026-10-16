@@ -143,6 +143,13 @@ pub const NESTED_LIST_GAP: f32 = 4.0;
 pub const RULE_GAP: f32 = 32.0;
 pub const CODE_LAST_GAP: f32 = 11.0;
 pub const TIGHT_HEADING_GAP: f32 = 8.0;
+/// The reference's blockquote (`MarkdownText.module.css:151-156`): a `2px` solid
+/// left border in the caption colour with `padding-left: 14px`, so the rule touches
+/// the block's left edge and its text starts 16px in. Its margin is `16px 0 0`, so a
+/// following block's own top margin supplies the gap below it.
+pub const QUOTE_BAR: f32 = 2.0;
+pub const QUOTE_PAD: f32 = 14.0;
+pub const QUOTE_INSET: f32 = QUOTE_BAR + QUOTE_PAD;
 /// The gap between two conversation flow rows. The web gives every flow sibling
 /// `margin-top: var(--dsh-chat-flow-gap, 6px)` (`ChatView.module.css:60-71`), so
 /// two process rows sit 6px apart.

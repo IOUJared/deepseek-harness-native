@@ -148,12 +148,28 @@ fn view(document: &formatted::Document) -> Element<'_, Message> {
                 marker,
                 quote,
             } => {
-                let mut line = row![Space::new().width(*indent as f32 * 18.0)].spacing(8);
+                // Gaps are explicit so the blockquote's inset is exactly the
+                // reference's 2px rule plus 14px of padding
+                // (`MarkdownText.module.css:151-156`).
+                let mut line = row![Space::new().width(*indent as f32 * 18.0)].spacing(0);
                 if *quote {
-                    line = line.push(label("│", design::FOAM));
+                    // The rule spans the paragraph's own measured height, matching the
+                    // reference's 2px border plus a 14px padding
+                    // (`MarkdownText.module.css:151-156`).
+                    let bar = super::conversation_content::quote_bar_height(spans);
+                    line = line.push(
+                        container(Space::new().width(design::QUOTE_BAR))
+                            .height(bar)
+                            .style(|_| container::Style {
+                                background: Some(design::MUTED.into()),
+                                ..Default::default()
+                            }),
+                    );
+                    line = line.push(Space::new().width(design::QUOTE_PAD));
                 }
                 if let Some(marker) = marker {
                     line = line.push(label(marker.as_str(), MUTED));
+                    line = line.push(Space::new().width(8));
                 }
                 line.push(inline(spans, 15)).into()
             }
