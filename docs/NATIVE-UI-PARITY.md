@@ -1877,3 +1877,14 @@ cell, so new findings go at the end of the file as plain paragraphs.
    session must capture `cargo`'s own status**; a piped `tail` is not a gate.
    So the roster's request site is still unwired, and it needs the three order-sensitive tests
    updated alongside it rather than before them — which is why the request is its own slice.
+
+   **Verification audit, with exit statuses captured rather than piped** (the round-115 flaw
+   made this the honest thing to do): `fixture` exit 0 / **1114 passed**; `default` exit 0 /
+   **1107 passed**; `core` exit 0 / **112 passed**; `transport` exit 0 / **82 passed** plus
+   **7 doctests**; the runtime node gate exit 0 / **419 pass, 0 fail**; the format gate exit 0
+   / no new debt; tree clean. Transport's exact counts are recorded here because earlier
+   reports of this session described it only as "4 test targets ok", which was true but less
+   than it claimed to be.
+   **Standing rule for the rest of this work:** any gate whose status gates a commit must have
+   its exit code captured in a variable. A `cargo test … | tail` returns `tail`'s status and
+   cannot fail a chain, which is how a red tree was committed once in this session.
