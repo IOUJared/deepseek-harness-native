@@ -143,4 +143,13 @@ cell, so new findings go at the end of the file as plain paragraphs.
   `File · …` block plus its 8px gap therefore has to be added in all three, exactly
   as the line-box and content-size changes were. Adding it to the view alone is
   the shape of bug that clipped a four-line bubble earlier in this work.
+- **Attachment gap — do the fixture first.** The gap has **no fixture coverage**:
+  the only attachment machinery in `layout_fixture.rs` is
+  `public_attachment_fixture` (`:836`), which stages files in the *composer*,
+  while the code that builds a `File · …` line is `content()`'s handling of a
+  `"file"` content part (`reducer.rs:765`). No preset sends a message carrying
+  such a part, so a capture cannot show the gap today. The order of work is
+  therefore: add a preset whose user message carries a `"file"` part (the same
+  move as the `no-session` preset that uncovered the tabs-less header), then make
+  the three-site change, then capture.
 
