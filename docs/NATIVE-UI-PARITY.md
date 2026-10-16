@@ -366,8 +366,17 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    is the Host's, not the row's. So it is an on/off preference write — the same shape as the
    permission default row landed above, through the same settings path — and turning it on
    is the user's own explicit act rather than something this row does on its behalf.
+   The transport question is **answered, and it is the cheap path**: the row does not use
+   the permission-style preference at all, it uses `ctx.configForms.get(namespace)` with
+   `namespace = 'session-log-deepseek'` and a locale of `settings.sessionLog`
+   (`index.ts:26-32`). Config forms are the same generic machinery native's plugin settings
+   already read and write (`PluginsRead`/`PluginSave` over a `SettingsNamespaceView`), so
+   this row needs **no new bridge, Core or worker work** — only the row itself, its boolean
+   write through the existing path, and a capture. That is one slice, not three, and it is
+   the second time this session that checking the reference's own mechanism replaced an
+   assumed three-slice plan with an existing facility (the first was `/permission`).
    Settling step: read `UploadRow.tsx` for its copy and states, then land it as a boolean
-   settings row through the same descriptor read and write, with its own capture.
+   row over the existing config-forms path, with its own capture.
 
 ## Verification log (append-only)
 
