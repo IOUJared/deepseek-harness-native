@@ -4768,11 +4768,12 @@ impl App {
     /// The height the referenced-session summary adds to a row: the user stack's gap
     /// plus the sheet's `18px + delta_secondary` line, or zero when the row cites
     /// nothing (`ui-chat/src/client/chat/MessageItem.module.css:42-45`).
-    fn reference_summary_height(&self, row: &DisplayRow) -> f32 {
-        if row.references.is_empty() {
-            return 0.0;
-        }
-        design::ATTACHMENT_CARD_GAP + design::REFERENCE_LINE + self.content_delta_secondary()
+    fn reference_summary_height(&self, row: &DisplayRow, lane: f32) -> f32 {
+        chat_geometry::reference_summary_height(
+            &row.references,
+            lane,
+            self.content_delta_secondary(),
+        )
     }
     fn content_delta_secondary(&self) -> f32 {
         design::content_delta_secondary(self.content_font_size)
@@ -7451,7 +7452,7 @@ impl App {
             row.key,
             &row.role,
             &excerpt(&row.text),
-            self.reference_summary_height(row),
+            self.reference_summary_height(row, lane),
             lane,
         );
         if self.search_expands_user(row) {
@@ -8060,17 +8061,18 @@ impl App {
                         // (`MessageItem.tsx:225-229`, `MessageItem.module.css:42-45`).
                         if !record.references.is_empty() {
                             stack = stack.push(
-                                label(
-                                    format!(
-                                        "Referenced session · {}",
-                                        record.references.join(", ")
-                                    ),
-                                    MUTED,
+                                container(
+                                    label(
+                                        crate::reducer::reference_summary_text(&record.references),
+                                        MUTED,
+                                    )
+                                    .size(13)
+                                    .line_height(design::reference_line(
+                                        self.content_delta_secondary(),
+                                    ))
+                                    .width(Length::Fill),
                                 )
-                                .size(13)
-                                .line_height(
-                                    design::reference_line(self.content_delta_secondary()),
-                                ),
+                                .id("native-reference-summary"),
                             );
                         }
                         column![stack, Space::new().height(ACTION_GAP), footer]

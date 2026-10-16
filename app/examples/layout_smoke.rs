@@ -73,6 +73,7 @@ const KNOWN_IDS: &[&str] = &[
     "native-load-older",
     "native-plan-control",
     "native-editor-menu",
+    "native-reference-summary",
     "native-to-bottom",
     "native-width-handle-left",
     "native-width-handle-right",

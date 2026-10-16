@@ -30,6 +30,13 @@ pub struct FileCard {
     pub name: String,
     pub meta: String,
 }
+/// The referenced-session summary line's copy: the reference's
+/// `Referenced session · {labels}` with `message.referenceSeparator` between labels
+/// (`ui-chat/src/client/locale.ts:317-318`). One function so the measurement and the
+/// view can never disagree.
+pub fn reference_summary_text(labels: &[String]) -> String {
+    format!("Referenced session · {}", labels.join(", "))
+}
 #[derive(Clone)]
 pub struct DisplayRow {
     pub key: u64,

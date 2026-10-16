@@ -100,6 +100,36 @@ impl fmt::Debug for Cache {
     }
 }
 
+/// The width a human row is measured at: the user-stack cap the bubble and the
+/// referenced-session summary share (`MessageItem.module.css:10-21`).
+pub(crate) fn human_measure_width(lane: f32) -> f32 {
+    (lane - 8.0)
+        .min((lane * crate::design::USER_BUBBLE_SHARE).min(lane * crate::design::USER_STACK_SHARE))
+}
+/// The height the referenced-session summary adds to a row: the user stack's gap plus
+/// the line's own measured height at that same width, so a label list that wraps
+/// reserves every wrapped line rather than one.
+pub(crate) fn reference_summary_height(labels: &[String], lane: f32, delta_secondary: f32) -> f32 {
+    if labels.is_empty() {
+        return 0.0;
+    }
+    let text = crate::reducer::reference_summary_text(labels);
+    let span = crate::ui::detail_panel::formatted::Span {
+        text,
+        bold: false,
+        italic: false,
+        code: false,
+        alt: false,
+    };
+    let width = human_measure_width(lane).max(24.0);
+    crate::design::ATTACHMENT_CARD_GAP
+        + crate::ui::conversation_content::inline_height(
+            std::slice::from_ref(&span),
+            width,
+            crate::design::SECONDARY_SIZE + delta_secondary,
+            crate::design::reference_line(delta_secondary),
+        )
+}
 impl Cache {
     /// The compact tool line at this cache's content size; the view draws the same
     /// value the geometry reserved.
@@ -575,6 +605,25 @@ mod tests {
         assert_eq!(cache.shapes.get(), 0);
     }
 
+    #[test]
+    fn reference_summary_height_measures_every_wrapped_line() {
+        // No labels reserve nothing.
+        assert_eq!(reference_summary_height(&[], 700.0, 0.0), 0.0);
+        let one = reference_summary_height(&["PUBLIC session".into()], 700.0, 0.0);
+        assert!(one > crate::design::ATTACHMENT_CARD_GAP);
+        // A list long enough to wrap reserves more than two lines, not one.
+        let many: Vec<String> = (0..12).map(|i| format!("PUBLIC session {i}")).collect();
+        let wrapped = reference_summary_height(&many, 700.0, 0.0);
+        assert!(wrapped > one * 1.9, "{wrapped} vs {one}");
+        // A narrower lane can only wrap the same labels onto more lines.
+        let narrow = reference_summary_height(&many, 400.0, 0.0);
+        assert!(narrow >= wrapped, "{narrow} vs {wrapped}");
+        // The copy itself is shared with the view.
+        assert_eq!(
+            crate::reducer::reference_summary_text(&["a".into(), "b".into()]),
+            "Referenced session · a, b"
+        );
+    }
     #[test]
     fn malformed_and_extreme_widths_produce_positive_finite_bounded_geometry() {
         let cache = Cache::default();

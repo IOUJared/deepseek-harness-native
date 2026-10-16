@@ -1115,9 +1115,14 @@ cell, so new findings go at the end of the file as plain paragraphs.
   attribution (the preceding human row only, never the hidden context row or a later
   message), that the record's own row stays out of Chat, and that a malformed reference
   list contributes nothing.
-  Remainder, stated plainly: the geometry reserves **one** line. The reference measures
-  the wrapped block, so a label list long enough to wrap can exceed the reserved height;
-  in the fixture's grab the row had slack and both wrapped lines showed, but a three-line
-  summary in a tight row would clip. Fixing it properly means passing the joined label
-  text and the stack width into the measurement rather than a scalar.
+  The one-line limitation recorded here first is now closed: `chat_geometry::
+  reference_summary_height` measures the joined copy at `human_measure_width(lane)` — the
+  same user-stack cap the bubble uses — so every wrapped line is reserved, and the copy
+  itself comes from `reducer::reference_summary_text`, one function shared with the view.
+  `reference_summary_height_measures_every_wrapped_line` pins it (nothing for no labels,
+  more than two lines for a twelve-label list, never fewer lines in a wider lane), and the
+  same `chat-references` preset now records `native-reference-summary` at
+  **360 × 36** (x 626, y 204.3) in the observation — two 18px lines where the previous
+  one-line model reserved half that. `shots/60-reference-summary-wrap-dp2.png` is that
+  grab.
 

@@ -826,7 +826,7 @@ fn table_row(
 pub(crate) fn quote_bar_height(spans: &[formatted::Span]) -> f32 {
     inline_height(spans, 400.0, 15.0, design::body_line(0.0))
 }
-fn inline_height(
+pub(crate) fn inline_height(
     parts: &[formatted::Span],
     width: f32,
     size: f32,
