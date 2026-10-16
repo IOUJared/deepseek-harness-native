@@ -395,3 +395,47 @@ fn unavailable_clipboard_reports_without_touching_the_draft() {
     state.handle(Action::PasteUnavailable { ticket }, 1, true);
     assert!(state.error.unwrap().contains("printable ASCII"));
 }
+
+/// The desktop shell refuses a key that is quoted or copied as an environment
+/// assignment (`welcomeKeyInvalid`); both are printable non-whitespace ASCII, so
+/// the shared `Input::ascii` rule accepts them and they would otherwise be saved
+/// verbatim as the key.
+#[test]
+fn a_quoted_or_assigned_key_is_refused_with_the_shells_guidance() {
+    const MESSAGE: &str =
+        "Enter the API key itself, without quotes, spaces, or an environment-variable assignment.";
+    for draft in [
+        "\"PUBLIC_FAKE_KEY\"",
+        "'PUBLIC_FAKE_KEY'",
+        "DEEPSEEK_API_KEY=PUBLIC_FAKE_KEY",
+    ] {
+        let mut state = opened();
+        edit(&mut state, draft);
+        let ticket = state.ticket();
+        // Review must not advance to confirmation…
+        assert!(state.handle(Action::Review(ticket), 1, true).is_none());
+        assert!(
+            !matches!(state.save, SavePhase::Confirm(_)),
+            "draft {draft}"
+        );
+        // …and confirmation must not hand a key to the backend.
+        assert!(state.handle(Action::Confirm(ticket), 1, true).is_none());
+        assert_eq!(state.error.as_deref(), Some(MESSAGE), "draft {draft}");
+        // The draft stays, so the user deletes the quotes instead of pasting again.
+        assert_eq!(state.edit.as_str(), draft, "draft {draft}");
+    }
+}
+
+#[test]
+fn the_key_shape_rule_names_exactly_the_shapes_the_shell_names() {
+    // Whitespace is already the shared rule's business, not this one's.
+    assert!(key_shape_error("PUBLIC_FAKE_KEY").is_none());
+    assert!(key_shape_error("sk-PUBLIC_0123456789").is_none());
+    assert!(key_shape_error("\"PUBLIC_FAKE_KEY\"").is_some());
+    assert!(key_shape_error("'PUBLIC_FAKE_KEY'").is_some());
+    assert!(key_shape_error("DEEPSEEK_API_KEY=PUBLIC_FAKE_KEY").is_some());
+    assert!(key_shape_error("export DEEPSEEK_API_KEY=PUBLIC").is_some());
+    // A leading quote without a closing one is not a quoted key; it is refused by
+    // the shared printable-ASCII rule only if it also carries a space.
+    assert!(key_shape_error("PUBLIC_\"key").is_none());
+}

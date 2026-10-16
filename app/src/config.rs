@@ -33,6 +33,15 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Option<Options>, 
             }
             continue;
         }
+        // The macOS shell registers the `dsh` scheme and routes `dsh://open` at the
+        // window that already owns the profile. A launch can therefore arrive
+        // carrying a URL rather than only flags. It is accepted here and needs no
+        // further handling: a URL only ever reaches a *second* launch, and that
+        // path already asks the owner to come forward over the instance socket.
+        // An unknown `dsh://` route is a no-op, as it is in the shell.
+        if key.starts_with("dsh://") {
+            continue;
+        }
         if ![
             "--exit-after-seconds",
             "--smoke-report",
@@ -454,5 +463,22 @@ mod tests {
             root.join("tests.log").to_string_lossy().into_owned(),
         ]);
         assert!(parse(base).is_err());
+    }
+    #[test]
+    fn a_deep_link_is_accepted_and_an_unrelated_url_is_not() {
+        // The macOS shell registers the `dsh` scheme and routes `dsh://open`, so a
+        // launch may carry that URL beside its flags.
+        let mut with_link = args();
+        with_link.push("dsh://open".into());
+        assert!(
+            parse(with_link).is_ok(),
+            "a registered scheme is not a bad flag"
+        );
+        let mut with_other = args();
+        with_other.push("https://example.test".into());
+        assert!(
+            parse(with_other).is_err(),
+            "an unrelated positional argument stays rejected"
+        );
     }
 }

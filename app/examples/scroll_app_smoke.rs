@@ -32,6 +32,8 @@ mod rename;
 mod secret_input;
 #[path = "../src/settings.rs"]
 mod settings;
+#[path = "../src/single_instance.rs"]
+mod single_instance;
 #[path = "../src/smoke.rs"]
 mod smoke;
 #[path = "../src/terminal.rs"]

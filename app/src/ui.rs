@@ -295,8 +295,15 @@ pub enum Message {
     CommandMenuMove(i32),
     /// Accept the highlighted completion into the draft.
     CommandMenuAccept,
+    /// Accept one named completion, which is how a pointer picks a row.
+    CommandMenuPick(String),
     /// Close the completion menu without changing the draft.
     CommandMenuDismiss,
+    /// A press inside the composer that owns no action of its own: the card and
+    /// its metadata strip. It publishes nothing, and exists because iced's text
+    /// editor drops focus on any press outside its own bounds; the press is the
+    /// user staying in the composer, so the caret stays there too.
+    ComposerFocus,
     /// Client-only view of Host-owned terminals. Opening spawns no local shell.
     Terminal(crate::terminal::Action),
     /// App-owned MCP composition: list, add, edit and disable. Only one reviewed
@@ -345,6 +352,23 @@ pub enum Message {
         id: Option<String>,
         text: Option<String>,
     },
+    /// A conversation-width handle was pressed.
+    WidthDragStart(design::WidthSide),
+    /// A cursor sample while a width drag is in flight.
+    WidthDragMove(f32),
+    /// The drag finished: persist it, unless the pointer never actually moved.
+    WidthDragEnd,
+    /// The drag was abandoned: restore the pre-drag width and persist nothing.
+    WidthDragCancel,
+    /// A later launch of this profile asked the running window to come forward.
+    FocusRequested,
+    /// The transcript content size changed. Out-of-range values become the
+    /// default, so a step can never leave the offered range.
+    ContentSize(f32),
+    /// The pointer entered a tool row; the web reveals that row's chevron here.
+    ActivityHover(u64),
+    /// The pointer left a tool row, restoring the tool's own variant glyph.
+    ActivityHoverEnd(u64),
 }
 impl std::fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -382,6 +406,33 @@ impl Flight {
     ];
 }
 use crate::worker::prompt_recovery::{self, Pending};
+/// Width-handle hit area, and its offset outside the conversation lane. The web
+/// places a `10px` handle `24px` beyond the content edge, and renders neither
+/// when the pane has no room for both.
+const WIDTH_HANDLE_WIDTH: f32 = 10.0;
+const WIDTH_HANDLE_OFFSET: f32 = 24.0;
+/// The gap between a message and its action row, the action row's own height,
+/// and the total a row must reserve. The web's user row is a right-aligned column
+/// with a `6px` gap (`MessageItem.module.css` `.userRow`), and the geometry and
+/// the view read these together so a reservation cannot drift from what is drawn.
+const ACTION_GAP: f32 = 6.0;
+const ACTION_HEIGHT: f32 = 18.0;
+const ACTION_FOOTER: f32 = ACTION_GAP + ACTION_HEIGHT;
+/// One in-flight conversation-width drag.
+struct WidthDrag {
+    side: design::WidthSide,
+    /// The resolved width the gesture started from.
+    base: f32,
+    /// The preference to restore when the gesture is cancelled or never moves: a
+    /// press alone must not overwrite a wider preference with its window-clamped
+    /// display width.
+    saved: Option<f32>,
+    /// First cursor sample after the press. A press carries no position, and the
+    /// handle's own `on_move` is local to a 10px box, so the drag reads the
+    /// window cursor instead.
+    origin_x: Option<f32>,
+    moved: bool,
+}
 pub struct App {
     pub options: Options,
     handle: Handle,
@@ -414,6 +465,30 @@ pub struct App {
     show_trash: bool,
     sidebar_organization: sidebar_organization::State,
     sidebar_store: Option<std::sync::Arc<std::sync::Mutex<draft_store::Store>>>,
+    /// User-set conversation content width, or `None` for the adaptive clamp.
+    /// The web persists this under `dsh.conversation.contentWidth`; native keeps
+    /// it in the layout namespace and resolves it through `design::chat_width_with`.
+    /// The store itself is opened per read/write rather than held, so there is no
+    /// idle descriptor for a preference that changes rarely.
+    chat_width_preference: Option<f32>,
+    /// The home the layout preference is persisted under, or `None` in a smoke
+    /// run, which must not touch the user's profile.
+    native_home: Option<std::path::PathBuf>,
+    /// In-flight width drag; `None` when no handle is held.
+    width_drag: Option<WidthDrag>,
+    /// Focus requests from a later launch of this profile. Set by `main` after
+    /// boot, because the instance claim is taken before the App exists.
+    pub(crate) focus_source: crate::single_instance::Source,
+    /// The tool row under the pointer, which decides whether its leading box
+    /// shows the tool's variant glyph or the disclosure chevron.
+    hovered_activity: Option<u64>,
+    /// Forces every tool row to render as hovered. The public layout fixture sets
+    /// this to capture the pointer-only glyph swap, which no keyboard or state
+    /// path otherwise reaches.
+    #[cfg(feature = "public-layout-fixture")]
+    hover_all_activities: bool,
+    /// The transcript content size, defaulting to the web's own default.
+    content_font_size: f32,
     workspace_path: String,
     workspace_controls: bool,
     filter: String,
@@ -526,6 +601,37 @@ impl App {
         } else {
             None
         };
+        // Layout preferences are read once at boot and the store is released
+        // again: an absent, unreadable or malformed document leaves the adaptive
+        // width in place rather than failing startup, because a missing
+        // preference has a correct default.
+        let layout_preferences = if options.smoke.is_none() {
+            draft_store::Store::layout(options.backend.native_home.clone())
+                .ok()
+                .and_then(|mut store| store.load().ok())
+        } else {
+            None
+        };
+        // One read, two preferences: each falls back to its own default when the
+        // key is absent or unreadable.
+        let stored = |key: &str| -> Option<&str> {
+            layout_preferences
+                .as_ref()?
+                .iter()
+                .find(|(entry, _)| entry.as_str() == key)
+                .map(|(_, raw)| raw.as_str())
+        };
+        let chat_width_preference =
+            stored(draft_store::LAYOUT_CONTENT_WIDTH).and_then(draft_store::parse_layout_width);
+        let content_font_size = stored(draft_store::LAYOUT_CONTENT_SIZE)
+            .and_then(draft_store::parse_layout_size)
+            .map_or(design::CONTENT_FONT_DEFAULT, design::content_size);
+        // Captured here, before `options` is consumed: a later field initializer
+        // cannot borrow it. Smoke runs keep `None` so they never write a profile.
+        let native_home = options
+            .smoke
+            .is_none()
+            .then(|| options.backend.native_home.clone());
         let workspace_path = options
             .backend
             .working_directory
@@ -582,6 +688,14 @@ impl App {
                 show_trash: false,
                 sidebar_organization: Default::default(),
                 sidebar_store,
+                chat_width_preference,
+                native_home,
+                width_drag: None,
+                focus_source: crate::single_instance::Source::disabled(),
+                hovered_activity: None,
+                #[cfg(feature = "public-layout-fixture")]
+                hover_all_activities: false,
+                content_font_size,
                 workspace_path,
                 workspace_controls: false,
                 filter: String::new(),
@@ -640,7 +754,7 @@ impl App {
                     ..Default::default()
                 },
                 own_window: None,
-                window_size: iced::Size::new(1280.0, 820.0),
+                window_size: iced::Size::new(design::WINDOW_WIDTH, design::WINDOW_HEIGHT),
                 window_active: false,
                 sidebar_expanded: true,
                 sidebar_sheet: false,
@@ -707,13 +821,42 @@ impl App {
                 }
                 _ => None,
             }),
+            // A width drag follows the window cursor, not the handle: a handle's
+            // own `on_move` is local to its 10px box and stops reporting the
+            // moment the pointer leaves it, which a drag always does. The stream
+            // is gated on an in-flight drag so idle cost stays at nothing, and
+            // `with` keeps the subscription in step as the gesture starts and ends.
+            iced::event::listen()
+                .with(self.width_drag.is_some())
+                .filter_map(|(dragging, event)| {
+                    if !dragging {
+                        return None;
+                    }
+                    match event {
+                        iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
+                            Some(Message::WidthDragMove(position.x))
+                        }
+                        iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
+                            iced::mouse::Button::Left,
+                        )) => Some(Message::WidthDragEnd),
+                        // Escape abandons the gesture and persists nothing.
+                        iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                            key: keyboard::Key::Named(keyboard::key::Named::Escape),
+                            ..
+                        }) => Some(Message::WidthDragCancel),
+                        _ => None,
+                    }
+                }),
+            // A later launch of this profile could not take the lock and asked us
+            // to come forward instead, which is what the desktop shell does.
+            Subscription::run_with(
+                self.focus_source.clone(),
+                crate::single_instance::Source::stream,
+            )
+            .map(|_| Message::FocusRequested),
             keyboard::listen()
-                .with((
-                    self.detail_escape_ticket(),
-                    self.settings_paste_ticket(),
-                    self.clipboard_field_ticket(),
-                ))
-                .filter_map(|((ticket, paste, field), event)| match event {
+                .with((self.detail_escape_ticket(), self.settings_paste_ticket()))
+                .filter_map(|((ticket, paste), event)| match event {
                     keyboard::Event::KeyPressed {
                         key,
                         modifiers,
@@ -723,10 +866,13 @@ impl App {
                         .or_else(|| {
                             settings_paste_message(wayland_session(), paste, &key, modifiers)
                         })
-                        // The tagged fields answer Ctrl+C and Ctrl+V here, and
-                        // only while the page that owns them is on screen: the
-                        // composer keeps its own, richer bindings.
-                        .or_else(|| field.and_then(|_| clipboard_field_shortcut(&key, modifiers))),
+                        // The tagged fields answer Ctrl+C and Ctrl+V here. This
+                        // mapping deliberately reads no subscription data: data
+                        // captured when the stream was built goes stale the moment
+                        // the panel opens, which is how this silently stopped
+                        // working inside Settings. The handlers below hold live
+                        // state and decide, and they say why when they refuse.
+                        .or_else(|| clipboard_field_shortcut(&key, modifiers)),
                     _ => None,
                 }),
             animation,
@@ -1025,13 +1171,104 @@ impl App {
     fn compact(&self) -> bool {
         self.layout_size().width < design::BREAKPOINT
     }
-    /// Shared transcript/composer column width. The conversation pane is the
-    /// window minus the animated sidebar; the web then clamps the content to
-    /// `clamp(680, 64% of the pane, 920)` and never exceeds the pane's padded
-    /// content box. Geometry and rendered `max_width` must use this one value.
+    /// The conversation pane: the window minus the animated sidebar, before its
+    /// horizontal padding.
+    fn content_column(&self) -> f32 {
+        (self.layout_size().width - self.sidebar_motion.value()).max(0.0)
+    }
+    /// Shared transcript/composer column width. The web clamps the content to
+    /// `clamp(680, 64% of the pane, 920)` — or to a set preference — and never
+    /// exceeds the pane's padded content box. Geometry and rendered `max_width`
+    /// must use this one value.
     fn chat_lane(&self) -> f32 {
-        let column = (self.layout_size().width - self.sidebar_motion.value()).max(0.0);
-        (column - 40.0).min(design::chat_width(column)).max(0.0)
+        let column = self.content_column();
+        (column - 40.0)
+            .min(design::chat_width_with(column, self.chat_width_preference))
+            .max(0.0)
+    }
+    /// Persist the layout preference. Reached only from an explicit gesture
+    /// commit, never per frame, so the small synchronous write stays bounded.
+    fn save_layout_preference(&self) {
+        let Some(home) = self.native_home.clone() else {
+            return;
+        };
+        let Ok(mut store) = draft_store::Store::layout(home) else {
+            return;
+        };
+        let mut entries = store.load().unwrap_or_default();
+        // Each preference writes or clears its own reserved key, so clearing one
+        // never disturbs the other.
+        for (key, raw) in [
+            (
+                draft_store::LAYOUT_CONTENT_WIDTH,
+                self.chat_width_preference
+                    .and_then(draft_store::format_layout_width),
+            ),
+            (
+                draft_store::LAYOUT_CONTENT_SIZE,
+                if self.content_font_size == design::CONTENT_FONT_DEFAULT {
+                    None
+                } else {
+                    draft_store::format_layout_size(self.content_font_size)
+                },
+            ),
+        ] {
+            let Ok(entry) = SessionId::new(key) else {
+                continue;
+            };
+            match raw {
+                Some(value) => {
+                    entries.insert(entry, value);
+                }
+                None => {
+                    entries.remove(&entry);
+                }
+            }
+        }
+        let _ = store.save(&entries);
+    }
+    /// The bottom fade that dissolves scrolled content before the composer. It is
+    /// an overlay rather than a sibling strip, so it costs no layout height and
+    /// cannot shorten the lane or change what the virtualizer sees.
+    fn composer_fade(&self) -> Element<'_, Message> {
+        container(
+            container(
+                Space::new()
+                    .width(Length::Fill)
+                    .height(design::COMPOSER_FADE_HEIGHT),
+            )
+            .style(design::composer_fade)
+            .width(Length::Fill)
+            .height(design::COMPOSER_FADE_HEIGHT),
+        )
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_y(iced::Alignment::End)
+        .into()
+    }
+    /// The two width handles, overlaid on the transcript so neither the lane nor
+    /// the scroll model changes. Only the handles are interactive; the spacers
+    /// between them are not, so the transcript underneath still receives input.
+    fn width_handles(&self, lane: f32) -> Element<'_, Message> {
+        let handle = |side| {
+            iced::widget::MouseArea::new(
+                Space::new().width(WIDTH_HANDLE_WIDTH).height(Length::Fill),
+            )
+            .interaction(iced::mouse::Interaction::ResizingHorizontally)
+            .on_press(Message::WidthDragStart(side))
+            .on_release(Message::WidthDragEnd)
+        };
+        row![
+            Space::new().width(Length::Fill),
+            handle(design::WidthSide::Left),
+            Space::new().width(WIDTH_HANDLE_OFFSET),
+            Space::new().width(lane),
+            Space::new().width(WIDTH_HANDLE_OFFSET),
+            handle(design::WidthSide::Right),
+            Space::new().width(Length::Fill),
+        ]
+        .height(Length::Fill)
+        .into()
     }
     /// Composer editor height. The web InputBar grows its draft up to 14 lines
     /// (`--dsh-composer-text-max-height: 336px`) over a 36px minimum. Native
@@ -1720,7 +1957,13 @@ impl App {
                     serial: self.search_serial,
                 });
             }
-            Message::ModelControls(action) => return self.model_control_action(action),
+            // Every model-popup control lives in the composer's own strip, so the
+            // caret comes back with the choice. The picker and the panels render
+            // outside this match and take their own focus.
+            Message::ModelControls(action) => {
+                let visible = self.composer_visible();
+                return Self::composer_focus_kept(visible, self.model_control_action(action));
+            }
             Message::FileChoose => return self.file_choose(),
             Message::FilePicker(action) => return self.file_picker_action(action),
             Message::FilePreview(stamp) => return self.start_file_preview(stamp),
@@ -1894,6 +2137,83 @@ impl App {
                 return self.update(Message::Settings(crate::settings::Action::Close));
             }
             Message::Resized(size) => self.resize_layout(size),
+            Message::WidthDragStart(side) => {
+                // The web's `onStart` returns the width currently displayed, and
+                // the drag moves from there rather than from the stored value.
+                let base =
+                    design::chat_width_with(self.content_column(), self.chat_width_preference);
+                self.width_drag = Some(WidthDrag {
+                    side,
+                    base,
+                    saved: self.chat_width_preference,
+                    origin_x: None,
+                    moved: false,
+                });
+                return Task::none();
+            }
+            Message::WidthDragMove(x) => {
+                let mut next = None;
+                if let Some(drag) = self.width_drag.as_mut() {
+                    match drag.origin_x {
+                        // The first sample after the press sets the origin, so a
+                        // press that never moves cannot change the width.
+                        None => drag.origin_x = Some(x),
+                        Some(origin) => {
+                            let raw = design::chat_width_drag(drag.base, origin, x, drag.side);
+                            drag.moved |= (raw - drag.base).abs() > f32::EPSILON;
+                            next = Some(raw);
+                        }
+                    }
+                }
+                if let Some(raw) = next {
+                    self.chat_width_preference = Some(raw);
+                }
+                return Task::none();
+            }
+            Message::WidthDragEnd => {
+                if let Some(drag) = self.width_drag.take() {
+                    if drag.moved {
+                        self.save_layout_preference();
+                    } else {
+                        // A press is not a gesture: put the wider preference back
+                        // rather than persisting the clamped display width.
+                        self.chat_width_preference = drag.saved;
+                    }
+                }
+                return Task::none();
+            }
+            Message::WidthDragCancel => {
+                if let Some(drag) = self.width_drag.take() {
+                    self.chat_width_preference = drag.saved;
+                }
+                return Task::none();
+            }
+            Message::FocusRequested => {
+                return match self.own_window {
+                    Some(id) => window::gain_focus(id),
+                    None => Task::none(),
+                };
+            }
+            Message::ContentSize(size) => {
+                let size = design::content_size(size);
+                if size != self.content_font_size {
+                    self.content_font_size = size;
+                    self.save_layout_preference();
+                }
+                return Task::none();
+            }
+            Message::ActivityHover(key) => {
+                self.hovered_activity = Some(key);
+                return Task::none();
+            }
+            Message::ActivityHoverEnd(key) => {
+                // Clear only the row this exit belongs to: a later enter may have
+                // already replaced it, and clearing that would strand the pointer.
+                if self.hovered_activity == Some(key) {
+                    self.hovered_activity = None;
+                }
+                return Task::none();
+            }
             Message::WindowActive(active) => {
                 self.window_active = active;
                 if let Some(bridge) = &mut self.accessibility {
@@ -2173,18 +2493,24 @@ impl App {
                     .completion()
                     .and_then(|menu| menu.candidate().map(|c| c.name.clone()))
                 {
-                    let accepted = command_menu::accepted(&self.editor.text(), &candidate);
-                    self.editor = iced::widget::text_editor::Content::with_text(&accepted);
-                    self.command_selected = 0;
-                    self.touch_draft();
+                    return self.accept_command(&candidate);
                 }
+            }
+            // A pointer picks the row it named, not the highlighted one, so a
+            // click can never complete a command the user did not point at.
+            Message::CommandMenuPick(name) if self.completion().is_some() => {
+                return self.accept_command(&name);
             }
             Message::CommandMenuDismiss if self.completion().is_some() => {
                 // Dismissal is not a draft edit: clear the menu by leaving the
                 // command position, and keep every typed character.
                 self.commands = Some(Vec::new());
                 self.command_selected = 0;
+                return Self::focus_composer();
             }
+            // A press that belongs to the composer but not to a control in it.
+            // Nothing to change, and focus is the whole point.
+            Message::ComposerFocus => return Self::focus_composer(),
             // A command line that still has a menu open consumes Enter as
             // "accept", so the first Enter never sends a half-typed command.
             Message::KeyboardSend
@@ -2555,7 +2881,10 @@ impl App {
                 let anchor = self.reader_anchor();
                 self.search_open = false;
                 self.search_cursor = None;
-                return self.reflow_transcript(anchor);
+                // Closing search returns the user to writing; leaving the caret
+                // behind in a control that is gone is how a composer goes dead.
+                let visible = self.composer_visible();
+                return Self::composer_focus_kept(visible, self.reflow_transcript(anchor));
             }
             Message::CancelEdit => {
                 self.edit_review = None;
@@ -2606,6 +2935,7 @@ impl App {
             // invisible one is collapsed again rather than kept as hidden state.
             Message::ToggleContextPolicy if self.composer_visible() => {
                 self.context_policy_open = !self.context_policy_open;
+                return Self::focus_composer();
             }
             Message::ToggleContextPolicy => {
                 self.context_policy_open = false;
@@ -4046,7 +4376,54 @@ impl App {
             failed: self.model_controls.catalog_is_failed(),
         }
     }
+    /// The content-size delta for the body tier, and for the secondary tier that
+    /// carries the de-emphasized text. Both are zero at the default size, so
+    /// nothing about the shipped layout moves until a preference is set.
+    fn content_delta(&self) -> f32 {
+        design::content_delta(self.content_font_size)
+    }
+    fn content_delta_secondary(&self) -> f32 {
+        design::content_delta_secondary(self.content_font_size)
+    }
+    /// Whether a tool row's leading box should show the disclosure chevron
+    /// because the pointer is over it.
+    fn activity_hovered(&self, key: u64) -> bool {
+        if self.hovered_activity == Some(key) {
+            return true;
+        }
+        #[cfg(feature = "public-layout-fixture")]
+        if self.hover_all_activities {
+            return true;
+        }
+        false
+    }
+    /// Render every tool row as hovered, for the public layout fixture.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn set_hover_all_activities(&mut self, hover: bool) {
+        self.hover_all_activities = hover;
+    }
+    /// Set the transcript content size directly, without touching a preference
+    /// file. The public layout fixture uses this to render a size the control
+    /// offers, so a scaled capture needs no profile.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn set_content_font_size(&mut self, size: f32) {
+        self.content_font_size = design::content_size(size);
+    }
+    /// The task that puts focus in the composer. The public layout fixture
+    /// dispatches it to capture the focused editor, which no fixture state
+    /// otherwise reaches.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn focus_composer_task() -> Task<Message> {
+        Self::focus_composer()
+    }
     pub fn view(&self) -> Element<'_, Message> {
+        // Both caches hold measurements taken at one text size, so they adopt the
+        // current delta before anything is measured or drawn; each clears itself
+        // when the delta actually changes.
+        let delta = self.content_delta();
+        self.chat_geometry.set_content_delta(delta);
+        self.reply_content
+            .set_content_delta(delta, self.content_delta_secondary());
         // Modal priority and worker fences stay independent of presentation.
         if !matches!(self.close, Close::None) {
             return self.close_view();
@@ -4639,6 +5016,28 @@ impl App {
             .map(|view| Message::Management(crate::management::Action::Open(view)));
         let content = column![
             label("More options", TEXT).size(22),
+            label("CONTENT", MUTED).size(11),
+            row![
+                label("Text size", TEXT),
+                Space::new().width(Length::Fill),
+                button(label("−", TEXT))
+                    .on_press_maybe(
+                        (self.content_font_size > design::CONTENT_FONT_MIN)
+                            .then_some(Message::ContentSize(self.content_font_size - 1.0))
+                    )
+                    .style(design::ghost)
+                    .padding([6, 10]),
+                label(format!("{:.0}", self.content_font_size), MUTED),
+                button(label("+", TEXT))
+                    .on_press_maybe(
+                        (self.content_font_size < design::CONTENT_FONT_MAX)
+                            .then_some(Message::ContentSize(self.content_font_size + 1.0))
+                    )
+                    .style(design::ghost)
+                    .padding([6, 10]),
+            ]
+            .align_y(iced::Alignment::Center)
+            .padding([6, 14]),
             label("CONVERSATION", MUTED).size(11),
             button(label("Manage & export…", TEXT))
                 .on_press_maybe(manage)
@@ -5018,6 +5417,40 @@ impl App {
         self.commands_pending = true;
         self.command(Command::CommandsList(session_id));
     }
+    /// Put keyboard focus back in the composer.
+    ///
+    /// Iced's text editor clears its own focus when any left press lands outside
+    /// its bounds (see `iced_widget::text_editor::Update::from_event`), so every
+    /// press that means "I am still writing" -- a completion row, the model
+    /// menu, the card's own padding -- would otherwise leave a visible caret in
+    /// a dead field and swallow the next keystroke. This is the one place that
+    /// asks for focus back; nothing here takes focus away from another field.
+    fn focus_composer() -> Task<Message> {
+        iced::widget::operation::focus(accessibility::WIDGET_COMPOSER)
+    }
+    /// Run `task`, then put focus back in the composer when `keep` says the
+    /// composer is on screen. Refocusing an invisible composer would target a
+    /// widget the tree does not publish, so the caller passes the same guard the
+    /// view uses; it is a value, not `&self`, because the task often comes from a
+    /// mutable handler.
+    fn composer_focus_kept(keep: bool, task: Task<Message>) -> Task<Message> {
+        if keep {
+            Task::batch([task, Self::focus_composer()])
+        } else {
+            task
+        }
+    }
+    /// Write one accepted command into the draft and keep the caret there.
+    ///
+    /// Acceptance is an edit, never a submission: the command line stays
+    /// editable and the Host only ever sees it when the user sends it.
+    fn accept_command(&mut self, name: &str) -> Task<Message> {
+        let accepted = command_menu::accepted(&self.editor.text(), name);
+        self.editor = text_editor::Content::with_text(&accepted);
+        self.command_selected = 0;
+        self.touch_draft();
+        Self::focus_composer()
+    }
     /// The plan-mode control for the selected session, from the Host's advertised
     /// commands and the Host's own `plan` projection.
     fn plan_control(&self) -> plan_control::Control {
@@ -5262,6 +5695,13 @@ impl App {
             .padding(10)
             .width(Length::Fill)
             .style(|_| design::card(SURFACE, design::RADIUS_XL));
+        // The card owns the space around its controls: a press there is the user
+        // reaching for the composer, not leaving it. Inner presses are consumed by
+        // the widget that handles them, so this only fires on the card itself.
+        let card = Element::new(FocusKeeper {
+            content: card.into(),
+            on_press: Message::ComposerFocus,
+        });
         let hint = if self.options.smoke.is_some() {
             "Keyless preview · sending disabled"
         } else if self.compact() {
@@ -5343,35 +5783,40 @@ impl App {
             let mut rows = column![].spacing(1);
             for (index, candidate) in menu.matches.iter().enumerate() {
                 let selected = index == menu.selected;
-                rows = rows.push(
-                    container(
-                        row![
-                            label(
-                                format!("/{}", candidate.name),
-                                if selected { ACCENT } else { MUTED },
-                            )
-                            .size(12)
-                            .width(Length::Shrink),
-                            label(short(&candidate.description, 70), MUTED)
-                                .size(10)
-                                .width(Length::Fill),
-                            // A caret marks the highlighted row even where a
-                            // background is hard to read at 1x.
-                            label(if selected { "▸" } else { "" }, ACCENT).size(10),
-                        ]
-                        .spacing(8)
-                        .align_y(iced::Alignment::Center),
-                    )
-                    .padding([4, 7])
-                    .width(Length::Fill)
-                    .style(move |_| {
-                        if selected {
-                            design::card(OVERLAY, design::RADIUS_SM)
-                        } else {
-                            container::Style::default()
-                        }
-                    }),
-                );
+                let row = container(
+                    row![
+                        label(
+                            format!("/{}", candidate.name),
+                            if selected { ACCENT } else { MUTED },
+                        )
+                        .size(12)
+                        .width(Length::Shrink),
+                        label(short(&candidate.description, 70), MUTED)
+                            .size(10)
+                            .width(Length::Fill),
+                        // A caret marks the highlighted row even where a
+                        // background is hard to read at 1x.
+                        label(if selected { "▸" } else { "" }, ACCENT).size(10),
+                    ]
+                    .spacing(8)
+                    .align_y(iced::Alignment::Center),
+                )
+                .padding([4, 7])
+                .width(Length::Fill)
+                .style(move |_| {
+                    if selected {
+                        design::card(OVERLAY, design::RADIUS_SM)
+                    } else {
+                        container::Style::default()
+                    }
+                });
+                // The row completes the command it names, and the draft keeps the
+                // caret: a pointer and the arrow keys then Tab all mean the same
+                // thing, and the next keystroke continues the line.
+                rows = rows.push(Element::new(FocusKeeper {
+                    content: row.into(),
+                    on_press: Message::CommandMenuPick(candidate.name.clone()),
+                }));
             }
             shell = shell.push(
                 container(rows)
@@ -5394,9 +5839,16 @@ impl App {
             }
             shell = shell.push(container(detail).padding([0, 8]).width(Length::Fill));
         }
-        shell = shell
-            .push(card)
-            .push(container(metadata.spacing(8).align_y(iced::Alignment::Center)).padding([0, 8]));
+        // The strip between the card and the lane edge belongs to the composer
+        // too; only the controls inside it publish, so a press on the gap keeps
+        // the caret where the user left it.
+        let metadata = Element::new(FocusKeeper {
+            content: container(metadata.spacing(8).align_y(iced::Alignment::Center))
+                .padding([0, 8])
+                .into(),
+            on_press: Message::ComposerFocus,
+        });
+        shell = shell.push(card).push(metadata);
         container(
             container(shell.spacing(5))
                 .max_width(self.chat_lane())
@@ -6030,7 +6482,7 @@ impl App {
             .collect();
         let geometries = self.row_geometries(&rows);
         if let Some(index) = rows.iter().position(|row| row.key == key) {
-            let width = (geometries[index].width - 28.0).max(1.0);
+            let width = (geometries[index].width - chat_geometry::BODY_INSET).max(1.0);
             let inside = if let Some(reply) = self.reply_parts(key) {
                 reply.first_match_offset(
                     width,
@@ -6112,11 +6564,17 @@ impl App {
             // Formatted assistant replies share the content column, never wider
             // than the web's 920 cap (the lane never exceeds it).
             let width = (lane - 8.0).clamp(37.0, design::MAX_CHAT);
-            let body_height =
-                reply.body_height(width - 28.0, self.thoughts_expanded.contains(&row.key));
+            let body_height = reply.body_height(
+                width - chat_geometry::BODY_INSET,
+                self.thoughts_expanded.contains(&row.key),
+            );
             // An answerless reply keeps only its thoughts disclosure, so it has
             // no action row and must not reserve one.
-            let actions = if reply.has_answer() { 22.0 } else { 0.0 };
+            let actions = if reply.has_answer() {
+                ACTION_FOOTER
+            } else {
+                0.0
+            };
             return chat_geometry::Geometry {
                 width,
                 body_height,
@@ -6129,8 +6587,8 @@ impl App {
         if self.search_expands_user(row) {
             geometry.body_height = conversation_content::plain_height(
                 &row.text,
-                geometry.width - 28.0,
-                15.0,
+                geometry.width - chat_geometry::BODY_INSET,
+                15.0 + self.content_delta(),
                 FONT,
                 false,
             )
@@ -6141,15 +6599,17 @@ impl App {
             || row.role.starts_with("Assistant")
             || row.role == "Interrupted assistant attempt"
         {
-            geometry.height += 22.0;
+            geometry.height += ACTION_FOOTER;
         }
         if self.activity_is_expanded(row) {
             // The compact line stays; the recorded body sits beneath it in the
             // same conversation row, so expanding never leaves this chat.
-            geometry.body_height = chat_geometry::TOOL_LINE_HEIGHT
+            geometry.body_height = self.chat_geometry.tool_line()
+                + chat_geometry::TOOL_BODY_GAP
                 + conversation_content::tool_body_height(
                     activity_body_source(row),
-                    geometry.width - 28.0,
+                    geometry.width - chat_geometry::BODY_INSET,
+                    self.content_delta_secondary(),
                 );
             geometry.height = geometry.body_height + chat_geometry::ROW_CHROME;
         }
@@ -6413,8 +6873,24 @@ impl App {
                             .width(Length::Fill)
                             .into()
                     };
+                // The disclosure lives in the leading box, as the web's
+                // `DisclosureRow` does: the chevron when the row is open, the
+                // chevron on hover for a row that can open, and the tool's own
+                // variant glyph at rest. A fixed box keeps the verb from shifting
+                // when the glyph swaps.
+                let activity_body = activity_body_source(record);
+                let expandable = !activity_body.is_empty();
+                let expanded = self.activity_is_expanded(record);
+                let hovered = self.activity_hovered(record.key);
+                let leading = if expandable && (expanded || hovered) {
+                    if expanded { "▾" } else { "▸" }
+                } else {
+                    icon
+                };
                 let mut line = row![
-                    label(icon, MUTED).size(12),
+                    container(label(leading, MUTED).size(12))
+                        .width(design::LEADING_BOX + self.content_delta())
+                        .align_x(iced::Alignment::Center),
                     label(short(verb, 24), MUTED).size(12),
                     label("·", MUTED).size(12),
                     target_element
@@ -6437,37 +6913,46 @@ impl App {
                 } else if record.role == "Tool result" {
                     line = line.push(label("Output", MUTED).size(10));
                 }
-                // The recorded body expands in place; a row with nothing recorded
-                // keeps no affordance and starts no request.
-                let activity_body = activity_body_source(record);
-                let expandable = !activity_body.is_empty();
-                let expanded = self.activity_is_expanded(record);
-                if expandable {
-                    line = line.push(label(if expanded { "▾" } else { "▸" }, MUTED).size(12));
-                }
-                let compact = button(
-                    container(line)
-                        .height(chat_geometry::TOOL_LINE_HEIGHT)
-                        .clip(true),
+                // The recorded body expands in place; the leading box above is the
+                // only affordance, so a row with nothing recorded keeps the plain
+                // variant glyph and starts no request.
+                let compact = iced::widget::MouseArea::new(
+                    button(
+                        container(line)
+                            .height(self.chat_geometry.tool_line())
+                            .clip(true),
+                    )
+                    .on_press_maybe((expandable && self.composer_visible()).then_some(
+                        Message::ToggleActivity {
+                            generation: self.generation,
+                            key: record.key,
+                        },
+                    ))
+                    .style(design::ghost)
+                    .padding([0, 8])
+                    .width(Length::Fill),
                 )
-                .on_press_maybe((expandable && self.composer_visible()).then_some(
-                    Message::ToggleActivity {
-                        generation: self.generation,
-                        key: record.key,
-                    },
-                ))
-                .style(design::ghost)
-                .padding([0, 8])
-                .width(Length::Fill);
+                // `MouseArea` hands the event to its content first and returns when
+                // the button captured it, so the press still toggles the row.
+                .on_enter(Message::ActivityHover(record.key))
+                .on_exit(Message::ActivityHoverEnd(record.key));
                 let mut activity_column = Column::new().push(compact);
                 if expanded {
-                    let body_width = geometries[index].width - 16.0;
-                    activity_column = activity_column.push(Space::new().height(4)).push(
-                        conversation_content::tool_body_view(
+                    // Measure and render at the inset the geometry reserved, and
+                    // insert the gap constant it reserved for. Rendering at a
+                    // narrower inset than the reservation made the two disagree.
+                    let body_width = geometries[index].width - chat_geometry::BODY_INSET;
+                    activity_column = activity_column
+                        .push(Space::new().height(chat_geometry::TOOL_BODY_GAP))
+                        .push(conversation_content::tool_body_view(
                             activity_body,
-                            conversation_content::tool_body_height(activity_body, body_width),
-                        ),
-                    );
+                            conversation_content::tool_body_height(
+                                activity_body,
+                                body_width,
+                                self.content_delta_secondary(),
+                            ),
+                            self.content_delta_secondary(),
+                        ));
                 }
                 activity_column.into()
             } else if human || assistant {
@@ -6480,7 +6965,7 @@ impl App {
                     // disclosure alone: the empty body and the Copy/Details row
                     // used to be left behind underneath it.
                     container(reply.view_search(
-                        geometry.width - 28.0,
+                        geometry.width - chat_geometry::BODY_INSET,
                         self.thoughts_expanded.contains(&record.key),
                         self.active_search(),
                     ))
@@ -6489,22 +6974,26 @@ impl App {
                     .style(|_| panel(BASE))
                     .into()
                 } else {
-                    let body: Element<'_, Message> = if let Some(reply) =
-                        self.reply_parts(record.key)
-                    {
-                        reply.view_search(
-                            geometry.width - 28.0,
-                            self.thoughts_expanded.contains(&record.key),
-                            self.active_search(),
-                        )
-                    } else {
-                        let source = if self.search_expands_user(record) {
-                            record.text.clone()
+                    let body: Element<'_, Message> =
+                        if let Some(reply) = self.reply_parts(record.key) {
+                            reply.view_search(
+                                geometry.width - chat_geometry::BODY_INSET,
+                                self.thoughts_expanded.contains(&record.key),
+                                self.active_search(),
+                            )
                         } else {
-                            excerpt(&record.text)
+                            let source = if self.search_expands_user(record) {
+                                record.text.clone()
+                            } else {
+                                excerpt(&record.text)
+                            };
+                            conversation_content::plain_view(
+                                &source,
+                                self.active_search(),
+                                (15.0 + self.content_delta()).round() as u32,
+                                TEXT,
+                            )
                         };
-                        conversation_content::plain_view(&source, self.active_search(), 15, TEXT)
-                    };
                     let mut footer = row![
                         button(label("Copy", MUTED).size(10))
                             .on_press_maybe(self.row_copy_source(record.key).is_some().then_some(
@@ -6570,21 +7059,32 @@ impl App {
                             )
                             .push(Space::new().height(7));
                     }
-                    let card = card
-                        .push(container(body).height(geometry.body_height).clip(true))
-                        .push(Space::new().height(4))
-                        .push(footer);
-                    container(card)
+                    let body = container(body).height(geometry.body_height).clip(true);
+                    if human {
+                        // The web keeps the bubble and its action row as siblings in
+                        // a right-aligned stack, so the actions sit below the bubble
+                        // rather than inside it (`MessageItem.module.css`: `.userRow`
+                        // and `.userStack` wrap `.bubble`, and both align right). The
+                        // 4px gap is unchanged, so the reserved row height still
+                        // matches what this draws.
+                        let bubble = container(card.push(body))
+                            .padding([10, 14])
+                            .width(geometry.width)
+                            .style(|_| design::card(OVERLAY, design::RADIUS_LG));
+                        column![bubble, Space::new().height(ACTION_GAP), footer]
+                            .align_x(iced::Alignment::End)
+                            .into()
+                    } else {
+                        container(
+                            card.push(body)
+                                .push(Space::new().height(ACTION_GAP))
+                                .push(footer),
+                        )
                         .padding([10, 14])
                         .width(geometry.width)
-                        .style(move |_| {
-                            if human {
-                                design::card(OVERLAY, design::RADIUS_LG)
-                            } else {
-                                panel(BASE)
-                            }
-                        })
+                        .style(|_| panel(BASE))
                         .into()
+                    }
                 }
             } else {
                 let card = column![
@@ -6709,18 +7209,33 @@ impl App {
         if self.search_open {
             chat = chat.push(self.search_bar());
         }
-        chat.push(
-            scrollable(container(lane).center_x(Length::Fill).padding([0, 20]))
-                .id(self.scroll_id())
-                .on_scroll(move |viewport| Message::Scrolled {
-                    generation,
-                    revision,
-                    viewport,
-                })
-                .height(Length::Fill),
-        )
-        .height(Length::Fill)
-        .into()
+        let scroll = scrollable(container(lane).center_x(Length::Fill).padding([0, 20]))
+            .id(self.scroll_id())
+            .on_scroll(move |viewport| Message::Scrolled {
+                generation,
+                revision,
+                viewport,
+            })
+            .height(Length::Fill);
+        // Both the width handles and the composer fade overlay the transcript
+        // instead of taking layout space, so the lane and the scroll model are
+        // untouched. The handles exist only when the pane can hold both, which is
+        // the web's own rule; the fade belongs to the active phase, which is this
+        // branch, and to a composer that is actually on screen.
+        let lane_width = self.chat_lane();
+        let room =
+            self.content_column() >= lane_width + 2.0 * (WIDTH_HANDLE_OFFSET + WIDTH_HANDLE_WIDTH);
+        let mut overlaid = iced::widget::Stack::new()
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .push(scroll);
+        if room {
+            overlaid = overlaid.push(self.width_handles(lane_width));
+        }
+        if self.composer_visible() {
+            overlaid = overlaid.push(self.composer_fade());
+        }
+        chat.push(overlaid).height(Length::Fill).into()
     }
     fn welcome(&self, records: usize) -> Element<'_, Message> {
         let selected = self.selected.is_some();
@@ -8517,6 +9032,123 @@ impl<M: Clone, R: iced::advanced::Renderer> iced::advanced::Widget<M, Theme, R>
     }
 }
 
+/// Content that hands an inside mouse press to a caret request.
+///
+/// Iced's text editor clears its own focus on any left press outside its bounds,
+/// and it processes the press before the widget around it does, so a plain
+/// `mouse_area` cannot stop it: the field has already unfocused and captured the
+/// event by the time the wrapper would run. This wrapper therefore lets the
+/// content read the press first -- a control inside keeps its click -- and then,
+/// when no child consumed the event, publishes the retention message. The press
+/// is not captured, so it still reaches whatever else wants it.
+struct FocusKeeper<'a, M, R = iced::Renderer> {
+    content: Element<'a, M, Theme, R>,
+    on_press: M,
+}
+impl<M: Clone, R: iced::advanced::Renderer> iced::advanced::Widget<M, Theme, R>
+    for FocusKeeper<'_, M, R>
+{
+    fn tag(&self) -> iced::advanced::widget::tree::Tag {
+        self.content.as_widget().tag()
+    }
+    fn state(&self) -> iced::advanced::widget::tree::State {
+        self.content.as_widget().state()
+    }
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> {
+        self.content.as_widget().children()
+    }
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) {
+        self.content.as_widget().diff(tree);
+    }
+    fn size(&self) -> iced::Size<Length> {
+        self.content.as_widget().size()
+    }
+    fn size_hint(&self) -> iced::Size<Length> {
+        self.content.as_widget().size_hint()
+    }
+    fn layout(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        renderer: &R,
+        limits: &iced::advanced::layout::Limits,
+    ) -> iced::advanced::layout::Node {
+        self.content.as_widget_mut().layout(tree, renderer, limits)
+    }
+    fn draw(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        renderer: &mut R,
+        theme: &Theme,
+        style: &iced::advanced::renderer::Style,
+        layout: iced::advanced::Layout<'_>,
+        cursor: iced::advanced::mouse::Cursor,
+        viewport: &iced::Rectangle,
+    ) {
+        self.content
+            .as_widget()
+            .draw(tree, renderer, theme, style, layout, cursor, viewport)
+    }
+    fn operate(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'_>,
+        renderer: &R,
+        operation: &mut dyn iced::advanced::widget::Operation,
+    ) {
+        self.content
+            .as_widget_mut()
+            .operate(tree, layout, renderer, operation);
+    }
+    fn update(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        event: &iced::Event,
+        layout: iced::advanced::Layout<'_>,
+        cursor: iced::advanced::mouse::Cursor,
+        renderer: &R,
+        clipboard: &mut dyn iced::advanced::Clipboard,
+        shell: &mut iced::advanced::Shell<'_, M>,
+        viewport: &iced::Rectangle,
+    ) {
+        self.content.as_widget_mut().update(
+            tree, event, layout, cursor, renderer, clipboard, shell, viewport,
+        );
+        if shell.is_event_captured() {
+            return;
+        }
+        if let iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)) =
+            event
+            && cursor.is_over(layout.bounds())
+        {
+            shell.publish(self.on_press.clone());
+        }
+    }
+    fn mouse_interaction(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'_>,
+        cursor: iced::advanced::mouse::Cursor,
+        viewport: &iced::Rectangle,
+        renderer: &R,
+    ) -> iced::advanced::mouse::Interaction {
+        self.content
+            .as_widget()
+            .mouse_interaction(tree, layout, cursor, viewport, renderer)
+    }
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'b>,
+        renderer: &R,
+        viewport: &iced::Rectangle,
+        translation: iced::Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, M, Theme, R>> {
+        self.content
+            .as_widget_mut()
+            .overlay(tree, layout, renderer, viewport, translation)
+    }
+}
+
 #[cfg(all(test, debug_assertions))]
 mod modal_widget_tests {
     use super::*;
@@ -9300,6 +9932,174 @@ mod tests {
             composer_binding(modified, true, true),
             Some(text_editor::Binding::Custom(Message::CommandMenuMove(1)))
         ));
+    }
+    /// Accepting a command is an edit, and the caret stays in the draft. Iced's
+    /// text editor drops focus on any press outside its own bounds, so a
+    /// completion the user clicked would otherwise be the last thing they could
+    /// type until they clicked back into the field.
+    #[test]
+    fn accepting_a_command_edits_the_draft_and_asks_for_focus_back() {
+        let (mut app, _) = app();
+        app.commands = Some(vec![
+            command_menu::Candidate {
+                name: "plan".into(),
+                description: "Enter plan mode".into(),
+            },
+            command_menu::Candidate {
+                name: "compact".into(),
+                description: "Compact the conversation".into(),
+            },
+        ]);
+        app.editor = text_editor::Content::with_text("/p");
+        // "plan" leads on the prefix and "compact" matches by substring, so the
+        // highlight rests on a row the pointer is not aiming at.
+        assert_eq!(
+            app.completion().map(|menu| menu.matches.len()),
+            Some(2),
+            "the fixture must offer a row the highlight is not on"
+        );
+        app.command_selected = 0;
+        assert_eq!(
+            app.completion().and_then(|menu| menu.candidate().cloned()),
+            Some(command_menu::Candidate {
+                name: "plan".into(),
+                description: "Enter plan mode".into(),
+            })
+        );
+        // A pointer names the row it hit; the highlight must not decide for it.
+        let task = app.update(Message::CommandMenuPick("compact".into()));
+        assert_eq!(app.editor.text(), "/compact ");
+        assert_eq!(app.command_selected, 0);
+        assert!(task.units() >= 1, "the pick must ask for the caret back");
+        // The keyboard route accepts the highlighted row and does the same edit.
+        app.editor = text_editor::Content::with_text("/co");
+        app.command_selected = 0;
+        let task = app.update(Message::CommandMenuAccept);
+        assert_eq!(app.editor.text(), "/compact ");
+        assert!(task.units() >= 1, "accept must ask for the caret back");
+        // Dismissal keeps every typed character and still returns the caret.
+        app.editor = text_editor::Content::with_text("/pla");
+        let task = app.update(Message::CommandMenuDismiss);
+        assert_eq!(app.editor.text(), "/pla");
+        assert!(task.units() >= 1, "dismissal must ask for the caret back");
+    }
+    /// A press on the composer that owns no action publishes only the caret
+    /// request, in the same message vocabulary the view uses.
+    #[test]
+    fn a_composer_press_that_owns_no_action_only_asks_for_focus() {
+        let (mut app, _) = app();
+        assert!(app.composer_visible());
+        let task = app.update(Message::ComposerFocus);
+        assert!(task.units() >= 1);
+        // The composer's own disclosure is one of those presses.
+        let task = app.update(Message::ToggleContextPolicy);
+        assert!(app.context_policy_open);
+        assert!(task.units() >= 1);
+    }
+    /// The card and the completion rows keep the caret through `FocusKeeper`. A
+    /// rendered composer needs a real GPU renderer, so the rule is pinned here with
+    /// a stand-in field; `NATIVE-COMPOSER-CONTROLS.md` records that limit.
+    #[test]
+    fn focus_keeper_hands_the_press_to_its_content_first_and_only_then_keeps_the_caret() {
+        use iced::advanced::{self as core, Widget};
+        #[derive(Clone)]
+        struct Probe {
+            pressed: std::rc::Rc<std::cell::Cell<usize>>,
+            captures: bool,
+        }
+        impl Widget<Message, Theme, ()> for Probe {
+            fn size(&self) -> iced::Size<Length> {
+                iced::Size::new(Length::Fill, Length::Fill)
+            }
+            fn layout(
+                &mut self,
+                _: &mut core::widget::Tree,
+                _: &(),
+                _: &core::layout::Limits,
+            ) -> core::layout::Node {
+                core::layout::Node::new(iced::Size::new(200.0, 40.0))
+            }
+            fn draw(
+                &self,
+                _: &core::widget::Tree,
+                _: &mut (),
+                _: &Theme,
+                _: &core::renderer::Style,
+                _: core::Layout<'_>,
+                _: core::mouse::Cursor,
+                _: &iced::Rectangle,
+            ) {
+            }
+            fn update(
+                &mut self,
+                _: &mut core::widget::Tree,
+                _: &iced::Event,
+                _: core::Layout<'_>,
+                _: core::mouse::Cursor,
+                _: &(),
+                _: &mut dyn core::Clipboard,
+                shell: &mut core::Shell<'_, Message>,
+                _: &iced::Rectangle,
+            ) {
+                self.pressed.set(self.pressed.get() + 1);
+                if self.captures {
+                    shell.capture_event();
+                }
+            }
+            fn mouse_interaction(
+                &self,
+                _: &core::widget::Tree,
+                _: core::Layout<'_>,
+                _: core::mouse::Cursor,
+                _: &iced::Rectangle,
+                _: &(),
+            ) -> core::mouse::Interaction {
+                core::mouse::Interaction::Text
+            }
+        }
+        let bounds = iced::Rectangle::with_size(iced::Size::new(200.0, 40.0));
+        let layout = core::layout::Node::with_children(
+            bounds.size(),
+            vec![core::layout::Node::new(bounds.size())],
+        );
+        let viewport = iced::Rectangle::with_size(iced::Size::new(900.0, 600.0));
+        let click = |probe: Probe| -> (Probe, bool, Vec<Message>) {
+            let mut wrapped: Element<'_, Message, Theme, ()> = Element::new(FocusKeeper {
+                content: Element::new(probe.clone()),
+                on_press: Message::ComposerFocus,
+            });
+            let mut tree = iced::advanced::widget::Tree::new(&wrapped);
+            let mut messages = Vec::new();
+            let mut shell = core::Shell::new(&mut messages);
+            wrapped.as_widget_mut().update(
+                &mut tree,
+                &iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)),
+                core::Layout::new(&layout),
+                core::mouse::Cursor::Available(iced::Point::new(10.0, 10.0)),
+                &(),
+                &mut core::clipboard::Null,
+                &mut shell,
+                &viewport,
+            );
+            (probe, shell.is_event_captured(), messages)
+        };
+        let loose = Probe {
+            pressed: std::rc::Rc::default(),
+            captures: false,
+        };
+        // The content never claimed the press: the wrapper asks for the caret.
+        let (loose, captured, messages) = click(loose.clone());
+        assert_eq!(loose.pressed.get(), 1, "the content still reads the press");
+        assert!(!captured, "another widget may still want this press");
+        assert!(matches!(messages.as_slice(), [Message::ComposerFocus]));
+        // A control that consumed the press keeps its click and no caret request.
+        let (claimed, captured, messages) = click(Probe {
+            pressed: std::rc::Rc::default(),
+            captures: true,
+        });
+        assert_eq!(claimed.pressed.get(), 1);
+        assert!(captured);
+        assert!(messages.is_empty());
     }
     fn enter(modifiers: keyboard::Modifiers) -> text_editor::KeyPress {
         text_editor::KeyPress {

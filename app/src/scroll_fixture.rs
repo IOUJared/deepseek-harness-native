@@ -71,8 +71,12 @@ impl Rig {
             // A fixture renders a public frame; it never announces itself.
             accessibility: false,
         };
-        let (mut app, commands) =
-            super::layout_fixture::build(options, "conversation", iced::Size::new(1040.0, 800.0));
+        let (mut app, commands) = super::layout_fixture::build(
+            options,
+            "conversation",
+            iced::Size::new(1040.0, 800.0),
+            None,
+        );
         let end = 100 + rows as u64;
         let records: Vec<_> = (100..end).map(record).collect();
         let snapshot=serde_json::from_value(json!({"type":"snapshot","records":records,"cursor":end-1,"hasMore":true,"header":{"version":4,"id":"PUBLIC-layout-conversation","createdAt":1000,"isSeeded":false},"projections":{"asOfSeq":end-1,"values":{}},"assistantStream":{"revision":0}})).unwrap();

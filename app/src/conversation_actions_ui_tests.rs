@@ -136,3 +136,34 @@ fn file_receipts_and_queue_text_are_never_edit_replay_sources() {
     assert!(app.editor.text().is_empty());
     assert!(queue.try_recv().is_err());
 }
+#[test]
+fn width_drag_commits_a_move_and_a_press_alone_stores_nothing() {
+    let (mut app, _queue) = app();
+    // Wide enough that the pane's edge budget (column - 176) does not bind, so
+    // the assertions below are about the gesture rather than the clamp.
+    app.window_size = iced::Size::new(1600.0, 900.0);
+    app.chat_width_preference = Some(900.0);
+
+    // A press with no movement is not a gesture: the stored width survives.
+    drop(app.update(Message::WidthDragStart(design::WidthSide::Right)));
+    drop(app.update(Message::WidthDragMove(100.0)));
+    drop(app.update(Message::WidthDragEnd));
+    assert_eq!(app.chat_width_preference, Some(900.0));
+
+    // Each pointer pixel counts twice, because both centered edges move.
+    drop(app.update(Message::WidthDragStart(design::WidthSide::Right)));
+    drop(app.update(Message::WidthDragMove(100.0)));
+    drop(app.update(Message::WidthDragMove(140.0)));
+    assert_eq!(app.chat_width_preference, Some(980.0));
+    drop(app.update(Message::WidthDragEnd));
+    assert_eq!(app.chat_width_preference, Some(980.0));
+
+    // The committed width is kept unclamped, as the web keeps it and clamps only
+    // per pane at render time; cancelling restores the value the drag began from.
+    drop(app.update(Message::WidthDragStart(design::WidthSide::Right)));
+    drop(app.update(Message::WidthDragMove(100.0)));
+    drop(app.update(Message::WidthDragMove(300.0)));
+    assert_eq!(app.chat_width_preference, Some(1380.0));
+    drop(app.update(Message::WidthDragCancel));
+    assert_eq!(app.chat_width_preference, Some(980.0));
+}

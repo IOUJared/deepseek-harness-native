@@ -549,6 +549,7 @@ pub fn build(
     mut options: Options,
     preset: &str,
     size: Size,
+    content_size: Option<f32>,
 ) -> (App, tokio::sync::mpsc::Receiver<Command>) {
     assert!(PRESETS.contains(&preset), "unknown PUBLIC layout preset");
     assert!(
@@ -560,6 +561,11 @@ pub fn build(
     drop((events, closing));
     let (mut app, boot_task) = App::boot(options, handle, feed);
     drop(boot_task);
+    // A fixture may render the transcript at any content size the control offers,
+    // so a scaled run is reproducible without writing a preference file.
+    if let Some(content_size) = content_size {
+        app.set_content_font_size(content_size);
+    }
     app.ready = true;
     app.root_ready = true;
     app.roster_pending = false;
@@ -1625,7 +1631,7 @@ mod tests {
             let (size, scale) = preset_size(preset).unwrap();
             let mut options = options();
             options.scale = scale;
-            let (mut app, mut receiver) = build(options, preset, size);
+            let (mut app, mut receiver) = build(options, preset, size, None);
             drop(app.view());
             assert!(
                 receiver.try_recv().is_err(),
@@ -1733,7 +1739,7 @@ mod tests {
     }
     #[test]
     fn public_model_assignment_preserves_exact_ids_and_multilingual_labels() {
-        let (app, mut receiver) = build(options(), "long-model", Size::new(760.0, 560.0));
+        let (app, mut receiver) = build(options(), "long-model", Size::new(760.0, 560.0), None);
         let model = app.chosen_model.as_ref().unwrap();
         assert_eq!(model.id, PUBLIC_MODEL_ID);
         assert_eq!(model.provider, PUBLIC_PROVIDER_ID);

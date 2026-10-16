@@ -1,6 +1,6 @@
 //! Shared native Rosé Pine styles and a finite owned sidebar tween; no idle timer.
 use iced::widget::{button, container, text_editor, text_input};
-use iced::{Border, Color, Theme};
+use iced::{Border, Color, Degrees, Theme, gradient};
 // Dark Rosé Pine, declared once. `ui` re-exports these names because most
 // modules spell them `crate::ui::ACCENT` and friends; nothing else may redeclare
 // a palette entry.
@@ -20,14 +20,128 @@ pub const CHAT: f32 = 800.0;
 pub const MIN_CHAT: f32 = 680.0;
 pub const MAX_CHAT: f32 = 920.0;
 pub const BREAKPOINT: f32 = 1000.0;
+/// Horizontal inset for a disclosure's expanded body. The web indents those
+/// bodies so they sit under the disclosure *title* rather than under its glyph:
+/// `ReasoningRow.module.css` `.thinkBody` uses `calc(22px + delta)`, documented
+/// there as the leading `16 + delta` plus a `6` gap. The same 22 already governed
+/// this app's search-match offsets, so naming it makes the render agree with them.
+pub const CONTENT_INSET: f32 = 22.0;
+/// The fixed leading box a process row reserves for its glyph. The web's
+/// `DisclosureRow` `.leading` is `calc(16px + delta)`, so the box holds the
+/// chevron and the variant icon without the title shifting between them.
+pub const LEADING_BOX: f32 = 16.0;
+/// A markdown heading's size. The web's ladder is
+/// `--dsw-font-markdown-h1..h3` = 21/19/18 with `h4` and below at the body size
+/// (`gradient-shadow-text.css:61-74`), and native's type base sits one pixel
+/// above the web's (body 15 against 14), so the ladder is 22/20/19 and the
+/// fourth level falls back to the body.
+///
+/// One ladder for every surface: the transcript used 23/20/17 and the detail
+/// panel 25/21/18, so the same document rendered at two different sizes.
+pub fn heading_size(level: u8) -> f32 {
+    match level {
+        1 => 22.0,
+        2 => 20.0,
+        3 => 19.0,
+        _ => 15.0,
+    }
+}
+/// The web's default content size, and the range its settings offer.
+pub const CONTENT_FONT_DEFAULT: f32 = 14.0;
+pub const CONTENT_FONT_MIN: f32 = 11.0;
+pub const CONTENT_FONT_MAX: f32 = 20.0;
+/// The secondary line the transcript steps down to at the default size.
+const CONTENT_SECONDARY_DEFAULT: f32 = 13.0;
+/// A size outside the offered range is treated as the default rather than
+/// clamped into a value no control can produce, so a corrupt or hand-edited
+/// file cannot pin the UI somewhere the user cannot leave.
+pub fn content_size(size: f32) -> f32 {
+    if size.is_finite() && (CONTENT_FONT_MIN..=CONTENT_FONT_MAX).contains(&size) {
+        size
+    } else {
+        CONTENT_FONT_DEFAULT
+    }
+}
+/// `--dsh-content-font-delta`: what a size preference adds to every row height
+/// and icon box, which the web writes as `calc(<base> + var(…delta, 0px))`.
+pub fn content_delta(size: f32) -> f32 {
+    content_size(size) - CONTENT_FONT_DEFAULT
+}
+/// `--dsh-content-font-size-secondary`: one step under the body — the setting
+/// minus one at or below the default, minus two above it, as the web documents.
+pub fn content_secondary(size: f32) -> f32 {
+    let size = content_size(size);
+    if size <= CONTENT_FONT_DEFAULT {
+        size - 1.0
+    } else {
+        size - 2.0
+    }
+}
+/// `--dsh-content-font-delta-secondary`, which drives line-heights rather than
+/// the row boxes the primary delta drives.
+pub fn content_delta_secondary(size: f32) -> f32 {
+    content_secondary(size) - CONTENT_SECONDARY_DEFAULT
+}
+/// The main window's initial size, and the size the App assumes before its first
+/// `Resized` event. The web desktop shell creates a 1280x820 window, so that is
+/// the reference; these were two independent literals (1200x800 created,
+/// 1280x820 assumed) and the lane/compact decisions ran on the wrong one.
+pub const WINDOW_WIDTH: f32 = 1280.0;
+pub const WINDOW_HEIGHT: f32 = 820.0;
 /// Web transcript column: `clamp(680px, 64% of the conversation column, 920px)`
 /// (ui-conversation `ConversationRoot`). `column` is the conversation pane
 /// width before its horizontal padding. Malformed input falls back to `CHAT`.
+///
+/// Test-only: production always has a preference slot to fill, so it calls
+/// [`chat_width_with`] and this spelling exists to keep the clamp assertions
+/// readable.
+#[cfg(test)]
 pub fn chat_width(column: f32) -> f32 {
+    chat_width_with(column, None)
+}
+/// Floor for a user-set conversation content width. The web calls this
+/// `CONTENT_MIN` and matches its layout center-column minimum.
+pub const CHAT_CONTENT_MIN: f32 = 640.0;
+/// Horizontal room the web reserves for both drag handles and their safe edge
+/// zones (`CONTENT_EDGE_BUDGET`); it bounds how wide a set preference may be.
+pub const CHAT_EDGE_BUDGET: f32 = 176.0;
+/// Conversation content width with the web's own precedence: a stored
+/// preference wins and is clamped into `[CHAT_CONTENT_MIN, max(CHAT_CONTENT_MIN,
+/// column - CHAT_EDGE_BUDGET)]`; otherwise the adaptive clamp applies. Mirrors
+/// `resolveContentWidth` in `ui-conversation/.../ConversationWidthControls.tsx`.
+///
+/// A malformed column keeps the pre-existing `CHAT` fallback and ignores the
+/// preference: without a measured column there is no bound to clamp against,
+/// and inventing one would let a stored width exceed the pane.
+pub fn chat_width_with(column: f32, preference: Option<f32>) -> f32 {
     if !column.is_finite() || column <= 0.0 {
         return CHAT;
     }
+    if let Some(preference) = preference.filter(|value| value.is_finite() && *value > 0.0) {
+        let max = CHAT_CONTENT_MIN.max(column - CHAT_EDGE_BUDGET);
+        return preference.clamp(CHAT_CONTENT_MIN, max);
+    }
     (column * 0.64).clamp(MIN_CHAT, MAX_CHAT)
+}
+/// Which width handle is being dragged.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WidthSide {
+    Left,
+    Right,
+}
+/// Content width while a drag is in progress. Mirrors `outwardWidth` in
+/// `ui-conversation/.../ConversationWidthControls.tsx`: the outward delta is
+/// doubled, because the content is centered, so dragging one handle by `dx`
+/// moves both edges and widens the column by `2dx`. The left handle mirrors the
+/// sign. The result is deliberately unclamped: the caller resolves it through
+/// [`chat_width_with`], so dragging past either bound simply stops growing.
+pub fn chat_width_drag(base: f32, origin_x: f32, current_x: f32, side: WidthSide) -> f32 {
+    let dx = current_x - origin_x;
+    let outward = match side {
+        WidthSide::Right => dx,
+        WidthSide::Left => -dx,
+    };
+    base + outward * 2.0
 }
 // Native radius scale, mapped to the web unified scale (docs/NATIVE-UI-PARITY.md):
 // sm≈8, md=12, lg=16, xl=20. Native rounds sm to 9 and lg to 18; panel stays a
@@ -77,7 +191,12 @@ pub fn navigation(theme: &Theme, status: button::Status, selected: bool) -> butt
     let mut style = ghost(theme, status);
     if selected && !matches!(status, button::Status::Disabled) {
         style.background = Some(OVERLAY.into());
-        style.text_color = ACCENT;
+        // The web keeps primary ink on a selected row and changes only the
+        // surface: its sidebar sets `--dsw-alias-label-primary` on `.panelRow`
+        // and re-asserts it on `.panelRow.panelActive`, with no accent state
+        // anywhere. Accent here contradicted the callers, which already pin the
+        // title to TEXT.
+        style.text_color = TEXT;
     }
     style
 }
@@ -116,6 +235,10 @@ pub fn field(_: &Theme, status: text_input::Status) -> text_input::Style {
 pub fn editor(_: &Theme, status: text_editor::Status) -> text_editor::Style {
     text_editor::Style {
         background: SURFACE.into(),
+        // Constant width, transparent on blur and accent on focus: the caret is
+        // visible without the box shifting a pixel as focus moves, which is what
+        // a 0.0-width ring did (it could never draw). `text_input` above draws
+        // its ring the same way.
         border: border(
             RADIUS_MD,
             if matches!(status, text_editor::Status::Focused { .. }) {
@@ -123,7 +246,7 @@ pub fn editor(_: &Theme, status: text_editor::Status) -> text_editor::Style {
             } else {
                 Color::TRANSPARENT
             },
-            0.0,
+            1.0,
         ),
         placeholder: MUTED,
         value: TEXT,
@@ -135,6 +258,26 @@ pub fn card(background: Color, radius: f32) -> container::Style {
         background: Some(background.into()),
         text_color: Some(TEXT),
         border: border(radius, OVERLAY, 1.0),
+        ..Default::default()
+    }
+}
+/// Height of the fade above the composer. The web fades over its composer seat
+/// with `linear-gradient(180deg, … 0px, var(--dsw-alias-bg-base) 36px)`.
+pub const COMPOSER_FADE_HEIGHT: f32 = 36.0;
+/// The fade itself: transparent at the top, base colour by its bottom, so
+/// scrolled content dissolves instead of meeting the composer at a hard edge.
+///
+/// `Degrees(180.0)` reads downward here because `Radians::to_distance` builds
+/// its direction from `angle - FRAC_PI_2`, which yields `(0, 1)` — increasing y
+/// — at 180 degrees on a y-down screen.
+pub fn composer_fade(_: &Theme) -> container::Style {
+    container::Style {
+        background: Some(
+            gradient::Linear::new(Degrees(180.0))
+                .add_stop(0.0, Color { a: 0.0, ..BASE })
+                .add_stop(1.0, BASE)
+                .into(),
+        ),
         ..Default::default()
     }
 }
@@ -311,5 +454,103 @@ mod tests {
         for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 0.0, -1.0] {
             assert_eq!(chat_width(value), CHAT, "column {value}");
         }
+    }
+    #[test]
+    fn a_set_width_preference_wins_and_is_clamped_like_the_web() {
+        // Mirrors resolveContentWidth: the bound is max(CONTENT_MIN, column - EDGE_BUDGET).
+        assert_eq!(chat_width_with(1200.0, Some(800.0)), 800.0);
+        // Below the floor clamps up; beyond the pane budget clamps down.
+        assert_eq!(chat_width_with(1200.0, Some(100.0)), CHAT_CONTENT_MIN);
+        assert_eq!(
+            chat_width_with(1200.0, Some(5000.0)),
+            1200.0 - CHAT_EDGE_BUDGET
+        );
+        // A pane too narrow for the budget keeps the floor as both bounds.
+        assert_eq!(chat_width_with(700.0, Some(900.0)), CHAT_CONTENT_MIN);
+        // Unusable values are treated as absent, so the adaptive clamp still applies.
+        for value in [f32::NAN, f32::INFINITY, 0.0, -4.0] {
+            assert_eq!(
+                chat_width_with(1200.0, Some(value)),
+                chat_width(1200.0),
+                "preference {value}"
+            );
+        }
+        assert_eq!(chat_width_with(1200.0, None), chat_width(1200.0));
+        // A malformed column ignores a set preference rather than inventing a bound.
+        assert_eq!(chat_width_with(f32::NAN, Some(800.0)), CHAT);
+    }
+    #[test]
+    fn the_composer_fade_runs_transparent_to_base_over_its_height() {
+        let style = composer_fade(&Theme::Dark);
+        let Some(iced::Background::Gradient(gradient::Gradient::Linear(linear))) = style.background
+        else {
+            panic!("the composer fade must be a linear gradient");
+        };
+        let stops: Vec<_> = linear.stops.iter().flatten().collect();
+        assert_eq!(stops.len(), 2, "exactly two stops");
+        assert_eq!(stops[0].offset, 0.0);
+        assert_eq!(stops[0].color.a, 0.0, "fully transparent at the top");
+        assert_eq!(stops[1].offset, 1.0);
+        assert_eq!(stops[1].color, BASE, "opaque base at the bottom");
+        // 180 degrees is downward, so the transparent stop is the upper one.
+        assert_eq!(linear.angle, iced::Radians::from(Degrees(180.0)));
+    }
+    #[test]
+    fn the_content_size_preference_derives_the_web_deltas() {
+        // The default is the identity: nothing about the shipped layout moves
+        // until a preference is actually set.
+        assert_eq!(content_delta(CONTENT_FONT_DEFAULT), 0.0);
+        assert_eq!(content_delta_secondary(CONTENT_FONT_DEFAULT), 0.0);
+        assert_eq!(content_secondary(CONTENT_FONT_DEFAULT), 13.0);
+        // The delta is the setting minus the default, at both ends.
+        assert_eq!(content_delta(CONTENT_FONT_MIN), -3.0);
+        assert_eq!(content_delta(CONTENT_FONT_MAX), 6.0);
+        // Secondary steps down one at or below the default, two above it.
+        assert_eq!(content_secondary(11.0), 10.0);
+        assert_eq!(content_secondary(14.0), 13.0);
+        assert_eq!(content_secondary(15.0), 13.0);
+        assert_eq!(content_secondary(16.0), 14.0);
+        assert_eq!(content_secondary(20.0), 18.0);
+        assert_eq!(content_delta_secondary(20.0), 5.0);
+        // Out-of-range and unusable values behave as the default, not as a clamp
+        // to a size the controls cannot produce.
+        for value in [f32::NAN, f32::INFINITY, 0.0, -4.0, 10.0, 21.0, 100.0] {
+            assert_eq!(content_delta(value), 0.0, "size {value}");
+            assert_eq!(content_secondary(value), 13.0, "size {value}");
+        }
+    }
+    #[test]
+    fn the_heading_ladder_matches_the_web_tokens_at_natives_type_step() {
+        // The web publishes 21/19/18 and the body size from h4 down; native's type
+        // base is one pixel above it, and one ladder serves every surface.
+        assert_eq!(heading_size(1), 22.0);
+        assert_eq!(heading_size(2), 20.0);
+        assert_eq!(heading_size(3), 19.0);
+        assert_eq!(heading_size(4), 15.0);
+        assert_eq!(heading_size(6), 15.0);
+    }
+    #[test]
+    fn dragging_outward_widens_by_twice_the_pointer_delta() {
+        // The right handle widens when the pointer moves right, and each pointer
+        // pixel counts twice because both centered edges move.
+        assert_eq!(
+            chat_width_drag(700.0, 100.0, 110.0, WidthSide::Right),
+            720.0
+        );
+        // The left handle mirrors the sign, so dragging left is still outward.
+        assert_eq!(chat_width_drag(700.0, 100.0, 90.0, WidthSide::Left), 720.0);
+        // Inward shrinks, and a press that never moves changes nothing.
+        assert_eq!(chat_width_drag(700.0, 100.0, 90.0, WidthSide::Right), 680.0);
+        assert_eq!(
+            chat_width_drag(700.0, 100.0, 100.0, WidthSide::Right),
+            700.0
+        );
+        // The raw result is unclamped; resolving it applies the floor and budget.
+        let dragged = chat_width_drag(900.0, 0.0, 400.0, WidthSide::Right);
+        assert_eq!(dragged, 1700.0);
+        assert_eq!(
+            chat_width_with(1200.0, Some(dragged)),
+            1200.0 - CHAT_EDGE_BUDGET
+        );
     }
 }

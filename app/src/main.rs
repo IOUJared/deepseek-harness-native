@@ -13,6 +13,7 @@ mod reducer;
 mod rename;
 mod secret_input;
 mod settings;
+mod single_instance;
 mod smoke;
 mod terminal;
 mod ui;
@@ -40,6 +41,35 @@ fn main() -> iced::Result {
     unsafe {
         std::env::set_var("ICED_BACKEND", "wgpu");
     }
+    // One live instance per profile. The macOS shell brings the window that
+    // already owns the profile forward; native asks it to do the same over the
+    // instance socket and only refuses when nothing answers. Smoke runs are
+    // exempt, matching the stores the UI also skips under `--smoke`, so a
+    // fixture pass cannot collide with a live app.
+    let instance = if options.smoke.is_none() {
+        match single_instance::claim(&options.backend.native_home) {
+            single_instance::Outcome::Claimed(claim) => Some(claim),
+            single_instance::Outcome::AlreadyRunning => {
+                if single_instance::notify_running(&options.backend.native_home) {
+                    eprintln!("DeepSeek Harness is already running; asked it to come forward.");
+                } else {
+                    eprintln!(
+                        "DeepSeek Harness is already running for this profile; quit it first."
+                    );
+                }
+                return Ok(());
+            }
+            single_instance::Outcome::Unavailable => None,
+        }
+    } else {
+        None
+    };
+    // The claim owns the focus socket; the App subscribes to what arrives on it.
+    // It is read here because the instance decision precedes the App's creation.
+    let focus_source = match &instance {
+        Some(claim) => claim.focus_source(),
+        None => single_instance::Source::disabled(),
+    };
     let (handle, feed, owner) =
         match worker::start(options.backend.clone(), options.smoke.is_some()) {
             Ok(value) => value,
@@ -49,13 +79,17 @@ fn main() -> iced::Result {
             }
         };
     let result = iced::application(
-        move || ui::App::boot(options.clone(), handle.clone(), feed.clone()),
+        move || {
+            let (mut app, task) = ui::App::boot(options.clone(), handle.clone(), feed.clone());
+            app.focus_source = focus_source.clone();
+            (app, task)
+        },
         ui::App::update,
         ui::App::view,
     )
     .title("DeepSeek Harness · Native")
     .window(window::Settings {
-        size: Size::new(1200.0, 800.0),
+        size: Size::new(design::WINDOW_WIDTH, design::WINDOW_HEIGHT),
         min_size: Some(Size::new(760.0, 560.0)),
         resizable: true,
         platform_specific: window::settings::PlatformSpecific {

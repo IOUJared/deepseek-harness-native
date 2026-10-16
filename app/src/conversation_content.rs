@@ -24,8 +24,25 @@ pub struct Prepared {
     pub answer: String,
     document: Option<formatted::Document>,
     widths: RefCell<Vec<(u32, bool, f32)>>,
+    /// The content-size deltas this reply's sizes were prepared at. The cache that
+    /// built it clears whenever either changes, so a reply can never be drawn or
+    /// measured at a size other than the one it was prepared for.
+    delta: f32,
+    delta_secondary: f32,
 }
 impl Prepared {
+    /// The body text size at this reply's content size.
+    fn body_size(&self) -> f32 {
+        15.0 + self.delta
+    }
+    /// The reasoning text size, one step under the body.
+    fn reasoning_size(&self) -> f32 {
+        14.0 + self.delta_secondary
+    }
+    /// The mono size for recorded bodies and code blocks.
+    fn mono_size(&self) -> f32 {
+        13.0 + self.delta_secondary
+    }
     pub fn code(&self, index: usize) -> Option<&str> {
         match self.document.as_ref()?.blocks.get(index)? {
             formatted::Block::Code { text, .. } => Some(text),
@@ -50,14 +67,22 @@ impl Prepared {
         }
         let has_answer = self.has_answer();
         let mut height = if let Some(document) = &self.document {
-            document_height(document, width)
+            document_height(document, width, self.delta, self.delta_secondary)
         } else {
-            plain_height(&self.answer, width, 15.0, FONT, false)
+            plain_height(&self.answer, width, self.body_size(), FONT, false)
         };
         if !self.reasoning.is_empty() {
-            height += 30.0;
+            height += REASONING_ROW + self.delta;
             if expanded {
-                height += plain_height(&self.reasoning, width, 14.0, FONT, false) + 8.0;
+                // The body is drawn indented, so its height has to be measured at
+                // the same narrower width the offset calculation uses.
+                height += plain_height(
+                    &self.reasoning,
+                    bounded_width(width - design::CONTENT_INSET),
+                    self.reasoning_size(),
+                    FONT,
+                    false,
+                ) + 8.0;
             }
         }
         // Only real answer content reserves the minimum bubble height; reserving
@@ -100,20 +125,29 @@ impl Prepared {
             && let Some(offset) = first_offset(
                 vec![span(self.reasoning.clone()).color(MUTED)],
                 query,
-                width,
-                14.0,
+                bounded_width(width - design::CONTENT_INSET),
+                self.reasoning_size(),
                 FONT,
                 false,
             )
         {
-            return 22.0 + offset;
+            return design::CONTENT_INSET + offset;
         }
         let mut y = if self.reasoning.is_empty() {
             0.0
         } else if expanded {
-            38.0 + plain_height(&self.reasoning, width, 14.0, FONT, false)
+            REASONING_ROW
+                + 8.0
+                + self.delta
+                + plain_height(
+                    &self.reasoning,
+                    bounded_width(width - design::CONTENT_INSET),
+                    self.reasoning_size(),
+                    FONT,
+                    false,
+                )
         } else {
-            30.0
+            REASONING_ROW + self.delta
         };
         if let Some(document) = &self.document {
             for block in &document.blocks {
@@ -130,7 +164,7 @@ impl Prepared {
                             - *indent as f32 * 18.0
                             - if marker.is_some() { 36.0 } else { 0.0 }
                             - if *quote { 20.0 } else { 0.0 },
-                        15.0,
+                        self.body_size(),
                         FONT,
                         false,
                     ),
@@ -138,7 +172,7 @@ impl Prepared {
                         inline_runs(spans),
                         query,
                         width,
-                        heading_size(*level) as f32,
+                        heading_size(*level) as f32 + self.delta,
                         FONT,
                         false,
                     ),
@@ -146,7 +180,7 @@ impl Prepared {
                         highlight(text, language.as_deref()),
                         query,
                         width,
-                        13.0,
+                        self.mono_size(),
                         MONO,
                         true,
                     )
@@ -156,7 +190,7 @@ impl Prepared {
                 if let Some(offset) = found {
                     return (y + offset).clamp(0.0, self.body_height(width, expanded));
                 }
-                y += block_height(block, width) + 12.0;
+                y += block_height(block, width, self.delta, self.delta_secondary) + 12.0;
             }
             0.0
         } else {
@@ -164,7 +198,7 @@ impl Prepared {
                 vec![span(self.answer.clone()).color(TEXT)],
                 query,
                 width,
-                15.0,
+                self.body_size(),
                 FONT,
                 false,
             )
@@ -201,13 +235,33 @@ impl Prepared {
                 .on_press_maybe(self.ticket.map(Message::ToggleThoughts))
                 .style(design::ghost)
                 .padding([3, 0])
-                .height(22),
+                .height(REASONING_ROW - 8.0 + self.delta),
             );
             if expanded {
+                // Indent under the title, as the web does, and measure at the same
+                // reduced width: the search offset below already assumed this inset.
+                let inner = bounded_width(width - design::CONTENT_INSET);
                 body = body.push(
-                    container(plain_view(&self.reasoning, query, 14, MUTED))
-                        .height(plain_height(&self.reasoning, width, 14.0, FONT, false))
-                        .clip(true),
+                    container(plain_view(
+                        &self.reasoning,
+                        query,
+                        self.reasoning_size().round() as u32,
+                        MUTED,
+                    ))
+                    .padding(iced::Padding {
+                        top: 0.0,
+                        right: 0.0,
+                        bottom: 0.0,
+                        left: design::CONTENT_INSET,
+                    })
+                    .height(plain_height(
+                        &self.reasoning,
+                        inner,
+                        self.reasoning_size(),
+                        FONT,
+                        false,
+                    ))
+                    .clip(true),
                 );
                 body = body.push(iced::widget::Space::new().height(8));
             }
@@ -217,9 +271,21 @@ impl Prepared {
             return body.into();
         }
         if let Some(document) = &self.document {
-            body = body.push(document_view(document, width, self.ticket, query));
+            body = body.push(document_view(
+                document,
+                width,
+                self.ticket,
+                query,
+                self.delta,
+                self.delta_secondary,
+            ));
         } else {
-            body = body.push(plain_view(&self.answer, query, 15, TEXT));
+            body = body.push(plain_view(
+                &self.answer,
+                query,
+                self.body_size().round() as u32,
+                TEXT,
+            ));
         }
         body.into()
     }
@@ -229,8 +295,27 @@ impl Prepared {
 pub struct Cache {
     entries: RefCell<BTreeMap<u64, Rc<Prepared>>>,
     revision: Cell<u64>,
+    /// The content-size deltas every prepared reply was built at. Changing either
+    /// invalidates the cache: a prepared reply owns measured heights and widget
+    /// sizes for one pair of deltas only.
+    delta: Cell<f32>,
+    delta_secondary: Cell<f32>,
 }
 impl Cache {
+    /// Adopt the content-size deltas, dropping replies prepared at the old ones.
+    pub fn set_content_delta(&self, delta: f32, delta_secondary: f32) {
+        let delta = if delta.is_finite() { delta } else { 0.0 };
+        let delta_secondary = if delta_secondary.is_finite() {
+            delta_secondary
+        } else {
+            0.0
+        };
+        if self.delta.get() != delta || self.delta_secondary.get() != delta_secondary {
+            self.delta.set(delta);
+            self.delta_secondary.set(delta_secondary);
+            self.entries.borrow_mut().clear();
+        }
+    }
     pub fn get(&self, generation: u64, key: u64) -> Option<Rc<Prepared>> {
         self.entries
             .borrow()
@@ -279,6 +364,8 @@ impl Cache {
             answer,
             document,
             widths: RefCell::new(Vec::new()),
+            delta: self.delta.get(),
+            delta_secondary: self.delta_secondary.get(),
         });
         let mut entries = self.entries.borrow_mut();
         if !entries.contains_key(&key) && entries.len() >= 4097 {
@@ -416,20 +503,28 @@ pub fn plain_view(
 /// Mono 13px and word-wrapped: a collapsed chat row cannot scroll sideways, so
 /// wrapping keeps the whole recorded command or output reachable. The cap keeps
 /// one long output from owning the viewport.
-pub fn tool_body_height(source: &str, width: f32) -> f32 {
-    plain_height(source, width, 13.0, MONO, false).min(TOOL_BODY_MAX)
+pub fn tool_body_height(source: &str, width: f32, delta_secondary: f32) -> f32 {
+    plain_height(source, width, 13.0 + delta_secondary, MONO, false).min(TOOL_BODY_MAX)
 }
+/// The collapsed reasoning disclosure row's height. The web writes the row as
+/// `calc(24px + delta)`; native's own reservation is 30 (a 22px button plus the
+/// 8px gap under it), and the content delta still applies to it.
+const REASONING_ROW: f32 = 30.0;
 /// Longest inline tool body, in native px; the render clips to it too.
 pub const TOOL_BODY_MAX: f32 = 320.0;
 
 /// Recorded tool body for the same inline expansion. Inert text only. The
 /// horizontal padding matches the compact line; it adds no vertical height, so
 /// the caller's measured body height stays exact.
-pub fn tool_body_view(source: &str, height: f32) -> Element<'static, Message> {
+pub fn tool_body_view(
+    source: &str,
+    height: f32,
+    delta_secondary: f32,
+) -> Element<'static, Message> {
     container(
         rich_text(vec![span::<(), Font>(source.to_owned()).color(TEXT)])
             .font(MONO)
-            .size(13)
+            .size((13.0 + delta_secondary).round() as u32)
             .line_height(1.3)
             .wrapping(text::Wrapping::Word)
             .width(Length::Fill),
@@ -517,13 +612,9 @@ fn inline_view(parts: &[formatted::Span], size: u32, query: &str) -> Element<'st
         .into()
 }
 fn heading_size(level: u8) -> u32 {
-    match level {
-        1 => 23,
-        2 => 20,
-        _ => 17,
-    }
+    design::heading_size(level).round() as u32
 }
-fn block_height(block: &formatted::Block, width: f32) -> f32 {
+fn block_height(block: &formatted::Block, width: f32, delta: f32, delta_secondary: f32) -> f32 {
     match block {
         formatted::Block::Paragraph {
             spans,
@@ -536,23 +627,30 @@ fn block_height(block: &formatted::Block, width: f32) -> f32 {
                 - *indent as f32 * 18.0
                 - if marker.is_some() { 36.0 } else { 0.0 }
                 - if *quote { 20.0 } else { 0.0 },
-            15.0,
+            15.0 + delta,
         ),
         formatted::Block::Heading { level, spans } => {
-            inline_height(spans, width, heading_size(*level) as f32)
+            inline_height(spans, width, heading_size(*level) as f32 + delta)
         }
-        formatted::Block::Code { text, .. } => plain_height(text, width, 13.0, MONO, true) + 83.0,
+        formatted::Block::Code { text, .. } => {
+            plain_height(text, width, 13.0 + delta_secondary, MONO, true) + 83.0
+        }
         formatted::Block::Rule => 1.0,
     }
 }
-fn document_height(document: &formatted::Document, width: f32) -> f32 {
+fn document_height(
+    document: &formatted::Document,
+    width: f32,
+    delta: f32,
+    delta_secondary: f32,
+) -> f32 {
     if document.blocks.is_empty() {
         return 20.0;
     }
     document
         .blocks
         .iter()
-        .map(|block| block_height(block, width))
+        .map(|block| block_height(block, width, delta, delta_secondary))
         .sum::<f32>()
         + document.blocks.len().saturating_sub(1) as f32 * 12.0
 }
@@ -561,6 +659,8 @@ fn document_view(
     width: f32,
     ticket: Option<Ticket>,
     query: &str,
+    delta: f32,
+    delta_secondary: f32,
 ) -> Element<'static, Message> {
     let mut body = Column::new().spacing(12).width(Length::Fill);
     for (index, block) in document.blocks.iter().enumerate() {
@@ -577,13 +677,19 @@ fn document_view(
                     line = line.push(container(label("│", design::FOAM)).width(20));
                 }
                 if let Some(marker) = marker {
-                    line = line.push(container(label(marker.clone(), MUTED).size(15)).width(36));
+                    line = line.push(
+                        container(label(marker.clone(), MUTED).size((15.0 + delta).round() as u32))
+                            .width(36),
+                    );
                 }
-                line.push(inline_view(spans, 15, query)).into()
+                line.push(inline_view(spans, (15.0 + delta).round() as u32, query))
+                    .into()
             }
-            formatted::Block::Heading { level, spans } => {
-                inline_view(spans, heading_size(*level), query)
-            }
+            formatted::Block::Heading { level, spans } => inline_view(
+                spans,
+                (heading_size(*level) as f32 + delta).round() as u32,
+                query,
+            ),
             formatted::Block::Code {
                 language,
                 text: source,
@@ -604,14 +710,14 @@ fn document_view(
                 .height(22);
                 let code = rich_text(marked(highlight(source, language.as_deref()), query))
                     .font(MONO)
-                    .size(13)
+                    .size((13.0 + delta_secondary).round() as u32)
                     .line_height(1.3)
                     .wrapping(text::Wrapping::None);
                 let code = scrollable(container(code).padding(12))
                     .direction(scrollable::Direction::Horizontal(
                         scrollable::Scrollbar::default(),
                     ))
-                    .height(plain_height(source, width, 13.0, MONO, true) + 36.0)
+                    .height(plain_height(source, width, 13.0 + delta_secondary, MONO, true) + 36.0)
                     .width(Length::Fill);
                 container(Column::new().push(header).push(code).spacing(5))
                     .padding(10)
@@ -634,7 +740,7 @@ fn document_view(
         };
         body = body.push(
             container(content)
-                .height(block_height(block, width))
+                .height(block_height(block, width, delta, delta_secondary))
                 .clip(true),
         );
     }
@@ -963,7 +1069,16 @@ mod tests {
         assert!(reasoning > 500.0 && reasoning < p.body_height(180.0, true));
         assert_eq!(p.first_match_offset(180.0, false, "target"), 0.0);
         let answer = p.first_match_offset(180.0, true, "answer");
-        let reasoning_height = plain_height(&p.reasoning, 180.0, 14.0, FONT, false);
+        // The expanded reasoning body is drawn indented, so it wraps at the
+        // narrower measure; the answer's offset has to be built from that same
+        // width or the two disagree by the indent.
+        let reasoning_height = plain_height(
+            &p.reasoning,
+            bounded_width(180.0 - design::CONTENT_INSET),
+            14.0,
+            FONT,
+            false,
+        );
         assert!((answer - (reasoning_height + 38.0)).abs() < 0.1);
         assert_eq!(p.first_match_offset(180.0, false, "answer"), 30.0);
     }
@@ -1068,5 +1183,35 @@ mod tests {
         assert_eq!(p.answer, source);
         assert!(p.code(0).is_none());
         let _ = p.view(300.0, false);
+    }
+
+    #[test]
+    fn the_content_setting_invalidates_prepared_replies_and_scales_their_size() {
+        let answer = "PUBLIC answer line one\nline two with enough words to wrap";
+        let cache = Cache::default();
+        let base = cache.prepare(1, 7, String::new(), answer.into());
+        let base_height = base.body_height(300.0, false);
+        // Re-preparing the identical text at the unchanged delta reuses the entry,
+        // which is what makes the next assertion meaningful.
+        assert!(std::rc::Rc::ptr_eq(
+            &base,
+            &cache.prepare(1, 7, String::new(), answer.into())
+        ));
+        cache.set_content_delta(5.0, 5.0);
+        let scaled = cache.prepare(1, 7, String::new(), answer.into());
+        assert!(
+            !std::rc::Rc::ptr_eq(&base, &scaled),
+            "a new content size must not reuse a reply measured at the old one"
+        );
+        assert!(
+            scaled.body_height(300.0, false) > base_height,
+            "a larger content size measures taller"
+        );
+        // The two tiers step independently, so setting the primary delta alone must
+        // not leave the secondary sizes scaled from the old value.
+        cache.set_content_delta(1.0, 0.0);
+        let mixed = cache.prepare(1, 7, String::new(), answer.into());
+        assert!(!std::rc::Rc::ptr_eq(&scaled, &mixed));
+        let _ = mixed.view(300.0, false);
     }
 }

@@ -32,6 +32,8 @@ mod rename;
 mod secret_input;
 #[path = "../src/settings.rs"]
 mod settings;
+#[path = "../src/single_instance.rs"]
+mod single_instance;
 #[path = "../src/smoke.rs"]
 mod smoke;
 #[path = "../src/terminal.rs"]
@@ -85,6 +87,12 @@ struct Options {
     report: PathBuf,
     drop_file: Option<PathBuf>,
     drop_rejected: bool,
+    content_size: Option<f32>,
+    /// Dispatch the composer focus task, so a capture renders the focused editor.
+    focus_composer: bool,
+    /// Render every tool row as hovered, so a capture shows the chevron swap that
+    /// otherwise needs a pointer.
+    hover_tool_row: bool,
 }
 fn public_drop_file(value: String) -> Result<PathBuf, &'static str> {
     let path = PathBuf::from(value);
@@ -158,6 +166,9 @@ fn options() -> Result<Options, &'static str> {
             "--report",
             "--drop-file",
             "--drop-expect",
+            "--content-size",
+            "--focus-composer",
+            "--hover-tool-row",
         ]
         .contains(&key.as_str())
         {
@@ -216,6 +227,24 @@ fn options() -> Result<Options, &'static str> {
         report,
         drop_file,
         drop_rejected,
+        content_size: match values.remove("--content-size") {
+            Some(raw) => {
+                let size: f32 = raw.parse().map_err(|_| "invalid-number")?;
+                if !size.is_finite() || !(11.0..=20.0).contains(&size) {
+                    return Err("invalid-content-size");
+                }
+                Some(size)
+            }
+            None => None,
+        },
+        focus_composer: match values.remove("--focus-composer") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        hover_tool_row: match values.remove("--hover-tool-row") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
     })
 }
 fn public_options(scale: f32) -> config::Options {
@@ -408,8 +437,17 @@ struct Fixture {
 impl Fixture {
     fn boot(options: Options) -> (Self, Task<Message>) {
         let deadline = if options.drop_file.is_some() { 45 } else { 8 };
-        let (app, commands) =
-            ui::layout_fixture::build(public_options(options.scale), &options.mode, options.size);
+        let (mut app, commands) = ui::layout_fixture::build(
+            public_options(options.scale),
+            &options.mode,
+            options.size,
+            options.content_size,
+        );
+        // States that need a pointer or a focused editor are forced here, so a
+        // capture can show them.
+        if options.hover_tool_row {
+            app.set_hover_all_activities(true);
+        }
         let mut report = ui::layout_fixture::metadata(&app, &options.mode);
         report["pid"] = json!(std::process::id());
         report["nativeDropCheckOptIn"] = json!(options.drop_file.is_some());
@@ -430,6 +468,8 @@ impl Fixture {
         report["capture"] = json!({"source":"own-Iced-window-renderer-buffer", "publicSource":true,
             "screenshotPath":"[REDACTED explicit new output path]", "reportPath":"[REDACTED explicit new output path]",
             "desktopCapture":false, "oneShot":true});
+        // Read before `options` moves into the fixture.
+        let focus_composer = options.focus_composer;
         let mut fixture = Self {
             options,
             app,
@@ -445,10 +485,17 @@ impl Fixture {
         fixture.inspect_commands();
         (
             fixture,
-            Task::perform(
-                async move { tokio::time::sleep(Duration::from_secs(deadline)).await },
-                |_| Message::Deadline,
-            ),
+            Task::batch([
+                if focus_composer {
+                    ui::App::focus_composer_task().map(Message::App)
+                } else {
+                    Task::none()
+                },
+                Task::perform(
+                    async move { tokio::time::sleep(Duration::from_secs(deadline)).await },
+                    |_| Message::Deadline,
+                ),
+            ]),
         )
     }
     fn inspect_commands(&mut self) {

@@ -45,24 +45,28 @@ const LOCK: &str = "native-drafts.v1.lock";
 enum Namespace {
     Drafts,
     Sidebar,
+    Layout,
 }
 impl Namespace {
     fn document(self) -> &'static str {
         match self {
             Self::Drafts => DOCUMENT,
             Self::Sidebar => "native-sidebar.v1.json",
+            Self::Layout => "native-layout.v1.json",
         }
     }
     fn lock(self) -> &'static str {
         match self {
             Self::Drafts => LOCK,
             Self::Sidebar => "native-sidebar.v1.lock",
+            Self::Layout => "native-layout.v1.lock",
         }
     }
     fn temporary_prefix(self) -> &'static str {
         match self {
             Self::Drafts => ".native-drafts",
             Self::Sidebar => ".native-sidebar",
+            Self::Layout => ".native-layout",
         }
     }
 }
@@ -566,6 +570,37 @@ impl Drop for Temporary<'_> {
         }
     }
 }
+/// Reserved key for the conversation content width inside the layout namespace.
+/// The web persists the same preference under `dsh.conversation.contentWidth`.
+pub const LAYOUT_CONTENT_WIDTH: &str = "layout.conversationContentWidth";
+/// Widest stored preference accepted. A value outside `1..=4096` is treated as
+/// absent rather than clamped, so a corrupt or hand-edited file cannot silently
+/// pin the transcript to an arbitrary width.
+const MAX_LAYOUT_WIDTH: f32 = 4096.0;
+/// Parse a stored width. Rejects non-numeric, non-finite, non-positive and
+/// absurd values; the caller clamps the accepted result against its own column.
+pub fn parse_layout_width(raw: &str) -> Option<f32> {
+    let value = raw.trim().parse::<f32>().ok()?;
+    (value.is_finite() && value > 0.0 && value <= MAX_LAYOUT_WIDTH).then_some(value)
+}
+/// Format a width for storage, or `None` when it is not storable.
+pub fn format_layout_width(width: f32) -> Option<String> {
+    (width.is_finite() && width > 0.0 && width <= MAX_LAYOUT_WIDTH).then(|| format!("{width:.1}"))
+}
+/// Reserved key for the transcript content size inside the layout namespace,
+/// beside the width so one file holds both layout preferences.
+pub const LAYOUT_CONTENT_SIZE: &str = "layout.contentFontSize";
+/// Parse a stored content size. The offered range belongs to `design::content_size`,
+/// which maps anything it does not offer back to the default, so this rejects only
+/// what is not a usable number at all.
+pub fn parse_layout_size(raw: &str) -> Option<f32> {
+    let value = raw.trim().parse::<f32>().ok()?;
+    (value.is_finite() && value > 0.0).then_some(value)
+}
+/// Format a content size for storage, or `None` when it is not storable.
+pub fn format_layout_size(size: f32) -> Option<String> {
+    (size.is_finite() && size > 0.0).then(|| format!("{size:.1}"))
+}
 impl Store {
     /// Validate an explicit native-home pathname without opening or creating anything.
     /// Save requires Core to have already established this current-UID, exact-mode-0700 home.
@@ -575,6 +610,10 @@ impl Store {
     /// Separate bounded sidebar customization storage; Entry validation belongs to the caller.
     pub fn sidebar(native_home: PathBuf) -> Result<Self, Failure> {
         Self::with_namespace(native_home, Namespace::Sidebar)
+    }
+    /// Separate bounded app-local layout preferences; value validation belongs to the caller.
+    pub fn layout(native_home: PathBuf) -> Result<Self, Failure> {
+        Self::with_namespace(native_home, Namespace::Layout)
     }
     fn with_namespace(native_home: PathBuf, namespace: Namespace) -> Result<Self, Failure> {
         let text = native_home.to_str().ok_or(Failure::InvalidHome)?;
@@ -1206,5 +1245,19 @@ mod tests {
         });
         assert_eq!(result, Err(Failure::Conflict));
         assert_eq!(std::fs::read(path).unwrap(), changed);
+    }
+    #[test]
+    fn layout_width_preference_round_trips_and_rejects_junk() {
+        for width in [640.0_f32, 748.5, 920.0, 4096.0] {
+            let raw = format_layout_width(width).expect("storable");
+            assert_eq!(parse_layout_width(&raw), Some(width));
+        }
+        assert_eq!(parse_layout_width("  812.5 "), Some(812.5));
+        for raw in ["", "x", "NaN", "inf", "0", "-20", "5000", "1e9"] {
+            assert_eq!(parse_layout_width(raw), None, "value {raw:?}");
+        }
+        for width in [f32::NAN, f32::INFINITY, 0.0, -1.0, 4097.0] {
+            assert_eq!(format_layout_width(width), None, "width {width}");
+        }
     }
 }

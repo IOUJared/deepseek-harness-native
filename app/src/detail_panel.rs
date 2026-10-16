@@ -134,14 +134,9 @@ fn view(document: &formatted::Document) -> Element<'_, Message> {
     let mut body = Column::new().spacing(12).width(Length::Fill);
     for block in &document.blocks {
         let rendered: Element<'_, Message> = match block {
-            formatted::Block::Heading { level, spans } => inline(
-                spans,
-                match level {
-                    1 => 25,
-                    2 => 21,
-                    _ => 18,
-                },
-            ),
+            formatted::Block::Heading { level, spans } => {
+                inline(spans, design::heading_size(*level).round() as u32)
+            }
             formatted::Block::Paragraph {
                 spans,
                 indent,

@@ -5,6 +5,22 @@ use dsh_native_core::{OnboardingMetadata, SecretApiKey};
 use iced::widget::{button, column, container, row, scrollable, text_input};
 use iced::{Element, Length};
 const MAX_DRAFT: usize = 16_384;
+/// Why a draft cannot be a key at all, in the desktop shell's own words
+/// (`welcomeKeyInvalid`): it arrived wrapped in quotes, or copied as an
+/// environment assignment such as `DEEPSEEK_API_KEY=…`.
+///
+/// This is deliberately *not* part of [`crate::secret_input::Input::ascii`]: that
+/// rule is the Core frame's and is shared with callbacks, where `=` is ordinary
+/// (`?code=…`, base64 padding). Whitespace needs no check here because the shared
+/// rule already refuses every byte outside `0x21..=0x7e`.
+fn key_shape_error(draft: &str) -> Option<&'static str> {
+    const MESSAGE: &str =
+        "Enter the API key itself, without quotes, spaces, or an environment-variable assignment.";
+    let quoted = draft.len() >= 2
+        && ((draft.starts_with('"') && draft.ends_with('"'))
+            || (draft.starts_with('\'') && draft.ends_with('\'')));
+    (quoted || draft.contains('=')).then_some(MESSAGE)
+}
 #[path = "account.rs"]
 pub(crate) mod account;
 #[path = "cloudflare.rs"]
@@ -759,6 +775,12 @@ impl Settings {
                 Some(self.read())
             }
             Action::Review(_) if self.can_save(enabled) => {
+                // Refuse to move a draft that cannot be a key into review, so the
+                // message appears while the user can still correct the field.
+                if let Some(message) = key_shape_error(self.edit.as_str()) {
+                    self.error = Some(message);
+                    return None;
+                }
                 self.save = SavePhase::Confirm(ticket);
                 None
             }
@@ -770,6 +792,15 @@ impl Settings {
                 if self.can_save(enabled)
                     && matches!(self.save,SavePhase::Confirm(t) if t==ticket) =>
             {
+                // Last gate before the key is taken out of the editor and sent: a
+                // quoted key or an environment assignment must never be stored.
+                // The draft is left in place here (unlike the other refusals) so
+                // the user can delete the quotes rather than paste again.
+                if let Some(message) = key_shape_error(self.edit.as_str()) {
+                    self.save = SavePhase::Idle;
+                    self.error = Some(message);
+                    return None;
+                }
                 let raw = self.edit.take();
                 let secret = match SecretApiKey::new(raw) {
                     Ok(secret) => secret,

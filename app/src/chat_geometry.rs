@@ -28,7 +28,20 @@ pub(crate) fn body_top(role: &str) -> f32 {
 const MAX_ENTRIES: usize = 4097;
 /// The compact tool line, and the outer vertical padding every row carries.
 pub(crate) const TOOL_LINE_HEIGHT: f32 = 24.0;
+/// The compact tool line at a content size. The web writes this row as
+/// `calc(24px + var(--dsh-content-font-delta, 0px))`, so a larger content size
+/// buys the line more room rather than clipping it.
+pub(crate) fn tool_line_height(delta: f32) -> f32 {
+    TOOL_LINE_HEIGHT + delta
+}
 pub(crate) const ROW_CHROME: f32 = 12.0;
+/// The vertical gap the expanded tool body sits below its compact line. The view
+/// and the geometry both read this one constant: when only the view reserved it,
+/// a row whose body was measured at the same line count came out 4px short and
+/// the bottom of the body was clipped.
+pub(crate) const TOOL_BODY_GAP: f32 = 4.0;
+/// The horizontal inset a row body is measured and rendered at, so the two agree.
+pub(crate) const BODY_INSET: f32 = 28.0;
 const MIN_LANE: f32 = 37.0; // Outer 8 + inner 28 + at least 1px of body width.
 const MAX_LANE: f32 = 4096.0;
 const MALFORMED_LANE: f32 = 104.0; // Outer 8 + ordinary minimum bubble 96.
@@ -58,6 +71,9 @@ struct Entry {
 #[derive(Default)]
 pub(crate) struct Cache {
     entries: RefCell<BTreeMap<u64, Entry>>,
+    /// The content-size delta every stored height was computed at. Changing it
+    /// invalidates the cache, because a measurement belongs to one text size.
+    delta: std::cell::Cell<f32>,
     #[cfg(any(test, feature = "public-layout-fixture"))]
     shapes: std::cell::Cell<usize>,
     #[cfg(feature = "public-layout-fixture")]
@@ -77,6 +93,19 @@ impl fmt::Debug for Cache {
 }
 
 impl Cache {
+    /// The compact tool line at this cache's content size; the view draws the same
+    /// value the geometry reserved.
+    pub(crate) fn tool_line(&self) -> f32 {
+        tool_line_height(self.delta.get())
+    }
+    /// Adopt a content-size delta, dropping measurements taken at the old one.
+    pub(crate) fn set_content_delta(&self, delta: f32) {
+        let delta = if delta.is_finite() { delta } else { 0.0 };
+        if self.delta.get() != delta {
+            self.delta.set(delta);
+            self.entries.borrow_mut().clear();
+        }
+    }
     pub(crate) fn geometry(
         &self,
         key: u64,
@@ -127,8 +156,8 @@ impl Cache {
             if role == "Tool call" || role == "Tool result" {
                 Geometry {
                     width: lane - 8.0,
-                    body_height: TOOL_LINE_HEIGHT,
-                    height: TOOL_LINE_HEIGHT + ROW_CHROME,
+                    body_height: self.tool_line(),
+                    height: self.tool_line() + ROW_CHROME,
                 }
             } else if !human && !assistant {
                 Geometry {
@@ -142,8 +171,11 @@ impl Cache {
                 let shaped = std::time::Instant::now();
                 let paragraph = NativeParagraph::with_text(text::Text {
                     content: preview,
-                    bounds: Size::new(max_width - 28.0, f32::INFINITY),
-                    size: Pixels(15.0),
+                    bounds: Size::new(max_width - BODY_INSET, f32::INFINITY),
+                    // Measured at the size the transcript draws, so a content-size
+                    // preference cannot reserve height for a smaller text than the
+                    // one that renders (which clipped the last wrapped line).
+                    size: Pixels(15.0 + self.delta.get()),
                     line_height: text::LineHeight::default(),
                     font: FONT,
                     align_x: text::Alignment::Default,
@@ -162,7 +194,7 @@ impl Cache {
                     // Word wrapping may leave an unbreakable token wider than its bound.
                     // Keep the row bounded and let the rendering parent's body clip it.
                     let measured_width = if measured.width.is_finite() {
-                        measured.width.max(0.0).ceil() + 28.0
+                        measured.width.max(0.0).ceil() + BODY_INSET
                     } else {
                         max_width
                     };
@@ -576,5 +608,34 @@ mod tests {
             500.0,
         );
         assert!(!format!("{cache:?}").contains("PUBLIC private"));
+    }
+
+    #[test]
+    fn the_content_delta_grows_process_rows_and_invalidates_their_measurements() {
+        let cache = Cache::default();
+        // At the default size the delta is the identity.
+        assert_eq!(cache.tool_line(), TOOL_LINE_HEIGHT);
+        let base = cache.geometry(1, "Tool call", "PUBLIC preview", 800.0);
+        assert_eq!(base.height, TOOL_LINE_HEIGHT + ROW_CHROME);
+        // A larger content size buys the line more room. Re-measuring the same key
+        // also proves the stored entry was dropped: without invalidation this would
+        // return the height measured at the old size.
+        cache.set_content_delta(3.0);
+        assert_eq!(cache.tool_line(), TOOL_LINE_HEIGHT + 3.0);
+        let grown = cache.geometry(1, "Tool call", "PUBLIC preview", 800.0);
+        assert_eq!(grown.height, TOOL_LINE_HEIGHT + ROW_CHROME + 3.0);
+        assert_eq!(grown.body_height, base.body_height + 3.0);
+        // Card padding does not scale: the web scales process rows, not the
+        // padding around a message, so a human row keeps its chrome.
+        let human = cache.geometry(2, "You", "PUBLIC preview", 800.0);
+        assert_eq!(human.height, chrome_height("You") + human.body_height);
+        // A smaller content size shrinks it by the same rule.
+        cache.set_content_delta(-3.0);
+        assert_eq!(
+            cache
+                .geometry(1, "Tool call", "PUBLIC preview", 800.0)
+                .height,
+            TOOL_LINE_HEIGHT + ROW_CHROME - 3.0
+        );
     }
 }
