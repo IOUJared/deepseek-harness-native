@@ -510,6 +510,17 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    yet established, and each is a *harness capability* rather than decoration, so this read
    names three candidate gaps of feature size and claims none of them. The ordering rule
    itself is the cheap, faithful part.
+   **First row read: it is a label, and it has a sibling.** `ui-agent-preset` registers two
+   surfaces from one seat: `AgentPresetLabel` at `conversation.session.header.actions`
+   (id `agent-preset`, order −10) and an `AgentPresetSeat` chip at
+   `conversation.hero.agentPreset` — the **new-session** chip — both injected from a single
+   seat object (`ui-agent-preset/src/client/index.ts:210-232`). So "the agent preset label"
+   is really one label plus a hero chip, and the hero one only appears for a session that has
+   not started.
+   Native's transcript projects **no agent preset at all** today: `reducer.rs` carries only
+   the permission preset (`:147-160`), so this row needs a projection first — the projection,
+   then the header label, then the hero chip — rather than being the pure-UI addition the
+   ordering "smallest first" implied.
    **Decided by the user (round 101): all three rows are authorized work** — the agent preset
    label, background jobs and subagents, in that order, smallest first, with the ordering rule
    above governing their placement (what the session is, ahead of what it is doing).
