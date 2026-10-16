@@ -64,7 +64,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Blockquote | `border-left: 2px solid label-caption` · `padding-left: 14px` · `margin: 16px 0 0` | `QUOTE_BAR`/`QUOTE_PAD`/`QUOTE_INSET`; a filled rule whose height is the paragraph's own measured height |
 | Editable context menu | Undo · Redo · — · Cut · Copy · Paste · — · Select all, each enabled from the edit flags, no accelerator labels, 180px panel | `editor_menu::entries`/`view` + a 100-step editor history; `native-editor-menu` rect |
 | Search offset | measured with the drawn block heights, collapsed gaps and the ladder, for the answer and the reasoning alike | `document_first_offset` + `document_first_offset_walks_drawn_heights_and_gaps` |
-| Permission chip | control-row chip, `height: 28px`, `padding: 0 4px 0 8px`, `13px/20px` `label-secondary`, a 14px glyph, dimmed while locked | **landed in its locked form** — `native-permission-control` 28.0 × 137.9 at x 380; menu + `/permission <preset>` follow |
+| Permission chip | control-row chip, `height: 28px`, `padding: 0 4px 0 8px`, `13px/20px` `label-secondary`, a 14px glyph, dimmed while locked | **landed** — `native-permission-control` 28.0 × 137.9 at x 380, and its menu `native-permission-menu` 200.0 × 90.7; the pick sends `/permission <preset>` |
 | Permission select | control-row chip: `height: 28px`, `padding: 0 4px 0 8px`, transparent, `radius-sm`, `13px/20px` weight 500, `label-secondary`, `max-width: 220px`, a 14px glyph on the trigger and 16px in the rows, hover `interactive-bg-hover`, disabled `label-dimmed`; menu rows plus an Auto-review preset with a badge and a risk confirmation before full access | **not implemented** — no permission projection state; recorded below with the package's parts |
 | Shutdown budgets | DMG shell: graceful 10 s → SIGTERM 5 s → SIGKILL 5 s (`apps/desktop/src/main.ts:3790-3807`) | native 3 s / 1 s / 1 s (`StopPolicy::default`), documented in `NATIVE-CLOSE.md#budgets-against-the-dmg-shell`; aligning needs a measured Host unwind, not the shell's figures |
 | Referenced-session summary | under a user bubble: `Referenced session · labels` at 13px/18px tertiary, labels from the following `session-reference` context record, joined with `, ` | `DisplayRow::references` + `REFERENCE_LINE`/`reference_line` and the row's geometry; `chat-references` preset |
@@ -1343,3 +1343,22 @@ cell, so new findings go at the end of the file as plain paragraphs.
   the same one the plan chip uses; the display name falls back to the preset key when the
   Host's catalog is absent (its own `optionOf` rule), and the Auto badge and the
   risk-confirmation step still follow.
+
+- **Permission chip menu — landed, capture-verified; its command is wired but unverified
+  against a live Host.** The chip is now the interactive control the reference renders
+  (`disabled={locked || leaving}` was only its locked form): pressing it opens a 200px
+  menu of the three design presets with the current one in full ink and the others dimmed,
+  and picking one closes the menu and sends **`/permission <preset>`** through
+  `Command::CommandsExecute { session_id, line }` — the exact path the plan chip uses for
+  `/plan` (`app/src/ui.rs`, `Message::TogglePlanMode`), and the mutation the package's own
+  header names (`ui-permission-presets/src/client/index.ts:3-11`). Verified at the
+  `chat-transcript` preset with the new `--permission-menu true` fixture flag: the
+  observation records the chip at **28.0 × 137.9** (x 380, y 874) and the menu at
+  **200.0 × 90.7** (x 318, y 775), and the grab shows `Read only` / **`Workspace write`** /
+  `Full access` above the chip's own `◈ Workspace write`.
+  Honest limits: the pick's command line is wired to the same entry point the plan chip
+  uses, but no live Host has been driven to confirm the switch takes effect — that needs a
+  real session, which is the same category as the other unrun live checks in this
+  document. The menu lists the three design presets rather than the Host's catalog (which
+  still needs the remote read), the Auto-review badge and the risk-confirmation step are
+  not built, and the display-name fallback to the preset key stands.

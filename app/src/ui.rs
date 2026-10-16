@@ -214,6 +214,10 @@ pub enum Message {
     /// (`apps/desktop/src/main.ts:276-300`).
     EditorMenu(bool),
     EditorMenuAction(editor_menu::Action),
+    /// Opens or dismisses the permission chip's menu.
+    TogglePermissionMenu,
+    /// Sends one permission preset as the command line the reference's picker submits.
+    PermissionPick(String),
     Send,
     KeyboardSend,
     /// Wayland composer paste: read the clipboard off the UI thread.
@@ -691,6 +695,8 @@ pub struct App {
     /// The shell's editable context menu, and the editor-owned history its Undo and
     /// Redo entries drive (`apps/desktop/src/main.ts:1018`).
     editor_menu: bool,
+    /// The permission chip's menu, opened by its own press.
+    permission_menu: bool,
     editor_undo: Vec<String>,
     editor_redo: Vec<String>,
     draft_serial: u64,
@@ -903,6 +909,7 @@ impl App {
                 follow_ready: false,
                 editor: text_editor::Content::new(),
                 editor_menu: false,
+                permission_menu: false,
                 editor_undo: Vec::new(),
                 editor_redo: Vec::new(),
                 draft_serial: 0,
@@ -2791,6 +2798,21 @@ impl App {
                 if self.composer_visible() && self.draft_state.failure().is_some() =>
             {
                 return self.load_drafts(true);
+            }
+            Message::TogglePermissionMenu if self.composer_visible() => {
+                self.permission_menu = !self.permission_menu;
+            }
+            Message::PermissionPick(preset) if self.composer_visible() => {
+                self.permission_menu = false;
+                // The mutation the reference's picker performs: a `/permission <preset>`
+                // command line into the session (`ui-permission-presets/src/client/
+                // index.ts:3-11`), the same shape the plan chip uses for `/plan`.
+                if let Some(session_id) = self.selected.clone() {
+                    self.command(Command::CommandsExecute {
+                        session_id,
+                        line: format!("/permission {preset}"),
+                    });
+                }
             }
             Message::EditorMenu(open) if self.composer_visible() => {
                 self.editor_menu = open;
@@ -4815,6 +4837,12 @@ impl App {
     }
     /// Fixture-only: open the editable-field context menu, which a real run only
     /// opens from a right press inside the composer's editor.
+    /// Fixture-only: open the permission chip's menu, which a real run opens by pressing
+    /// the chip itself.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn set_permission_menu(&mut self, open: bool) {
+        self.permission_menu = open;
+    }
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn set_editor_menu(&mut self, open: bool) {
         self.editor_menu = open;
@@ -6037,23 +6065,57 @@ impl App {
     /// submit `/permission <preset>`, the command line the package's header names
     /// (`ui-permission-presets/src/client/index.ts:3-11`).
     fn permission_chip(&self) -> Option<Element<'_, Message>> {
-        let preset = self.transcript.permission_preset()?;
+        let preset = self.transcript.permission_preset()?.to_owned();
+        let ink = if self.permission_menu { TEXT } else { MUTED };
+        let chip = button(
+            row![
+                label("◈", ink)
+                    .size(12)
+                    .width(design::PERMISSION_CHIP_GLYPH),
+                label(permission_label(&preset).to_owned(), ink).size(13),
+            ]
+            .spacing(4)
+            .align_y(iced::Alignment::Center),
+        )
+        .on_press(Message::TogglePermissionMenu)
+        .style(design::ghost)
+        .padding(design::COMPOSER_CHIP_PAD)
+        .height(design::COMPOSER_CHIP_HEIGHT);
         Some(
-            container(
-                row![
-                    label("◈", MUTED)
-                        .size(12)
-                        .width(design::PERMISSION_CHIP_GLYPH),
-                    label(permission_label(preset), MUTED).size(13),
-                ]
-                .spacing(4)
-                .align_y(iced::Alignment::Center),
-            )
+            container(anchored_popup::anchored(
+                chip.into(),
+                self.permission_menu
+                    .then(|| self.permission_menu_view(&preset)),
+                Message::TogglePermissionMenu,
+            ))
             .id("native-permission-control")
-            .padding(design::COMPOSER_CHIP_PAD)
-            .height(design::COMPOSER_CHIP_HEIGHT)
             .into(),
         )
+    }
+    /// The presets the menu offers: the reference's design set, with the current one in
+    /// full ink. The Host's own catalog would extend this list once the catalog read lands.
+    fn permission_menu_view(&self, current: &str) -> Element<'_, Message> {
+        let mut items = Column::new().spacing(2);
+        for (value, name) in [
+            ("read-only", "Read only"),
+            ("workspace-write", "Workspace write"),
+            ("full-access", "Full access"),
+        ] {
+            let ink = if value == current { TEXT } else { MUTED };
+            items = items.push(
+                button(label(name, ink).size(13))
+                    .on_press(Message::PermissionPick(value.to_owned()))
+                    .style(design::ghost)
+                    .padding([4, 8])
+                    .width(Length::Fill),
+            );
+        }
+        container(items)
+            .id("native-permission-menu")
+            .width(200)
+            .padding(6)
+            .style(|_| design::card(SURFACE, 10.0))
+            .into()
     }
     /// The plan-mode control for the selected session, from the Host's advertised
     /// commands and the Host's own `plan` projection.

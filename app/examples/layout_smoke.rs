@@ -75,6 +75,7 @@ const KNOWN_IDS: &[&str] = &[
     "native-editor-menu",
     "native-reference-summary",
     "native-permission-control",
+    "native-permission-menu",
     "native-to-bottom",
     "native-width-handle-left",
     "native-width-handle-right",
@@ -119,6 +120,8 @@ struct Options {
     /// Open the editable-field context menu, so a capture shows it without a right
     /// press the fixture cannot deliver.
     editor_menu: bool,
+    /// Open the permission chip's menu, so a capture shows it without a press.
+    permission_menu: bool,
 }
 fn public_drop_file(value: String) -> Result<PathBuf, &'static str> {
     let path = PathBuf::from(value);
@@ -198,6 +201,7 @@ fn options() -> Result<Options, &'static str> {
             "--width-handle-glow",
             "--plan-pending",
             "--editor-menu",
+            "--permission-menu",
             "--scrolled-away",
             "--page-pending",
         ]
@@ -277,6 +281,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         width_handle_glow: match values.remove("--width-handle-glow") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        permission_menu: match values.remove("--permission-menu") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -507,6 +515,9 @@ impl Fixture {
         }
         if options.editor_menu {
             app.set_editor_menu(true);
+        }
+        if options.permission_menu {
+            app.set_permission_menu(true);
         }
         if options.scrolled_away {
             app.set_scrolled_away(true);
