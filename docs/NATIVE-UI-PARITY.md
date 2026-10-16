@@ -363,10 +363,12 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    through a `shell.overlay` (`ui-shortcuts/src/client/index.ts:42-52`). Native has a static
    shortcuts disclosure and hardcoded input handling, so matching this means a binding store,
    an editor with capture and conflict handling, the overlay and the trigger — a functional
-   feature rather than a row, and the largest gap this survey has found. Settling step: decide
-   scope with the user, since it changes behaviour the user has explicitly asked to preserve
-   (existing bindings and startup focus); a read-only catalog of the live bindings is the
-   smaller faithful step if a full editor is not wanted.
+   feature rather than a row, and the largest gap this survey has found. **Decided by the user
+   (round 101): full editable rebinding is in scope** — the editor, its binding store and its
+   conflict handling, exactly as the reference has them. It is authorized explicitly because it
+   changes input behaviour the user has otherwise asked to preserve. Settling step: read
+   `Editor.tsx` and the package's binding store end to end, then land the store before the
+   editor, since a binding that cannot be persisted is not a rebinding.
    That leaves one genuine gap: `ui-settings-session-log` injects a row (order 90) whose
    component is `UploadRow`, alongside a `session-log-upload-toast` overlay — it uploads the
    session log for support. Native has the Trajectory tab but no upload affordance, and this
@@ -508,6 +510,9 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    yet established, and each is a *harness capability* rather than decoration, so this read
    names three candidate gaps of feature size and claims none of them. The ordering rule
    itself is the cheap, faithful part.
+   **Decided by the user (round 101): all three rows are authorized work** — the agent preset
+   label, background jobs and subagents, in that order, smallest first, with the ordering rule
+   above governing their placement (what the session is, ahead of what it is doing).
    Settling step: check what native's session header renders today against that band, then
    locate `ui-chat`'s tail registration; decide with the user whether a changes view belongs in this app at all,
    given the tool rows already carry counts and the detail panel already holds full records.
