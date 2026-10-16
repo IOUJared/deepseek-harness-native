@@ -1827,3 +1827,17 @@ cell, so new findings go at the end of the file as plain paragraphs.
    the permission bridge, and the gate is back to 0.
    Settling step: the Core family and the app plumbing, then the three surfaces it unlocks —
    the hero chip, the label's display name and the subagent activity marker.
+
+   **Core family landed.** `core/src/agent_preset.rs` holds the typed client:
+   `AgentPresetRow`/`AgentPresetRoster` with the Host's own `isDefault` casing, a projection
+   that keeps only the five declared fields, and a roster refused when empty, oversized, or
+   missing a default. `Command::AgentPresets` and `PublicReply::AgentPresets` join the
+   protocol with their `name()` and `public_result` arms. Core suite **112 passed** with the
+   module's three tests, which cover the rendered-fields-only round trip (asserting the
+   `isDefault` casing survives), the malformed shapes, and the id bounds.
+   One mistake worth recording: the first attempt patched `protocol.rs` but its `lib.rs`
+   anchors had been reordered by an earlier `cargo fmt`, so the crate did not compile until
+   the anchors were re-derived. The tree was never left broken and never committed in that
+   state; the lesson is to prefer anchors that survive formatting.
+   Settling step: the app plumbing, then the hero chip, the label's display name and the
+   subagent activity marker.

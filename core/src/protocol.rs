@@ -208,6 +208,9 @@ fn public_result(command: &str, value: &Value) -> Result<PublicReply, Error> {
             crate::permission::set_ack(value)?;
             Ok(PublicReply::PermissionSet)
         }
+        "agent-presets" => Ok(PublicReply::AgentPresets(crate::agent_preset::roster(
+            value,
+        )?)),
         "permission-settings" => Ok(PublicReply::PermissionSettings(
             crate::permission::settings(value)?,
         )),
@@ -399,6 +402,7 @@ impl Command {
             Self::PermissionCatalog => "permission-catalog",
             Self::PermissionSet { .. } => "permission-set",
             Self::PermissionSettings => "permission-settings",
+            Self::AgentPresets => "agent-presets",
             Self::PermissionDefaultSet { .. } => "permission-default-set",
             Self::CloudflareDisable { .. } => "cloudflare-disable",
             Self::Inspect => "inspect",

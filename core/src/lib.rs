@@ -14,6 +14,7 @@ pub use cloudflare::{
     CloudflareAuthError, CloudflareAuthMode, CloudflareAuthPhase, CloudflareAuthStatus,
     CloudflareOauthSetup, CloudflareSaveChoice, CloudflareSnapshot,
 };
+mod agent_preset;
 mod codex;
 mod codex_runtime;
 #[cfg(test)]
@@ -29,6 +30,7 @@ mod secret;
 #[cfg(test)]
 mod tests;
 
+pub use agent_preset::{AgentPresetRoster, AgentPresetRow};
 pub use codex::{
     CodexAccount, CodexAccountId, CodexAccountLabel, CodexAccountMode, CodexAccountsMetadata,
     CodexAddedAccount, CodexLegacyGrant, CodexMetadata, CodexPhase,
@@ -169,6 +171,8 @@ pub enum Command {
     },
     /// The deployment's new-session permission default, as its settings descriptor
     /// reports it.
+    /// Every declared agent preset, with the one the deployment marks as its default.
+    AgentPresets,
     PermissionSettings,
     /// Persist the new-session default preset at the descriptor's own revision.
     PermissionDefaultSet {
@@ -264,6 +268,7 @@ pub enum PublicReply {
     PermissionSet,
     PermissionSettings(PermissionSettingsState),
     PermissionDefaultSet,
+    AgentPresets(AgentPresetRoster),
     Codex(CodexMetadata),
     CodexAccounts(CodexAccountsMetadata),
     CodexUsage(CodexUsageSnapshot),
