@@ -59,6 +59,13 @@ pub enum Command {
     PluginsRead(crate::plugins::ReadTicket),
     /// Read the Host's permission-preset catalog for the chip's menu.
     PermissionCatalogRead,
+    /// Read the deployment's new-session permission default for the settings row.
+    PermissionSettingsRead,
+    /// Persist the new-session default preset at the descriptor's own revision.
+    PermissionDefaultSet {
+        name: String,
+        expected_revision: u64,
+    },
     PluginSave {
         ticket: crate::plugins::WriteTicket,
         /// Boxed alongside [`crate::plugins::Effect::Save`]: the namespace view
@@ -131,6 +138,10 @@ pub enum Command {
 pub enum Event {
     /// The Host's permission-preset catalog, read once when the chip's menu opens.
     PermissionCatalog(Result<dsh_native_core::PermissionCatalog, String>),
+    /// The deployment's new-session permission default, for the settings row.
+    PermissionSettings(Result<dsh_native_core::PermissionSettingsState, String>),
+    /// The acknowledgement of a new-session default write.
+    PermissionDefaultSet(Result<(), String>),
     AccountCompleted {
         ticket: crate::settings::Ticket,
         outcome: crate::settings::account::Outcome,
@@ -727,6 +738,8 @@ fn rejected(command: Command) -> Event {
     match command {
         // A read-only catalog costs nothing to refuse, and the menu keeps the design set.
         Command::PermissionCatalogRead => Event::PermissionCatalog(Err(error)),
+        Command::PermissionSettingsRead => Event::PermissionSettings(Err(error)),
+        Command::PermissionDefaultSet { .. } => Event::PermissionDefaultSet(Err(error)),
         Command::Account(effect) => {
             let ticket = effect.ticket();
             drop(effect);
@@ -2190,10 +2203,14 @@ async fn run(
                     Command::SaveKey{ticket,secret}=>{if codex.busy()||cloudflare.busy()||!key_save_guard(ticket,smoke,key_saving.is_some(),plugins_active.is_some(),export_active.is_some()){drop(secret);if !publish(&events,Event::KeySaved{ticket,result:crate::settings::SaveResult::NotSent}){break Some("Native UI delivery queue overflow".into());}}else{key_saving=Some(ticket);let backend=backend.clone();tasks.spawn_blocking(move||save_key(&backend,ticket,secret,smoke));}continue;},
                     command=>command,
                 };
+                if matches!(command,Command::PermissionSettingsRead){let backend=backend.clone();tasks.spawn_blocking(move||Event::PermissionSettings(match backend.request(CoreCommand::PermissionSettings,Duration::from_secs(5)){Ok(PublicReply::PermissionSettings(state))=>Ok(state),Ok(_)=>Err("Invalid Core permission settings reply".into()),Err(e)=>Err(format!("Core permission settings: {e}"))}));continue;}
+                if let Command::PermissionDefaultSet{name,expected_revision}=&command{let backend=backend.clone();let (name,expected_revision)=(name.clone(),*expected_revision);tasks.spawn_blocking(move||Event::PermissionDefaultSet(match backend.request(CoreCommand::PermissionDefaultSet{name,expected_revision},Duration::from_secs(5)){Ok(PublicReply::PermissionDefaultSet)=>Ok(()),Ok(_)=>Err("Invalid Core permission default reply".into()),Err(e)=>Err(format!("Core permission default: {e}"))}));continue;}
                 if matches!(command,Command::PermissionCatalogRead){let backend=backend.clone();tasks.spawn_blocking(move||Event::PermissionCatalog(match backend.request(CoreCommand::PermissionCatalog,Duration::from_secs(5)){Ok(PublicReply::PermissionCatalog(catalog))=>Ok(catalog),Ok(_)=>Err("Invalid Core permission catalog reply".into()),Err(e)=>Err(format!("Core permission catalog: {e}"))}));continue;}
                 if matches!(command,Command::Inspect){let backend=backend.clone();tasks.spawn_blocking(move||Event::Inspection(match backend.request(CoreCommand::Inspect,Duration::from_secs(5)){Ok(PublicReply::Inspection(value))=>Ok(value),Ok(_)=>Err("Invalid Core inspection reply".into()),Err(e)=>Err(format!("Core inspection: {e}"))}));continue;}
                 let client=client.clone();tasks.spawn(async move {match command {
                     Command::PermissionCatalogRead=>Event::Fault("Permission catalog bypassed priority dispatch".into()),
+                    Command::PermissionSettingsRead=>Event::Fault("Permission settings bypassed priority dispatch".into()),
+                    Command::PermissionDefaultSet{..}=>Event::Fault("Permission default bypassed priority dispatch".into()),
                     Command::Create{workspace,cwd}=>Event::Created(client.session_create(SessionCreateRequest{workspace_id:workspace,cwd,..Default::default()}).await.map_err(|e|format!("New session: {e}"))),
                     Command::OpenWorkspace(path)=>Event::WorkspaceOpened(client.workspace_create(path).await.map_err(|e|format!("Open workspace: {e}"))),
                     Command::Catalog(ticket)=>rejected(Command::Catalog(ticket)),

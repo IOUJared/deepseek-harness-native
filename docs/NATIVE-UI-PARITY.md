@@ -305,7 +305,14 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    `default_ack(value)` projections that require all three descriptor fields and fail closed
    on a malformed or negative revision. Core suite **109 passed / 0 failed**; the app still
    compiles against the new reply variants.
-   Settling step: the app plumbing on the worker event pattern, then the row itself.
+   The app plumbing is **landed**: `Event::PermissionSettings` and
+   `Event::PermissionDefaultSet` on the same worker-event pattern as the catalog read, a
+   `PermissionDefaultPick(name)` message that writes at the descriptor's own revision and
+   only when the descriptor is writable and no write is already in flight, and — after a
+   successful write — a re-read of the descriptor rather than an assumption that the new
+   value took, so a refusal leaves the old one in place and the row never lies about what
+   the deployment holds.
+   Settling step: the row itself in the General page.
    Then: mirror the row in native's General page, then mirror the `settings.general.item` row in native's General page
    (whose rows are a `column!` of labelled disclosures, `app/src/settings.rs:1014-1045`),
    reusing the landed full-access confirmation, and capture it with a fixture-seeded state. Native's

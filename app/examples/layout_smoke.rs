@@ -619,6 +619,8 @@ impl Fixture {
                 worker::Command::Export(_) => "Export",
                 worker::Command::PluginsRead(_) => "PluginsRead",
                 worker::Command::PermissionCatalogRead => "PermissionCatalogRead",
+                worker::Command::PermissionSettingsRead => "PermissionSettingsRead",
+                worker::Command::PermissionDefaultSet { .. } => "PermissionDefaultSet",
                 worker::Command::PluginSave { .. } => "PluginSave",
                 worker::Command::Manage(_) => "Manage",
                 worker::Command::Rename(_) => "Rename",

@@ -218,6 +218,8 @@ pub enum Message {
     TogglePermissionMenu,
     /// Sends one permission preset as the command line the reference's picker submits.
     PermissionPick(String),
+    /// Persists one new-session permission default from the settings row.
+    PermissionDefaultPick(String),
     /// Ticks or clears the risk acknowledgement.
     PermissionConfirmAcknowledge(bool),
     /// Cancels a pending full-access confirmation.
@@ -710,6 +712,12 @@ pub struct App {
     /// The Host's advertised presets, read when the menu first opens; the design set
     /// stands in until the reply arrives.
     permission_catalog: Option<dsh_native_core::PermissionCatalog>,
+    /// The deployment's new-session permission default, for the settings row. `None`
+    /// until the descriptor answers, which is also how the row stays hidden when the
+    /// deployment exposes no permission settings.
+    permission_settings: Option<dsh_native_core::PermissionSettingsState>,
+    /// A write is in flight; the row is busy until its acknowledgement lands.
+    permission_default_saving: bool,
     editor_undo: Vec<String>,
     editor_redo: Vec<String>,
     draft_serial: u64,
@@ -926,6 +934,8 @@ impl App {
                 permission_confirm: None,
                 permission_acknowledged: false,
                 permission_catalog: None,
+                permission_settings: None,
+                permission_default_saving: false,
                 editor_undo: Vec::new(),
                 editor_redo: Vec::new(),
                 draft_serial: 0,
@@ -2842,6 +2852,31 @@ impl App {
             Message::Worker(Event::PermissionCatalog(result)) => {
                 if let Ok(catalog) = result {
                     self.permission_catalog = Some(catalog);
+                }
+            }
+            Message::Worker(Event::PermissionSettings(result)) => {
+                if let Ok(settings) = result {
+                    self.permission_settings = Some(settings);
+                }
+            }
+            Message::Worker(Event::PermissionDefaultSet(result)) => {
+                self.permission_default_saving = false;
+                // A successful write changes the descriptor, so the row re-reads it rather
+                // than assuming the new value; a refusal leaves the old one in place.
+                if result.is_ok() {
+                    self.command(Command::PermissionSettingsRead);
+                }
+            }
+            Message::PermissionDefaultPick(name) => {
+                if let Some(settings) = &self.permission_settings
+                    && settings.writable
+                    && !self.permission_default_saving
+                {
+                    self.permission_default_saving = true;
+                    self.command(Command::PermissionDefaultSet {
+                        name,
+                        expected_revision: settings.revision,
+                    });
                 }
             }
             Message::PermissionPick(preset) if self.composer_visible() => {
