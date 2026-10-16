@@ -1395,12 +1395,10 @@ cell, so new findings go at the end of the file as plain paragraphs.
 - **Wide-table fixture coverage — landed; its padding match is measured but not yet
   verified visually.** `MarkdownText.module.css:208-210` keeps
   `padding-bottom: var(--dsh-scrollbar-width, 5px)` on a wide table so its hover-revealed
-  bar has room below the last row, and native's horizontal branch carries no such padding.
-  The fix is a five-pixel bottom pad on that branch alone, but a padding-only change has no
-  measurement contract — a green suite proves nothing about it — and the first capture of
-  the new five-column fixture table framed the wrong region, so the change was **reverted
-  rather than landed on an uninspected render**. What did land is the coverage that made the
-  attempt possible: the `chat-table` preset now carries a five-column table after its
-  three-column one, so native's wide-table scroll branch renders for the first time and the
-  next attempt has a subject. Settling step: land the pad, re-capture the `chat-table`
-  preset, and frame the table itself rather than the paragraph below it.
+  bar has room below the last row, and native's horizontal branch carried no such padding.
+  **Landed** as a five-pixel bottom pad on that branch alone, with the render inspected
+  rather than inferred: the first attempt framed the paragraph below the table and was
+  reverted rather than committed on an uninspected render, and the second capture frames the
+  table itself — `shots/67-wide-table-pad-dp2.png` shows the five-column fixture table with
+  its header rules, both rows, and cleared space before the following paragraph. The
+  three-column path keeps its geometry, since the pad sits on the horizontal branch only.

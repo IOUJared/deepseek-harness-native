@@ -774,11 +774,20 @@ pub(crate) fn table_view(
     let table: Element<'static, Message> = if fills {
         table.into()
     } else {
-        scrollable(table)
-            .direction(design::scrollbar_horizontal())
-            .style(design::scrollable_style)
-            .width(Length::Fill)
-            .into()
+        // `MarkdownText.module.css:208-210`: a wide table keeps
+        // `padding-bottom: var(--dsh-scrollbar-width, 5px)`, room for the bar its hover
+        // reveals, so the last row never sits under it.
+        container(
+            scrollable(table)
+                .direction(design::scrollbar_horizontal())
+                .style(design::scrollable_style)
+                .width(Length::Fill),
+        )
+        .padding(iced::Padding {
+            bottom: design::SCROLLBAR_WIDTH,
+            ..iced::Padding::ZERO
+        })
+        .into()
     };
     container(table)
         .width(Length::Fill)
