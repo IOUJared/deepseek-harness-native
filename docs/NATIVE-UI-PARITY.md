@@ -55,7 +55,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Chat content width | `clamp(680, 64%, 920)` | `design::chat_width(pane)` clamp, bounded by the padded pane |
 | User bubble max-width | `min(70.2% · content, 82%)` | content-sized, fixed 640 cap (≈70.2% of the widest column) |
 | Assistant text | unboxed, full content column | unboxed, spans the shared content column |
-| Message flow gap | 6 process / 12 response / 16 turn | uniform 12 (6 px row padding each side) |
+| Message flow gap | 6 process / 12 response / 16 turn | `design::FLOW_GAP`/`RESPONSE_GAP` ladder 6/12; the 16px `turn-process` row is Trajectory-only |
 | Tool activity | compact unboxed single muted line | compact unboxed single muted line, expands in place |
 | Tool-row file path | grey **dotted** underline, clickable | solid `MUTED` underline (Read/Edit/Write) |
 | Edit diff stat | parsed-result diff `+N -M` after the summary | call-argument line diff `+N −M` after the target |
@@ -240,4 +240,32 @@ cell, so new findings go at the end of the file as plain paragraphs.
   SVG, so `▤` — the glyph the tool rows already use for a file — stands in at the
   card's own icon box; and Iced has no ellipsis, so the two one-line text boxes
   clip instead of ellipsizing.
+- **Conversation flow gaps — the web's 6/12 ladder landed, capture-verified.**
+  `ChatView.module.css:60-95` gives every flow sibling `margin-top: 6px`, an
+  Assistant response row (and the row after it, the live `.running` status
+  included) `12px`, and a `turn-process` header `16px`, where native put a
+  symmetric 6px padding on every row and so sat two process rows 12px apart.
+  `design::FLOW_GAP` and `design::RESPONSE_GAP` hold the values,
+  `ui.rs::flow_gap_before` is the single owner of the ladder, and both readers use
+  it: `row_geometries` reserves `gap − ROW_CHROME` on each row's height and the view
+  draws the same value as that row's top padding, so a reserved height cannot
+  disagree with the drawn one. The scroller takes the web's own
+  `design::FLOW_INSET` — its `.scroll` padding is `16px …`
+  (`ChatView.module.css:26-29`) — which is now where the first row's and the last
+  row's clearance lives.
+  `shots/30-flow-gap-dp2.png` is the real `grim -o DP-2` grab and
+  `shots/30-flow-gap.png` that run's own frame (both align at zero offset; the
+  fixture reported `1040x1072` measured with `layoutObservation.passed`). At the
+  `tool-activity-attachment` preset, consecutive tool-row text tops measure 30px
+  apart (24px line box + 6px gap) where the same measurement on the previous
+  capture read 36px (24 + 12); the tool-row-to-assistant distance is unchanged at
+  50px, so only the process rhythm moved; and the first row's attachment card
+  starts 10px lower (fill top `138` → `148`) because its own 6px top padding became
+  the scroller's 16px inset.
+  A `turn-process` row would take 16px, but Chat renders none — they are
+  Trajectory-only — so no native row maps to it; the constant says so at its
+  definition. `ui.rs`'s `conversation_flow_gaps_follow_the_web_ladder` pins the
+  ladder and the height adjustment, and the answerless-row test in
+  `transcript_layout_tests.rs` now reads the same ladder rather than asserting the
+  old symmetric padding.
 

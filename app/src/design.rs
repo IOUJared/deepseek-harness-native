@@ -52,6 +52,20 @@ pub const SECONDARY_SIZE: f32 = 13.0;
 /// with `gap: 16px` (`AssistantMarkdown.module.css:20`) and its markdown blocks
 /// carry `margin: 16px 0` (`MarkdownText.module.css:33`), where native used 12.
 pub const BLOCK_GAP: f32 = 16.0;
+/// The gap between two conversation flow rows. The web gives every flow sibling
+/// `margin-top: var(--dsh-chat-flow-gap, 6px)` (`ChatView.module.css:60-71`), so
+/// two process rows sit 6px apart.
+pub const FLOW_GAP: f32 = 6.0;
+/// The gap around an Assistant response: the response row itself and the row
+/// after it take 12px (`ChatView.module.css:73-85`), the live `.running` status
+/// included (`:118`). A `turn-process` header would take 16px (`:87-95`), but
+/// Chat hides those rows — they are Trajectory-only — so no native row maps to
+/// it.
+pub const RESPONSE_GAP: f32 = 12.0;
+/// The transcript scroller's own vertical inset: the web's `.scroll` padding is
+/// `16px calc(clearance + 16px)` (`ChatView.module.css:26-29`), so the first row
+/// starts 16px below the header and the last ends 16px above the composer.
+pub const FLOW_INSET: f32 = 16.0;
 /// The body line box at a content-size delta.
 pub fn body_line(delta: f32) -> iced::advanced::text::LineHeight {
     iced::advanced::text::LineHeight::Absolute(iced::Pixels(LINE_BODY + delta))

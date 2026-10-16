@@ -352,9 +352,13 @@ fn an_answerless_tool_call_row_keeps_only_its_disclosure_without_an_action_row()
     let index = rows.iter().position(|row| row.key == 0).unwrap();
     let measured = geometry[index];
     // No 22px action row is reserved, because the view renders no Copy/Details.
+    // The row's height is its inner chrome, its body and the flow gap the view
+    // draws as top padding — this row is the only one, so that gap is zero.
     assert_eq!(
         measured.height,
         chat_geometry::chrome_height(&rows[index].role) + measured.body_height
+            - chat_geometry::ROW_CHROME
+            + flow_gap_before(&refs, index)
     );
     assert_eq!(
         measured.body_height,

@@ -458,6 +458,25 @@ const ATTACHMENT_GLYPH: &str = "▤";
 fn action_footer(delta: f32) -> f32 {
     ACTION_GAP + ACTION_HEIGHT + delta
 }
+/// True for the row the web draws as an Assistant response part, which takes
+/// the wider flow gap around it (`ChatView.module.css:73-85`).
+fn response_row(row: &DisplayRow) -> bool {
+    row.role.starts_with("Assistant") || row.role == "Interrupted assistant attempt"
+}
+/// The web's leading gap for `rows[index]` (`ChatView.module.css:60-95`), read
+/// by both the reserved height and the drawn padding so the two cannot drift.
+/// The first row has none: the scroller's own `design::FLOW_INSET` is the top
+/// inset.
+fn flow_gap_before(rows: &[&DisplayRow], index: usize) -> f32 {
+    if index == 0 {
+        return 0.0;
+    }
+    if response_row(rows[index]) || response_row(rows[index - 1]) {
+        design::RESPONSE_GAP
+    } else {
+        design::FLOW_GAP
+    }
+}
 /// The right-aligned attachment cards a user message stacks above its bubble,
 /// 8px apart. One fixed `240x64` card per file, as the reference's `.fileCard`
 /// is fixed (`MessageItem.module.css:320-332`): its name and meta lines are
@@ -6766,7 +6785,17 @@ impl App {
                 .chain(std::iter::once(u64::MAX)),
         );
         rows.iter()
-            .map(|row| self.row_geometry(row, lane))
+            .enumerate()
+            .map(|(index, row)| {
+                let mut geometry = self.row_geometry(row, lane);
+                // A row's height arrives carrying its own 12px of symmetric
+                // outer padding (`chat_geometry::ROW_CHROME`); the web instead
+                // puts one leading margin on each row, from the flow ladder.
+                // Reserve that gap here and draw it as the row's top padding,
+                // so the two read the same value.
+                geometry.height += flow_gap_before(rows, index) - chat_geometry::ROW_CHROME;
+                geometry
+            })
             .collect()
     }
     fn scroll_projection(&self) -> (Vec<u64>, Vec<f32>, f32) {
@@ -7347,13 +7376,15 @@ impl App {
             let bubble = container(bubble).width(width);
             // View, spacers and anchors share the same projected rows and heights;
             // diagnostics remain retained for the Session records disclosure.
+            // The leading gap is the web's flow margin, drawn as this row's top
+            // padding and reserved by `row_geometries` through the same helper.
             let outer = container(bubble)
                 .align_x(if human {
                     iced::alignment::Horizontal::Right
                 } else {
                     iced::alignment::Horizontal::Left
                 })
-                .padding([6, 4])
+                .padding([flow_gap_before(&rendered, index), 4.0])
                 .height(geometries[index].height)
                 .width(Length::Fill)
                 .clip(true);
@@ -7415,14 +7446,21 @@ impl App {
         if self.search_open {
             chat = chat.push(self.search_bar());
         }
-        let scroll = scrollable(container(lane).center_x(Length::Fill).padding([0, 20]))
-            .id(self.scroll_id())
-            .on_scroll(move |viewport| Message::Scrolled {
-                generation,
-                revision,
-                viewport,
-            })
-            .height(Length::Fill);
+        // The web's `.scroll` carries a 16px vertical inset of its own
+        // (`ChatView.module.css:26-29`): the rows below carry leading margins
+        // only, so the first row's and last row's clearance lives here.
+        let scroll = scrollable(
+            container(lane)
+                .center_x(Length::Fill)
+                .padding([design::FLOW_INSET, 20.0]),
+        )
+        .id(self.scroll_id())
+        .on_scroll(move |viewport| Message::Scrolled {
+            generation,
+            revision,
+            viewport,
+        })
+        .height(Length::Fill);
         // Both the width handles and the composer fade overlay the transcript
         // instead of taking layout space, so the lane and the scroll model are
         // untouched. The handles exist only when the pane can hold both, which is
@@ -9849,6 +9887,45 @@ mod tests {
             app.row_geometry(&attached, lane).body_height,
             app.row_geometry(&plain, lane).body_height
         );
+    }
+    #[test]
+    fn conversation_flow_gaps_follow_the_web_ladder() {
+        let tool = display_row(1, "Tool call");
+        let tool2 = display_row(2, "Tool call");
+        let assistant = display_row(3, "Assistant");
+        let user = display_row(4, "You");
+        let live = display_row(5, "Assistant · live");
+        let rows: Vec<&DisplayRow> = vec![&tool, &tool2, &assistant, &user, &live];
+        // The web: no leading margin on the first row, 6 between process
+        // siblings, 12 around a response (`ChatView.module.css:60-95`).
+        assert_eq!(flow_gap_before(&rows, 0), 0.0);
+        assert_eq!(flow_gap_before(&rows, 1), design::FLOW_GAP);
+        assert_eq!(flow_gap_before(&rows, 2), design::RESPONSE_GAP);
+        assert_eq!(flow_gap_before(&rows, 3), design::RESPONSE_GAP);
+        assert_eq!(flow_gap_before(&rows, 4), design::RESPONSE_GAP);
+        // The reserved height carries that same gap and no longer the row's own
+        // symmetric 12px padding, which is what the view draws as top padding.
+        let (app, _) = app();
+        let lane = app.chat_lane();
+        let geometries = app.row_geometries(&rows);
+        for (index, geometry) in geometries.iter().enumerate() {
+            let bare = app.row_geometry(rows[index], lane).height;
+            assert_eq!(
+                geometry.height,
+                bare - chat_geometry::ROW_CHROME + flow_gap_before(&rows, index),
+                "row {index}"
+            );
+        }
+        // Two process rows are 6px apart where the old uniform padding made them
+        // 12; a response row keeps exactly the height the old 12px padding gave
+        // it, so only the process rhythm moved.
+        let bare_tool = app.row_geometry(&tool2, lane).height;
+        assert_eq!(
+            bare_tool - geometries[1].height,
+            chat_geometry::ROW_CHROME - design::FLOW_GAP
+        );
+        let bare_response = app.row_geometry(&assistant, lane).height;
+        assert_eq!(bare_response, geometries[2].height);
     }
     #[test]
     fn native_widget_tree_is_bounded_by_visible_range() {
