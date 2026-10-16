@@ -18,6 +18,10 @@ pub struct Span {
     pub bold: bool,
     pub italic: bool,
     pub code: bool,
+    /// The reference's `imageAlt` run: an image whose source it cannot resolve renders
+    /// its alt text as tertiary italic (`render.tsx:640,653`). Iced has no image
+    /// pipeline here, so every image takes that branch.
+    pub alt: bool,
 }
 
 /// One table cell's inline runs. A cell holds no block structure: `pulldown-cmark`
@@ -132,6 +136,9 @@ struct Builder {
     inline: Option<Inline>,
     code: Option<Code>,
     table: Option<Table>,
+    /// An open image: its alt text accumulates here, because the HTML alt attribute
+    /// and the reference's fallback are the image's plain text.
+    alt: Option<String>,
     text_bytes: usize,
     spans: usize,
 }
@@ -235,6 +242,15 @@ impl Builder {
     }
 
     fn text(&mut self, text: &str, code: bool) -> Result<(), Failure> {
+        if self.alt.is_some() {
+            // The alt run keeps its bytes but none of its inline markup, exactly like
+            // the attribute the reference falls back to.
+            self.charge(text.len())?;
+            if let Some(alt) = self.alt.as_mut() {
+                alt.push_str(text);
+            }
+            return Ok(());
+        }
         self.ensure_inline()?;
         self.charge(text.len())?;
         if text.is_empty() {
@@ -260,6 +276,7 @@ impl Builder {
             bold,
             italic,
             code,
+            alt: false,
         });
         Ok(())
     }
@@ -398,6 +415,16 @@ impl Builder {
                 self.ensure_inline()?;
                 destination = Some(dest_url.into_string());
             }
+            Tag::Image {
+                dest_url, title, ..
+            } => {
+                self.ensure_inline()?;
+                if !title.is_empty() || self.alt.is_some() {
+                    return Err(Failure::Unsupported);
+                }
+                destination = Some(dest_url.into_string());
+                self.alt = Some(String::new());
+            }
             Tag::Table(_) => {
                 // A table's cells carry the inline machinery, so a table inside a
                 // list or quote cannot keep its provenance in this flat model.
@@ -507,6 +534,27 @@ impl Builder {
                 }
                 table.finish_row();
                 table.head = false;
+            }
+            TagEnd::Image => {
+                let alt = self.alt.take().ok_or(Failure::Unsupported)?;
+                let destination = frame.destination.ok_or(Failure::Unsupported)?;
+                // The sheet's unresolvable branch shows the alt text; its failed-load
+                // branch adds the destination when there is no alt, so nothing on the
+                // line can be lost.
+                let rendered = if alt.is_empty() { destination } else { alt };
+                self.charge(rendered.len())?;
+                let inline = self.inline.as_mut().ok_or(Failure::Unsupported)?;
+                if self.spans >= SPANS {
+                    return Err(Failure::Spans);
+                }
+                self.spans += 1;
+                inline.spans.push(Span {
+                    text: rendered,
+                    bold: false,
+                    italic: true,
+                    code: false,
+                    alt: true,
+                });
             }
             TagEnd::Table => {
                 let table = self.table.take().ok_or(Failure::Unsupported)?;
@@ -799,6 +847,34 @@ mod tests {
 
     #[test]
     #[test]
+    fn images_fall_back_to_their_alt_run_and_keep_the_rest_of_the_message() {
+        // The reference's unresolvable branch renders the alt text as tertiary italic
+        // (`render.tsx:640`); the failed-load branch adds the destination when there is
+        // no alt (`:653`).
+        let inline = document("before ![PUBLIC alt](https://example.invalid/a.png) after");
+        let spans = paragraph(&inline.blocks[0]).0;
+        let image: Vec<_> = spans.iter().filter(|span| span.alt).collect();
+        assert_eq!(image.len(), 1);
+        assert_eq!(image[0].text, "PUBLIC alt");
+        assert!(image[0].italic);
+        assert!(!image[0].bold && !image[0].code);
+        // The alt keeps its bytes but none of its inline markup: `![**x**](u)` reads
+        // "x", exactly like an HTML alt attribute.
+        let marked = document("![**PUBLIC** `alt`](u)");
+        let spans = paragraph(&marked.blocks[0]).0;
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].text, "PUBLIC alt");
+        assert!(!spans[0].bold && !spans[0].code);
+        // With no alt the destination stands in, so the image cannot vanish silently.
+        let without_alt = document("![](image.png)");
+        let spans = paragraph(&without_alt.blocks[0]).0;
+        assert_eq!(spans[0].text, "image.png");
+        assert!(spans[0].alt);
+        // A titled image is refused rather than silently losing the title, and the
+        // destination stays visible as text for a plain link.
+        failure("![alt](u \"title\")", Failure::Unsupported);
+    }
+    #[test]
     fn tables_keep_their_header_inline_runs_and_bounds() {
         let document = document("| a | *b* |\n|---|---|\n| `c` | d |\n| e | f |\n");
         let (header, rows, indent) = match &document.blocks[0] {
@@ -846,7 +922,6 @@ mod tests {
     #[test]
     fn unsupported_content_anywhere_fails_whole_source() {
         for source in [
-            "before\n\n![alt](image.png)\n\nafter",
             "before <b>html</b> after",
             "before\n\n<div>html</div>\n",
             "> # heading",
@@ -1056,10 +1131,12 @@ mod tests {
 
     #[test]
     fn diagnostics_only_expose_content_free_failure_variants() {
-        let private_source = "PRIVATE_TOKEN ![PRIVATE_IMAGE](PRIVATE_URI)";
+        // Raw HTML stays unsupported, so it can stand in for content that must never
+        // reach a diagnostic.
+        let private_source = "PRIVATE_TOKEN <b>PRIVATE_HTML</b>";
         let error = match parse(private_source) {
             Err(error) => error,
-            Ok(_) => panic!("expected unsupported image"),
+            Ok(_) => panic!("expected unsupported HTML"),
         };
         assert_eq!(format!("{error:?}"), "Unsupported");
         let copied = error;

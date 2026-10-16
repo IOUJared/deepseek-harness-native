@@ -64,6 +64,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Blockquote | `border-left: 2px solid label-caption` · `padding-left: 14px` · `margin: 16px 0 0` | `QUOTE_BAR`/`QUOTE_PAD`/`QUOTE_INSET`; a filled rule whose height is the paragraph's own measured height |
 | Editable context menu | Undo · Redo · — · Cut · Copy · Paste · — · Select all, each enabled from the edit flags, no accelerator labels, 180px panel | `editor_menu::entries`/`view` + a 100-step editor history; `native-editor-menu` rect |
 | Search offset | measured with the drawn block heights, collapsed gaps and the ladder, for the answer and the reasoning alike | `document_first_offset` + `document_first_offset_walks_drawn_heights_and_gaps` |
+| Markdown image | unresolvable source renders the alt as tertiary italic; a failed load adds the destination when there is no alt (`imageAlt`, `radius-md` block) | `Span::alt` + `render.tsx:640,653`; no loading or decoding pipeline yet |
 | Markdown table | `th`/`td` `padding: 10px 16px`, first cell flush, last cell flush right, a rule under every row, `13px/22px`, fills under four columns and scrolls at a `100px` floor above it | `TABLE_PAD_*`/`TABLE_MIN_COLUMN`/`TABLE_FILL_COLUMNS`/`TABLE_LINE` + the shared `table_view`; `Block::Table` |
 | Compact markdown | Reasoning body + trajectory detail use the secondary ladder: `p`/`ul`/`ol`/`blockquote` `4px 0`, `li` `2px`, headings `8px 0 4px` at the inherited size/600, `hr` `8px 0`, code `4px 0` in the surrounding colour, quote padding `8px` | `Ladder::Compact` + `COMPACT_*`; the reasoning body is parsed into the same block model |
 | Markdown rhythm | per-block margins, CSS-collapsed: `p` 16/16 · `h1–h3` 32/16 · `h4–h6` 16/16 · `li` 6 inside, list 16 at its edges · nested list 4 · `hr` 32/32 · code 16/11 · `h4–h6`+list 8 | `block_margins`/`document_gap` over `BLOCK_GAP`/`RULE_GAP`/`LIST_ITEM_GAP`/`NESTED_LIST_GAP`/`CODE_LAST_GAP`/`TIGHT_HEADING_GAP`; both renderers and the offset walk read them |
@@ -1062,4 +1063,29 @@ cell, so new findings go at the end of the file as plain paragraphs.
   shows it, and the header's weight-500 face has no DejaVu equivalent, so it matches
   the body's face rather than a heavier bold. A table's own margin is zero on the body
   ladder (the sheet gives `.tableScroll` no margin) and 4px compact.
+- **Markdown images — landed (fallback branch), capture-verified.** An image failed the
+  whole parse for the same reason tables did, taking the entire reply's formatting with
+  it. The reference has three image branches: an unresolvable source renders the alt as
+  `imageAlt` tertiary italic (`render.tsx:640`), a failed load renders
+  `{failed} · {alt || destination}` (`:653`), and a resolved source renders the
+  `radius-md` box (`:654`, `MarkdownText.module.css:303-315`).
+  Native implements the first branch and, when the alt is empty, the second branch's
+  `|| destination` — so an image can no longer vanish or cost the message its
+  formatting. `Tag::Image` now opens an alt buffer that collects the image's plain text
+  (dropping its inline markup, exactly like an HTML alt attribute), and `Span` gained an
+  `alt` flag so the run renders italic in `MUTED`/tertiary while staying inline inside
+  its paragraph. A non-empty title is still refused rather than silently dropped, and
+  the alt bytes are charged against the same text budget.
+  Verified at a new `chat-image` preset: the grab shows an inline image's alt inside a
+  sentence, a standalone image's alt on its own line, and a no-alt image showing its
+  destination, all italic and tertiary, with the surrounding paragraphs intact.
+  `shots/58-image-fallback-dp2.png` is the grab, `shots/58-image-fallback.png` that run's
+  own frame, and a copy is under `app/evidence/`. The parser test
+  `images_fall_back_to_their_alt_run_and_keep_the_rest_of_the_message` pins the alt
+  run's shape, the stripped markup, the destination fallback and the title refusal.
+  Blocked remainder, stated plainly: the *resolvable* branch has no counterpart. Iced
+  would need a decode + texture path plus a deliberate policy for fetching
+  `https://`/local paths, which is a feature of its own rather than a measurement; until
+  then every image takes the unresolvable branch, so a picture the reference would show
+  appears here as its alt text.
 

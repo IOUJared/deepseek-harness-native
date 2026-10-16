@@ -63,6 +63,7 @@ pub const PRESETS: &[&str] = &[
     "chat-transcript",
     "chat-markdown",
     "chat-table",
+    "chat-image",
     "chat-thoughts",
     "chat-thoughts-markdown",
     "chat-search-thoughts",
@@ -213,6 +214,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "chat-transcript"
         | "chat-markdown"
         | "chat-table"
+        | "chat-image"
         | "chat-thoughts"
         | "chat-thoughts-markdown"
         | "chat-search-thoughts"
@@ -393,6 +395,17 @@ fn public_chat_records(preset: &str) -> Vec<Value> {
                     "everySeconds":300,"scheduledAt":"2026-08-31T00:00:00.000Z"}}}}));
         }
         return records;
+    }
+    if preset == "chat-image" {
+        // The reference renders an unresolvable image as its alt text in tertiary
+        // italic (`render.tsx:640`); before this, the whole reply failed the parse.
+        return vec![
+            json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,"surfaceOp":"append","data":{"id":"PUBLIC-user","role":"user","source":{"kind":"user"},"content":[{"type":"text","text":"PUBLIC show a native image fallback."}]}}}),
+            json!({"type":"event","event":{"type":"assistant/message","seq":1,"time":1001,"surfaceOp":"append","data":{"turn":1,"step":1,"usage":{"inputTokens":100,"cacheReadTokens":40,"cacheWriteTokens":10,"outputTokens":20,"reasoningTokens":8,"totalTokens":170},"stream":[
+                {"type":"reasoning-chunks","time0":1001,"index":0,"dt":[],"texts":["PUBLIC image reasoning."]},
+                {"type":"text-chunks","time0":1001,"index":1,"dt":[],"texts":["PUBLIC paragraph with an inline ![PUBLIC inline alt](https://example.invalid/inline.png) image.\n\n![PUBLIC standalone alt](https://example.invalid/standalone.png)\n\n![](https://example.invalid/no-alt.png)\n\nPUBLIC paragraph after the images."]}
+            ]}}}),
+        ];
     }
     if preset == "chat-table" {
         // A table and a narrow three-column table, with paragraphs on both sides so a
@@ -805,6 +818,7 @@ pub fn build(
             | "chat-transcript"
             | "chat-markdown"
             | "chat-table"
+            | "chat-image"
             | "chat-search-thoughts"
             | "chat-thoughts"
             | "chat-thoughts-markdown"

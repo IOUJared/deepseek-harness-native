@@ -710,7 +710,15 @@ fn inline_runs(parts: &[formatted::Span]) -> Vec<native::Span<'static, (), Font>
                     },
                     ..if part.code { MONO } else { FONT }
                 })
-                .color(if part.code { design::FOAM } else { TEXT })
+                .color(if part.code {
+                    design::FOAM
+                } else if part.alt {
+                    // `imageAlt { color: var(--dsw-alias-label-tertiary) }`
+                    // (`MarkdownText.module.css:298-301`).
+                    MUTED
+                } else {
+                    TEXT
+                })
         })
         .collect()
 }
@@ -911,6 +919,7 @@ pub(crate) fn compact_heading_spans(spans: &[formatted::Span]) -> Vec<formatted:
             bold: true,
             italic: part.italic,
             code: part.code,
+            alt: part.alt,
         })
         .collect()
 }
@@ -1562,24 +1571,28 @@ mod tests {
                 bold: false,
                 italic: false,
                 code: false,
+                alt: false,
             },
             formatted::Span {
                 text: "İ世".into(),
                 bold: true,
                 italic: true,
                 code: false,
+                alt: false,
             },
             formatted::Span {
                 text: "界z".into(),
                 bold: false,
                 italic: false,
                 code: true,
+                alt: false,
             },
             formatted::Span {
                 text: " tail".into(),
                 bold: false,
                 italic: false,
                 code: false,
+                alt: false,
             },
         ];
         let runs = inline_runs(&parts);
@@ -1901,24 +1914,28 @@ mod tests {
                 bold: false,
                 italic: false,
                 code: false,
+                alt: false,
             },
             formatted::Span {
                 text: "bold PUBLIC ".repeat(10),
                 bold: true,
                 italic: false,
                 code: false,
+                alt: false,
             },
             formatted::Span {
                 text: "italic PUBLIC ".repeat(10),
                 bold: false,
                 italic: true,
                 code: false,
+                alt: false,
             },
             formatted::Span {
                 text: "code PUBLIC ".repeat(10),
                 bold: false,
                 italic: false,
                 code: true,
+                alt: false,
             },
         ];
         let runs = inline_runs(&parts);
