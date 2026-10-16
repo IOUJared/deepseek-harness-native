@@ -1901,3 +1901,18 @@ cell, so new findings go at the end of the file as plain paragraphs.
    app becomes ready** (or the first user action that could need a preset name), not a
    per-selection read beside the session's commands. That is the slice's real shape, and it is
    recorded rather than retried in the same place.
+
+   **The epoch read was refused by the suites too, and that is the strongest signal yet.** Put
+   it in `Event::Ready`'s epoch-change branch — the same branch that retires the epoch-scoped
+   catalog read — and **15 `codex_ui_tests` failed**, every one of them an assertion about the
+   exact command stream the app queues after a receipt. So native's discipline is stricter than
+   the `request_commands` comment alone suggested: the app's tests hold that *no read is queued
+   without a user action*, and a "one harmless read per epoch" is not exempt.
+   The change was reverted without being committed (`1099 passed, 15 failed` → back to
+   `1114 / 1107`, both exit 0), and the gate check that refused it is the round-115 rule doing
+   its job for the first time.
+   So the roster's trigger must be a **user action**, like every other read: the hero chip's own
+   press and the General page's open are the two faithful candidates, because those are the
+   moments a surface actually needs a preset name. That shrinks nothing and speeds nothing —
+   but it is where this belongs, and both places are already the ones that would need the
+   roster anyway.
