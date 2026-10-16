@@ -48,6 +48,11 @@ pub struct DisplayRow {
     /// [`DisplayRow::text`] so the view can draw the reference's attachment row
     /// as its own block above the bubble instead of one joined string.
     pub files: Vec<FileCard>,
+    /// Labels cited by the `session-reference` context record that immediately follows
+    /// this message: the reference draws them under the bubble as
+    /// `Referenced session · labels` (`ui-chat/src/client/chat/MessageItem.tsx:225-229`,
+    /// labels from `conversation-nodes/event-projection.ts:83-87`).
+    pub references: Vec<String>,
     pub time: i64,
     pub surface: bool,
 }
@@ -665,9 +670,31 @@ impl Transcript {
                 chat: presentation::chat_visible(kind, role),
                 text: bounded(&text, MAX_DISPLAY_BYTES),
                 files,
+                references: Vec::new(),
                 time: event.time,
                 surface,
             };
+            // A `session-reference` context record carries the labels cited by the
+            // message it follows, which the reference draws under that bubble
+            // (`conversation-nodes/event-projection.ts:83-87`); it is attributed before
+            // the record's own hidden row is pushed.
+            if event.data["source"]["kind"].as_str() == Some("session-reference") {
+                let labels: Vec<String> = event.data["source"]["references"]
+                    .as_array()
+                    .map(|references| {
+                        references
+                            .iter()
+                            .filter_map(|reference| reference["label"].as_str())
+                            .map(|label| bounded(label, 128))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if !labels.is_empty()
+                    && let Some(human) = rows.iter_mut().rev().find(|row| row.role == "You")
+                {
+                    human.references = labels;
+                }
+            }
             if !row.surface {
                 rows.push(row);
                 continue;
@@ -1138,6 +1165,50 @@ mod tests {
             ["你好 🦀", "next"]
         );
         assert_eq!(s.rows[2].text, "summary");
+    }
+    #[test]
+    fn a_session_reference_attaches_its_labels_to_the_message_it_follows() {
+        let recall = |seq: u64, references: Value| json!({"type":"event","event":{"type":"user/message","seq":seq,"time":1000+seq,"data":{"role":"user","id":"ref","source":{"kind":"session-reference","references":references},"content":[{"type":"text","text":"PUBLIC recalled context"}]},"surfaceOp":"append"}});
+        let mut s = Transcript::new(1);
+        s.apply(
+            1,
+            snapshot(
+                vec![
+                    user(0, "PUBLIC question"),
+                    recall(
+                        1,
+                        json!([{"label":"PUBLIC session A"},{"label":"PUBLIC session B"}]),
+                    ),
+                    user(2, "PUBLIC follow-up"),
+                ],
+                2,
+            ),
+        )
+        .unwrap();
+        // The labels land on the human message the record follows, not on the hidden
+        // context row and not on a later message.
+        assert_eq!(
+            s.rows[0].references.join(" | "),
+            "PUBLIC session A | PUBLIC session B"
+        );
+        assert!(s.rows[1].references.is_empty());
+        assert!(s.rows[2].references.is_empty());
+        // The context row itself stays out of the clean conversation.
+        assert!(!s.rows[1].chat);
+        // A malformed reference list contributes nothing rather than a label.
+        let mut s = Transcript::new(1);
+        s.apply(
+            1,
+            snapshot(
+                vec![
+                    user(0, "PUBLIC question"),
+                    recall(1, json!([{"label":3},{},{"label":"PUBLIC keep"}])),
+                ],
+                1,
+            ),
+        )
+        .unwrap();
+        assert_eq!(s.rows[0].references.join(" | "), "PUBLIC keep");
     }
     #[test]
     fn stale_generation_does_not_change_session() {

@@ -65,6 +65,9 @@ pub(crate) struct Geometry {
 struct Entry {
     role: String,
     preview: String,
+    /// The summary line's height, part of the cached geometry and part of the entry's
+    /// identity: a later `session-reference` record re-measures the row it lands on.
+    summary: f32,
     lane_bits: u32,
     geometry: Geometry,
     // Two most recently used measurement widths, sharing one role/preview string.
@@ -116,6 +119,9 @@ impl Cache {
         key: u64,
         role: &str,
         preview: &str,
+        // Extra height the reference's referenced-session summary line adds to this row,
+        // computed by the caller that knows the secondary delta. Zero when none.
+        summary: f32,
         lane_width: f32,
     ) -> Geometry {
         let lane = lane_width_checked(lane_width);
@@ -144,6 +150,7 @@ impl Cache {
             if let Some(entry) = entries.get_mut(&key)
                 && entry.role == role
                 && entry.preview == preview
+                && entry.summary == summary
             {
                 if entry.lane_bits == lane_bits {
                     #[cfg(feature = "public-layout-fixture")]
@@ -231,10 +238,14 @@ impl Cache {
                 } else {
                     PREVIEW_LINES * crate::design::LINE_BODY
                 };
+                // The reference's referenced-session summary is one 13px/18px line
+                // under the bubble, inside `.userStack` (its 8px gap) and above the
+                // action row (`MessageItem.module.css:10-45`, `MessageItem.tsx:225-229`).
+                let summary_height = summary;
                 Geometry {
                     width,
                     body_height,
-                    height: chrome_height(role) + body_height,
+                    height: chrome_height(role) + body_height + summary_height,
                 }
             };
 
@@ -245,13 +256,16 @@ impl Cache {
         }
         let previous = entries
             .get(&key)
-            .filter(|entry| entry.role == role && entry.preview == preview)
+            .filter(|entry| {
+                entry.role == role && entry.preview == preview && entry.summary == summary
+            })
             .map(|entry| (entry.lane_bits, entry.geometry));
         entries.insert(
             key,
             Entry {
                 role: role.into(),
                 preview: preview.into(),
+                summary,
                 lane_bits,
                 geometry,
                 previous,
@@ -309,7 +323,7 @@ mod tests {
             "Assistant · live",
             "Interrupted assistant attempt",
         ] {
-            let geometry = cache.geometry(1, role, "PUBLIC", 700.0);
+            let geometry = cache.geometry(1, role, "PUBLIC", 0.0, 700.0);
             let status = matches!(role, "Assistant · live" | "Interrupted assistant attempt");
             assert_eq!(status_header(role), status);
             assert_eq!(body_top(role), if status { 47.0 } else { 16.0 });
@@ -329,12 +343,12 @@ mod tests {
     fn two_recent_widths_reuse_actual_native_geometry_without_more_shapes() {
         let cache = Cache::default();
         let text = "PUBLIC native wide words ".repeat(6);
-        let wide = cache.geometry(1, "You", &text, 740.0);
-        let narrow = cache.geometry(1, "You", &text, 542.0);
+        let wide = cache.geometry(1, "You", &text, 0.0, 740.0);
+        let narrow = cache.geometry(1, "You", &text, 0.0, 542.0);
         assert_eq!(cache.shapes.get(), 2);
         for _ in 0..16 {
-            assert_eq!(cache.geometry(1, "You", &text, 740.0), wide);
-            assert_eq!(cache.geometry(1, "You", &text, 542.0), narrow);
+            assert_eq!(cache.geometry(1, "You", &text, 0.0, 740.0), wide);
+            assert_eq!(cache.geometry(1, "You", &text, 0.0, 542.0), narrow);
         }
         assert_eq!(cache.shapes.get(), 2);
         assert_eq!(cache.entries.borrow().len(), 1);
@@ -342,14 +356,14 @@ mod tests {
     #[test]
     fn third_width_evicts_only_the_least_recent_geometry_not_the_row() {
         let cache = Cache::default();
-        cache.geometry(1, "You", "PUBLIC", 740.0);
-        cache.geometry(1, "You", "PUBLIC", 542.0);
-        cache.geometry(1, "You", "PUBLIC", 740.0);
-        cache.geometry(1, "You", "PUBLIC", 420.0);
+        cache.geometry(1, "You", "PUBLIC", 0.0, 740.0);
+        cache.geometry(1, "You", "PUBLIC", 0.0, 542.0);
+        cache.geometry(1, "You", "PUBLIC", 0.0, 740.0);
+        cache.geometry(1, "You", "PUBLIC", 0.0, 420.0);
         assert_eq!(cache.shapes.get(), 3);
-        cache.geometry(1, "You", "PUBLIC", 740.0);
+        cache.geometry(1, "You", "PUBLIC", 0.0, 740.0);
         assert_eq!(cache.shapes.get(), 3);
-        cache.geometry(1, "You", "PUBLIC", 542.0);
+        cache.geometry(1, "You", "PUBLIC", 0.0, 542.0);
         assert_eq!(cache.shapes.get(), 4);
         assert_eq!(cache.entries.borrow().len(), 1);
     }
@@ -357,14 +371,14 @@ mod tests {
     fn changed_preview_or_role_discards_both_cached_widths() {
         let cache = Cache::default();
         for lane in [740.0, 542.0] {
-            cache.geometry(1, "You", "PUBLIC old", lane);
+            cache.geometry(1, "You", "PUBLIC old", 0.0, lane);
         }
         for lane in [740.0, 542.0] {
-            cache.geometry(1, "You", "PUBLIC replacement", lane);
+            cache.geometry(1, "You", "PUBLIC replacement", 0.0, lane);
         }
         assert_eq!(cache.shapes.get(), 4);
         for lane in [740.0, 542.0] {
-            cache.geometry(1, "Assistant", "PUBLIC replacement", lane);
+            cache.geometry(1, "Assistant", "PUBLIC replacement", 0.0, lane);
         }
         assert_eq!(cache.shapes.get(), 6);
         cache.retain_keys([]);
@@ -377,8 +391,8 @@ mod tests {
         // wider lane widens the bubble: the two lanes must measure differently
         // rather than reuse one fixed-cap geometry.
         let long = "PUBLIC words ".repeat(80);
-        let wide = cache.geometry(1, "You", &long, 4096.0).width;
-        let narrow = cache.geometry(1, "You", &long, 740.0).width;
+        let wide = cache.geometry(1, "You", &long, 0.0, 4096.0).width;
+        let narrow = cache.geometry(1, "You", &long, 0.0, 740.0).width;
         assert!(wide > narrow, "{wide} must exceed {narrow}");
         // Word wrapping leaves the widest line at or under the paragraph bound, so
         // the bubble sits at or under the cap rather than exactly on it.
@@ -386,16 +400,16 @@ mod tests {
         assert!(narrow > 740.0 * crate::design::USER_BUBBLE_SHARE - 64.0);
         assert_eq!(cache.shapes.get(), 2);
         // The unboxed assistant column tracks the shared content width.
-        let assistant = cache.geometry(2, "Assistant", "PUBLIC", 850.0);
+        let assistant = cache.geometry(2, "Assistant", "PUBLIC", 0.0, 850.0);
         assert_eq!(assistant.width, 842.0);
         assert_eq!(
-            cache.geometry(2, "Assistant", "PUBLIC", 1200.0).width,
+            cache.geometry(2, "Assistant", "PUBLIC", 0.0, 1200.0).width,
             1192.0
         );
         assert_eq!(cache.shapes.get(), 4);
-        let tool = cache.geometry(3, "Tool call", "PUBLIC", 740.0);
+        let tool = cache.geometry(3, "Tool call", "PUBLIC", 0.0, 740.0);
         assert_ne!(
-            cache.geometry(3, "Tool call", "PUBLIC", 800.0).width,
+            cache.geometry(3, "Tool call", "PUBLIC", 0.0, 800.0).width,
             tool.width
         );
         // Two user lanes and two assistant lanes; a tool row's width is arithmetic
@@ -435,9 +449,9 @@ mod tests {
                 "Γειά σου 世界 👩‍💻 مرحبا PUBLIC words\nsecond line",
             ] {
                 for width in widths.into_iter().chain(widths.into_iter().rev()) {
-                    let expected = Cache::default().geometry(1, role, preview, width);
+                    let expected = Cache::default().geometry(1, role, preview, 0.0, width);
                     assert_eq!(
-                        cache.geometry(1, role, preview, width),
+                        cache.geometry(1, role, preview, 0.0, width),
                         expected,
                         "cached metrics must preserve exact native geometry"
                     );
@@ -449,14 +463,14 @@ mod tests {
     fn retained_plus_live_capacity_bounds_both_geometry_slots_without_duplicate_plaintext() {
         let cache = Cache::default();
         for key in (0..4096).chain(std::iter::once(u64::MAX)) {
-            cache.geometry(key, "You", "PUBLIC", 740.0);
-            cache.geometry(key, "You", "PUBLIC", 542.0);
+            cache.geometry(key, "You", "PUBLIC", 0.0, 740.0);
+            cache.geometry(key, "You", "PUBLIC", 0.0, 542.0);
         }
         let shapes = cache.shapes.get();
         cache.retain_keys((0..4096).chain(std::iter::once(u64::MAX)));
         for key in (0..4096).chain(std::iter::once(u64::MAX)) {
-            cache.geometry(key, "You", "PUBLIC", 740.0);
-            cache.geometry(key, "You", "PUBLIC", 542.0);
+            cache.geometry(key, "You", "PUBLIC", 0.0, 740.0);
+            cache.geometry(key, "You", "PUBLIC", 0.0, 542.0);
         }
         let entries = cache.entries.borrow();
         assert_eq!(entries.len(), MAX_ENTRIES);
@@ -466,18 +480,25 @@ mod tests {
     #[test]
     fn same_key_hits_reuse_shapes_and_preview_role_width_changes_invalidate() {
         let cache = Cache::default();
-        let first = cache.geometry(7, "You", "Hi", 600.0);
+        let first = cache.geometry(7, "You", "Hi", 0.0, 600.0);
         assert_eq!(first.height, 32.0 + crate::design::LINE_BODY);
         for _ in 0..8 {
-            assert_eq!(cache.geometry(7, "You", "Hi", 600.0), first);
+            assert_eq!(cache.geometry(7, "You", "Hi", 0.0, 600.0), first);
         }
         assert_eq!(cache.shapes.get(), 1);
-        let longer = cache.geometry(7, "You", "A substantially longer PUBLIC preview", 600.0);
+        let longer = cache.geometry(
+            7,
+            "You",
+            "A substantially longer PUBLIC preview",
+            0.0,
+            600.0,
+        );
         assert!(longer.width > first.width);
         let assistant = cache.geometry(
             7,
             "Assistant · live",
             "A substantially longer PUBLIC preview",
+            0.0,
             600.0,
         );
         assert_eq!(assistant.width, 592.0);
@@ -485,6 +506,7 @@ mod tests {
             7,
             "Assistant · live",
             "A substantially longer PUBLIC preview",
+            0.0,
             140.0,
         );
         assert_eq!(narrow.width, 132.0);
@@ -495,6 +517,7 @@ mod tests {
                 7,
                 "Assistant · live",
                 "A substantially longer PUBLIC preview",
+                0.0,
                 140.0
             ),
             narrow
@@ -508,7 +531,7 @@ mod tests {
         let cache = Cache::default();
         for role in ["Tool call", "Tool result"] {
             assert_eq!(
-                cache.geometry(0, role, "PUBLIC", 700.0),
+                cache.geometry(0, role, "PUBLIC", 0.0, 700.0),
                 Geometry {
                     width: 692.0,
                     body_height: 24.0,
@@ -524,7 +547,7 @@ mod tests {
             "approval/policy",
         ] {
             assert_eq!(
-                cache.geometry(0, role, "PUBLIC", 700.0),
+                cache.geometry(0, role, "PUBLIC", 0.0, 700.0),
                 Geometry {
                     width: 692.0,
                     body_height: 75.0,
@@ -539,7 +562,7 @@ mod tests {
     fn retain_and_cap_bound_entries_without_evicting_any_durable_data() {
         let cache = Cache::default();
         for key in 0..5000 {
-            cache.geometry(key, "System", "PUBLIC", 500.0);
+            cache.geometry(key, "System", "PUBLIC", 0.0, 500.0);
         }
         assert_eq!(cache.entries.borrow().len(), MAX_ENTRIES);
         assert!(!cache.entries.borrow().contains_key(&0));
@@ -582,6 +605,7 @@ mod tests {
                     1,
                     role,
                     "PUBLIC verylongunbreakabletoken世界\nPUBLIC line",
+                    0.0,
                     width,
                 );
                 bounded(geometry, lane);
@@ -605,18 +629,19 @@ mod tests {
     #[test]
     fn unicode_newlines_empty_and_role_caps_use_real_paragraph_dimensions() {
         let cache = Cache::default();
-        let short = cache.geometry(0, "You", "Hi", 1000.0);
+        let short = cache.geometry(0, "You", "Hi", 0.0, 1000.0);
         let unicode = cache.geometry(
             1,
             "You",
             "世界 · café · Ελληνικά\nPUBLIC second line\nPUBLIC third line",
+            0.0,
             1000.0,
         );
         assert!(unicode.body_height > short.body_height);
-        let four = cache.geometry(2, "You", "one\ntwo\nthree\nfour", 1000.0);
+        let four = cache.geometry(2, "You", "one\ntwo\nthree\nfour", 0.0, 1000.0);
         assert_eq!(four.body_height, PREVIEW_LINES * crate::design::LINE_BODY);
         assert_eq!(
-            cache.geometry(3, "You", "", 1000.0),
+            cache.geometry(3, "You", "", 0.0, 1000.0),
             Geometry {
                 width: 96.0,
                 body_height: crate::design::LINE_BODY,
@@ -625,14 +650,17 @@ mod tests {
         );
         let long = "PUBLIC words ".repeat(80);
         assert!(
-            cache.geometry(4, "You", &long, 1000.0).width
+            cache.geometry(4, "You", &long, 0.0, 1000.0).width
                 <= 1000.0 * crate::design::USER_BUBBLE_SHARE
         );
         // The unboxed assistant column spans the lane less its outer padding.
-        assert_eq!(cache.geometry(5, "Assistant", "Hi", 1000.0).width, 992.0);
+        assert_eq!(
+            cache.geometry(5, "Assistant", "Hi", 0.0, 1000.0).width,
+            992.0
+        );
         assert_eq!(
             cache
-                .geometry(6, "Interrupted assistant attempt", "Hi", 1000.0)
+                .geometry(6, "Interrupted assistant attempt", "Hi", 0.0, 1000.0)
                 .width,
             992.0
         );
@@ -645,6 +673,7 @@ mod tests {
             1,
             "You",
             "PUBLIC private preview should not be in Debug",
+            0.0,
             500.0,
         );
         assert!(!format!("{cache:?}").contains("PUBLIC private"));
@@ -655,25 +684,25 @@ mod tests {
         let cache = Cache::default();
         // At the default size the delta is the identity.
         assert_eq!(cache.tool_line(), TOOL_LINE_HEIGHT);
-        let base = cache.geometry(1, "Tool call", "PUBLIC preview", 800.0);
+        let base = cache.geometry(1, "Tool call", "PUBLIC preview", 0.0, 800.0);
         assert_eq!(base.height, TOOL_LINE_HEIGHT + ROW_CHROME);
         // A larger content size buys the line more room. Re-measuring the same key
         // also proves the stored entry was dropped: without invalidation this would
         // return the height measured at the old size.
         cache.set_content_delta(3.0);
         assert_eq!(cache.tool_line(), TOOL_LINE_HEIGHT + 3.0);
-        let grown = cache.geometry(1, "Tool call", "PUBLIC preview", 800.0);
+        let grown = cache.geometry(1, "Tool call", "PUBLIC preview", 0.0, 800.0);
         assert_eq!(grown.height, TOOL_LINE_HEIGHT + ROW_CHROME + 3.0);
         assert_eq!(grown.body_height, base.body_height + 3.0);
         // Card padding does not scale: the web scales process rows, not the
         // padding around a message, so a human row keeps its chrome.
-        let human = cache.geometry(2, "You", "PUBLIC preview", 800.0);
+        let human = cache.geometry(2, "You", "PUBLIC preview", 0.0, 800.0);
         assert_eq!(human.height, chrome_height("You") + human.body_height);
         // A smaller content size shrinks it by the same rule.
         cache.set_content_delta(-3.0);
         assert_eq!(
             cache
-                .geometry(1, "Tool call", "PUBLIC preview", 800.0)
+                .geometry(1, "Tool call", "PUBLIC preview", 0.0, 800.0)
                 .height,
             TOOL_LINE_HEIGHT + ROW_CHROME - 3.0
         );

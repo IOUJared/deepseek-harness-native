@@ -8,6 +8,7 @@ fn row(key: u64, role: &str) -> DisplayRow {
         chat: crate::reducer::presentation::chat_visible(role, role),
         text: "PUBLIC".into(),
         files: Vec::new(),
+        references: Vec::new(),
         time: 0,
         surface: false,
     }
@@ -89,7 +90,7 @@ fn measured_chat_heights_drive_ranges_spacers_and_resize_consistently() {
             .iter()
             .map(|r| {
                 cache
-                    .geometry(r.key, &r.role, &excerpt(&r.text), lane)
+                    .geometry(r.key, &r.role, &excerpt(&r.text), 0.0, lane)
                     .height
             })
             .collect();

@@ -4765,6 +4765,15 @@ impl App {
     fn content_delta(&self) -> f32 {
         design::content_delta(self.content_font_size)
     }
+    /// The height the referenced-session summary adds to a row: the user stack's gap
+    /// plus the sheet's `18px + delta_secondary` line, or zero when the row cites
+    /// nothing (`ui-chat/src/client/chat/MessageItem.module.css:42-45`).
+    fn reference_summary_height(&self, row: &DisplayRow) -> f32 {
+        if row.references.is_empty() {
+            return 0.0;
+        }
+        design::ATTACHMENT_CARD_GAP + design::REFERENCE_LINE + self.content_delta_secondary()
+    }
     fn content_delta_secondary(&self) -> f32 {
         design::content_delta_secondary(self.content_font_size)
     }
@@ -7327,6 +7336,7 @@ impl App {
             chat: true,
             text,
             files: Vec::new(),
+            references: Vec::new(),
             time: 0,
             surface: false,
         });
@@ -7437,9 +7447,13 @@ impl App {
                 height: chat_geometry::chrome_height(&row.role) + body_height + actions,
             };
         }
-        let mut geometry =
-            self.chat_geometry
-                .geometry(row.key, &row.role, &excerpt(&row.text), lane);
+        let mut geometry = self.chat_geometry.geometry(
+            row.key,
+            &row.role,
+            &excerpt(&row.text),
+            self.reference_summary_height(row),
+            lane,
+        );
         if self.search_expands_user(row) {
             geometry.body_height = conversation_content::plain_height(
                 &row.text,
@@ -7538,6 +7552,7 @@ impl App {
                     chat: true,
                     text,
                     files: Vec::new(),
+                    references: Vec::new(),
                     time: 0,
                     surface: false,
                 },
@@ -7672,6 +7687,7 @@ impl App {
             chat: true,
             text,
             files: Vec::new(),
+            references: Vec::new(),
             time: 0,
             surface: false,
         });
@@ -8036,6 +8052,25 @@ impl App {
                                     .padding(design::USER_BUBBLE_PAD)
                                     .width(geometry.width)
                                     .style(|_| design::card(OVERLAY, design::USER_BUBBLE_RADIUS)),
+                            );
+                        }
+                        // The reference's referenced-session summary: the labels the
+                        // following `session-reference` record cited, one 13px/18px
+                        // tertiary line under the bubble inside the same stack
+                        // (`MessageItem.tsx:225-229`, `MessageItem.module.css:42-45`).
+                        if !record.references.is_empty() {
+                            stack = stack.push(
+                                label(
+                                    format!(
+                                        "Referenced session · {}",
+                                        record.references.join(", ")
+                                    ),
+                                    MUTED,
+                                )
+                                .size(13)
+                                .line_height(
+                                    design::reference_line(self.content_delta_secondary()),
+                                ),
                             );
                         }
                         column![stack, Space::new().height(ACTION_GAP), footer]
@@ -10855,6 +10890,7 @@ mod tests {
             chat: crate::reducer::presentation::chat_visible(role, role),
             text: "fixture".into(),
             files: Vec::new(),
+            references: Vec::new(),
             time: 1000,
             surface: false,
         }

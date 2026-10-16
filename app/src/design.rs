@@ -351,6 +351,15 @@ pub const ATTACHMENT_CARD_HEIGHT: f32 = 64.0;
 /// `.userStack { gap: 8px }`, the gap between the attachment row and the bubble
 /// and between the cards themselves (`MessageItem.module.css:10-21`).
 pub const ATTACHMENT_CARD_GAP: f32 = 8.0;
+/// The referenced-session summary the reference draws under a user bubble: one
+/// `13px/18px` tertiary line (`ui-chat/src/client/chat/MessageItem.module.css:42-45`),
+/// sitting inside `.userStack` (so it takes that stack's 8px gap) and above the action
+/// row. `REFERENCE_LINE` is the sheet's `18px + delta_secondary` box, a third ladder
+/// entry beside the body's 24 and the compact 20.
+pub const REFERENCE_LINE: f32 = 18.0;
+pub fn reference_line(delta_secondary: f32) -> iced::advanced::text::LineHeight {
+    iced::advanced::text::LineHeight::Absolute(iced::Pixels(REFERENCE_LINE + delta_secondary))
+}
 /// The composer's attachment rail (`ComposerAttachments.module.css:1-8`,
 /// `AttachmentRail.module.css:8-30`): `padding: 2px 10px 0` with a `-6px` bottom
 /// margin inside the card's 12px gap, a 10px gap between 64px-tall items, and an

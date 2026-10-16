@@ -64,6 +64,7 @@ pub const PRESETS: &[&str] = &[
     "chat-markdown",
     "chat-table",
     "chat-image",
+    "chat-references",
     "chat-thoughts",
     "chat-thoughts-markdown",
     "chat-search-thoughts",
@@ -215,6 +216,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "chat-markdown"
         | "chat-table"
         | "chat-image"
+        | "chat-references"
         | "chat-thoughts"
         | "chat-thoughts-markdown"
         | "chat-search-thoughts"
@@ -395,6 +397,18 @@ fn public_chat_records(preset: &str) -> Vec<Value> {
                     "everySeconds":300,"scheduledAt":"2026-08-31T00:00:00.000Z"}}}}));
         }
         return records;
+    }
+    if preset == "chat-references" {
+        // A cross-session recall: the `session-reference` context record that follows
+        // the human message carries the labels the reference draws under its bubble.
+        return vec![
+            json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,"surfaceOp":"append","data":{"id":"PUBLIC-user","role":"user","source":{"kind":"user"},"content":[{"type":"text","text":"PUBLIC question that recalled another session."}]}}}),
+            json!({"type":"event","event":{"type":"user/message","seq":1,"time":1001,"surfaceOp":"append","data":{"role":"user","id":"PUBLIC-recall","source":{"kind":"session-reference","references":[{"label":"PUBLIC session alpha"},{"label":"PUBLIC session beta"}]},"content":[{"type":"text","text":"PUBLIC recalled context."}]}}}),
+            json!({"type":"event","event":{"type":"assistant/message","seq":2,"time":1002,"surfaceOp":"append","data":{"turn":1,"step":1,"usage":{"inputTokens":100,"cacheReadTokens":40,"cacheWriteTokens":10,"outputTokens":20,"reasoningTokens":8,"totalTokens":170},"stream":[
+                {"type":"reasoning-chunks","time0":1002,"index":0,"dt":[],"texts":["PUBLIC recall reasoning."]},
+                {"type":"text-chunks","time0":1002,"index":1,"dt":[],"texts":["PUBLIC answer after the recall."]}
+            ]}}}),
+        ];
     }
     if preset == "chat-image" {
         // The reference renders an unresolvable image as its alt text in tertiary
@@ -819,6 +833,7 @@ pub fn build(
             | "chat-markdown"
             | "chat-table"
             | "chat-image"
+            | "chat-references"
             | "chat-search-thoughts"
             | "chat-thoughts"
             | "chat-thoughts-markdown"
