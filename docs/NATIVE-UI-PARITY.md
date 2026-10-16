@@ -1864,3 +1864,16 @@ cell, so new findings go at the end of the file as plain paragraphs.
    Core → worker → label as one path rather than four separate claims.
    Remaining from this read: the hero chip's `isDefault` row, and the subagent activity marker
    that needs the catalog entry's own `activity`.
+
+   **A process failure worth recording in full.** The commit that landed this payout reported
+   the suites as green, and three tests had in fact failed. The cause was my own command
+   chain: `cargo test … | tail -3` returns the exit status of `tail`, not of `cargo`, so a
+   failing suite could not stop the `&&` chain and the commit proceeded on a red tree. The
+   failing tests were order-sensitive assertions in the command-stream arm where I had put the
+   proactive roster read, which the new command shifted.
+   The fix landed immediately and is the honest one: the request line was removed, both suites
+   were re-run with the exit status captured in a variable rather than through a pipe, and the
+   label's display name stands on the part the capture verified. **Every later commit in this
+   session must capture `cargo`'s own status**; a piped `tail` is not a gate.
+   So the roster's request site is still unwired, and it needs the three order-sensitive tests
+   updated alongside it rather than before them — which is why the request is its own slice.

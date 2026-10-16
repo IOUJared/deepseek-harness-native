@@ -6228,7 +6228,6 @@ impl App {
         };
         self.commands_pending = true;
         self.command(Command::CommandsList(session_id));
-        self.command(Command::AgentPresetsRead);
     }
     /// Put keyboard focus back in the composer.
     ///
