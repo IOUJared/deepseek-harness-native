@@ -127,7 +127,20 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    its alt text. Needs a decode plus texture path and a deliberate fetch policy: are
    `https://` URLs fetched, are local paths read, or neither? That policy is the user's
    call, and it decides whether the feature is safe to build at all.
-2. **Permission select.** The chip, its menu, the Auto-review preset with its badge, the
+2. **Permission select — gated on a Host bridge method that does not exist.** The Host
+   owns permissions as *remote API methods*, not a conversation command:
+   `permissionPresets.catalog(): PermissionCatalog` and
+   `permissionPresets.set(session, name)` — "record a changed preset, then update each
+   changed knob through its own setter"
+   (`packages/extensions/tool-cordis/src/api-catalog.ts:1666-1703`). That is why the plan
+   chip needed no such bridge: the same catalog lists plan mode as owning "the `/plan`
+   command" (`:1706-1716`), which native can send through the composer
+   (`app/src/plan_control.rs:44-54`). Permissions have no equivalent command, so the chip,
+   menu, badge and confirmation guard cannot be built until the runtime bridge exposes
+   those two methods. The native-side projection of the current preset is already landed
+   (`Transcript::permission_preset`), so the UI work that remains is genuinely small once
+   the bridge exists.
+3. **Permission select (original note).** The chip, its menu, the Auto-review preset with its badge, the
    risk confirmation before full access, and the Host command that changes the preset.
    Recorded with its exact geometry and package parts in the verification log below; it is
    several items, each with its own capture, not one.
@@ -1203,7 +1216,14 @@ cell, so new findings go at the end of the file as plain paragraphs.
   answer before writing the chip: how a preset change is expressed (a Host command in the
   command catalog, a conversation command, or a remote mutation like the catalog read),
   because that decides whether native can send it through the composer or needs a new
-  transport path.
+  transport path. **Answered:** the mutation is `permissionPresets.set(session, name)`, a
+  remote Host API method alongside `catalog()`
+  (`packages/extensions/tool-cordis/src/api-catalog.ts:1689-1703`), and plan mode's
+  contrast is explicit in the same catalog — it owns "the `/plan` command"
+  (`:1706-1716`), which is why the plan chip could be a composer line and this cannot. The
+  feature is therefore transport-gated: the runtime bridge has to expose `catalog` and
+  `set` before any chip is honest, and the native projection already landed is the only
+  part that did not depend on them.
 
 - **Compact table cells — landed, capture-verified.** The table landed with one padding
   pair for both ladders, but the sheet gives the compact one its own:
