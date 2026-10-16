@@ -2096,3 +2096,21 @@ navigation, `subagentTiming`'s activity marker, and editable keybinding rebindin
    ships an end-to-end test that waits on `**/api/agentPresets/select`
    (`apps/web/tests/agent-preset-selection.e2e.ts:455`), whose request body settles it.
    Settling step: read that request body, then write the three transport edits item 11 names.
+
+   **Settled completely, from the generated host descriptor — and it changes the request's
+   shape.** `lib/typert.host.js:77-118` declares the endpoint in full: service `agentPresets`,
+   method `select`, `invocation: { kind: 'direct' }`, and
+   `scope: { context: 'agent', wire: 'agentId' }` with the first parameter
+   `{ name: 'agent', wire: 'agentId', source: 'lookup', lookup: 'agent' }` and the second
+   `{ name: 'agentPreset', wire: 'agentPreset', source: 'json' }`.
+   Read together with the generated client's `'agent:agentPresets/select': (agentPreset: string)`
+   (`typert.remote-client.d.ts:24`), that means the **agent is not a body field at all**: it is
+   the endpoint's *scope*, carried as `agentId`, and the body is just `{"agentPreset": …}`.
+   So the earlier reading — that the body would be `{"agentId": …, "agentPreset": …}` — was
+   wrong in the same small way as before, and the artifact settled it rather than a guess.
+   The e2e test's named artifact turned out **not** to settle it: it waits on
+   `**/api/agentPresets/select` without asserting the body
+   (`apps/web/tests/agent-preset-selection.e2e.ts:453-456`), though it does confirm the staged
+   semantics and the appended record. Recording that negative matters as much as the positive.
+   No unknowns remain for this endpoint: three transport edits, the Core family, the app's pick,
+   and the seat announces an `agentPreset/locked` refusal.
