@@ -2,6 +2,7 @@
 /** Private Linux desktop owner. Only framed inherited pipes carry native commands and credentials. */
 import { createRequire } from 'node:module';
 import { createCodexBridge, validCodexAccountId, validCodexLabel } from './codex.mjs';
+import { createPermissionBridge, validPermissionName, validPermissionSession } from './permission.mjs';
 import { createCloudflareBridge, validCloudflareRevision, validCloudflareSave, validCloudflareOAuthCommand } from './cloudflare.mjs';
 import { initializeManagedCodex } from './codex-profile.mjs';
 import { createCodexUsageBridge } from './codex-usage-bridge.mjs';
@@ -47,6 +48,9 @@ export function parseForkCommand(line) {
   if (['codex-select', 'codex-signout'].includes(value.type) && exact(value, ['type', 'requestId', 'accountId', 'expectedEpoch']) && validCodexAccountId(value.accountId) && epoch(value.expectedEpoch)) return value;
   if (value.type === 'codex-signout-all' && exact(value, ['type', 'requestId', 'expectedEpoch']) && epoch(value.expectedEpoch)) return value;
   if (value.type === 'codex-runtime-read' && exact(value, ['type', 'requestId'])) return value;
+  if (value.type === 'permission-catalog' && exact(value, ['type', 'requestId'])) return value;
+  if (value.type === 'permission-set' && exact(value, ['type', 'requestId', 'session', 'name'])
+    && validPermissionSession(value.session) && validPermissionName(value.name)) return value;
   if (value.type === 'codex-runtime-save' && exact(value, ['type', 'requestId', 'expectedRevision', 'values']) && validCodexRuntimeRevision(value.expectedRevision)) {
     try { return { ...value, values: validateCodexRuntimeValues(value.values) }; }
     catch (_error) { throw new Error('Invalid native command'); }
@@ -357,6 +361,7 @@ export function startForkSupervisor({ input = process.stdin, send, loadRuntime =
   let installed;
   let runtime;
   let codex;
+  let permission;
   let codexUsage;
   let cloudflare;
   let boot;
@@ -430,6 +435,7 @@ export function startForkSupervisor({ input = process.stdin, send, loadRuntime =
         case 'codex-status': case 'codex-accounts-status': case 'codex-start': case 'codex-add': case 'codex-select': case 'codex-signout': case 'codex-signout-all': case 'codex-cancel': case 'codex-enable-models': case 'codex-callback': case 'codex-runtime-read': case 'codex-runtime-save':
           value = await codex.handle(command); break;
         case 'codex-usage-load': case 'codex-usage-save': value = await codexUsage.handle(command); break;
+        case 'permission-catalog': case 'permission-set': value = await permission.handle(command); break;
         case 'inspect': emit({ type: 'inspection', requestId: command.requestId, ...await inspect(ctx) }); return;
         case 'open-workspace': await openWorkspace(ctx, command.path); emit({ type: 'workspace-added', requestId: command.requestId }); return;
         case 'onboarding-read': value = await readOnboarding(ctx, installed.credentialRef); break;
@@ -474,6 +480,7 @@ export function startForkSupervisor({ input = process.stdin, send, loadRuntime =
     await initializeManagedCodex(runtime.ctx, installed.home);
     if (cancelled) return;
     codex = createCodexBridge({ ctx: runtime.ctx, emit, addSecret });
+    permission = createPermissionBridge({ ctx: runtime.ctx });
     cloudflare = createCloudflareBridge({ ctx: runtime.ctx, credentialRef: installed.credentialRef, addSecret, emit });
     codexUsage = createCodexUsageBridge({ openStorage: () => {
       if (typeof installed.openUsageStorage !== 'function') throw new Error('Preference storage unavailable');

@@ -136,8 +136,16 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    ever reaches it. Its `core/runtime/permission.test.mjs` joins the existing
    `node --test core/runtime/*.test.mjs` gate (`scripts/verify-native.py:65`), which now
    reports **414 pass / 0 fail** with the four new cases included.
-   Still to come: routing the two commands from the Core's command surface, the chip, the
-   menu, the Auto-review badge and the confirmation guard, at the geometry below.
+   The two commands are now **routed**: `fork-supervisor.mjs` imports the bridge, builds it
+   beside the Codex and Cloudflare bridges, validates them in `parseForkCommand` with
+   `exact` key sets plus `validPermissionSession`/`validPermissionName`, and dispatches them
+   in its `switch`. Verified by importing the supervisor directly — a valid
+   `permission-catalog` and a `permission-set {session, name}` are accepted, while a missing
+   name, a 129-character name and an extra key are each refused — on top of the full
+   `node --test core/runtime/*.test.mjs` gate at **414 pass / 0 fail**.
+   Still to come: the Core-side command that carries these from the app to the bridge, then
+   the chip, the menu, the Auto-review badge and the confirmation guard, at the geometry
+   below.
    (Original note follows.)
    The wiring, read from the Codex bridge: a bridge is a `core/runtime/<name>.mjs` exporting
    a factory (`createCodexBridge`) whose `switch (command.type)` answers fixed commands
