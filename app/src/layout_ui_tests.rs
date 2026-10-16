@@ -337,6 +337,44 @@ fn paste_composer_text_lands_in_the_draft_only_for_a_visible_composer() {
     assert!(queue.try_recv().is_err());
 }
 #[test]
+fn the_editor_menu_history_undoes_and_redoes_only_edits_it_saw() {
+    let (mut app, _queue) = app();
+    app.ready = true;
+    app.root_ready = true;
+    app.follow_ready = true;
+    app.selected = Some(SessionId::new("fixture").unwrap());
+    assert!(app.composer_visible());
+    // Nothing to undo before an edit, and Undo on an empty history is a no-op.
+    drop(app.update(Message::EditorMenuAction(editor_menu::Action::Undo)));
+    assert_eq!(app.editor.text(), "");
+    assert!(!app.editor_menu);
+    // One history step per edit, so Undo restores the text as it was before it.
+    drop(app.update(Message::Editor(text_editor::Action::Edit(
+        text_editor::Edit::Insert('a'),
+    ))));
+    drop(app.update(Message::Editor(text_editor::Action::Edit(
+        text_editor::Edit::Insert('b'),
+    ))));
+    assert_eq!(app.editor.text(), "ab");
+    drop(app.update(Message::EditorMenuAction(editor_menu::Action::Undo)));
+    assert_eq!(app.editor.text(), "a");
+    drop(app.update(Message::EditorMenuAction(editor_menu::Action::Undo)));
+    assert_eq!(app.editor.text(), "");
+    drop(app.update(Message::EditorMenuAction(editor_menu::Action::Redo)));
+    assert_eq!(app.editor.text(), "a");
+    // Select all marks the draft, so the next typed character replaces it, and a
+    // fresh edit drops the redo branch the way an editor's own history does.
+    drop(app.update(Message::EditorMenuAction(editor_menu::Action::SelectAll)));
+    assert_eq!(app.editor.selection().as_deref(), Some("a"));
+    drop(app.update(Message::Editor(text_editor::Action::Edit(
+        text_editor::Edit::Insert('c'),
+    ))));
+    assert_eq!(app.editor.text(), "c");
+    assert!(app.editor_redo.is_empty());
+    drop(app.update(Message::EditorMenuAction(editor_menu::Action::Redo)));
+    assert_eq!(app.editor.text(), "c");
+}
+#[test]
 fn settings_route_facts_project_deepseek_catalog_rows_without_inventing_models() {
     let (mut app, mut queue) = app();
     let model = |provider: &str, id: &str, name: &str| Model {

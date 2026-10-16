@@ -62,6 +62,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | User bubble | `padding: 10px 16px` · radius xl · stack cap `min(content × 0.702, 82%)` | `USER_BUBBLE_PAD`/`_INSET`/`_RADIUS`/`_SHARE`; the cap follows the live lane |
 | Code block | `radius-lg` · banner `9px 14px` at 11/18 · `pre` `padding: 16px` · code `11px/19px` · banner one step over the block | `CODE_FONT`/`CODE_LINE`/`CODE_PAD`/`CODE_BANNER_*`/`CODE_CHROME`; both renderers and the offset path read them |
 | Blockquote | `border-left: 2px solid label-caption` · `padding-left: 14px` · `margin: 16px 0 0` | `QUOTE_BAR`/`QUOTE_PAD`/`QUOTE_INSET`; a filled rule whose height is the paragraph's own measured height |
+| Editable context menu | Undo · Redo · — · Cut · Copy · Paste · — · Select all, each enabled from the edit flags, no accelerator labels, 180px panel | `editor_menu::entries`/`view` + a 100-step editor history; `native-editor-menu` rect |
 | Search offset | measured with the drawn block heights, collapsed gaps and the ladder, for the answer and the reasoning alike | `document_first_offset` + `document_first_offset_walks_drawn_heights_and_gaps` |
 | Compact markdown | Reasoning body + trajectory detail use the secondary ladder: `p`/`ul`/`ol`/`blockquote` `4px 0`, `li` `2px`, headings `8px 0 4px` at the inherited size/600, `hr` `8px 0`, code `4px 0` in the surrounding colour, quote padding `8px` | `Ladder::Compact` + `COMPACT_*`; the reasoning body is parsed into the same block model |
 | Markdown rhythm | per-block margins, CSS-collapsed: `p` 16/16 · `h1–h3` 32/16 · `h4–h6` 16/16 · `li` 6 inside, list 16 at its edges · nested list 4 · `hr` 32/32 · code 16/11 · `h4–h6`+list 8 | `block_margins`/`document_gap` over `BLOCK_GAP`/`RULE_GAP`/`LIST_ITEM_GAP`/`NESTED_LIST_GAP`/`CODE_LAST_GAP`/`TIGHT_HEADING_GAP`; both renderers and the offset walk read them |
@@ -992,4 +993,35 @@ cell, so new findings go at the end of the file as plain paragraphs.
   `shots/55-reasoning-search.png` that run's own frame.
   Remaining: the trajectory table's compact markdown is a native surface of its own and
   was not touched.
+- **Editable-field context menu — landed, capture-verified.** The DMG shell installs a
+  right-click menu for editable fields
+  (`apps/desktop/src/main.ts:276-300`): Undo, Redo, a separator, Cut, Copy, Paste, a
+  separator, Select all — enabled from Chromium's edit flags, with `accelerator: ''`
+  so no shortcut label is drawn, and **no Delete item** (that belongs to the shell's
+  separate `application` popup at `:1018-1034`). Native had no right-click path at all.
+  `app/src/editor_menu.rs` now carries the entry table (`entries`, with a test pinning
+  the order, the two separators and the enablement) and the popup surface; the
+  composer's editor is wrapped in `mouse_area(..).on_right_press(..)` inside
+  `anchored_popup::anchored`, which keeps the anchor's own flow size and dismisses on an
+  outside press. Iced's `MouseArea` only captures the events it has callbacks for, so
+  left clicks, keys and the wheel still reach the editor. Undo and Redo drive a
+  native editor-owned history of up to 100 steps (`record_editor_edit` /
+  `set_editor_text`), like the web editor the shell dispatches those keys into; Cut and
+  Copy write the selection through the same wayland-safe clipboard writer the settings
+  fields use; Paste reuses the composer's existing asynchronous clipboard read; Select
+  all is `text_editor::Action::SelectAll`.
+  Verified with a new `--editor-menu true` fixture flag at the `conversation` preset:
+  the observation records `native-editor-menu` at **180 × 177.4** (x 826, y 435.6) in a
+  1040×700 window, and the grab shows the six items in the shell's order with the two
+  separators, Undo/Redo dimmed with an empty history and Cut/Copy dimmed without a
+  selection while Paste and Select all stay live.
+  `shots/56-editor-menu-dp2.png` is the grab, `shots/56-editor-menu.png` that run's own
+  frame, and a copy of the grab is under `app/evidence/`. A second test drives the
+  history through the production `update`: two edits, two Undos, a Redo, Select all,
+  then an edit that drops the redo branch.
+  Deliberate differences: the popup anchors to the editor rather than the pointer
+  (native's other menus anchor to their trigger), Paste and Select all are always
+  enabled because Iced exposes no edit flags for them, the caret lands where
+  `Content::with_text` puts it after an Undo (Iced has no text-plus-caret restore), and
+  the same menu is not yet offered on the settings and rename text inputs.
 

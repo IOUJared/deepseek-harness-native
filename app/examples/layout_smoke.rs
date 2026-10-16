@@ -72,6 +72,7 @@ const KNOWN_IDS: &[&str] = &[
     "native-hero-workspace",
     "native-load-older",
     "native-plan-control",
+    "native-editor-menu",
     "native-to-bottom",
     "native-width-handle-left",
     "native-width-handle-right",
@@ -113,6 +114,9 @@ struct Options {
     scrolled_away: bool,
     /// Hold a history page in flight, so a capture shows the control's loading form.
     page_pending: bool,
+    /// Open the editable-field context menu, so a capture shows it without a right
+    /// press the fixture cannot deliver.
+    editor_menu: bool,
 }
 fn public_drop_file(value: String) -> Result<PathBuf, &'static str> {
     let path = PathBuf::from(value);
@@ -191,6 +195,7 @@ fn options() -> Result<Options, &'static str> {
             "--hover-tool-row",
             "--width-handle-glow",
             "--plan-pending",
+            "--editor-menu",
             "--scrolled-away",
             "--page-pending",
         ]
@@ -270,6 +275,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         width_handle_glow: match values.remove("--width-handle-glow") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        editor_menu: match values.remove("--editor-menu") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -493,6 +502,9 @@ impl Fixture {
         }
         if options.plan_pending {
             app.set_plan_pending(true);
+        }
+        if options.editor_menu {
+            app.set_editor_menu(true);
         }
         if options.scrolled_away {
             app.set_scrolled_away(true);

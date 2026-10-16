@@ -114,6 +114,8 @@ mod draft_recovery;
 mod draft_recovery_ui;
 #[path = "draft_store.rs"]
 mod draft_store;
+#[path = "editor_menu.rs"]
+mod editor_menu;
 #[cfg(test)]
 #[path = "mcp_ui_tests.rs"]
 mod mcp_ui_tests;
@@ -208,6 +210,10 @@ pub enum Message {
     StopSubmission(prompt_recovery::Ticket),
     RejoinObservations,
     Editor(text_editor::Action),
+    /// Opens or dismisses the editable-field context menu the shell installs
+    /// (`apps/desktop/src/main.ts:276-300`).
+    EditorMenu(bool),
+    EditorMenuAction(editor_menu::Action),
     Send,
     KeyboardSend,
     /// Wayland composer paste: read the clipboard off the UI thread.
@@ -682,6 +688,11 @@ pub struct App {
     transcript: Transcript,
     follow_ready: bool,
     editor: text_editor::Content,
+    /// The shell's editable context menu, and the editor-owned history its Undo and
+    /// Redo entries drive (`apps/desktop/src/main.ts:1018`).
+    editor_menu: bool,
+    editor_undo: Vec<String>,
+    editor_redo: Vec<String>,
     draft_serial: u64,
     drafts: BTreeMap<SessionId, String>,
     pending: prompt_recovery::Controller,
@@ -891,6 +902,9 @@ impl App {
                 transcript: Transcript::new(0),
                 follow_ready: false,
                 editor: text_editor::Content::new(),
+                editor_menu: false,
+                editor_undo: Vec::new(),
+                editor_redo: Vec::new(),
                 draft_serial: 0,
                 drafts: BTreeMap::new(),
                 pending: prompt_recovery::Controller::default(),
@@ -1116,7 +1130,30 @@ impl App {
         let Some(cloudflare) = self.settings.cloudflare_fields() else {
             return Task::none();
         };
-        let text = field.value(cloudflare).to_owned();
+        self.write_clipboard(field.value(cloudflare).to_owned())
+    }
+    /// Pushes the editor's current text onto the undo stack and drops any redo
+    /// branch, so the menu reflects what the editor actually did.
+    fn record_editor_edit(&mut self) {
+        const HISTORY: usize = 100;
+        self.editor_redo.clear();
+        self.editor_undo.push(self.editor.text());
+        if self.editor_undo.len() > HISTORY {
+            self.editor_undo.remove(0);
+        }
+    }
+    /// Restores text into the editor. Iced's `Content` has no text-plus-cursor
+    /// restore, so the caret lands where `with_text` puts it; the menu still unfocuses
+    /// afterwards, and the next click or keystroke re-seats it.
+    fn set_editor_text(&mut self, text: &str) {
+        self.editor = text_editor::Content::with_text(text);
+        self.draft_serial = self.draft_serial.saturating_add(1);
+        self.edit_review = None;
+        self.touch_draft();
+    }
+    /// Puts text on the clipboard, from whichever thread the seat-bound backend
+    /// requires. Shared by the settings fields and the editor's Cut/Copy entries.
+    fn write_clipboard(&self, text: String) -> Task<Message> {
         if wayland_session() {
             // The write happens on a worker thread, like the read, because the
             // seat-bound backend cannot serve it from this one.
@@ -2755,11 +2792,57 @@ impl App {
             {
                 return self.load_drafts(true);
             }
+            Message::EditorMenu(open) if self.composer_visible() => {
+                self.editor_menu = open;
+            }
+            // The shell's own entries: Undo/Redo drive the editor-owned history, the
+            // clipboard entries act on the selection, and Paste reuses the composer's
+            // existing asynchronous read.
+            Message::EditorMenuAction(action) if self.composer_visible() => {
+                self.editor_menu = false;
+                match action {
+                    editor_menu::Action::Undo => {
+                        if let Some(previous) = self.editor_undo.pop() {
+                            self.editor_redo.push(self.editor.text());
+                            self.set_editor_text(&previous);
+                        }
+                    }
+                    editor_menu::Action::Redo => {
+                        if let Some(next) = self.editor_redo.pop() {
+                            self.editor_undo.push(self.editor.text());
+                            self.set_editor_text(&next);
+                        }
+                    }
+                    editor_menu::Action::Cut => {
+                        if let Some(selection) = self.editor.selection() {
+                            let copy = self.write_clipboard(selection);
+                            self.editor
+                                .perform(text_editor::Action::Edit(text_editor::Edit::Delete));
+                            self.record_editor_edit();
+                            return copy;
+                        }
+                    }
+                    editor_menu::Action::Copy => {
+                        if let Some(selection) = self.editor.selection() {
+                            return self.write_clipboard(selection);
+                        }
+                    }
+                    editor_menu::Action::Paste => {
+                        return self.update(Message::PasteComposer);
+                    }
+                    editor_menu::Action::SelectAll => {
+                        self.editor.perform(text_editor::Action::SelectAll);
+                    }
+                }
+            }
             Message::Editor(action)
                 if !self.model_controls.is_open() && self.composer_visible() =>
             {
                 let changed = matches!(&action, text_editor::Action::Edit(_));
                 if changed {
+                    // One history step per edit, cleared of redo branches, exactly
+                    // like the web editor the shell dispatches its keys to.
+                    self.record_editor_edit();
                     self.draft_serial = self.draft_serial.saturating_add(1);
                     self.edit_review = None;
                 }
@@ -4720,6 +4803,12 @@ impl App {
             self.follow_bottom = false;
         }
     }
+    /// Fixture-only: open the editable-field context menu, which a real run only
+    /// opens from a right press inside the composer's editor.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn set_editor_menu(&mut self, open: bool) {
+        self.editor_menu = open;
+    }
     /// Fixture-only: hold a plan toggle in flight, so a capture can show the
     /// chip's disabled state and the strip's in-flight line.
     #[cfg(feature = "public-layout-fixture")]
@@ -6011,6 +6100,21 @@ impl App {
             .line_height(design::body_line(self.content_delta()))
             .style(design::editor)
             .key_binding(move |event| composer_binding(event, keyboard_allowed, menu_open));
+        // The shell's editable context menu: a right press opens it, and the anchoring
+        // wrapper keeps the anchor's own flow size and dismisses on an outside press
+        // (`apps/desktop/src/main.ts:276-300`).
+        let editor = iced::widget::mouse_area(editor).on_right_press(Message::EditorMenu(true));
+        let editor = anchored_popup::anchored(
+            editor.into(),
+            self.editor_menu.then(|| {
+                editor_menu::view(
+                    !self.editor_undo.is_empty(),
+                    !self.editor_redo.is_empty(),
+                    self.editor.selection().is_some(),
+                )
+            }),
+            Message::EditorMenu(false),
+        );
         let sending = self
             .pending
             .values()

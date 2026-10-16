@@ -192,7 +192,7 @@ impl Prepared {
                 return self.content_inset() + offset;
             }
         }
-        let mut y = if self.reasoning.is_empty() {
+        let y = if self.reasoning.is_empty() {
             0.0
         } else if expanded {
             REASONING_ROW
