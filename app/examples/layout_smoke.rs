@@ -136,6 +136,8 @@ struct Options {
     agent_roster: bool,
     /// Open the hero preset seat's list, so its rows are captured.
     agent_seat: bool,
+    /// Hold the seat's refusal state, so its announcement is captured.
+    agent_seat_error: bool,
     /// Open the settings modal, so its General page is captured.
     settings: bool,
 }
@@ -223,6 +225,8 @@ fn options() -> Result<Options, &'static str> {
             "--permission-catalog",
             "--agent-roster",
             "--agent-seat",
+            "--agent-seat-error",
+            "--agent-seat-error",
             "--settings",
             "--scrolled-away",
             "--page-pending",
@@ -307,6 +311,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         settings: match values.remove("--settings") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        agent_seat_error: match values.remove("--agent-seat-error") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -579,6 +587,9 @@ impl Fixture {
         }
         if options.agent_seat {
             app.set_agent_seat_open();
+        }
+        if options.agent_seat_error {
+            app.set_agent_seat_error("Agent preset: This session has already started");
         }
         if options.settings {
             app.set_settings_open();

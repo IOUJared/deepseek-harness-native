@@ -2234,3 +2234,18 @@ navigation, `subagentTiming`'s activity marker, and editable keybinding rebindin
    in the fixture, which needs a setter for it. The seat's normal state is unchanged by this edit
    — the chip renders the roster's name exactly as the round-120 capture shows — so the existing
    grab still holds, and the refusal's own grab is the next step.
+
+   **The refusal is capture-verified, and the capture found the missing piece.**
+   `shots/77-agent-preset-refusal-dp2.png` shows the seat's chip reading
+   "Agent preset: This session has already started" in the danger colour beside the workspace
+   chip, so the Host's `agentPreset/locked` refusal now reaches the user instead of being
+   dropped. Two things had to be fixed to get there, both recorded because both were mine: the
+   fixture needed a setter for the refusal state, and it needed the new flag **registered in its
+   accepted-argument list** (`app/examples/layout_smoke.rs:222-235`) — the fixture refuses an
+   unknown flag exactly as it refuses an unregistered mode, which is the second time that
+   validation has caught me rather than a silent empty capture.
+   Verified: fixture **1114** exit 0, default **1107** exit 0, format-debt 0.
+   Item 11 — agent-preset selection — is therefore complete end to end and captured, with every
+   layer cited: the registry's declaration and lock code, the generated client's argument names,
+   the in-repo `commands/list` precedent for the body, the transport endpoint and its test, the
+   worker arm, and the seat's pick and announcement.

@@ -5019,6 +5019,12 @@ impl App {
     /// Fixture-only: stand in for the Host's roster reply, so the label's display name is
     /// capturable without a running Host.
     #[cfg(feature = "public-layout-fixture")]
+    /// Fixture-only: hold the seat's refusal state open, which a real run reaches by picking a
+    /// preset for a session that has already started.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn set_agent_seat_error(&mut self, message: &str) {
+        self.agent_seat_error = Some(message.to_owned());
+    }
     pub(crate) fn set_agent_seat_open(&mut self) {
         self.agent_seat_open = true;
     }
