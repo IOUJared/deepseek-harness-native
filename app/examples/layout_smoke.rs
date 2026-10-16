@@ -74,6 +74,7 @@ const KNOWN_IDS: &[&str] = &[
     "native-plan-control",
     "native-editor-menu",
     "native-reference-summary",
+    "native-permission-control",
     "native-to-bottom",
     "native-width-handle-left",
     "native-width-handle-right",

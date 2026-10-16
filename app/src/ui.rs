@@ -6029,6 +6029,32 @@ impl App {
         self.touch_draft();
         Self::focus_composer()
     }
+    /// The reference's permission chip, in the form it takes while its control is locked:
+    /// a 28px chip with a glyph and the current preset's name, drawn in the dimmed colour
+    /// with no menu, which is exactly the state `PermissionSelect` renders for
+    /// `disabled={locked || leaving}` (`PermissionSelect.module.css:1-40`). The preset
+    /// comes from the Host's own `permission/preset` record; the menu that switches it will
+    /// submit `/permission <preset>`, the command line the package's header names
+    /// (`ui-permission-presets/src/client/index.ts:3-11`).
+    fn permission_chip(&self) -> Option<Element<'_, Message>> {
+        let preset = self.transcript.permission_preset()?;
+        Some(
+            container(
+                row![
+                    label("◈", MUTED)
+                        .size(12)
+                        .width(design::PERMISSION_CHIP_GLYPH),
+                    label(permission_label(preset), MUTED).size(13),
+                ]
+                .spacing(4)
+                .align_y(iced::Alignment::Center),
+            )
+            .id("native-permission-control")
+            .padding(design::COMPOSER_CHIP_PAD)
+            .height(design::COMPOSER_CHIP_HEIGHT)
+            .into(),
+        )
+    }
     /// The plan-mode control for the selected session, from the Host's advertised
     /// commands and the Host's own `plan` projection.
     /// The plan-mode chip the reference seats in the control row's leading group.
@@ -6321,6 +6347,9 @@ impl App {
             .id("native-file-open"),
         ];
         if let Some(chip) = self.plan_chip() {
+            controls = controls.push(chip);
+        }
+        if let Some(chip) = self.permission_chip() {
             controls = controls.push(chip);
         }
         controls = controls
@@ -10231,6 +10260,19 @@ impl<M: Clone, R: iced::advanced::Renderer> iced::advanced::Widget<M, Theme, R>
 ///
 /// Iced's text editor clears its own focus on any left press outside its bounds,
 /// and it processes the press before the widget around it does, so a plain
+/// The display name for a permission preset. The reference takes it from the Host's
+/// catalog and falls back to a locale key; native has no catalog here yet, so the three
+/// design presets carry their own names and anything host-configured shows its own key,
+/// which is what the Host's own `optionOf` does for a missing label.
+fn permission_label(preset: &str) -> &str {
+    match preset {
+        "read-only" => "Read only",
+        "workspace-write" => "Workspace write",
+        "full-access" => "Full access",
+        "auto" => "Auto",
+        other => other,
+    }
+}
 /// `mouse_area` cannot stop it: the field has already unfocused and captured the
 /// event by the time the wrapper would run. This wrapper therefore lets the
 /// content read the press first -- a control inside keeps its click -- and then,

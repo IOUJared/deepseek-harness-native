@@ -664,6 +664,11 @@ pub const COMPOSER_CHIP_PAD: iced::Padding = iced::Padding {
     left: 8.0,
 };
 pub const COMPOSER_CHIP_CHEVRON: f32 = 12.0;
+/// The reference's permission chip (`PermissionSelect.module.css:1-40`): the same 28px
+/// control-row chip as the model select, with a 14px permission glyph where that chip
+/// carries its own icon, and `label-secondary` text at 13px/20px. Its glyphs are SVGs
+/// with no DejaVu equivalent, so the chip uses `◈` (U+25C8), which DejaVuSans covers.
+pub const PERMISSION_CHIP_GLYPH: f32 = 14.0;
 pub const COMPOSER_CONTROL_HEIGHT: f32 = 34.0;
 /// The transcript's own side inset: the web's `.scroll` pads
 /// `calc(var(--dsh-composer-side-clearance) + 16px)` = 32px per side

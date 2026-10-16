@@ -64,6 +64,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Blockquote | `border-left: 2px solid label-caption` · `padding-left: 14px` · `margin: 16px 0 0` | `QUOTE_BAR`/`QUOTE_PAD`/`QUOTE_INSET`; a filled rule whose height is the paragraph's own measured height |
 | Editable context menu | Undo · Redo · — · Cut · Copy · Paste · — · Select all, each enabled from the edit flags, no accelerator labels, 180px panel | `editor_menu::entries`/`view` + a 100-step editor history; `native-editor-menu` rect |
 | Search offset | measured with the drawn block heights, collapsed gaps and the ladder, for the answer and the reasoning alike | `document_first_offset` + `document_first_offset_walks_drawn_heights_and_gaps` |
+| Permission chip | control-row chip, `height: 28px`, `padding: 0 4px 0 8px`, `13px/20px` `label-secondary`, a 14px glyph, dimmed while locked | **landed in its locked form** — `native-permission-control` 28.0 × 137.9 at x 380; menu + `/permission <preset>` follow |
 | Permission select | control-row chip: `height: 28px`, `padding: 0 4px 0 8px`, transparent, `radius-sm`, `13px/20px` weight 500, `label-secondary`, `max-width: 220px`, a 14px glyph on the trigger and 16px in the rows, hover `interactive-bg-hover`, disabled `label-dimmed`; menu rows plus an Auto-review preset with a badge and a risk confirmation before full access | **not implemented** — no permission projection state; recorded below with the package's parts |
 | Shutdown budgets | DMG shell: graceful 10 s → SIGTERM 5 s → SIGKILL 5 s (`apps/desktop/src/main.ts:3790-3807`) | native 3 s / 1 s / 1 s (`StopPolicy::default`), documented in `NATIVE-CLOSE.md#budgets-against-the-dmg-shell`; aligning needs a measured Host unwind, not the shell's figures |
 | Referenced-session summary | under a user bubble: `Referenced session · labels` at 13px/18px tertiary, labels from the following `session-reference` context record, joined with `, ` | `DisplayRow::references` + `REFERENCE_LINE`/`reference_line` and the row's geometry; `chat-references` preset |
@@ -1322,3 +1323,23 @@ cell, so new findings go at the end of the file as plain paragraphs.
   a chip would mean splitting a paragraph into a flow of widgets, which the toolkit has
   no inline-flow layout for. Recorded with its values so that whichever comes first — a
   per-span background upstream or a text-layout rework here — has the measurement ready.
+
+- **Permission chip, locked form — landed, capture-verified.** The reference's chip is a
+  28px control-row control with `padding: 0 4px 0 8px`, `font-size: 13px`/`line-height:
+  20px`/`font-weight: 500`, `color: label-secondary`, a 14px glyph, and a dimmed
+  `label-dimmed` form while locked (`PermissionSelect.module.css:1-40`). Native now draws
+  it from the Host's own `permission/preset` record — the projection landed earlier — as
+  `native-permission-control`: `◈` (U+25C8, the one covered by DejaVuSans out of the
+  candidates checked) plus the preset's display name, dimmed and inert, which is exactly
+  the state the reference renders for `disabled={locked || leaving}`. Verified at the
+  `chat-transcript` preset, whose fixture opens with `permission/preset: workspace-write`:
+  the observation records the chip at **28.0 × 137.9** (x 380, y 874), matching the sheet's
+  height, and the grab shows `◈ Workspace write` seated after `+ Attach` and before the
+  trailing model/send group. `shots/62-permission-chip-dp2.png` is the grab and
+  `shots/62-permission-chip.png` that run's own frame.
+  Deliberate remainders: the menu is not built yet, so the chip is the locked form rather
+  than the interactive one — it will submit `/permission <preset>` as a command line, the
+  path the package's header names (`ui-permission-presets/src/client/index.ts:3-11`) and
+  the same one the plan chip uses; the display name falls back to the preset key when the
+  Host's catalog is absent (its own `optionOf` rule), and the Auto badge and the
+  risk-confirmation step still follow.
