@@ -222,7 +222,7 @@ impl Prepared {
                     return (y + offset).clamp(0.0, self.body_height(width, expanded));
                 }
                 y += block_height(block, width, self.delta, self.delta_secondary)
-                    + block_extra_top(block, index == 0)
+                    + document_gap(&document.blocks, index)
                     + design::BLOCK_GAP;
             }
             0.0
@@ -706,13 +706,100 @@ fn heading_size(level: u8) -> u32 {
 /// reference's `h1`–`h3` are `margin: 32px 0 16px` against a paragraph's `16px 0`,
 /// so only a heading that is not the document's first block adds the difference
 /// (`MarkdownText.module.css:15-44`); `h4`–`h6` share the paragraph rhythm.
-pub(crate) fn block_extra_top(block: &formatted::Block, first: bool) -> f32 {
-    match block {
-        formatted::Block::Heading { level, .. } if !first && *level <= 3 => {
-            design::HEADING_EXTRA_TOP
+fn is_item(block: &formatted::Block) -> bool {
+    matches!(
+        block,
+        formatted::Block::Paragraph {
+            marker: Some(_),
+            ..
         }
-        _ => 0.0,
+    )
+}
+fn indent_of(block: &formatted::Block) -> u8 {
+    match block {
+        formatted::Block::Paragraph { indent, .. } | formatted::Block::Code { indent, .. } => {
+            *indent
+        }
+        _ => 0,
     }
+}
+fn is_tight_heading(block: &formatted::Block) -> bool {
+    matches!(block, formatted::Block::Heading { level, .. } if *level >= 4)
+}
+/// The vertical margins the reference gives one block, as `(top, bottom)`, with the
+/// pair's own neighbour rules applied. CSS collapses the gap between two blocks to
+/// the larger of the first's bottom and the second's top, which
+/// [`document_gap`] does.
+pub(crate) fn block_margins(blocks: &[formatted::Block], index: usize) -> (f32, f32) {
+    let block = &blocks[index];
+    let previous = index.checked_sub(1).map(|i| &blocks[i]);
+    let next = blocks.get(index + 1);
+    match block {
+        formatted::Block::Heading { level, .. } => {
+            let top = if *level <= 3 {
+                design::RULE_GAP
+            } else {
+                design::BLOCK_GAP
+            };
+            // `h4`-`h6` tighten to 8px against a following list.
+            let bottom = if is_tight_heading(block) && next.is_some_and(is_item) {
+                design::TIGHT_HEADING_GAP
+            } else {
+                design::BLOCK_GAP
+            };
+            (top, bottom)
+        }
+        formatted::Block::Rule => (design::RULE_GAP, design::RULE_GAP),
+        formatted::Block::Code { .. } => {
+            let bottom = if next.is_some() {
+                design::CODE_LAST_GAP
+            } else {
+                design::BLOCK_GAP
+            };
+            (design::BLOCK_GAP, bottom)
+        }
+        formatted::Block::Paragraph { marker, indent, .. } => {
+            if marker.is_some() {
+                // A list item carries the list's own margins at the group's edges and
+                // the item gap inside it (`MarkdownText.module.css:102-113`); a
+                // deeper item opens a nested list at 4px, and an `h4`-`h6` directly
+                // above tightens to 8px.
+                let nested = previous.is_some_and(|block| *indent > indent_of(block));
+                let same_run =
+                    previous.is_some_and(|block| is_item(block) && indent_of(block) == *indent);
+                let top = if nested {
+                    design::NESTED_LIST_GAP
+                } else if previous.is_some_and(is_tight_heading) {
+                    design::TIGHT_HEADING_GAP
+                } else if same_run {
+                    design::LIST_ITEM_GAP
+                } else {
+                    design::BLOCK_GAP
+                };
+                let bottom = if next.is_some_and(is_item) {
+                    0.0
+                } else {
+                    design::BLOCK_GAP
+                };
+                (top, bottom)
+            } else if *indent > 0 {
+                // Inside a list item the reference zeroes the first and last child's
+                // margins, so the item itself owns the rhythm.
+                (0.0, 0.0)
+            } else {
+                (design::BLOCK_GAP, design::BLOCK_GAP)
+            }
+        }
+    }
+}
+/// The collapsed gap between two neighbouring blocks.
+pub(crate) fn document_gap(blocks: &[formatted::Block], index: usize) -> f32 {
+    if index == 0 {
+        return 0.0;
+    }
+    block_margins(blocks, index - 1)
+        .1
+        .max(block_margins(blocks, index).0)
 }
 fn block_height(block: &formatted::Block, width: f32, delta: f32, delta_secondary: f32) -> f32 {
     match block {
@@ -763,10 +850,10 @@ fn document_height(
         .iter()
         .enumerate()
         .map(|(index, block)| {
-            block_height(block, width, delta, delta_secondary) + block_extra_top(block, index == 0)
+            block_height(block, width, delta, delta_secondary)
+                + document_gap(&document.blocks, index)
         })
         .sum::<f32>()
-        + document.blocks.len().saturating_sub(1) as f32 * design::BLOCK_GAP
 }
 fn document_view(
     document: &formatted::Document,
@@ -776,7 +863,9 @@ fn document_view(
     delta: f32,
     delta_secondary: f32,
 ) -> Element<'static, Message> {
-    let mut body = Column::new().spacing(design::BLOCK_GAP).width(Length::Fill);
+    // Each gap comes from the block pair's own margins, so the column itself spaces
+    // nothing (`MarkdownText.module.css` margins, collapsed by `document_gap`).
+    let mut body = Column::new().width(Length::Fill);
     for (index, block) in document.blocks.iter().enumerate() {
         let content: Element<'static, Message> = match block {
             formatted::Block::Paragraph {
@@ -877,10 +966,10 @@ fn document_view(
                     .into()
             }
         };
-        let extra = block_extra_top(block, index == 0);
+        let gap = document_gap(&document.blocks, index);
         body = body.push(
-            container(Column::new().push(Space::new().height(extra)).push(content))
-                .height(block_height(block, width, delta, delta_secondary) + extra)
+            container(Column::new().push(Space::new().height(gap)).push(content))
+                .height(block_height(block, width, delta, delta_secondary) + gap)
                 .clip(true),
         );
     }
@@ -1176,40 +1265,76 @@ mod tests {
     }
 
     #[test]
-    fn heading_margins_step_up_like_the_reference() {
-        // `MarkdownText.module.css:15-44`: paragraphs are `margin: 16px 0` and
-        // `h1`-`h3` are `margin: 32px 0 16px`, so a heading that follows another
-        // block carries the difference on top of the column's uniform gap.
+    fn block_margins_follow_the_reference_rhythm() {
+        // `MarkdownText.module.css`: `p { margin: 16px 0 }`, `h1`-`h3`
+        // `32px 0 16px`, `h4`-`h6` `16px 0`, lists `16px 0` with
+        // `li:not(:first-child) { margin-top: 6px }`, `hr { margin: 32px 0 }`, and an
+        // `h4`-`h6` followed by a list tightened to 8px.
         let paragraph = || formatted::Block::Paragraph {
             spans: Vec::new(),
             indent: 0,
             marker: None,
             quote: false,
         };
+        let item = |indent| formatted::Block::Paragraph {
+            spans: Vec::new(),
+            indent,
+            marker: Some("-".into()),
+            quote: false,
+        };
         let heading = |level| formatted::Block::Heading {
             level,
             spans: Vec::new(),
         };
-        assert_eq!(block_extra_top(&heading(1), true), 0.0);
+        let code = || formatted::Block::Code {
+            language: None,
+            text: String::new(),
+            indent: 0,
+        };
+        let blocks = vec![paragraph(), heading(2), paragraph()];
         assert_eq!(
-            block_extra_top(&heading(2), false),
-            design::HEADING_EXTRA_TOP
+            block_margins(&blocks, 0),
+            (design::BLOCK_GAP, design::BLOCK_GAP)
         );
         assert_eq!(
-            block_extra_top(&heading(3), false),
-            design::HEADING_EXTRA_TOP
+            block_margins(&blocks, 1),
+            (design::RULE_GAP, design::BLOCK_GAP)
         );
-        assert_eq!(block_extra_top(&heading(4), false), 0.0);
-        assert_eq!(block_extra_top(&paragraph(), false), 0.0);
-        // The document height and the block walk read the same rule.
+        // Collapsing takes the larger margin of the pair.
+        assert_eq!(document_gap(&blocks, 0), 0.0);
+        assert_eq!(document_gap(&blocks, 1), design::RULE_GAP);
+        assert_eq!(document_gap(&blocks, 2), design::BLOCK_GAP);
+        // A list run owns the list's margins at its edges and 6px inside.
+        let list = vec![paragraph(), item(0), item(0), item(0), paragraph()];
+        assert_eq!(block_margins(&list, 1), (design::BLOCK_GAP, 0.0));
+        assert_eq!(block_margins(&list, 2).0, design::LIST_ITEM_GAP);
+        assert_eq!(block_margins(&list, 3).1, design::BLOCK_GAP);
+        assert_eq!(document_gap(&list, 2), design::LIST_ITEM_GAP);
+        assert_eq!(document_gap(&list, 4), design::BLOCK_GAP);
+        // A nested list starts at 4px, and a code block keeps 11px before the next
+        // block; an hr is 32px on both sides.
+        let nested = vec![item(0), item(1)];
+        assert_eq!(block_margins(&nested, 1).0, design::NESTED_LIST_GAP);
+        let with_code = vec![paragraph(), code(), paragraph()];
+        assert_eq!(block_margins(&with_code, 1).1, design::CODE_LAST_GAP);
+        assert_eq!(document_gap(&with_code, 2), design::BLOCK_GAP);
+        let rule = vec![paragraph(), formatted::Block::Rule, paragraph()];
+        assert_eq!(document_gap(&rule, 1), design::RULE_GAP);
+        assert_eq!(document_gap(&rule, 2), design::RULE_GAP);
+        // An h4 against a list tightens both sides to 8px.
+        let tight = vec![heading(4), item(0)];
+        assert_eq!(block_margins(&tight, 0).1, design::TIGHT_HEADING_GAP);
+        assert_eq!(block_margins(&tight, 1).0, design::TIGHT_HEADING_GAP);
+        // The document height is the blocks plus their collapsed gaps.
         let document = formatted::Document {
             blocks: vec![paragraph(), heading(2)],
         };
-        let sum = block_height(&paragraph(), 400.0, 0.0, 0.0)
-            + block_height(&heading(2), 400.0, 0.0, 0.0)
-            + design::HEADING_EXTRA_TOP
-            + design::BLOCK_GAP;
-        assert_eq!(document_height(&document, 400.0, 0.0, 0.0), sum);
+        assert_eq!(
+            document_height(&document, 400.0, 0.0, 0.0),
+            block_height(&paragraph(), 400.0, 0.0, 0.0)
+                + block_height(&heading(2), 400.0, 0.0, 0.0)
+                + design::RULE_GAP
+        );
     }
     #[test]
     fn native_first_match_offsets_reach_long_wrapped_plain_formatted_code_and_reasoning() {

@@ -134,7 +134,9 @@ fn view(document: &formatted::Document) -> Element<'_, Message> {
     // The document's own rhythm, shared with the transcript: the reference spaces
     // paragraphs by 16px and steps a following `h1`-`h3` up to 32px
     // (`ui-primitives/markdown/MarkdownText.module.css:15-44`).
-    let mut body = Column::new().spacing(design::BLOCK_GAP).width(Length::Fill);
+    // Every gap comes from the block pair's collapsed reference margins, so the
+    // column itself spaces nothing (`MarkdownText.module.css`).
+    let mut body = Column::new().width(Length::Fill);
     for (index, block) in document.blocks.iter().enumerate() {
         let rendered: Element<'_, Message> = match block {
             formatted::Block::Heading { level, spans } => {
@@ -204,10 +206,10 @@ fn view(document: &formatted::Document) -> Element<'_, Message> {
                 })
                 .into(),
         };
-        let extra = super::conversation_content::block_extra_top(block, index == 0);
-        body = body.push(if extra > 0.0 {
+        let gap = super::conversation_content::document_gap(&document.blocks, index);
+        body = body.push(if gap > 0.0 {
             Column::new()
-                .push(Space::new().height(extra))
+                .push(Space::new().height(gap))
                 .push(rendered)
                 .into()
         } else {

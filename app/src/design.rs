@@ -131,7 +131,18 @@ pub const BLOCK_GAP: f32 = 16.0;
 /// another block sits `BLOCK_GAP` plus this much below it
 /// (`ui-primitives/markdown/MarkdownText.module.css:15-44`). `h4`–`h6` keep the
 /// paragraph rhythm.
-pub const HEADING_EXTRA_TOP: f32 = 32.0 - BLOCK_GAP;
+/// The rest of the reference's block margins, all from the same sheet: a heading's
+/// fill is `32px 0 16px` for `h1`-`h3` and `16px 0` for `h4`-`h6` (`:15-44`), list
+/// items are `li:not(:first-child) { margin-top: 6px }` with a nested list at
+/// `margin-top: 4px` (`:107-113`), an `hr` is `margin: 32px 0` (`:143-147`), a code
+/// block is `margin: 16px 0` but `margin-bottom: 11px` while another block follows
+/// (`CodeBlock.module.css:22-33`), and an `h4`-`h6` followed by a list tightens both
+/// sides to `8px` (`:50-56`).
+pub const LIST_ITEM_GAP: f32 = 6.0;
+pub const NESTED_LIST_GAP: f32 = 4.0;
+pub const RULE_GAP: f32 = 32.0;
+pub const CODE_LAST_GAP: f32 = 11.0;
+pub const TIGHT_HEADING_GAP: f32 = 8.0;
 /// The gap between two conversation flow rows. The web gives every flow sibling
 /// `margin-top: var(--dsh-chat-flow-gap, 6px)` (`ChatView.module.css:60-71`), so
 /// two process rows sit 6px apart.

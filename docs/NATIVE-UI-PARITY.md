@@ -61,7 +61,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Window box | main 1280×820 · min 520×600 | `design::WINDOW_*`/`WINDOW_MIN_*`, pinned by `the_window_box_matches_the_reference` |
 | User bubble | `padding: 10px 16px` · radius xl · stack cap `min(content × 0.702, 82%)` | `USER_BUBBLE_PAD`/`_INSET`/`_RADIUS`/`_SHARE`; the cap follows the live lane |
 | Code block | `radius-lg` · banner `9px 14px` at 11/18 · `pre` `padding: 16px` · code `11px/19px` · banner one step over the block | `CODE_FONT`/`CODE_LINE`/`CODE_PAD`/`CODE_BANNER_*`/`CODE_CHROME`; both renderers and the offset path read them |
-| Markdown rhythm | `p { margin: 16px 0 }` · `h1–h3 { margin: 32px 0 16px }` · lists `16px` with 6px items | `BLOCK_GAP` + `HEADING_EXTRA_TOP` via `block_extra_top`, shared by the transcript and the details panel |
+| Markdown rhythm | per-block margins, CSS-collapsed: `p` 16/16 · `h1–h3` 32/16 · `h4–h6` 16/16 · `li` 6 inside, list 16 at its edges · nested list 4 · `hr` 32/32 · code 16/11 · `h4–h6`+list 8 | `block_margins`/`document_gap` over `BLOCK_GAP`/`RULE_GAP`/`LIST_ITEM_GAP`/`NESTED_LIST_GAP`/`CODE_LAST_GAP`/`TIGHT_HEADING_GAP`; both renderers and the offset walk read them |
 | Width handles | 10px strip at lane ± 24 · `2px` glow `4px` in, `16px` core, hover/drag only | `WIDTH_HANDLE_*` + `HANDLE_GLOW_*`, hover/drag state, `native-width-handle-*` rects |
 | Jump to latest | `34px` round floating button · slot `bottom: 16px` · right edge on the column (or `32px` in) · only while not following the tail | `TO_BOTTOM_*` + `native-to-bottom` rect; `design::LINE` hover, no shadow |
 | Scrollbars | `5px` bar · invisible rail · `scrollbar-bg-l1` thumb, `hover-l1` on hover, declared for every element | `SCROLLBAR_WIDTH` + `design::scrollbar`/`scrollable_style` on all 18 scrollers; `LINE`/`MUTED` as the l1 pair |
@@ -885,4 +885,32 @@ cell, so new findings go at the end of the file as plain paragraphs.
   `margin-bottom: 11px` and the first block's own top margin are likewise not
   modelled. Closing those needs a per-block margin model in the document layout
   (heights, render and offsets together), which is a larger change than this pass.
+  That model landed next — see below.
+- **Per-block margin model — landed, capture-verified.** The reference gives every
+  markdown block its own margins and lets CSS collapse them: `p` 16/16, `h1`-`h3`
+  32/16, `h4`-`h6` 16/16, `ul`/`ol` 16/16 with `li:not(:first-child)` 6 inside and
+  `li > ul/ol` 4, `hr` 32/32, a code block 16/16 but 11 while another block follows,
+  and an `h4`-`h6` followed by a list tightened to 8 on both sides
+  (`ui-primitives/markdown/MarkdownText.module.css:15-56,102-147`,
+  `CodeBlock.module.css:22-33`). Native expressed all of that as one uniform
+  `Column::spacing`, so list items were 16px apart instead of 6 and a code block never
+  took its 11px.
+  `conversation_content::block_margins` now returns each block's `(top, bottom)` with
+  the neighbour rules (list runs, nesting depth, the tight heading) and
+  `document_gap` collapses a pair to `max(bottom(i−1), top(i))`; the transcript's
+  render loop, its `document_height` and its first-match offset walk read both, and the
+  details panel does the same instead of holding its own spacing. A new
+  `block_margins_follow_the_reference_rhythm` test pins every branch: paragraph,
+  heading step, collapsed gaps, run edges, the 6px item, nesting at 4, the code
+  block's 11, the `hr` pair and the tight heading.
+  Verified at `assistant-details-formatted`: the ink gaps inside the fixture's ordered
+  list measure **13** rows in the grab where the same preset measured **25** and **23**
+  under the uniform 16px gap — the 10px the 16-to-6 item margin asks for — while the
+  code block's own lines keep their 19px pitch. `shots/52-block-margins-dp2.png` is the
+  grab and `shots/52-block-margins.png` that run's own frame.
+  Remainders: the reference's first block's top margin and the document's trailing
+  margin are still not modelled — its margins sit inside a padded body, while native's
+  row geometry owns the leading and trailing space; settling whether the browser adds
+  them needs a measurement against the running web UI, and the supplied reference
+  screenshot is not present in this workspace (only the two GTK palette previews are).
 
