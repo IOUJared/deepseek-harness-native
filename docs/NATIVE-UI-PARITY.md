@@ -65,7 +65,8 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Composer card | panel 28 · `padding-top: 8` · `gap: 12` · input-major + l2 hairline | `RADIUS_XL` 20; `COMPOSER_CARD_*` + `design::elevated_surface` |
 | Composer input | `min-height: 36` · `4px 8px 0 14px` · 14-line text cap 336 | `COMPOSER_INPUT_*`, one-line floor 36, 14 lines (8 in a short window) |
 | Composer control row | `2px 8px 6px` · gap 12 | `COMPOSER_ROW_PAD`/`COMPOSER_ROW_GAP` |
-| Send button | 34×34 · pill | Send pill, 8/14 pad |
+| Composer model chip | `.select` 28 h · `0 20px 0 8px` · radius sm · transparent · 13/20 | `COMPOSER_CHIP_*` + `design::ghost`; in the trailing group |
+| Send / stop control | 34×34 circle · info fill · icon glyph | 34 h · `COMPOSER_CONTROL_HEIGHT`; native keeps the words and its fills |
 | Menu | 13 px · blur 40 · hairline | native panel, no blur |
 
 ## Intentional differences (first pass)
@@ -372,4 +373,33 @@ cell, so new findings go at the end of the file as plain paragraphs.
   web puts attach on the left and the model chip with it on the right, inside
   28px/34px circular controls), and the composer's outer padding (`InputBar`
   `.root` is `0 16px 4px` with a 4px dock inset, where native uses `[10, 20]`).
+- **Composer trailing controls — landed, rect-verified.** The web's control row
+  is `justify-content: space-between`: the left `.tools` group holds its own
+  command circle and the mode selects, and the right `.trailing` group holds the
+  model select beside the send control (`InputBar.tsx:419-486`). The model select
+  is a `.select` chip — `height: 28px`, `padding: 0 20px 0 8px` for its 12px
+  chevron, `--dsw-radius-sm`, transparent at rest with an
+  `interactive-bg-hover` hover, `13px/20px` secondary text
+  (`InputBar.module.css:329-352`) — and the send and stop controls are both
+  `34px` boxes (`:369-395`). Native had the model chip on the *left* as a 20px
+  radius OVERLAY pill with a `◇` glyph at 12px and `6/10` padding, and a row
+  whose send (32.9px) and stop (31.6px) boxes were whatever their text produced.
+  `COMPOSER_CHIP_*` and `COMPOSER_CONTROL_HEIGHT` now carry the figures, the chip
+  is `design::ghost` (transparent at rest, `radius-sm`, hover fill) with a 12px
+  chevron box and no `◇`, and the row reads attach · fill · chip · stop · send.
+  Verified from the fixture's own rects for the recorded control ids, before →
+  after: `native-model-controls` `27.6 h, x 318.0` → **`28.0 h, x 708.3`** (the
+  web's chip height, moved into the trailing group), `native-file-open` `26.3 h,
+  x 764.5` → **`28.0 h, x 318.0`** (the chip height, moved to the leading group),
+  and `native-stop-control` `31.6 → 34.0`, `native-send-control` `32.9 → 34.0`.
+  `shots/34-composer-trailing-dp2.png` (that run's frame
+  `shots/34-composer-trailing.png`, matching at 5.5 mean absolute difference)
+  shows the row's arrangement.
+  Deliberately kept: native's `+ Attach` control, because the web's leading
+  circle is its *command* menu (`InputBar.tsx:419-431`) and native's attach
+  affordance has no counterpart box there — it keeps its label and takes the
+  chip height; and the words on Send and Stop with native's own fills
+  (`design::primary`, `design::danger`), because drawn glyphs are blocked and
+  the words are the native affordance. The web's 34px *circles* are therefore
+  34px *pills* here.
 

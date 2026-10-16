@@ -306,20 +306,28 @@ impl App {
             )
     }
     pub(super) fn model_control(&self) -> Element<'_, Message> {
+        // The web's `.select` chip: 28px tall, transparent at rest with
+        // `radius-sm`, `13px/20px` secondary text and a 12px chevron held 4px
+        // from the trailing edge by `padding: 0 20px 0 8px`
+        // (`InputBar.module.css:329-352`). It lives in the control row's
+        // trailing group beside Send (`InputBar.tsx:450-486`).
         let pill = container(
             button(
                 row![
-                    label("◇", ACCENT).size(12),
-                    label(self.model_caption(), MUTED).size(12),
-                    label(
-                        if self.model_controls.is_open() {
-                            "⌃"
-                        } else {
-                            "⌄"
-                        },
-                        MUTED
+                    label(self.model_caption(), MUTED).size(13),
+                    container(
+                        label(
+                            if self.model_controls.is_open() {
+                                "⌃"
+                            } else {
+                                "⌄"
+                            },
+                            MUTED,
+                        )
+                        .size(13),
                     )
-                    .size(12)
+                    .width(design::COMPOSER_CHIP_CHEVRON)
+                    .align_x(iced::Alignment::Center),
                 ]
                 .spacing(6)
                 .align_y(iced::Alignment::Center),
@@ -328,13 +336,9 @@ impl App {
                 self.composer_visible()
                     .then_some(Message::ModelControls(Action::Toggle)),
             )
-            .style(|theme, status| {
-                let mut style = design::ghost(theme, status);
-                style.background = Some(OVERLAY.into());
-                style.border.radius = 20.0.into();
-                style
-            })
-            .padding([6, 10]),
+            .style(design::ghost)
+            .padding(design::COMPOSER_CHIP_PAD)
+            .height(design::COMPOSER_CHIP_HEIGHT),
         )
         .id("native-model-controls");
         let popup = self

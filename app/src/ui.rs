@@ -5107,7 +5107,10 @@ impl App {
             )
             .on_press_maybe(self.stop_allowed().then_some(Message::Stop))
             .style(design::danger)
-            .padding([8, 12]),
+            .padding([8, 12])
+            // The web draws this control in the same 34px box as Send
+            // (`InputBar.module.css:369-395`).
+            .height(design::COMPOSER_CONTROL_HEIGHT),
         )
         .id("native-stop-control")
         .into()
@@ -5779,8 +5782,9 @@ impl App {
         inner = inner.push(
             container(
                 row![
-                    self.model_control(),
-                    Space::new().width(Length::Fill),
+                    // The web's left group holds its own command control; native's
+                    // attach affordance has no counterpart box there, so it keeps
+                    // its label and takes the chip height.
                     container(
                         button(
                             label(
@@ -5808,8 +5812,13 @@ impl App {
                         )
                         .style(design::ghost)
                         .padding([6, 9])
+                        .height(design::COMPOSER_CHIP_HEIGHT)
                     )
                     .id("native-file-open"),
+                    Space::new().width(Length::Fill),
+                    // The web puts the model select in the trailing group beside
+                    // the send control (`InputBar.tsx:450-486`).
+                    self.model_control(),
                     self.stop_button(),
                     container(
                         button(
@@ -5820,6 +5829,7 @@ impl App {
                         .on_press_maybe(allowed.then_some(Message::Send))
                         .style(design::primary)
                         .padding([8, 14])
+                        .height(design::COMPOSER_CONTROL_HEIGHT)
                     )
                     .id("native-send-control")
                 ]

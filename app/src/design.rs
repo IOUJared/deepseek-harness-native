@@ -488,6 +488,22 @@ pub const COMPOSER_ROW_PAD: iced::Padding = iced::Padding {
     left: 8.0,
 };
 pub const COMPOSER_ROW_GAP: f32 = 12.0;
+/// The composer's trailing controls: the web's `.select` chip is `height: 28px`
+/// with `padding: 0 20px 0 8px` — 8px left, then the text, then a 12px chevron
+/// 4px from the trailing edge — and `13px/20px` secondary text
+/// (`InputBar.module.css:329-352`); the primary send and the stop control are
+/// `34px` boxes (`:369-395`). Native keeps text labels on send and stop (drawn
+/// glyphs are blocked and the words are the native affordance), so the boxes
+/// take the heights and the chip takes the web's own shape.
+pub const COMPOSER_CHIP_HEIGHT: f32 = 28.0;
+pub const COMPOSER_CHIP_PAD: iced::Padding = iced::Padding {
+    top: 0.0,
+    right: 4.0,
+    bottom: 0.0,
+    left: 8.0,
+};
+pub const COMPOSER_CHIP_CHEVRON: f32 = 12.0;
+pub const COMPOSER_CONTROL_HEIGHT: f32 = 34.0;
 /// The fade itself: transparent at the top, base colour by its bottom, so
 /// scrolled content dissolves instead of meeting the composer at a hard edge.
 ///
