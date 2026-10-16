@@ -267,6 +267,22 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    `/home/jared/Documents/deepseek-harness/default-workspace/` would let those be measured
    from pixels instead.
 
+7. **Permission default row in Settings — a second surface, not yet built.** The reference
+   has *two* permission pickers, and only the composer one is done here. `PermissionRow.tsx`
+   is "the default preset for subsequently created sessions", mounted in the
+   `settings.general.item` slot, with its own `RiskConfirmation` and its own write path:
+   `load()` fetches a descriptor and `select(preset)` persists through the host-backed
+   settings preference (`PermissionRow.tsx:1-40`), returning `null` when the host exposes no
+   permission settings and closing itself when the state is not writable. The composer chip
+   covers current-session switches, so this is additive rather than a divergence in what is
+   already there — but it is a real, proven surface native lacks.
+   Settling step: mirror the `settings.general.item` row in native's General page, reading
+   the descriptor through the existing settings path (the same one plugins use), reusing the
+   landed full-access confirmation, and capturing it with a fixture-seeded state. Native's
+   settings row should also honour the reference's own rules: hidden when the host exposes
+   nothing, closed while `status === 'unavailable'` or unwritable, and busy during
+   `loading`/`saving`/`confirmingFullAccess`.
+
 ## Verification log (append-only)
 
 Entries here are appended, never inserted: earlier notes were lost because they
