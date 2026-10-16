@@ -5700,9 +5700,18 @@ impl App {
         let keyboard_allowed = allowed && !self.editor.text().trim().is_empty();
         // The menu claims navigation keys only while it is showing.
         let menu_open = self.completion().is_some();
+        // The reference's placeholder is state-owned: the empty-state hero asks
+        // for a build, the docked bar offers the default line
+        // (`locales.ts:20, 396-399`). Native's blocked session-less state keeps
+        // the hero line, whose copy names the next step.
+        let placeholder = if self.hero_active() && self.selected.is_some() {
+            "Describe what you want to build, / commands, @ files or sessions"
+        } else {
+            "Message or run a task, / commands, @ files or sessions"
+        };
         let editor = text_editor(&self.editor)
             .id(accessibility::WIDGET_COMPOSER)
-            .placeholder("Message DeepSeek Harness… or drop a file")
+            .placeholder(placeholder)
             .on_action(Message::Editor)
             .height(self.composer_editor_height())
             .padding(design::COMPOSER_INPUT_PAD)
@@ -7709,29 +7718,35 @@ impl App {
     }
     fn hero_strip(&self, records: usize) -> Element<'_, Message> {
         let selected = self.selected.is_some();
+        // The reference's headline is the brand mark beside the title, one
+        // centered row at a 10px gap, `26/32` weight 500
+        // (`HeroShell.module.css:33-60`), and its copy is the hero headline
+        // string (`locales.ts:453`). A session-less native window has no
+        // counterpart state, so it keeps its own line and the guidance the
+        // blocked composer needs.
         let mut hero = column![
-            brand(),
-            label(
-                if selected {
-                    "What are we working on?"
-                } else {
-                    "A quiet space for your work"
-                },
-                TEXT
-            )
-            .size(if self.compact() { 25 } else { 30 }),
-            label(
-                if selected {
-                    "Write a message. Send when ready."
-                } else {
-                    "Choose or create a conversation in the sidebar."
-                },
-                MUTED
-            )
-            .size(14)
+            row![
+                brand(),
+                label(
+                    if selected {
+                        "Into the Unknown"
+                    } else {
+                        "A quiet space for your work"
+                    },
+                    TEXT
+                )
+                .size(design::HERO_TITLE_SIZE)
+                .line_height(iced::Pixels(design::HERO_TITLE_LINE)),
+            ]
+            .spacing(design::HERO_HEADLINE_GAP)
+            .align_y(iced::Alignment::Center)
         ]
         .spacing(18)
         .align_x(iced::Alignment::Center);
+        if !selected {
+            hero =
+                hero.push(label("Choose or create a conversation in the sidebar.", MUTED).size(14));
+        }
         if selected && self.transcript.has_more() {
             hero = hero.push(
                 row![

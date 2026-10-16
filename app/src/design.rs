@@ -539,6 +539,12 @@ pub const COMPOSER_CARD_OVERHANG: f32 = 32.0;
 /// (`InputBar.module.css:26-30, 232-236`).
 pub const HERO_GAP: f32 = 12.0;
 pub const HERO_INPUT_MIN: f32 = 52.0;
+/// The hero's headline: `HeroShell.module.css:33-60` draws the fish and the
+/// title as one centered row with `column-gap: 10px`, the title at `26/32`
+/// weight 500 (figma 34:10411).
+pub const HERO_HEADLINE_GAP: f32 = 10.0;
+pub const HERO_TITLE_SIZE: f32 = 26.0;
+pub const HERO_TITLE_LINE: f32 = 32.0;
 pub const COMPOSER_HERO_SEAT_PAD: iced::Padding = iced::Padding {
     top: 0.0,
     right: 16.0,

@@ -69,6 +69,8 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Send / stop control | 34×34 circle · info fill · icon glyph | 34 h · `COMPOSER_CONTROL_HEIGHT`; native keeps the words and its fills |
 | Composer seat | `.root` `0 16px 4px` · dock strip 4px · card = content + 32 | `COMPOSER_SEAT_PAD`/`COMPOSER_DOCK_GAP`/`COMPOSER_CARD_OVERHANG` |
 | Empty-state hero | headline + composer card centered as one stack, `gap: 12`; hero composer floor `52` | `HERO_GAP`/`HERO_INPUT_MIN`; `hero_pane` centers both, `COMPOSER_HERO_SEAT_PAD` drops the bottom pad |
+| Hero headline | mark + `Into the Unknown` in one centered row, `column-gap: 10`, `26/32` wt500 | `HERO_HEADLINE_GAP`/`HERO_TITLE_*`; the session-less state keeps native's own line |
+| Composer placeholder | `placeholder.hero` in the hero, `placeholder.default` docked | state-owned string in `composer()` |
 | Transcript side inset | `calc(clearance + 16px)` = 32 per side | `design::TRANSCRIPT_INSET`; `chat_lane` = `min(column − 64, chat_cap)` |
 | Menu | 13 px · blur 40 · hairline | native panel, no blur |
 
@@ -522,4 +524,32 @@ cell, so new findings go at the end of the file as plain paragraphs.
   fixture's own frame also fixed a capture-tooling bug found here: `dsh-pick.py`
   hard-coded the tool-activity frame's 1040x1072, so the 1040x732 welcome preset
   crashed the picker; it now takes the window size from the fixture's own frame.
+- **Hero headline and composer copy — landed, capture-verified.** The reference's
+  hero headline is the mark beside the title in one centered row with
+  `column-gap: 10px`, the title at `26/32` weight 500 (figma 34:10411, per
+  `HeroShell.module.css:33-60`), and its strings come from the locale sheet:
+  `hero.headline` = "Into the Unknown" (`locales.ts:453`), with the composer
+  placeholder state-owned — `placeholder.hero` = "Describe what you want to
+  build, / commands, @ files or sessions" in the hero and `placeholder.default` =
+  "Message or run a task, / commands, @ files or sessions" docked (`:20, 396-399`).
+  Native drew a 30px (25 compact) headline over a second 14px hint line and used
+  one placeholder, "Message DeepSeek Harness… or drop a file", in every state.
+  `HERO_HEADLINE_GAP` (10), `HERO_TITLE_SIZE` (26) and `HERO_TITLE_LINE` (32) carry
+  the figures; the headline is a single row and the hero-only placeholder is
+  chosen by the `hero_active()` state.
+  Verified on DP-2: the headline's ink band shrinks from `y 343..365` (23 rows at
+  30px) to `y 336..355` (20 rows at 26px), the 14px hint band at `y 398..406` is
+  gone, and the composer card — unchanged at 112..113px tall — re-centers from
+  `y 455..566` to `y 408..520`. The docked grab reads "Message or run a task, /
+  commands, @ files or sessions" and the hero grab reads "Describe what you want
+  to build, / commands, @ files or sessions", with "Into the Unknown" beside the
+  mark. `shots/39-hero-copy-dp2.png` (own frame `shots/39-hero-copy.png`) and
+  `shots/39-docked-copy-dp2.png` are those grabs.
+  Kept deliberately: a session-less native window has no reference counterpart
+  (the web reaches the hero only with a session), so it keeps "A quiet space for
+  your work" plus the guidance its blocked composer needs; the hero's "Preview"
+  badge (`hero.preview`, `:454`) is not drawn; and the hero's workspace-chip row
+  (`ConversationContent.tsx:112-133`, `.heroWorkspaceRow` with `margin-top: 4px`
+  and `padding: 0 16px 0 20px`) has no native counterpart yet — native's workspace
+  seat lives in the sidebar.
 
