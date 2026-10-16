@@ -111,15 +111,18 @@ cell, so new findings go at the end of the file as plain paragraphs.
 
 ### Open items and their dispositions
 
-- **Attachment parts — open, with the route known.** `file_summary`
-  (`reducer.rs:736`) feeds `content()`, and `content()` joins every content part
-  with a newline (`reducer.rs:769-770`), so an attachment and its message text
-  are one row holding one joined string. The reference draws a distinct file card
-  above the text with `.userStack`'s 8px gap (`MessageItem.tsx:194-221`), so
-  closing this means keeping the parts distinct through `content()` and giving the
-  attachment block that gap. It is a `reducer.rs` change, and that file is shared
-  with a concurrent writer, so it wants a session with room to re-run both suites
-  and capture.
+- **Attachment parts — closed and capture-verified.** `file_summary`
+  (`reducer.rs:770`) fed `content()`, and `content()` joins every content part with
+  a newline (`reducer.rs:881`), so an attachment and its message text were one row
+  holding one joined string where the reference draws a distinct file card above the
+  text with `.userStack`'s 8px gap (`MessageItem.tsx:194-221`).
+  `user_content()` now splits a user message's parts — `DisplayRow` carries
+  `FileCard { name, meta }` values in `files` — the view stacks the cards above the
+  bubble, and the reserved height rides `design::attachment_height` at both measure
+  sites. The planning bullets below it (the three sites, the fixture-first order,
+  the exact fixture edit, the cheap route, the macro trap and the coverage
+  distinction) are closed by the verification log's message-attachment entry, which
+  keeps the trap and the coverage distinction as accurate history.
 - **Assistant `Details ▸` — not a divergence.** The reference's action row is
   copy-and-branch icons with no labelled disclosure, so there is no reference
   value to copy; `Details ▸` is native's door to the detail panel, which is a
@@ -187,4 +190,54 @@ cell, so new findings go at the end of the file as plain paragraphs.
   file part when requested, then pass `"content": parts` — which means moving the
   existing `vec![event(0, "user/message", json!({…}))]` wrapper around it rather
   than only editing the array in place.
+- **Message attachment card and its gap — landed at all three sites, capture-verified.**
+  `shots/29-attachment-card-dp2.png` is a `grim -o DP-2` grab of the floating
+  `layout_smoke` window cropped to the window the grab itself shows; that run's own
+  frame is `shots/29-attachment-card.png`. The fixture reported the requested
+  `1040x1040` frame measured as `1040x1072` with `layoutObservation.passed`, so
+  the capture is of the layout under test and not of a tiled or stale window.
+  The crop is taken at the frame the pixels show, not at `hyprctl`'s client rect:
+  a freshly floated window animates, `hyprctl` reports the animation's target, and
+  a crop at that rect silently included ~200px of desktop while the window was
+  elsewhere — the first two attempts did exactly that and looked plausible. The
+  detector finds the frame's own 1040x32 SURFACE banner strip carrying the PUBLIC
+  banner text, and the chosen grab agrees with the fixture's own frame at zero
+  offset.
+  Measured from the compositor's pixels rather than from source, in that capture
+  (which aligns with the fixture's own frame at zero offset): the card's box is
+  `x 745..984`, `y 137..201` — 240 wide, 64 high — the bubble's right edge (`984`)
+  is the card's right edge, the gap between them is exactly `202..208` (8px), and
+  the name and meta lines occupy their own 22 and 15 pixel boxes
+  (`MessageItem.module.css:320-364`). The preset `tool-activity-attachment` is the
+  first fixture to send a user message carrying a `file` content part; before it,
+  no preset could show this gap at all.
+  Four changes had to move together, as the planning bullets above predicted:
+  - `layout_fixture.rs`: `public_tool_records_with(attachment: Option<&str>)` with
+    `public_tool_records()` left as the wrapper, parts built before the `json!`
+    macro (the recorded trap), and the preset registered in `PRESETS` and the
+    `preset_size` arm. The pre-existing `tool-activity` prefix assertions apply to
+    it unchanged, and its `if preset.starts_with("tool-activity")` block now also
+    pins that only this preset carries cards.
+  - `reducer.rs`: `user_content()` splits a user message into body text plus
+    `FileCard { name, meta }` values, with `file_extension`/`file_size_text`
+    mirroring `FileTypeIcon.tsx:122-126` and `file-size.ts:8-15`; `DisplayRow`
+    carries them in `files`. `content()` is deliberately **unchanged**, so a tool
+    result or a system message keeps its `File · …` line and the assertion the
+    notes expected to fail (`reducer.rs`'s
+    `durable_file_only_content_exposes_only_bounded_name_size_...`) never had to
+    break: the split is scoped to the one caller the reference gives cards to.
+  - `ui.rs` `row_geometry`: the card block is added after the action footer, so it
+    covers both the cached measurement and the search-expanded override. A
+    file-only message draws no bubble, so it reserves `ROW_CHROME` instead of the
+    bubble's 20px of vertical padding plus a text body.
+  - `ui.rs` `attachment_cards()` and the human branch: one fixed 240x64 card per
+    file, `.userStack`'s 8px gap, right-aligned, with the row wrapper widened to the
+    card so a bubble narrower than 240 cannot clip it. View and both measurements
+    read `design::attachment_height`; `design.rs` and `ui.rs` each pin it against
+    the drawn stack, including the file-only case.
+  Three intentional, pre-existing dispositions inside the card: the reference's 500
+  name weight has no DejaVu face and stays Normal; its 28px `FileTypeIcon` is drawn
+  SVG, so `▤` — the glyph the tool rows already use for a file — stands in at the
+  card's own icon box; and Iced has no ellipsis, so the two one-line text boxes
+  clip instead of ellipsizing.
 

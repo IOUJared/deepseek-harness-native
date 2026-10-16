@@ -109,6 +109,7 @@ pub const PRESETS: &[&str] = &[
     "tool-activity-tiny",
     "tool-activity-details",
     "tool-activity-expanded",
+    "tool-activity-attachment",
     "context-injects",
     "assistant-tool-call",
     "assistant-tool-call-expanded",
@@ -171,7 +172,9 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "assistant-details-fallback" => Some((Size::new(1040.0, 900.0), 1.0)),
         "assistant-details-narrow" => Some((Size::new(760.0, 840.0), 1.0)),
         "chat-search-narrow" => Some((Size::new(760.0, 840.0), 1.5)),
-        "tool-activity" | "tool-activity-expanded" => Some((Size::new(1040.0, 1040.0), 1.0)),
+        "tool-activity" | "tool-activity-expanded" | "tool-activity-attachment" => {
+            Some((Size::new(1040.0, 1040.0), 1.0))
+        }
         "context-injects" | "context-injects-trajectory" => Some((Size::new(1040.0, 900.0), 1.0)),
         "assistant-tool-call" | "assistant-tool-call-expanded" => {
             Some((Size::new(1040.0, 760.0), 1.0))
@@ -418,6 +421,14 @@ fn public_chat_records(preset: &str) -> Vec<Value> {
 }
 
 fn public_tool_records() -> Vec<Value> {
+    public_tool_records_with(None)
+}
+
+/// The same records with an optional `file` content part on the first user
+/// message, so a preset can render the attachment card the reference stacks
+/// above the bubble (`MessageItem.tsx:194-221`). A macro body cannot hold the
+/// conditional, so the parts are built first and interpolated.
+fn public_tool_records_with(attachment: Option<&str>) -> Vec<Value> {
     // Alpha tool arguments are RAW JSON STRINGS. All paths, command text and results are
     // synthetic PUBLIC metadata: they assert neither tool execution nor a business ACK.
     let event = |seq: u64, kind: &str, data: Value| {
@@ -425,12 +436,17 @@ fn public_tool_records() -> Vec<Value> {
             "type":kind, "seq":seq, "time":1000+seq, "data":data, "surfaceOp":"append"
         }})
     };
+    let mut parts = vec![
+        json!({"type":"text", "text":"PUBLIC conversation · compare user, compact tool activity and assistant. No tools were executed."}),
+    ];
+    if let Some(name) = attachment {
+        parts.push(json!({"type":"file", "attachment":{"name":name, "bytes":12}}));
+    }
     let mut records = vec![event(
         0,
         "user/message",
         json!({
-            "role":"user", "id":"PUBLIC-activity-user", "source":{"kind":"user"},
-            "content":[{"type":"text", "text":"PUBLIC conversation · compare user, compact tool activity and assistant. No tools were executed."}]
+            "role":"user", "id":"PUBLIC-activity-user", "source":{"kind":"user"}, "content":parts
         }),
     )];
     for (index, (id, name, arguments, failed)) in [
@@ -632,6 +648,8 @@ pub fn build(
         vec![
             json!({"type":"event","event":{"type":"assistant/message","seq":0,"time":1001,"surfaceOp":"append","data":{"turn":1,"step":1,"stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],"texts":[source]}]}}}),
         ]
+    } else if preset == "tool-activity-attachment" {
+        public_tool_records_with(Some("PUBLIC-note.txt"))
     } else if preset.starts_with("tool-activity") || preset.starts_with("title-controls") {
         public_tool_records()
     } else if preset.starts_with("assistant-tool-call") {
@@ -1711,6 +1729,22 @@ mod tests {
                 assert_eq!(app.transcript.rows()[7].role, "Assistant");
                 assert_eq!(report["publicToolSummaryCount"], 6);
                 assert_eq!(report["publicRecordedErrorMarkerCount"], 1);
+                // The attachment preset is the only one whose user message
+                // carries a file part; every other tool-activity preset keeps
+                // the file text inside the joined body, so this also pins that
+                // the split did not leak into them.
+                let files = &app.transcript.rows()[0].files;
+                if preset == "tool-activity-attachment" {
+                    assert_eq!(files.len(), 1);
+                    assert_eq!(files[0].name, "PUBLIC-note.txt");
+                    assert_eq!(files[0].meta, "TXT 12B");
+                    assert!(
+                        !app.transcript.rows()[0].text.contains("PUBLIC-note.txt"),
+                        "the file part must leave the bubble body"
+                    );
+                } else {
+                    assert!(files.is_empty());
+                }
                 assert_eq!(
                     app.transcript.activity(1).unwrap().title,
                     "Read · functions.read"

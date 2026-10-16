@@ -20,6 +20,16 @@ pub mod presentation;
 const MAX_RECORDS: usize = 4096;
 const MAX_RETAINED_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_DISPLAY_BYTES: usize = 32 * 1024;
+/// One file attachment as the transcript draws it: the reference stacks a
+/// `.fileCard` above the message bubble carrying the file name and an
+/// `EXT SIZE` meta line (`MessageItem.module.css:320-364`,
+/// `MessageItem.tsx:208-217`), so the two strings are bounded here and the view
+/// never re-formats an attachment.
+#[derive(Clone)]
+pub struct FileCard {
+    pub name: String,
+    pub meta: String,
+}
 #[derive(Clone)]
 pub struct DisplayRow {
     pub key: u64,
@@ -34,6 +44,10 @@ pub struct DisplayRow {
     /// Whether Chat presents this row. Decided once, where the event is folded.
     pub chat: bool,
     pub text: String,
+    /// File attachments carried by this message, in content order. Kept out of
+    /// [`DisplayRow::text`] so the view can draw the reference's attachment row
+    /// as its own block above the bubble instead of one joined string.
+    pub files: Vec<FileCard>,
     pub time: i64,
     pub surface: bool,
 }
@@ -552,8 +566,13 @@ impl Transcript {
             let submitted = (kind == "agent/inbox/spliced")
                 .then(|| chat_presentation::submitted_text(&event.data, &recorded))
                 .flatten();
+            let mut files = Vec::new();
             let text = match kind {
-                "user/message" => content(&event.data["content"]),
+                "user/message" => {
+                    let (text, cards) = user_content(&event.data["content"]);
+                    files = cards;
+                    text
+                }
                 "system/message" | "developer/message" | "tool/result" => {
                     content(&event.data["message"]["content"])
                 }
@@ -645,6 +664,7 @@ impl Transcript {
                 kind: bounded(kind, 128),
                 chat: presentation::chat_visible(kind, role),
                 text: bounded(&text, MAX_DISPLAY_BYTES),
+                files,
                 time: event.time,
                 surface,
             };
@@ -733,19 +753,111 @@ pub fn safe_json(value: &Value) -> String {
         MAX_DISPLAY_BYTES,
     )
 }
+/// A file part's bounded name and byte count: the two facts the reference's
+/// `fileCard` shows. `None` when either is missing or mistyped, so malformed
+/// attachment metadata never reaches the view as a card.
+fn file_identity(attachment: &Value) -> Option<(String, u64)> {
+    let name = attachment["name"].as_str()?;
+    let bytes = attachment["bytes"].as_u64()?;
+    Some((
+        name.chars()
+            .take(80)
+            .map(|c| if c.is_control() { '�' } else { c })
+            .collect(),
+        bytes,
+    ))
+}
 fn file_summary(attachment: &Value) -> String {
-    let Some(name) = attachment["name"].as_str() else {
+    let Some((name, bytes)) = file_identity(attachment) else {
         return "[File attachment: metadata unavailable]".into();
     };
-    let Some(bytes) = attachment["bytes"].as_u64() else {
-        return "[File attachment: metadata unavailable]".into();
-    };
-    let name: String = name
-        .chars()
-        .take(80)
-        .map(|c| if c.is_control() { '�' } else { c })
-        .collect();
     format!("File · {name} · {bytes} bytes [preview unavailable]")
+}
+/// The reference's `fileExtension` (`ui-primitives/FileTypeIcon.tsx:122-126`):
+/// the basename's text after its final dot, empty when there is none.
+fn file_extension(name: &str) -> &str {
+    let base = name.rsplit_once(['/', '\\']).map_or(name, |(_, base)| base);
+    base.rsplit_once('.').map_or("", |(_, extension)| extension)
+}
+/// The reference's `fileSizeText` (`ui-primitives/file-size.ts:8-15`): whole
+/// units, and one decimal only below ten of the chosen unit.
+fn file_size_text(bytes: u64) -> String {
+    let bytes = bytes as f64;
+    if bytes < 1024.0 {
+        return format!("{}B", bytes as u64);
+    }
+    let kb = bytes / 1024.0;
+    if kb < 1024.0 {
+        return if kb < 10.0 {
+            format!("{kb:.1}KB")
+        } else {
+            format!("{}KB", kb.round() as u64)
+        };
+    }
+    let mb = kb / 1024.0;
+    if mb < 1024.0 {
+        return if mb < 10.0 {
+            format!("{mb:.1}MB")
+        } else {
+            format!("{}MB", mb.round() as u64)
+        };
+    }
+    let gb = mb / 1024.0;
+    if gb < 10.0 {
+        format!("{gb:.1}GB")
+    } else {
+        format!("{}GB", gb.round() as u64)
+    }
+}
+/// A file part as its card. The meta is the reference's
+/// `[EXT, SIZE].filter(Boolean).join(' ')` (`MessageItem.tsx:213-214`), so an
+/// extension-less name shows the size alone.
+fn file_card(attachment: &Value) -> Option<FileCard> {
+    let (name, bytes) = file_identity(attachment)?;
+    let extension: String = file_extension(&name)
+        .to_uppercase()
+        .chars()
+        .take(8)
+        .collect();
+    let size = file_size_text(bytes);
+    Some(FileCard {
+        name,
+        meta: if extension.is_empty() {
+            size
+        } else {
+            format!("{extension} {size}")
+        },
+    })
+}
+/// A user message's content parts split into the body text its bubble shows and
+/// the file cards stacked above it. Every other caller keeps [`content`], which
+/// still joins a `File · …` line, because a tool result or a system message has
+/// no card to move a file into.
+fn user_content(value: &Value) -> (String, Vec<FileCard>) {
+    let Some(parts) = value.as_array() else {
+        return (content(value), Vec::new());
+    };
+    let mut text = Vec::new();
+    let mut files = Vec::new();
+    for part in parts {
+        match part["type"].as_str() {
+            Some("text" | "reasoning") => text.push(part["text"].as_str().unwrap_or("").to_owned()),
+            Some("tool-call") => text.push(format!(
+                "Tool {}: {}",
+                part["name"].as_str().unwrap_or("unknown"),
+                part["arguments"].as_str().unwrap_or("")
+            )),
+            Some("image") => text.push("[Image attachment: native image panel unsupported]".into()),
+            Some("file") => match file_card(&part["attachment"]) {
+                Some(card) => files.push(card),
+                // A file whose metadata is missing keeps its text line rather
+                // than disappearing from the bubble entirely.
+                None => text.push(file_summary(&part["attachment"])),
+            },
+            _ => text.push(safe_json(part)),
+        }
+    }
+    (text.join("\n"), files)
 }
 fn content(value: &Value) -> String {
     if let Some(s) = value.as_str() {
@@ -917,6 +1029,68 @@ mod tests {
                 file_summary(&value),
                 "[File attachment: metadata unavailable]"
             );
+        }
+    }
+    #[test]
+    fn user_content_moves_a_file_part_out_of_the_body_and_into_its_own_card() {
+        let (text, files) = user_content(&json!([
+            {"type":"text","text":"PUBLIC message text"},
+            {"type":"file","attachment":{"name":"PUBLIC-note.txt","bytes":12}}
+        ]));
+        assert_eq!(text, "PUBLIC message text");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].name, "PUBLIC-note.txt");
+        assert_eq!(files[0].meta, "TXT 12B");
+        // The joined form other callers keep still carries the file line, so a
+        // tool result never loses it.
+        assert!(
+            content(&json!([{"type":"file","attachment":{"name":"PUBLIC-note.txt","bytes":12}}]))
+                .starts_with("File · PUBLIC-note.txt · 12 bytes")
+        );
+    }
+    #[test]
+    fn file_card_follows_the_reference_extension_and_size_rules() {
+        // `fileExtension`: the basename's text after its final dot, either
+        // separator (`FileTypeIcon.tsx:122-126`).
+        assert_eq!(file_extension("/PUBLIC/dir/note.txt"), "txt");
+        assert_eq!(file_extension("C:\\PUBLIC\\dir\\note.tar.gz"), "gz");
+        assert_eq!(file_extension(".PUBLIC-hidden"), "PUBLIC-hidden");
+        assert_eq!(file_extension("PUBLIC-readme"), "");
+        assert_eq!(file_extension("PUBLIC."), "");
+        // `fileSizeText`: whole units, one decimal only below ten of the unit
+        // (`file-size.ts:8-15`).
+        for (bytes, size) in [
+            (0u64, "0B"),
+            (1023, "1023B"),
+            (1024, "1.0KB"),
+            (10 * 1024, "10KB"),
+            (1536 * 1024, "1.5MB"),
+            (2 * 1024 * 1024 * 1024, "2.0GB"),
+            (10 * 1024 * 1024 * 1024, "10GB"),
+        ] {
+            assert_eq!(file_size_text(bytes), size, "{bytes} bytes");
+        }
+        // The meta is `[EXT, SIZE].filter(Boolean).join(' ')`, so a name with no
+        // extension shows the size alone (`MessageItem.tsx:213-214`).
+        assert_eq!(
+            file_card(&json!({"name":"PUBLIC-readme","bytes":1024}))
+                .unwrap()
+                .meta,
+            "1.0KB"
+        );
+    }
+    #[test]
+    fn a_file_part_without_usable_metadata_stays_a_bounded_text_line() {
+        for attachment in [
+            json!({"bytes":0,"receiptId":"DO_NOT_SHOW"}),
+            json!({"name":3,"bytes":0}),
+            json!({"name":"PUBLIC","bytes":-1}),
+        ] {
+            assert!(file_card(&attachment).is_none());
+            let (text, files) = user_content(&json!([{"type":"file","attachment":attachment}]));
+            assert!(files.is_empty());
+            assert_eq!(text, "[File attachment: metadata unavailable]");
+            assert!(!text.contains("DO_NOT_SHOW"));
         }
     }
     use serde_json::json;

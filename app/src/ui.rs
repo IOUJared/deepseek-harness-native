@@ -1,7 +1,7 @@
 use crate::{
     config::Options,
     design,
-    reducer::{self, DisplayRow, Transcript},
+    reducer::{self, DisplayRow, FileCard, Transcript},
     worker::{self, Command, Event, Feed, Handle},
 };
 use dsh_native_core::{Inspection, PublicEvent, StopResult};
@@ -450,9 +450,59 @@ const ACTION_PAD: f32 = 6.0;
 /// (`MessageIconActions.module.css:79-87`).
 const ACTION_GLYPH: u32 = 15;
 const ACTION_GLYPH_END: u32 = 17;
+/// The reference's file card leads with a 28px `FileTypeIcon`. Drawn icons are
+/// blocked (docs/NATIVE-UI-PARITY.md), so the `▤` glyph the tool rows already
+/// use for a file stands in at the card's own icon box.
+const ATTACHMENT_GLYPH: &str = "▤";
 /// What a message row reserves for the gap plus the action row.
 fn action_footer(delta: f32) -> f32 {
     ACTION_GAP + ACTION_HEIGHT + delta
+}
+/// The right-aligned attachment cards a user message stacks above its bubble,
+/// 8px apart. One fixed `240x64` card per file, as the reference's `.fileCard`
+/// is fixed (`MessageItem.module.css:320-332`): its name and meta lines are
+/// literals there, so no card measurement follows the content-size preference
+/// and `design::attachment_height` reserves exactly `64` per card.
+fn attachment_cards(files: Vec<FileCard>) -> Element<'static, Message> {
+    let mut cards = Column::new()
+        .spacing(design::ATTACHMENT_CARD_GAP)
+        .align_x(iced::Alignment::End);
+    for file in files {
+        let icon = container(label(ATTACHMENT_GLYPH, TEXT).size(18))
+            .width(28)
+            .height(28)
+            .align_x(iced::Alignment::Center)
+            .align_y(iced::Alignment::Center);
+        // The reference ellipsizes both lines inside their 178px column; Iced
+        // has no ellipsis, so the one-line boxes clip instead.
+        let name = container(
+            label(file.name, TEXT)
+                .size(14)
+                .wrapping(iced::advanced::text::Wrapping::None),
+        )
+        .height(22)
+        .clip(true);
+        let meta = container(
+            label(file.meta, MUTED)
+                .size(12)
+                .wrapping(iced::advanced::text::Wrapping::None),
+        )
+        .height(15)
+        .clip(true);
+        cards = cards.push(
+            container(
+                row![icon, Column::new().push(name).push(meta)]
+                    .spacing(10)
+                    .align_y(iced::Alignment::Center),
+            )
+            .padding([8, 12])
+            .align_y(iced::Alignment::Center)
+            .width(design::ATTACHMENT_CARD_WIDTH)
+            .height(design::ATTACHMENT_CARD_HEIGHT)
+            .style(design::file_card),
+        );
+    }
+    cards.into()
 }
 /// One in-flight conversation-width drag.
 struct WidthDrag {
@@ -6537,6 +6587,7 @@ impl App {
             kind: "assistant/message".into(),
             chat: true,
             text,
+            files: Vec::new(),
             time: 0,
             surface: false,
         });
@@ -6662,11 +6713,27 @@ impl App {
             .max(20.0);
             geometry.height = chat_geometry::chrome_height(&row.role) + geometry.body_height;
         }
+        // A file-only user message draws no bubble (`MessageItem.tsx:187`), so
+        // its cards are the whole body: neither the text measurement nor the
+        // bubble's 20px of vertical padding is reserved. Chosen once here and
+        // read by the height, the wrapper width and the view.
+        let attachments = !row.files.is_empty();
+        let has_bubble = !row.text.is_empty();
+        if attachments && !has_bubble {
+            geometry.body_height = 0.0;
+            geometry.height = chat_geometry::ROW_CHROME;
+        }
         if row.role == "You"
             || row.role.starts_with("Assistant")
             || row.role == "Interrupted assistant attempt"
         {
             geometry.height += action_footer(self.content_delta());
+        }
+        if attachments {
+            // The cards stack above the bubble inside `.userStack`, so they add
+            // to the row's height and not to the body the bubble sizes
+            // (`MessageItem.module.css:10-21`).
+            geometry.height += design::attachment_height(row.files.len(), has_bubble);
         }
         if self.activity_is_expanded(row) {
             // The compact line stays; the recorded body sits beneath it in the
@@ -6721,6 +6788,7 @@ impl App {
                     kind: "assistant/message".into(),
                     chat: true,
                     text,
+                    files: Vec::new(),
                     time: 0,
                     surface: false,
                 },
@@ -6854,6 +6922,7 @@ impl App {
             kind: "assistant/message".into(),
             chat: true,
             text,
+            files: Vec::new(),
             time: 0,
             surface: false,
         });
@@ -7177,17 +7246,28 @@ impl App {
                     }
                     let body = container(body).height(geometry.body_height).clip(true);
                     if human {
-                        // The web keeps the bubble and its action row as siblings in
-                        // a right-aligned stack, so the actions sit below the bubble
-                        // rather than inside it (`MessageItem.module.css`: `.userRow`
-                        // and `.userStack` wrap `.bubble`, and both align right). The
-                        // 4px gap is unchanged, so the reserved row height still
-                        // matches what this draws.
-                        let bubble = container(card.push(body))
-                            .padding([10, 14])
-                            .width(geometry.width)
-                            .style(|_| design::card(OVERLAY, design::RADIUS_LG));
-                        column![bubble, Space::new().height(ACTION_GAP), footer]
+                        // The web keeps the attachment row, the bubble and the
+                        // action row as a right-aligned stack: `.userStack`
+                        // holds the cards and the bubble with an 8px gap, and
+                        // `.userRow` puts the actions 6px below it
+                        // (`MessageItem.module.css`, `MessageItem.tsx:194-221`).
+                        let mut stack = Column::new()
+                            .spacing(design::ATTACHMENT_CARD_GAP)
+                            .align_x(iced::Alignment::End);
+                        if !record.files.is_empty() {
+                            stack = stack.push(attachment_cards(record.files.clone()));
+                        }
+                        // A file-only message shows no bubble, exactly as the
+                        // reference's `showBubble` decides.
+                        if !record.text.is_empty() || record.files.is_empty() {
+                            stack = stack.push(
+                                container(card.push(body))
+                                    .padding([10, 14])
+                                    .width(geometry.width)
+                                    .style(|_| design::card(OVERLAY, design::RADIUS_LG)),
+                            );
+                        }
+                        column![stack, Space::new().height(ACTION_GAP), footer]
                             .align_x(iced::Alignment::End)
                             .into()
                     } else {
@@ -7254,7 +7334,17 @@ impl App {
                     })
                     .into()
             };
-            let bubble = container(bubble).width(geometries[index].width);
+            // The row is as wide as its widest child. A bubble narrower than an
+            // attachment card would otherwise clip the card; the bubble keeps
+            // its own measured width and both align right inside the wider row,
+            // as `.userStack { align-items: flex-end }` does
+            // (`MessageItem.module.css:10-21`).
+            let width = if human && !record.files.is_empty() {
+                geometries[index].width.max(design::ATTACHMENT_CARD_WIDTH)
+            } else {
+                geometries[index].width
+            };
+            let bubble = container(bubble).width(width);
             // View, spacers and anchors share the same projected rows and heights;
             // diagnostics remain retained for the Session records disclosure.
             let outer = container(bubble)
@@ -9727,6 +9817,40 @@ mod transcript_projection_tests;
 mod tests {
     use super::*;
     #[test]
+    fn a_file_attachment_adds_its_card_to_the_row_the_view_draws() {
+        let (app, _) = app();
+        let lane = app.chat_lane();
+        let plain = display_row(1, "You");
+        let mut attached = plain.clone();
+        attached.files = vec![FileCard {
+            name: "PUBLIC-note.txt".into(),
+            meta: "TXT 12B".into(),
+        }];
+        // The reservation is the stack the view builds: the card plus the 8px
+        // gap to the bubble.
+        assert_eq!(
+            app.row_geometry(&attached, lane).height - app.row_geometry(&plain, lane).height,
+            design::attachment_height(1, true)
+        );
+        // A file-only message draws no bubble, so the card is the whole body and
+        // no gap follows it (`MessageItem.tsx:187`): the row is the inter-row
+        // chrome, the action row and the card, with no bubble padding.
+        let mut file_only = attached.clone();
+        file_only.key = 2;
+        file_only.text.clear();
+        assert_eq!(
+            app.row_geometry(&file_only, lane).height,
+            chat_geometry::ROW_CHROME
+                + action_footer(app.content_delta())
+                + design::ATTACHMENT_CARD_HEIGHT
+        );
+        // The text body still reserves only itself; the card never inflates it.
+        assert_eq!(
+            app.row_geometry(&attached, lane).body_height,
+            app.row_geometry(&plain, lane).body_height
+        );
+    }
+    #[test]
     fn native_widget_tree_is_bounded_by_visible_range() {
         let range = visible_range(10_000, 500_000.0, 600.0);
         assert!(range.len() <= 10);
@@ -9739,6 +9863,7 @@ mod tests {
             kind: role.into(),
             chat: crate::reducer::presentation::chat_visible(role, role),
             text: "fixture".into(),
+            files: Vec::new(),
             time: 1000,
             surface: false,
         }

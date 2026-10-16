@@ -7,6 +7,7 @@ fn row(key: u64, role: &str) -> DisplayRow {
         kind: role.into(),
         chat: crate::reducer::presentation::chat_visible(role, role),
         text: "PUBLIC".into(),
+        files: Vec::new(),
         time: 0,
         surface: false,
     }

@@ -173,6 +173,28 @@ pub fn chat_width_drag(base: f32, origin_x: f32, current_x: f32, side: WidthSide
     };
     base + outward * 2.0
 }
+/// A message's attachment card: the reference's `.fileCard` is a fixed
+/// `240px` box with a `64px` minimum height (`MessageItem.module.css:320-332`),
+/// whose name and meta lines (22 and 15) fit inside it at every content size —
+/// only `.bubble` follows `--dsh-content-font-size`.
+pub const ATTACHMENT_CARD_WIDTH: f32 = 240.0;
+pub const ATTACHMENT_CARD_HEIGHT: f32 = 64.0;
+/// `.userStack { gap: 8px }`, the gap between the attachment row and the bubble
+/// and between the cards themselves (`MessageItem.module.css:10-21`).
+pub const ATTACHMENT_CARD_GAP: f32 = 8.0;
+/// The height `count` attachment cards add above a user bubble: one card each,
+/// `ATTACHMENT_CARD_GAP` between them, and the same gap before the bubble when
+/// one is drawn. The reservation and the view both read this, so a card cannot
+/// be drawn without being measured.
+pub fn attachment_height(count: usize, has_bubble: bool) -> f32 {
+    if count == 0 {
+        return 0.0;
+    }
+    let count = count as f32;
+    count * ATTACHMENT_CARD_HEIGHT
+        + (count - 1.0) * ATTACHMENT_CARD_GAP
+        + if has_bubble { ATTACHMENT_CARD_GAP } else { 0.0 }
+}
 // Native radius scale, mapped to the web unified scale (docs/NATIVE-UI-PARITY.md):
 // sm≈8, md=12, lg=16, xl=20. Native rounds sm to 9 and lg to 18; panel stays a
 // tighter 20 than the web 28. Keep these stable — the parity skill forbids
@@ -288,6 +310,21 @@ pub fn card(background: Color, radius: f32) -> container::Style {
         background: Some(background.into()),
         text_color: Some(TEXT),
         border: border(radius, OVERLAY, 1.0),
+        ..Default::default()
+    }
+}
+/// A message's attachment card. The reference's `.fileCard` fills with
+/// `--dsw-specific-input-major` — the same bluish-850 the bubble uses — and
+/// draws `0.5px solid var(--dsw-alias-border-l2)`
+/// (`MessageItem.module.css:320-332`); in dark mode that edge resolves to
+/// `rgba(255,255,255,0.12)` over the fill, which is this palette's `LINE`, so
+/// the card keeps the reference's visible hairline instead of `card`'s
+/// same-as-fill stroke.
+pub fn file_card(_: &Theme) -> container::Style {
+    container::Style {
+        background: Some(OVERLAY.into()),
+        text_color: Some(TEXT),
+        border: border(RADIUS_XL, LINE, 0.5),
         ..Default::default()
     }
 }
@@ -450,6 +487,18 @@ mod tests {
         };
         let contrast = (luminance(fill) + 0.05) / (luminance(style.text_color) + 0.05);
         assert!(contrast >= 4.5);
+    }
+    #[test]
+    fn attachment_cards_reserve_their_own_box_and_the_stack_gap() {
+        // No cards, no height, and a file-only message has no gap after the last
+        // card because `.userStack` gaps sit between children.
+        assert_eq!(attachment_height(0, true), 0.0);
+        assert_eq!(attachment_height(1, false), ATTACHMENT_CARD_HEIGHT);
+        // One card above a bubble is the card plus one 8px gap: 72px.
+        assert_eq!(attachment_height(1, true), 72.0);
+        // Two cards add one more card and one more gap: 64 + 8 + 64 + 8.
+        assert_eq!(attachment_height(2, true), 144.0);
+        assert_eq!(attachment_height(2, false), 136.0);
     }
     #[test]
     fn ghost_does_not_fill_idle_secondary_actions() {
