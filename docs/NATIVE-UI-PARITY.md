@@ -276,9 +276,19 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    permission settings and closing itself when the state is not writable. The composer chip
    covers current-session switches, so this is additive rather than a divergence in what is
    already there — but it is a real, proven surface native lacks.
-   Settling step: mirror the `settings.general.item` row in native's General page, reading
-   the descriptor through the existing settings path (the same one plugins use), reusing the
-   landed full-access confirmation, and capturing it with a fixture-seeded state. Native's
+   Sizing, corrected after checking rather than assumed: the row is **not** a settings-row
+   edit over an existing read. Its injected face is `load()` plus `select(preset)` against
+   the host-backed *permission settings* preference (`PermissionRow.tsx:21-40`), which the
+   package registers against `remote.settings` and `remote.permissionPresets`
+   (`ui-permission-presets/src/client/index.ts:61-68`). Native's existing generic settings
+   path carries *plugin* namespaces (`app/src/worker.rs`, `PluginsRead`/`PluginSave`), so
+   this needs new bridge and Core work of the same kind the catalog read needed — a settings
+   descriptor read and a write — before any row exists. That is three slices, not one, and
+   an earlier revision of this entry called it a mirror of the plugin path.
+   Settling step: add the permission-settings descriptor read and its write to the bridge
+   and Core family, then mirror the `settings.general.item` row in native's General page
+   (whose rows are a `column!` of labelled disclosures, `app/src/settings.rs:1014-1045`),
+   reusing the landed full-access confirmation, and capture it with a fixture-seeded state. Native's
    settings row should also honour the reference's own rules: hidden when the host exposes
    nothing, closed while `status === 'unavailable'` or unwritable, and busy during
    `loading`/`saving`/`confirmingFullAccess`.
