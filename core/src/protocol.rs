@@ -208,6 +208,13 @@ fn public_result(command: &str, value: &Value) -> Result<PublicReply, Error> {
             crate::permission::set_ack(value)?;
             Ok(PublicReply::PermissionSet)
         }
+        "permission-settings" => Ok(PublicReply::PermissionSettings(
+            crate::permission::settings(value)?,
+        )),
+        "permission-default-set" => {
+            crate::permission::default_ack(value)?;
+            Ok(PublicReply::PermissionDefaultSet)
+        }
         "codex-status" | "codex-start" | "codex-add" | "codex-cancel" | "codex-enable-models" => {
             Ok(PublicReply::Codex(crate::codex::metadata(value)?))
         }
@@ -391,6 +398,8 @@ impl Command {
             Self::CloudflareRead => "cloudflare-read",
             Self::PermissionCatalog => "permission-catalog",
             Self::PermissionSet { .. } => "permission-set",
+            Self::PermissionSettings => "permission-settings",
+            Self::PermissionDefaultSet { .. } => "permission-default-set",
             Self::CloudflareDisable { .. } => "cloudflare-disable",
             Self::Inspect => "inspect",
             Self::OpenWorkspace(_) => "open-workspace",
@@ -438,6 +447,18 @@ impl Command {
                     return Err(Error::InvalidCommand);
                 }
                 value["expectedEpoch"] = json!(expected_epoch);
+            }
+            Self::PermissionDefaultSet {
+                name,
+                expected_revision,
+            } => {
+                if !crate::permission::valid_name(name)
+                    || *expected_revision > crate::codex::MAX_SAFE_INTEGER
+                {
+                    return Err(Error::InvalidCommand);
+                }
+                value["name"] = json!(name.as_str());
+                value["expectedRevision"] = json!(expected_revision);
             }
             Self::PermissionSet { session, name } => {
                 // The same bounds the bridge enforces, refused before the wire.

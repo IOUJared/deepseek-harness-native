@@ -298,8 +298,14 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    core/runtime/*.test.mjs` gate reports **416 pass / 0 fail**, and importing the supervisor
    directly accepts both new commands with exact key sets while refusing a missing revision,
    a negative revision, an empty name and an extra key.
-   Settling step: the Core-side half — two `Command` variants, their `name()` strings, a
-   `PublicReply` variant and `public_result` arms, then the app plumbing and the row itself.
+   The Core half is **landed** too: `Command::PermissionSettings` and
+   `Command::PermissionDefaultSet { name, expected_revision }` with their `name()` strings
+   and `PublicReply` variants, an encode arm that refuses an unbounded name or a revision
+   past the safe-integer bound before the wire, and `permission::settings(value)` /
+   `default_ack(value)` projections that require all three descriptor fields and fail closed
+   on a malformed or negative revision. Core suite **109 passed / 0 failed**; the app still
+   compiles against the new reply variants.
+   Settling step: the app plumbing on the worker event pattern, then the row itself.
    Then: mirror the row in native's General page, then mirror the `settings.general.item` row in native's General page
    (whose rows are a `column!` of labelled disclosures, `app/src/settings.rs:1014-1045`),
    reusing the landed full-access confirmation, and capture it with a fixture-seeded state. Native's

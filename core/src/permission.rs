@@ -105,6 +105,44 @@ pub fn catalog(value: &Value) -> Result<PermissionCatalog, Error> {
     })
 }
 
+/// The deployment's new-session default, as its settings descriptor reports it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionSettingsState {
+    pub current_value: String,
+    pub revision: u64,
+    pub writable: bool,
+}
+
+/// Project one `permission-settings` reply. A malformed descriptor fails closed.
+pub fn settings(value: &Value) -> Result<PermissionSettingsState, Error> {
+    let settings = value.get("settings").ok_or(Error::Protocol)?;
+    let current_value = settings
+        .get("currentValue")
+        .and_then(Value::as_str)
+        .filter(|preset| valid_name(preset))
+        .map(str::to_owned)
+        .ok_or(Error::Protocol)?;
+    let revision = settings
+        .get("revision")
+        .and_then(Value::as_u64)
+        .filter(|revision| *revision <= crate::codex::MAX_SAFE_INTEGER)
+        .ok_or(Error::Protocol)?;
+    let writable = settings
+        .get("writable")
+        .and_then(Value::as_bool)
+        .ok_or(Error::Protocol)?;
+    Ok(PermissionSettingsState {
+        current_value,
+        revision,
+        writable,
+    })
+}
+
+/// A default write is acknowledged by `ok: true` alone; any other reply is refused.
+pub fn default_ack(value: &Value) -> Result<(), Error> {
+    set_ack(value)
+}
+
 /// A preset switch is acknowledged by `ok: true` alone; any other reply is refused.
 pub fn set_ack(value: &Value) -> Result<(), Error> {
     match value.get("ok").and_then(Value::as_bool) {
@@ -164,6 +202,40 @@ mod tests {
             .map(|index| json!({"value": format!("p{index}")}))
             .collect::<Vec<_>>();
         assert!(catalog(&json!({"catalog": {"options": many}})).is_err());
+    }
+
+    #[test]
+    fn the_default_descriptor_projects_its_three_fields_and_fails_closed() {
+        let state = settings(&json!({
+            "ok": true,
+            "settings": {"currentValue": "workspace-write", "revision": 9, "writable": true, "secret": "PUBLIC_FAKE_SECRET"},
+        }))
+        .unwrap();
+        assert_eq!(
+            state,
+            PermissionSettingsState {
+                current_value: "workspace-write".to_owned(),
+                revision: 9,
+                writable: true,
+            }
+        );
+        let encoded = serde_json::to_string(&state).unwrap();
+        assert!(!encoded.contains("PUBLIC_FAKE_SECRET"));
+        // Every field is required and bounded; nothing is defaulted.
+        assert!(settings(&json!({})).is_err());
+        assert!(settings(&json!({"settings": {}})).is_err());
+        assert!(
+            settings(&json!({"settings": {"currentValue": "", "revision": 1, "writable": true}}))
+                .is_err()
+        );
+        assert!(
+            settings(&json!({"settings": {"currentValue": "a", "revision": -1, "writable": true}}))
+                .is_err()
+        );
+        assert!(settings(&json!({"settings": {"currentValue": "a", "revision": 1}})).is_err());
+        assert!(settings(&json!({"settings": {"currentValue": "a", "revision": 18446744073709551615u64, "writable": true}})).is_err());
+        assert!(default_ack(&json!({"ok": true})).is_ok());
+        assert!(default_ack(&json!({"ok": false})).is_err());
     }
 
     #[test]

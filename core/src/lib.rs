@@ -42,7 +42,7 @@ pub use codex_usage::{
     CodexUsageSnapshot,
 };
 pub use options::RustBackendOptions;
-pub use permission::{PermissionCatalog, PresetOption};
+pub use permission::{PermissionCatalog, PermissionSettingsState, PresetOption};
 pub use secret::{SecretApiKey, SecretCodexCallback};
 use serde_json::{Value, json};
 use std::{
@@ -167,6 +167,14 @@ pub enum Command {
         session: String,
         name: String,
     },
+    /// The deployment's new-session permission default, as its settings descriptor
+    /// reports it.
+    PermissionSettings,
+    /// Persist the new-session default preset at the descriptor's own revision.
+    PermissionDefaultSet {
+        name: String,
+        expected_revision: u64,
+    },
     CloudflareDisable {
         expected_revision: u64,
     },
@@ -254,6 +262,8 @@ pub enum PublicReply {
     Cloudflare(CloudflareSnapshot),
     PermissionCatalog(PermissionCatalog),
     PermissionSet,
+    PermissionSettings(PermissionSettingsState),
+    PermissionDefaultSet,
     Codex(CodexMetadata),
     CodexAccounts(CodexAccountsMetadata),
     CodexUsage(CodexUsageSnapshot),
