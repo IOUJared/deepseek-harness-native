@@ -2315,3 +2315,22 @@ navigation, `subagentTiming`'s activity marker, and editable keybinding rebindin
    app's `Feed`/`stream()` machinery already turns those events into an Iced subscription
    (`:370-395`). The slice is three mirrored pieces and a header row, and all four have a template
    inside this repository.
+
+   **The job data is now specified too, so jobs has no unread input left except the row's own
+   form.** The frames carry views, and a view is small:
+   - `JobListFrame { type: 'rows', jobs: readonly JobView[] }`
+     (`packages/api/job-controller/src/types.ts:24-27`);
+   - `JobFollowFrame` is a union — `{ type: 'opened', job: JobView, from }` and
+     `{ type: 'output', … }` — so a follow stream *opens a job and then streams its output*
+     (`:72-80`);
+   - `JobView { id, kind, label, owner?, outputLimitBytes?, status, … }`
+     (`packages/jobs/jobs/src/view.ts:65-81`), where `label` is "the producer-supplied one-line
+     label" and `status` is the lifecycle state — which is exactly what a header row needs, and
+     nothing else has to cross the boundary.
+   So the app-side slice is: a `JobView`-shaped projection (id, label, kind, status — the four a
+   row renders), `jobs_list` and `jobs_follow` stream methods on the mux mirroring
+   `session_follow`, the worker loop mirroring `:2261` including its error path, and the header
+   row itself placed by the reference's own order (jobs at 20, after the preset at −10).
+   The **one thing still unread** is the row's own form: `JobListAction.tsx` and its stylesheet
+   have not been read, so what the row looks like — a chip, a count, a badge with states — is
+   genuinely unknown, and it is the read before the row is drawn, not after.
