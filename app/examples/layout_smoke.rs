@@ -6,6 +6,8 @@
 mod codex;
 #[path = "../src/config.rs"]
 mod config;
+#[path = "../src/crash_log.rs"]
+mod crash_log;
 #[path = "../src/design.rs"]
 mod design;
 #[path = "../src/export_file.rs"]
