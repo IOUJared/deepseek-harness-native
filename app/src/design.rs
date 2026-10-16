@@ -564,6 +564,28 @@ pub const HERO_INPUT_MIN: f32 = 52.0;
 /// The hero's headline: `HeroShell.module.css:33-60` draws the fish and the
 /// title as one centered row with `column-gap: 10px`, the title at `26/32`
 /// weight 500 (figma 34:10411).
+/// The hero's workspace chip (`HeroShell.module.css:152-186`): a
+/// `min-height: 28px` chip with `padding: 0 8px`, `gap: 4px`, `radius-sm`, a
+/// transparent fill that takes the interactive hover, `13px/20px` primary text,
+/// a 16px folder glyph and a 12px chevron. Its row carries a `4px` top margin
+/// and `padding: 0 16px 0 20px` inside the composer-card width
+/// (`ConversationRoot.module.css:520-529`).
+pub const HERO_CHIP_PAD: iced::Padding = iced::Padding {
+    top: 0.0,
+    right: 8.0,
+    bottom: 0.0,
+    left: 8.0,
+};
+pub const HERO_CHIP_GAP: f32 = 4.0;
+pub const HERO_CHIP_GLYPH: f32 = 16.0;
+pub const HERO_CHIP_CHEVRON: f32 = 12.0;
+pub const HERO_ROW_TOP: f32 = 4.0;
+pub const HERO_ROW_PAD: iced::Padding = iced::Padding {
+    top: 0.0,
+    right: 16.0,
+    bottom: 0.0,
+    left: 20.0,
+};
 pub const HERO_HEADLINE_GAP: f32 = 10.0;
 pub const HERO_TITLE_SIZE: f32 = 26.0;
 pub const HERO_TITLE_LINE: f32 = 32.0;

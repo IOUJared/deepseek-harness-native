@@ -8033,6 +8033,55 @@ impl App {
                 .into(),
         )
     }
+    /// The hero's workspace chip row. The reference seats it between the
+    /// headline and the composer card, left-aligned inside the card's width with
+    /// `padding: 0 16px 0 20px` and a `4px` top margin
+    /// (`ConversationRoot.module.css:520-529`), and the chip itself is a 28px
+    /// transparent control — a 16px folder glyph, the workspace title (or the
+    /// `Choose workspace` string), and a 12px chevron — that opens the workspace
+    /// picker (`HeroShell.module.css:152-186`, `EmptyHero.tsx:38-62`). Native
+    /// opens its sidebar workspace list instead of a popup, and DejaVu carries no
+    /// folder outline, so the glyph is the house mark it does carry.
+    fn hero_workspace_row(&self) -> Element<'_, Message> {
+        let selected = self.workspace.as_ref().and_then(|id| {
+            self.workspaces
+                .iter()
+                .find(|workspace| &workspace.workspace_id == id)
+        });
+        let label_text = selected
+            .map(|workspace| short(&workspace.title, 34))
+            .unwrap_or_else(|| "Choose workspace".into());
+        let chip = button(
+            row![
+                container(label("⌂", TEXT).size(13))
+                    .width(design::HERO_CHIP_GLYPH)
+                    .align_x(iced::Alignment::Center),
+                label(label_text, TEXT)
+                    .size(13)
+                    .line_height(iced::Pixels(design::CRUMB_LINE)),
+                label("⌄", MUTED).size(12).width(design::HERO_CHIP_CHEVRON),
+            ]
+            .spacing(design::HERO_CHIP_GAP)
+            .align_y(iced::Alignment::Center),
+        )
+        .on_press(Message::WorkspaceControls)
+        .style(design::ghost)
+        .padding(design::HERO_CHIP_PAD)
+        .height(design::COMPOSER_CHIP_HEIGHT);
+        let chip = container(chip).id("native-hero-workspace");
+        container(
+            container(chip)
+                .width(Length::Fill)
+                .padding(design::HERO_ROW_PAD),
+        )
+        .max_width(self.chat_cap() + design::COMPOSER_CARD_OVERHANG)
+        .width(Length::Fill)
+        .padding(iced::Padding {
+            top: design::HERO_ROW_TOP,
+            ..iced::Padding::ZERO
+        })
+        .into()
+    }
     /// The centered empty-state body used where no composer follows (the
     /// sidebar sheet); with a composer the hero and the card share `hero_pane`.
     fn welcome(&self, records: usize) -> Element<'_, Message> {
@@ -8129,10 +8178,14 @@ impl App {
     fn hero_pane(&self) -> Element<'_, Message> {
         let records = self.transcript.display_rows(true).count();
         container(
-            column![self.hero_strip(records), self.composer()]
-                .spacing(design::HERO_GAP)
-                .align_x(iced::Alignment::Center)
-                .width(Length::Fill),
+            column![
+                self.hero_strip(records),
+                self.hero_workspace_row(),
+                self.composer()
+            ]
+            .spacing(design::HERO_GAP)
+            .align_x(iced::Alignment::Center)
+            .width(Length::Fill),
         )
         .center_x(Length::Fill)
         .center_y(Length::Fill)

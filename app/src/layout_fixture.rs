@@ -22,6 +22,7 @@ mod usage_preferences;
 pub const PRESETS: &[&str] = &[
     "no-session",
     "subagent-trail",
+    "hero-workspace-selected",
     "wide-welcome",
     "narrow-welcome",
     "tiny-welcome",
@@ -195,7 +196,8 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "model-metadata-expanded"
         | "working-conversation"
         | "working-phase-6"
-        | "subagent-trail" => Some((Size::new(1040.0, 700.0), 1.0)),
+        | "subagent-trail"
+        | "hero-workspace-selected" => Some((Size::new(1040.0, 700.0), 1.0)),
         "working-narrow" => Some((Size::new(760.0, 560.0), 1.0)),
         "chat-submitted"
         | "chat-preparation-error"
@@ -686,6 +688,11 @@ pub fn build(
         "title":"PUBLIC workspace", "sessionIds":["PUBLIC-layout-conversation", "PUBLIC-layout-notes", "PUBLIC-layout-review"],
         "createdAt":"1970-01-01T00:00:00Z", "updatedAt":"1970-01-01T00:00:01Z"
     })).expect("fixed PUBLIC workspace metadata");
+    if preset == "hero-workspace-selected" {
+        // The hero with a chosen workspace, so the chip renders its labelled
+        // form instead of the `Choose workspace` placeholder.
+        app.workspace = Some(workspace.workspace_id.clone());
+    }
     app.workspaces = vec![workspace];
     assert!(app.management.baseline(vec![], vec![selected_id.clone()]));
     let records = if preset.starts_with("assistant-details") {

@@ -74,6 +74,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Send / stop control | 34×34 circle · info fill · icon glyph | 34 h · `COMPOSER_CONTROL_HEIGHT`; native keeps the words and its fills |
 | Composer seat | `.root` `0 16px 4px` · dock strip 4px · card = content + 32 | `COMPOSER_SEAT_PAD`/`COMPOSER_DOCK_GAP`/`COMPOSER_CARD_OVERHANG` |
 | Empty-state hero | headline + composer card centered as one stack, `gap: 12`; hero composer floor `52` | `HERO_GAP`/`HERO_INPUT_MIN`; `hero_pane` centers both, `COMPOSER_HERO_SEAT_PAD` drops the bottom pad |
+| Hero workspace chip | 28 min-h · `0 8px` · `gap: 4` · radius sm · 16px glyph + 12px chevron · row `0 16px 0 20px` + `margin-top: 4` | `HERO_CHIP_*`/`HERO_ROW_*`; opens native's sidebar workspace list |
 | Hero headline | mark + `Into the Unknown` in one centered row, `column-gap: 10`, `26/32` wt500 | `HERO_HEADLINE_GAP`/`HERO_TITLE_*`; the session-less state keeps native's own line |
 | Composer placeholder | `placeholder.hero` in the hero, `placeholder.default` docked | state-owned string in `composer()` |
 | Transcript side inset | `calc(clearance + 16px)` = 32 per side | `design::TRANSCRIPT_INSET`; `chat_lane` = `min(column − 64, chat_cap)` |
@@ -683,4 +684,29 @@ cell, so new findings go at the end of the file as plain paragraphs.
   Remainders: native's palette has no `label-caption` tier, so the separator reuses
   `MUTED`, and Iced has no text ellipsis, so a long crumb is still shortened by
   character count before its 220px box clips it.
+- **Hero workspace chip — landed, rect- and capture-verified.** The reference seats
+  a workspace chip row between the hero headline and the composer card: the row is
+  `display: flex` with a `4px` top margin and `padding: 0 16px 0 20px` inside the
+  composer-card width (`ConversationRoot.module.css:520-529`), and the chip is a
+  `min-height: 28px` transparent control — `padding: 0 8px`, `gap: 4px`,
+  `radius-sm`, `13px/20px` primary text, a 16px folder glyph, the workspace title
+  or the `Choose workspace` string, and a 12px chevron — that opens the workspace
+  picker with `interactive-bg-hover` on hover (`HeroShell.module.css:152-186`,
+  `EmptyHero.tsx:38-62`). Native's hero had no workspace seat at all.
+  `HERO_CHIP_PAD`, `HERO_CHIP_GAP`, `HERO_CHIP_GLYPH`, `HERO_CHIP_CHEVRON`,
+  `HERO_ROW_TOP` and `HERO_ROW_PAD` carry the figures, `hero_workspace_row` places
+  the row at the card's width between the strip and the composer, and the chip
+  carries a `native-hero-workspace` id.
+  Verified on DP-2 at two hero presets: the chip's rect is **28.0 tall at `x 314.0`**
+  in both — the composer card's left edge is 294, so 294 + 20 is exactly the
+  reference's row inset — at 173.7 wide unlabelled and 172.2 wide labelled, and the
+  grabs show `⌂ Choose workspace ⌄` and `⌂ PUBLIC workspace ⌄` above the card.
+  `shots/45-hero-workspace-chip-dp2.png` (own frame `shots/45-hero-workspace-chip.png`)
+  and `shots/45-hero-workspace-selected-dp2.png` are those grabs. The labelled case
+  needed coverage, so the fixture gained a `hero-workspace-selected` preset that
+  selects the fixture workspace while staying in the hero.
+  Remainders: the chip opens native's sidebar workspace list rather than the
+  reference's anchored menu, and DejaVu carries no folder outline, so the glyph is
+  the house mark it does carry (the reference also swaps a closed folder for an open
+  one when a workspace is chosen, which native does not).
 
