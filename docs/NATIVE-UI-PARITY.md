@@ -2368,3 +2368,40 @@ navigation, `subagentTiming`'s activity marker, and editable keybinding rebindin
    This is the sixth time this session that reading a thing changed what it is — and the second
    time the change moved an item from *one row* to *a feature*, which is precisely the inflation
    the audit taxonomy exists to prevent in the other direction.
+
+## Handoff update (append-only, round 145)
+
+Since the summary above, all local and unpushed, every gate green at each commit
+(fixture 1114, default 1107, Core 112, transport 17 + 82 + 7 doctests, runtime node 419,
+format 0):
+
+- **Agent-preset selection is complete and captured (item 11).** The registry's declaration and
+  `agentPreset/locked` code, the generated client's argument names, the in-repo `commands/list`
+  precedent for the body, the transport endpoint with its unit test and lock arm, the worker arm,
+  and the seat's pick with its refusal shown in the danger colour — every layer cited, with
+  `shots/77-agent-preset-refusal-dp2.png` proving the refusal reaches the user.
+- **Agent-preset roster and its three payouts** landed earlier: the header label's display name,
+  the hero seat, and its list rendering default, ordinary and broken rows.
+- **Permission select** remains complete and captured, including the settings default row.
+- **Jobs is specified in full but not built (item 12)**, and reading re-sized it from a header row
+  to a **panel**: a counted header action (`count.live`/`count.idle`), two sections, a clear,
+  per-row state dots, labels, kinds, statusses, durations, output expansion and a two-click kill.
+  Its inputs are all read: `jobs/list` and `jobs/follow` streams plus `kill`; the transport opens
+  streams through the mux (`worker.rs:1942`); the loop publishes frames and clears on error
+  (`:2261`); the frames carry `JobView` (`label`, `status`, `kind`, `id`); and the row's form is
+  `JobListAction.tsx:196-233`. **Plan it as its own feature**, not as a header chip.
+- **Corrections on record this stretch**, all caught before shipping: an invented `/agent` path
+  (removed); a descriptor read as "not a body field" when `commands/list` sends the agent id in
+  the body; a Core family that turned out to live in the app's worker; a jobs row that is a panel;
+  and one commit that landed on a red tree because a piped `tail` swallowed the status.
+- **Two standing rules**, both earned: capture every gating exit status in a variable, and back
+  every path claim with an implementation line (a doc comment is not one). A third was earned
+  this stretch: **insert by locating the line, not by matching text** — three scripted edits
+  failed on stale or over-specific anchors before line-index insertion fixed them.
+
+Still needing the user: the reference screenshot at
+`/home/jared/Documents/deepseek-harness/default-workspace/reference.png`; a real window-edge drag
+for the 520×600 floor; one live close-timing run for the shutdown budgets; and the image fetch
+policy. Still toolkit-blocked: the inline-code chip. Still authorized but unstarted: editable
+keybinding rebinding (store first), team navigation (unaudited), and the session-log row's present
+state, which needs a Host that advertises that namespace.
