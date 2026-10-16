@@ -69,6 +69,16 @@ impl SaveResult {
         }
     }
 }
+/// The display name for one advertised preset, falling back to its own key, which is what
+/// the Host's `optionOf` does for a missing label.
+fn permission_display(current: &str, options: &[(String, String)]) -> String {
+    options
+        .iter()
+        .find(|(value, _)| value == current)
+        .map(|(_, name)| name.clone())
+        .unwrap_or_else(|| current.to_owned())
+}
+
 /// Backend-reported DeepSeek route facts for the Models page. Display only; the
 /// App owns the catalog read and the active selection.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -79,6 +89,23 @@ pub struct RouteFacts {
     pub loading: bool,
     /// True when the catalog read failed.
     pub failed: bool,
+    /// The deployment's new-session permission default, or `None` when it exposes none —
+    /// in which case the General page renders no row at all, as the reference does.
+    pub permission: Option<PermissionDefault>,
+}
+
+/// The General page's permission row: the deployment's new-session default, the revision a
+/// write must match, whether it is writable at all, and the presets it advertises for new
+/// sessions (`PermissionRow.tsx:1-40`, `settings-store.ts:45-58`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PermissionDefault {
+    pub current: String,
+    pub revision: u64,
+    pub writable: bool,
+    /// `(preset value, display name)` pairs.
+    pub options: Vec<(String, String)>,
+    /// A write is in flight, so the row is busy.
+    pub saving: bool,
 }
 use crate::secret_input::Editor;
 /// The one-use key draft the panel hands to the app.
@@ -159,6 +186,10 @@ pub enum Action {
         ticket: Ticket,
         info: Info,
     },
+    /// Opens or dismisses the permission default row's preset list.
+    TogglePermissionDefault,
+    /// Persists one new-session permission default; the App gates it on the descriptor.
+    PermissionDefault(String),
     Account(account::Action),
     Cloudflare(cloudflare::Action),
     Plugins(crate::plugins::Action),
@@ -216,6 +247,8 @@ pub struct Settings {
     info_generation: u64,
     details_open: bool,
     shortcuts_open: bool,
+    /// The permission default row's preset list is open.
+    permission_open: bool,
     api_help_open: bool,
     context_policy_open: bool,
     account: account::Controller,
@@ -242,6 +275,7 @@ impl Default for Settings {
             info_generation: 0,
             details_open: false,
             shortcuts_open: false,
+            permission_open: false,
             api_help_open: false,
             context_policy_open: false,
             account: account::Controller::default(),
@@ -649,6 +683,9 @@ impl Settings {
             }
             return None; // Navigation never reads, authenticates or writes.
         }
+        if let Action::TogglePermissionDefault = action {
+            self.permission_open = !self.permission_open;
+        }
         if let Action::ToggleInfo { ticket, info } = action {
             // Local help is available even read-only. Never touches drafts, reviews or workers.
             if self.open
@@ -899,7 +936,7 @@ impl Settings {
                 )
             }
             Page::Cloudflare => self.cloudflare.view(self.cloudflare_enabled(enabled)).map(Action::Cloudflare),
-            Page::General => self.general_view(),
+            Page::General => self.general_view(route),
             Page::Codex => self
                 .codex
                 .view(self.codex_context(enabled))
@@ -1011,7 +1048,7 @@ impl Settings {
             .clip(true)
             .into()
     }
-    fn general_view(&self) -> Element<'_, Action> {
+    fn general_view(&self, route: &RouteFacts) -> Element<'_, Action> {
         let mut body = column![
             label("General", TEXT).size(17),
             label(
@@ -1033,6 +1070,41 @@ impl Settings {
         }
         // Why the harness is configured this way, from the harness-design study;
         // live numbers stay in the composer, which reads the Host's own report.
+        // The reference's permission default row: the new-session preset, absent entirely
+        // when the deployment exposes no permission settings (`PermissionRow.tsx:52-58`).
+        if let Some(permission) = &route.permission {
+            let usable = permission.writable && !permission.saving;
+            body = body
+                .push(label("Permission for new sessions", TEXT).size(13))
+                .push(
+                    button(
+                        label(
+                            permission_display(&permission.current, &permission.options),
+                            if usable { TEXT } else { MUTED },
+                        )
+                        .size(13),
+                    )
+                    .style(design::ghost)
+                    .padding([4, 8])
+                    .on_press_maybe(usable.then_some(Action::TogglePermissionDefault)),
+                );
+            if self.permission_open && usable {
+                for (value, name) in &permission.options {
+                    let ink = if *value == permission.current {
+                        TEXT
+                    } else {
+                        MUTED
+                    };
+                    body = body.push(
+                        button(label(name.clone(), ink).size(13))
+                            .style(design::ghost)
+                            .padding([4, 8])
+                            .width(Length::Fill)
+                            .on_press(Action::PermissionDefault(value.clone())),
+                    );
+                }
+            }
+        }
         body = body.push(self.info_button(
             Info::ContextPolicy,
             "Context & tool policy",

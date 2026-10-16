@@ -2867,6 +2867,9 @@ impl App {
                     self.command(Command::PermissionSettingsRead);
                 }
             }
+            Message::Settings(crate::settings::Action::PermissionDefault(name)) => {
+                return self.update(Message::PermissionDefaultPick(name));
+            }
             Message::PermissionDefaultPick(name) => {
                 if let Some(settings) = &self.permission_settings
                     && settings.writable
@@ -4851,7 +4854,34 @@ impl App {
             })
             .collect();
         models.sort();
+        // The General page's permission row reads the descriptor and the catalog's own
+        // advertised new-session presets, so it never invents an option.
+        let permission = self.permission_settings.as_ref().map(|settings| {
+            let options: Vec<(String, String)> = self
+                .permission_catalog
+                .as_ref()
+                .map(|catalog| {
+                    let advertised = if catalog.default_options.is_empty() {
+                        &catalog.options
+                    } else {
+                        &catalog.default_options
+                    };
+                    advertised
+                        .iter()
+                        .map(|option| (option.value.clone(), option.name.clone()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            crate::settings::PermissionDefault {
+                current: settings.current_value.clone(),
+                revision: settings.revision,
+                writable: settings.writable,
+                options,
+                saving: self.permission_default_saving,
+            }
+        });
         crate::settings::RouteFacts {
+            permission,
             models,
             loading: self.catalog_read.pending(),
             failed: self.model_controls.catalog_is_failed(),
@@ -4926,10 +4956,33 @@ impl App {
         self.permission_confirm = open.then(|| "full-access".to_owned());
         self.permission_acknowledged = false;
     }
+    /// Fixture-only: open the settings modal, so a capture can show the General page's
+    /// rows without a real Settings press.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn set_settings_open(&mut self) {
+        let _ = self.update(Message::Settings(crate::settings::Action::Open));
+        // The modal opens on the account page; the General rows live behind this select.
+        let _ = self.update(Message::Settings(crate::settings::Action::SelectPage(
+            crate::settings::Page::General,
+        )));
+    }
+    /// Fixture-only: stand in for the settings descriptor reply, so the General page's
+    /// permission row is capturable without a running Host.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn set_permission_settings(&mut self, writable: bool) {
+        self.permission_settings = Some(dsh_native_core::PermissionSettingsState {
+            current_value: "workspace-write".to_owned(),
+            revision: 4,
+            writable,
+        });
+    }
     /// Fixture-only: stand in for the Host's catalog reply, so the menu's Host-driven list
     /// is capturable without a running Host. The names are deliberately not the design set's.
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn set_permission_catalog(&mut self) {
+        // The row needs the descriptor as well as the catalog, so the fixture stands in for
+        // both sides of the same Host read.
+        self.set_permission_settings(true);
         self.permission_catalog = Some(dsh_native_core::PermissionCatalog {
             options: vec![
                 dsh_native_core::PresetOption {

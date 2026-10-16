@@ -129,6 +129,8 @@ struct Options {
     permission_acknowledged: bool,
     /// Seed a Host-shaped catalog, so the menu's Host-driven list is captured.
     permission_catalog: bool,
+    /// Open the settings modal, so its General page is captured.
+    settings: bool,
 }
 fn public_drop_file(value: String) -> Result<PathBuf, &'static str> {
     let path = PathBuf::from(value);
@@ -212,6 +214,7 @@ fn options() -> Result<Options, &'static str> {
             "--permission-confirm",
             "--permission-acknowledged",
             "--permission-catalog",
+            "--settings",
             "--scrolled-away",
             "--page-pending",
         ]
@@ -291,6 +294,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         width_handle_glow: match values.remove("--width-handle-glow") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        settings: match values.remove("--settings") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -549,6 +556,9 @@ impl Fixture {
         }
         if options.permission_catalog {
             app.set_permission_catalog();
+        }
+        if options.settings {
+            app.set_settings_open();
         }
         if options.scrolled_away {
             app.set_scrolled_away(true);

@@ -312,7 +312,23 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    successful write — a re-read of the descriptor rather than an assumption that the new
    value took, so a refusal leaves the old one in place and the row never lies about what
    the deployment holds.
-   Settling step: the row itself in the General page.
+   The row itself is **landed** and capture-verified: `RouteFacts` carries a
+   `PermissionDefault` (current value, revision, writable, advertised options, saving), the
+   General page renders "Permission for new sessions" with the descriptor's current value
+   only when the deployment exposes one, opens the catalog's advertised presets, and maps a
+   pick to the write that matches the descriptor's revision. The row is dimmed and inert
+   while unwritable or saving, which is the reference's own rule
+   (`PermissionRow.tsx:47-60`).
+   Verified with the fixture standing in for both halves of the same Host read
+   (`--settings true --permission-catalog true`): the grab shows `Permission for new
+   sessions` with `Workspace write` — the descriptor's value under the catalog's own name —
+   directly above `Context & tool policy` in the General page
+   (`shots/70-permission-default-row-dp2.png`). The first two attempts framed the wrong page
+   and then a modal whose descriptor had never been seeded; both were caught by looking
+   rather than by assuming, which is why this entry says captured rather than built.
+   Both suites green, format-debt 0.
+   Open item 7 is therefore closed; what remains for the permission feature is one live run
+   to confirm that picks actually land.
    Then: mirror the row in native's General page, then mirror the `settings.general.item` row in native's General page
    (whose rows are a `column!` of labelled disclosures, `app/src/settings.rs:1014-1045`),
    reusing the landed full-access confirmation, and capture it with a fixture-seeded state. Native's
