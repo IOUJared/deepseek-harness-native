@@ -2280,3 +2280,17 @@ navigation, `subagentTiming`'s activity marker, and editable keybinding rebindin
    subscription is the closest, being a small typed frame stream), then mirror its shape for
    `jobs/list` and `jobs/follow`, with `kill` as an ordinary command beside them. Only after
    that does the header row itself become a UI change.
+
+   **The stream template, read: a `Feed` of events exposed as a `Stream`, fed by a transport
+   frame-stream.** `app/src/worker.rs:370-395` is the mechanism — `pub fn stream(feed: &Feed)`
+   turns a feed's receiver into a `futures_util::Stream<Item = Event>`, with a terminal event
+   when the channel closes — and the app already cancels such streams by handle (`:513-520`
+   drops three of them). The session follow is the frame-stream precedent beside it: the app
+   carries `dsh_native_transport::dto::SessionFollowFrame` and applies frames as they arrive, so
+   a transport stream that yields typed frames is a shape this app already runs.
+   So `jobs/list` and `jobs/follow` are two more frame streams over the same mechanism: a worker
+   task that subscribes through the transport, publishes frames into a `Feed`, and is cancelled
+   by handle when the selected session changes — with `kill` as an ordinary command beside them.
+   Settling step: read the session-follow loop end to end (its subscribe, its publish and its
+   cancel path), then mirror it for jobs. That is the last read before the slice, and it is the
+   same shape the roster read needed once the pattern was identified.
