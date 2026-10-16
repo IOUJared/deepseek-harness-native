@@ -429,7 +429,7 @@ fn public_chat_records(preset: &str) -> Vec<Value> {
             json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,"surfaceOp":"append","data":{"id":"PUBLIC-user","role":"user","source":{"kind":"user"},"content":[{"type":"text","text":"PUBLIC show a native table."}]}}}),
             json!({"type":"event","event":{"type":"assistant/message","seq":1,"time":1001,"surfaceOp":"append","data":{"turn":1,"step":1,"usage":{"inputTokens":100,"cacheReadTokens":40,"cacheWriteTokens":10,"outputTokens":20,"reasoningTokens":8,"totalTokens":170},"stream":[
                 {"type":"reasoning-chunks","time0":1001,"index":0,"dt":[],"texts":["PUBLIC table reasoning."]},
-                {"type":"text-chunks","time0":1001,"index":1,"dt":[],"texts":["PUBLIC paragraph before the table.\n\n| Column | PUBLIC value | Notes |\n|---|---|---|\n| Alpha | `one` | First row with **bold** |\n| Beta | two | Second row |\n| Gamma | three | Third row |\n\nPUBLIC paragraph after the table."]}
+                {"type":"text-chunks","time0":1001,"index":1,"dt":[],"texts":["PUBLIC paragraph before the table.\n\n| Column | PUBLIC value | Notes |\n|---|---|---|\n| Alpha | `one` | First row with **bold** |\n| Beta | two | Second row |\n| Gamma | three | Third row |\n\n| PUBLIC one | PUBLIC two | PUBLIC three | PUBLIC four | PUBLIC five |\n|---|---|---|---|---|\n| a | b | c | d | e |\n| f | g | h | i | j |\n\nPUBLIC paragraph after the table."]}
             ]}}}),
         ];
     }

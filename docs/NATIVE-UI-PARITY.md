@@ -1391,3 +1391,16 @@ cell, so new findings go at the end of the file as plain paragraphs.
   with Escape and Cancel both dismissing it. `shots/66-permission-confirm-modal-dp2.png` is
   the grab, showing the scrim, the centred panel and the acknowledgement row.
   No remainders left in the guard itself.
+
+- **Wide-table fixture coverage — landed; its padding match is measured but not yet
+  verified visually.** `MarkdownText.module.css:208-210` keeps
+  `padding-bottom: var(--dsh-scrollbar-width, 5px)` on a wide table so its hover-revealed
+  bar has room below the last row, and native's horizontal branch carries no such padding.
+  The fix is a five-pixel bottom pad on that branch alone, but a padding-only change has no
+  measurement contract — a green suite proves nothing about it — and the first capture of
+  the new five-column fixture table framed the wrong region, so the change was **reverted
+  rather than landed on an uninspected render**. What did land is the coverage that made the
+  attempt possible: the `chat-table` preset now carries a five-column table after its
+  three-column one, so native's wide-table scroll branch renders for the first time and the
+  next attempt has a subject. Settling step: land the pad, re-capture the `chat-table`
+  preset, and frame the table itself rather than the paragraph below it.
