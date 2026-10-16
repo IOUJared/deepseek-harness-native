@@ -2018,3 +2018,29 @@ fetch policy. Still blocked on the toolkit: the inline-code chip. Still unsuppor
 as such: scheduled tasks, the deliverables changes view (deliberately omitted), jobs, team
 navigation, `subagentTiming`'s activity marker, and editable keybinding rebinding
 (authorized, not started).
+
+   **Selection's declaration found, in the registry rather than the catalog** — which is why the
+   first probe missed it: the tool-cordis catalog lists the *host service*'s seven methods
+   (`register`, `inspectCompositions`, `list`, `remoteExportList`, `resolve`, `readDocument`,
+   `mount`, `api-catalog.ts:133-172`) and `select` is not among them, but the preset registry
+   declares it: `@Remote('select') async select(agent: Agent, agentPreset: string):
+   Promise<string>` — "Select a preset before a session starts its first turn"
+   (`packages/preset/agent-preset-registry/src/index.ts:345-346`).
+   Its semantics, read rather than inferred:
+   - it **refuses a started session** with `RemoteError('agent-preset/locked', 'This session has
+     already started', { sessionId, agentPreset })` when the `turnBoundary` projection shows an
+     open turn or a completed one (`:347-352`) — an error *code* and message the chip announces,
+     which is the refusal the client's store both stores and returns;
+   - serialised per agent through a `switches` map, so concurrent picks queue rather than race
+     (`:353-361`);
+   - on success it **appends a session record** — `agent.session.append('agent-preset/selected',
+     { agentPreset: preset.id })` (`:355`) — and returns the committed identity.
+   Two consequences for this app, both concrete: the **projection side is a transcript record**
+   exactly like `permission/preset`, so reading the selected preset needs an accessor of the kind
+   already written twice, not new plumbing; and the **bridge side must resolve an `Agent`**, since
+   the method takes one while the client's remote call passes a session id and lets the remote
+   layer marshal it. Whether this app's bridge can resolve an agent by session id is the one open
+   question, and it is the next probe rather than an assumption.
+   Settling step: find how a bridge-side caller resolves an `Agent` (the Host's sessions service
+   is the likely answer), then add `agent-preset-select` with the lock code surfaced, then
+   replace the hero seat's inert arm and project `agent-preset/selected` for the current value.
