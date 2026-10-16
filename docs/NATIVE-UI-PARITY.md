@@ -2080,3 +2080,19 @@ navigation, `subagentTiming`'s activity marker, and editable keybinding rebindin
    the remote layer, unread, and they must be read from a real request or from the marshaller
    before this endpoint is written. That is the last thing between this specification and a
    slice that can be built without inventing anything.
+
+   **The argument names are settled from a generated artifact.** The registry ships a generated
+   remote client declaration:
+   `'agentPresets/select': (agentId: SessionId, agentPreset: string) => Promise<RemoteResult<string>>`
+   (`packages/preset/agent-preset-registry/lib/typert.remote-client.d.ts:18`), beside a
+   session-scoped variant `'agent:agentPresets/select': (agentPreset: string)` (`:24`) whose
+   agent is implicit in the endpoint path. So the parameters this app must send are named
+   `agentId` and `agentPreset`, from code generation rather than from a doc comment — which is
+   the standard this document now holds itself to.
+   One detail remains, and it has a settling artifact rather than a guess: native's transport
+   documents that some endpoints refuse an unwrapped body as `gateway/arguments-invalid`
+   (`transport/src/http.rs:554`) while others take a bare `{"sessionId": …}` (`:895`), so
+   whether `agentPresets/select` wants `{"request": {…}}` is a per-endpoint fact. The reference
+   ships an end-to-end test that waits on `**/api/agentPresets/select`
+   (`apps/web/tests/agent-preset-selection.e2e.ts:455`), whose request body settles it.
+   Settling step: read that request body, then write the three transport edits item 11 names.
