@@ -2174,3 +2174,18 @@ navigation, `subagentTiming`'s activity marker, and editable keybinding rebindin
    — where the previous run showed two. The third is a test target that my new module appears to
    have enabled or joined; the counts are recorded as observed rather than explained, since the
    honest statement is that I have not traced why it was not listed before.
+
+   **The Core half is specified but its dispatch boundary is *not* where I assumed, and that is
+   this round's finding.** A new `Command` variant and `PublicReply` are the easy part, but
+   something must turn the Core's command into the transport call added last round, and the
+   obvious candidate does not exist: `core/src` contains **no** `Endpoint::` or `.invoke(` call
+   at all, and its only reference to the transport crate is `agent_discovery.rs` (plus its
+   tests). So the Core does not speak to the transport directly, and the previous two rounds'
+   picture — transport endpoint, then Core family — is missing the piece in between.
+   Two candidates are visible and both need one read: the Core dispatches cloudflare and plugin
+   commands somewhere (`core/src/lib.rs` holds `Command` and its handlers), and the app's worker
+   already reaches transport methods through its backend in other families. Editing either on a
+   guess is how the invented `/agent` path happened, so the next probe is to read where
+   `Command::CloudflareRead` is handled and follow it to the call that leaves the process.
+   Recording the negative is the point: three rounds have now been saved from editing the wrong
+   layer by finding that a layer does not contain what its name implies.
