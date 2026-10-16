@@ -76,7 +76,14 @@ impl Prepared {
         let mut height = if let Some(document) = &self.document {
             document_height(document, width, self.delta, self.delta_secondary)
         } else {
-            plain_height(&self.answer, width, self.body_size(), FONT, false)
+            plain_height(
+                &self.answer,
+                width,
+                self.body_size(),
+                design::body_line(self.delta),
+                FONT,
+                false,
+            )
         };
         if !self.reasoning.is_empty() {
             height += REASONING_ROW + self.delta;
@@ -87,6 +94,7 @@ impl Prepared {
                     &self.reasoning,
                     bounded_width(width - self.content_inset()),
                     self.reasoning_size(),
+                    design::compact_line(self.delta_secondary),
                     FONT,
                     false,
                 ) + 8.0;
@@ -134,6 +142,7 @@ impl Prepared {
                 query,
                 bounded_width(width - design::CONTENT_INSET),
                 self.reasoning_size(),
+                design::compact_line(self.delta_secondary),
                 FONT,
                 false,
             )
@@ -150,6 +159,7 @@ impl Prepared {
                     &self.reasoning,
                     bounded_width(width - self.content_inset()),
                     self.reasoning_size(),
+                    design::compact_line(self.delta_secondary),
                     FONT,
                     false,
                 )
@@ -172,6 +182,7 @@ impl Prepared {
                             - if marker.is_some() { 36.0 } else { 0.0 }
                             - if *quote { 20.0 } else { 0.0 },
                         self.body_size(),
+                        design::body_line(self.delta),
                         FONT,
                         false,
                     ),
@@ -180,6 +191,7 @@ impl Prepared {
                         query,
                         width,
                         heading_size(*level) as f32 + self.delta,
+                        design::body_line(self.delta),
                         FONT,
                         false,
                     ),
@@ -188,6 +200,7 @@ impl Prepared {
                         query,
                         width,
                         self.mono_size(),
+                        design::body_line(self.delta),
                         MONO,
                         true,
                     )
@@ -206,6 +219,7 @@ impl Prepared {
                 query,
                 width,
                 self.body_size(),
+                design::body_line(self.delta),
                 FONT,
                 false,
             )
@@ -253,6 +267,7 @@ impl Prepared {
                         &self.reasoning,
                         query,
                         self.reasoning_size().round() as u32,
+                        design::compact_line(self.delta_secondary),
                         MUTED,
                     ))
                     .padding(iced::Padding {
@@ -265,6 +280,7 @@ impl Prepared {
                         &self.reasoning,
                         inner,
                         self.reasoning_size(),
+                        design::compact_line(self.delta_secondary),
                         FONT,
                         false,
                     ))
@@ -291,6 +307,7 @@ impl Prepared {
                 &self.answer,
                 query,
                 self.body_size().round() as u32,
+                design::body_line(self.delta),
                 TEXT,
             ));
         }
@@ -467,12 +484,27 @@ fn marked(runs: Vec<Run>, query: &str) -> Vec<Run> {
     result
 }
 
-fn paragraph(runs: &[Run], width: f32, size: f32, font: Font, no_wrap: bool) -> Paragraph {
+/// The floor a measured paragraph may not go under: the line box it is drawn in,
+/// so one short line still reserves its full height.
+fn line_box(size: f32, line: native::LineHeight) -> f32 {
+    match line {
+        native::LineHeight::Absolute(pixels) => pixels.0.max(size),
+        native::LineHeight::Relative(factor) => size * factor,
+    }
+}
+fn paragraph(
+    runs: &[Run],
+    width: f32,
+    size: f32,
+    line: native::LineHeight,
+    font: Font,
+    no_wrap: bool,
+) -> Paragraph {
     Paragraph::with_spans(native::Text {
         content: runs,
         bounds: Size::new(bounded_width(width), f32::INFINITY),
         size: Pixels(size),
-        line_height: native::LineHeight::Relative(1.3),
+        line_height: line,
         font,
         align_x: native::Alignment::Default,
         align_y: alignment::Vertical::Top,
@@ -485,22 +517,30 @@ fn paragraph(runs: &[Run], width: f32, size: f32, font: Font, no_wrap: bool) -> 
     })
 }
 
-pub fn plain_height(source: &str, width: f32, size: f32, font: Font, no_wrap: bool) -> f32 {
-    paragraph(&[span(source.to_owned())], width, size, font, no_wrap)
+pub fn plain_height(
+    source: &str,
+    width: f32,
+    size: f32,
+    line: native::LineHeight,
+    font: Font,
+    no_wrap: bool,
+) -> f32 {
+    paragraph(&[span(source.to_owned())], width, size, line, font, no_wrap)
         .min_height()
-        .max(size * 1.3)
+        .max(line_box(size, line))
 }
 
 pub fn plain_view(
     source: &str,
     query: &str,
     size: u32,
+    line: native::LineHeight,
     color: iced::Color,
 ) -> Element<'static, Message> {
     rich_text(marked(vec![span(source.to_owned()).color(color)], query))
         .font(FONT)
         .size(size)
-        .line_height(1.3)
+        .line_height(line)
         .wrapping(text::Wrapping::Word)
         .width(Length::Fill)
         .into()
@@ -510,8 +550,13 @@ pub fn plain_view(
 /// Mono 13px and word-wrapped: a collapsed chat row cannot scroll sideways, so
 /// wrapping keeps the whole recorded command or output reachable. The cap keeps
 /// one long output from owning the viewport.
-pub fn tool_body_height(source: &str, width: f32, delta_secondary: f32) -> f32 {
-    plain_height(source, width, 13.0 + delta_secondary, MONO, false).min(TOOL_BODY_MAX)
+pub fn tool_body_height(
+    source: &str,
+    width: f32,
+    delta_secondary: f32,
+    line: native::LineHeight,
+) -> f32 {
+    plain_height(source, width, 13.0 + delta_secondary, line, MONO, false).min(TOOL_BODY_MAX)
 }
 /// The collapsed reasoning disclosure row's height. The web writes the row as
 /// `calc(24px + delta)`; native's own reservation is 30 (a 22px button plus the
@@ -527,12 +572,13 @@ pub fn tool_body_view(
     source: &str,
     height: f32,
     delta_secondary: f32,
+    line: native::LineHeight,
 ) -> Element<'static, Message> {
     container(
         rich_text(vec![span::<(), Font>(source.to_owned()).color(TEXT)])
             .font(MONO)
             .size((13.0 + delta_secondary).round() as u32)
-            .line_height(1.3)
+            .line_height(line)
             .wrapping(text::Wrapping::Word)
             .width(Length::Fill),
     )
@@ -547,12 +593,13 @@ fn first_offset(
     query: &str,
     width: f32,
     size: f32,
+    line: native::LineHeight,
     font: Font,
     no_wrap: bool,
 ) -> Option<f32> {
     let runs = marked(runs, query);
     let first = runs.iter().position(|run| run.highlight.is_some())?;
-    let paragraph = paragraph(&runs, width, size, font, no_wrap);
+    let paragraph = paragraph(&runs, width, size, line, font, no_wrap);
     // A newline or combining-only span may have no glyph of its own. Inspect
     // contiguous highlighted fragments, never jump past a gap to a later match.
     // A wholly glyphless first match retains a safe body-origin fallback.
@@ -565,18 +612,25 @@ fn first_offset(
             .map(|bounds| bounds.y)
             .find(|y| y.is_finite())
             .unwrap_or(0.0)
-            .clamp(0.0, paragraph.min_height().max(size * 1.3)),
+            .clamp(0.0, paragraph.min_height().max(line_box(size, line))),
     )
 }
 
 /// Word-wrapped FONT paragraph offset for user previews and raw fallback rows.
 /// An absent/over-budget match returns zero; matching is owned by `contains`.
-pub fn plain_first_match_offset(source: &str, width: f32, size: f32, query: &str) -> f32 {
+pub fn plain_first_match_offset(
+    source: &str,
+    width: f32,
+    size: f32,
+    line: native::LineHeight,
+    query: &str,
+) -> f32 {
     first_offset(
         vec![span(source.to_owned())],
         query,
         width,
         size,
+        line,
         FONT,
         false,
     )
@@ -604,16 +658,26 @@ fn inline_runs(parts: &[formatted::Span]) -> Vec<native::Span<'static, (), Font>
         })
         .collect()
 }
-fn inline_height(parts: &[formatted::Span], width: f32, size: f32) -> f32 {
-    paragraph(&inline_runs(parts), width, size, FONT, false)
+fn inline_height(
+    parts: &[formatted::Span],
+    width: f32,
+    size: f32,
+    line: native::LineHeight,
+) -> f32 {
+    paragraph(&inline_runs(parts), width, size, line, FONT, false)
         .min_height()
-        .max(size * 1.3)
+        .max(line_box(size, line))
 }
-fn inline_view(parts: &[formatted::Span], size: u32, query: &str) -> Element<'static, Message> {
+fn inline_view(
+    parts: &[formatted::Span],
+    size: u32,
+    line: native::LineHeight,
+    query: &str,
+) -> Element<'static, Message> {
     rich_text(marked(inline_runs(parts), query))
         .font(FONT)
         .size(size)
-        .line_height(1.3)
+        .line_height(line)
         .wrapping(text::Wrapping::Word)
         .width(Length::Fill)
         .into()
@@ -635,12 +699,23 @@ fn block_height(block: &formatted::Block, width: f32, delta: f32, delta_secondar
                 - if marker.is_some() { 36.0 } else { 0.0 }
                 - if *quote { 20.0 } else { 0.0 },
             15.0 + delta,
+            design::body_line(delta),
         ),
-        formatted::Block::Heading { level, spans } => {
-            inline_height(spans, width, heading_size(*level) as f32 + delta)
-        }
+        formatted::Block::Heading { level, spans } => inline_height(
+            spans,
+            width,
+            heading_size(*level) as f32 + delta,
+            design::body_line(delta),
+        ),
         formatted::Block::Code { text, .. } => {
-            plain_height(text, width, 13.0 + delta_secondary, MONO, true) + 83.0
+            plain_height(
+                text,
+                width,
+                13.0 + delta_secondary,
+                design::body_line(delta),
+                MONO,
+                true,
+            ) + 83.0
         }
         formatted::Block::Rule => 1.0,
     }
@@ -689,12 +764,18 @@ fn document_view(
                             .width(36),
                     );
                 }
-                line.push(inline_view(spans, (15.0 + delta).round() as u32, query))
-                    .into()
+                line.push(inline_view(
+                    spans,
+                    (15.0 + delta).round() as u32,
+                    design::body_line(delta),
+                    query,
+                ))
+                .into()
             }
             formatted::Block::Heading { level, spans } => inline_view(
                 spans,
                 (heading_size(*level) as f32 + delta).round() as u32,
+                design::body_line(delta),
                 query,
             ),
             formatted::Block::Code {
@@ -718,13 +799,22 @@ fn document_view(
                 let code = rich_text(marked(highlight(source, language.as_deref()), query))
                     .font(MONO)
                     .size((13.0 + delta_secondary).round() as u32)
-                    .line_height(1.3)
+                    .line_height(design::body_line(delta))
                     .wrapping(text::Wrapping::None);
                 let code = scrollable(container(code).padding(12))
                     .direction(scrollable::Direction::Horizontal(
                         scrollable::Scrollbar::default(),
                     ))
-                    .height(plain_height(source, width, 13.0 + delta_secondary, MONO, true) + 36.0)
+                    .height(
+                        plain_height(
+                            source,
+                            width,
+                            13.0 + delta_secondary,
+                            design::body_line(delta),
+                            MONO,
+                            true,
+                        ) + 36.0,
+                    )
                     .width(Length::Fill);
                 container(Column::new().push(header).push(code).spacing(5))
                     .padding(10)
@@ -1046,11 +1136,12 @@ mod tests {
     fn native_first_match_offsets_reach_long_wrapped_plain_formatted_code_and_reasoning() {
         let prefix = "PUBLIC words filling the paragraph. ".repeat(80);
         let source = format!("{prefix}TARGET end");
-        let offset = plain_first_match_offset(&source, 180.0, 15.0, "target");
-        let height = plain_height(&source, 180.0, 15.0, FONT, false);
+        let offset =
+            plain_first_match_offset(&source, 180.0, 15.0, design::body_line(0.0), "target");
+        let height = plain_height(&source, 180.0, 15.0, design::body_line(0.0), FONT, false);
         assert!(offset > 500.0 && offset < height);
         assert_eq!(
-            plain_first_match_offset(&source, 180.0, 15.0, "absent"),
+            plain_first_match_offset(&source, 180.0, 15.0, design::body_line(0.0), "absent"),
             0.0
         );
         let cache = Cache::default();
@@ -1066,6 +1157,7 @@ mod tests {
             "target",
             180.0,
             13.0,
+            design::body_line(0.0),
             MONO,
             true,
         )
@@ -1083,6 +1175,7 @@ mod tests {
             &p.reasoning,
             bounded_width(180.0 - design::CONTENT_INSET),
             14.0,
+            design::compact_line(0.0),
             FONT,
             false,
         );
@@ -1122,24 +1215,51 @@ mod tests {
         ];
         let runs = inline_runs(&parts);
         for width in [180.0, 600.0] {
-            let baseline = paragraph(&runs, width, 15.0, FONT, false).min_bounds();
+            let baseline =
+                paragraph(&runs, width, 15.0, design::body_line(0.0), FONT, false).min_bounds();
             for query in ["PUBLIC", "normal", "bold", "italic", "code"] {
                 let result = marked(runs.clone(), query);
-                let measured = paragraph(&result, width, 15.0, FONT, false).min_bounds();
+                let measured = paragraph(&result, width, 15.0, design::body_line(0.0), FONT, false)
+                    .min_bounds();
                 assert!((measured.height - baseline.height).abs() < 0.1);
                 assert!((measured.width - baseline.width).abs() < 0.1);
             }
         }
         let code = "let PUBLIC_value = 42;\n".repeat(20);
         let runs = highlight(&code, Some("rust"));
-        let baseline = paragraph(&runs, 180.0, 13.0, MONO, true).min_bounds();
-        let measured = paragraph(&marked(runs, "PUBLIC"), 180.0, 13.0, MONO, true).min_bounds();
+        let baseline =
+            paragraph(&runs, 180.0, 13.0, design::body_line(0.0), MONO, true).min_bounds();
+        let measured = paragraph(
+            &marked(runs, "PUBLIC"),
+            180.0,
+            13.0,
+            design::body_line(0.0),
+            MONO,
+            true,
+        )
+        .min_bounds();
         assert!((measured.height - baseline.height).abs() < 0.1);
         assert!((measured.width - baseline.width).abs() < 0.1);
-        assert_eq!(plain_height("PUBLIC", 0.0, 15.0, FONT, false), 19.5);
+        assert_eq!(
+            plain_height("PUBLIC", 0.0, 15.0, design::body_line(0.0), FONT, false),
+            design::LINE_BODY
+        );
         for width in [f32::NAN, -10.0, f32::INFINITY] {
-            let height = plain_height("PUBLIC\nTARGET", width, 15.0, FONT, false);
-            let offset = plain_first_match_offset("PUBLIC\nTARGET", width, 15.0, "target");
+            let height = plain_height(
+                "PUBLIC\nTARGET",
+                width,
+                15.0,
+                design::body_line(0.0),
+                FONT,
+                false,
+            );
+            let offset = plain_first_match_offset(
+                "PUBLIC\nTARGET",
+                width,
+                15.0,
+                design::body_line(0.0),
+                "target",
+            );
             assert!(height.is_finite() && height > 0.0);
             assert!(offset.is_finite() && offset >= 0.0 && offset <= height);
         }

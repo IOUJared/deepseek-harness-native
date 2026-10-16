@@ -6493,7 +6493,8 @@ impl App {
                 conversation_content::plain_first_match_offset(
                     &rows[index].text,
                     width,
-                    15.0,
+                    15.0 + self.content_delta(),
+                    design::body_line(self.content_delta()),
                     self.active_search(),
                 )
             };
@@ -6589,6 +6590,7 @@ impl App {
                 &row.text,
                 geometry.width - chat_geometry::BODY_INSET,
                 15.0 + self.content_delta(),
+                design::body_line(self.content_delta()),
                 FONT,
                 false,
             )
@@ -6610,6 +6612,7 @@ impl App {
                     activity_body_source(row),
                     geometry.width - chat_geometry::BODY_INSET,
                     self.content_delta_secondary(),
+                    design::body_line(self.content_delta()),
                 );
             geometry.height = geometry.body_height + chat_geometry::ROW_CHROME;
         }
@@ -6950,8 +6953,10 @@ impl App {
                                 activity_body,
                                 body_width,
                                 self.content_delta_secondary(),
+                                design::body_line(self.content_delta()),
                             ),
                             self.content_delta_secondary(),
+                            design::body_line(self.content_delta()),
                         ));
                 }
                 activity_column.into()
@@ -6991,6 +6996,7 @@ impl App {
                                 &source,
                                 self.active_search(),
                                 (15.0 + self.content_delta()).round() as u32,
+                                design::body_line(self.content_delta()),
                                 TEXT,
                             )
                         };

@@ -35,6 +35,8 @@ pub(crate) fn tool_line_height(delta: f32) -> f32 {
     TOOL_LINE_HEIGHT + delta
 }
 pub(crate) const ROW_CHROME: f32 = 12.0;
+/// Whole lines a collapsed reply previews; the body cap is this many line boxes.
+const PREVIEW_LINES: f32 = 4.0;
 /// The vertical gap the expanded tool body sits below its compact line. The view
 /// and the geometry both read this one constant: when only the view reserved it,
 /// a row whose body was measured at the same line count came out 4px short and
@@ -176,7 +178,10 @@ impl Cache {
                     // preference cannot reserve height for a smaller text than the
                     // one that renders (which clipped the last wrapped line).
                     size: Pixels(15.0 + self.delta.get()),
-                    line_height: text::LineHeight::default(),
+                    // The same box the transcript draws in. Measuring with Iced's
+                    // relative default (1.3) reserved 19.5px lines for text drawn
+                    // in the web's 24px box, which clipped the last wrapped line.
+                    line_height: crate::design::body_line(self.delta.get()),
                     font: FONT,
                     align_x: text::Alignment::Default,
                     align_y: alignment::Vertical::Top,
@@ -203,9 +208,15 @@ impl Cache {
                     max_width
                 };
                 let body_height = if measured.height.is_finite() {
-                    measured.height.clamp(20.0, 78.0)
+                    // The floor is one line box and the cap is the four-line chat
+                    // preview, so a collapsed reply always shows whole lines at the
+                    // box the transcript draws (`PREVIEW_LINES`).
+                    measured.height.clamp(
+                        crate::design::LINE_BODY,
+                        PREVIEW_LINES * crate::design::LINE_BODY,
+                    )
                 } else {
-                    78.0
+                    PREVIEW_LINES * crate::design::LINE_BODY
                 };
                 Geometry {
                     width,
@@ -434,7 +445,7 @@ mod tests {
     fn same_key_hits_reuse_shapes_and_preview_role_width_changes_invalidate() {
         let cache = Cache::default();
         let first = cache.geometry(7, "You", "Hi", 600.0);
-        assert_eq!(first.height, 52.0);
+        assert_eq!(first.height, 32.0 + crate::design::LINE_BODY);
         for _ in 0..8 {
             assert_eq!(cache.geometry(7, "You", "Hi", 600.0), first);
         }
@@ -556,8 +567,10 @@ mod tests {
                     || role.starts_with("Assistant")
                     || role == "Interrupted assistant attempt"
                 {
+                    let cap = PREVIEW_LINES * crate::design::LINE_BODY;
                     assert!(
-                        geometry.width >= 29.0 && (20.0..=78.0).contains(&geometry.body_height)
+                        geometry.width >= 29.0
+                            && (crate::design::LINE_BODY..=cap).contains(&geometry.body_height)
                     );
                     assert_eq!(geometry.height, chrome_height(role) + geometry.body_height);
                 }
@@ -577,13 +590,13 @@ mod tests {
         );
         assert!(unicode.body_height > short.body_height);
         let four = cache.geometry(2, "You", "one\ntwo\nthree\nfour", 1000.0);
-        assert_eq!(four.body_height, 78.0);
+        assert_eq!(four.body_height, PREVIEW_LINES * crate::design::LINE_BODY);
         assert_eq!(
             cache.geometry(3, "You", "", 1000.0),
             Geometry {
                 width: 96.0,
-                body_height: 20.0,
-                height: 52.0
+                body_height: crate::design::LINE_BODY,
+                height: 32.0 + crate::design::LINE_BODY
             }
         );
         let long = "PUBLIC words ".repeat(80);

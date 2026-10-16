@@ -30,6 +30,23 @@ pub const CONTENT_INSET: f32 = 22.0;
 /// `DisclosureRow` `.leading` is `calc(16px + delta)`, so the box holds the
 /// chevron and the variant icon without the title shifting between them.
 pub const LEADING_BOX: f32 = 16.0;
+/// The web's transcript line boxes, in absolute pixels rather than a ratio:
+/// body text is `calc(24px + var(--dsh-content-font-delta))`
+/// (`AssistantMarkdown.module.css:13`, `ToolRow.module.css:42`) and compact or
+/// secondary text is `calc(20px + var(--dsh-content-font-delta-secondary))`
+/// (`MarkdownText.module.css:334`, `ReasoningRow.module.css:49`). Iced's relative
+/// `LineHeight::default()` is `1.3`, which made every native line 19.5px where
+/// the web gives 24.
+pub const LINE_BODY: f32 = 24.0;
+pub const LINE_COMPACT: f32 = 20.0;
+/// The body line box at a content-size delta.
+pub fn body_line(delta: f32) -> iced::advanced::text::LineHeight {
+    iced::advanced::text::LineHeight::Absolute(iced::Pixels(LINE_BODY + delta))
+}
+/// The compact line box, at the secondary delta.
+pub fn compact_line(delta_secondary: f32) -> iced::advanced::text::LineHeight {
+    iced::advanced::text::LineHeight::Absolute(iced::Pixels(LINE_COMPACT + delta_secondary))
+}
 /// A markdown heading's size. The web's ladder is
 /// `--dsw-font-markdown-h1..h3` = 21/19/18 with `h4` and below at the body size
 /// (`gradient-shadow-text.css:61-74`), and native's type base sits one pixel

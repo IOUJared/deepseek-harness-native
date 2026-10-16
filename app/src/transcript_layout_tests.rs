@@ -92,9 +92,9 @@ fn measured_chat_heights_drive_ranges_spacers_and_resize_consistently() {
                     .height
             })
             .collect();
-        assert_eq!(heights[0], 52.0);
+        assert_eq!(heights[0], 32.0 + design::LINE_BODY);
         assert_eq!(heights[1], 36.0);
-        assert_eq!(heights[2], 52.0);
+        assert_eq!(heights[2], 32.0 + design::LINE_BODY);
         assert_eq!(heights[3], 156.0);
         let total: f32 = heights.iter().sum();
         for offset in [0.0, 87.0, 1000.0, 50_000.0, 1_000_000.0] {
