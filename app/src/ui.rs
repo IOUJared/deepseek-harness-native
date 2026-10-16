@@ -4912,6 +4912,11 @@ impl App {
                     name: "Full access".to_owned(),
                     description: None,
                 },
+                dsh_native_core::PresetOption {
+                    value: "auto".to_owned(),
+                    name: "Auto".to_owned(),
+                    description: None,
+                },
             ],
             default_options: Vec::new(),
             default_preset: "ask".to_owned(),
@@ -6287,8 +6292,14 @@ impl App {
         };
         for (value, name) in offered {
             let ink = if value == current { TEXT } else { MUTED };
+            // `locales.ts:54`: the deployment's registered Auto preset carries an `EXP`
+            // badge in the picker, so it is never mistaken for a user-defined preset.
+            let mut content = row![label(name, ink).size(13)].spacing(6);
+            if value == "auto" {
+                content = content.push(label(AUTO_BADGE, MUTED).size(10));
+            }
             items = items.push(
-                button(label(name, ink).size(13))
+                button(content)
                     .on_press(Message::PermissionPick(value.clone()))
                     .style(design::ghost)
                     .padding([4, 8])
@@ -10509,6 +10520,9 @@ impl<M: Clone, R: iced::advanced::Renderer> iced::advanced::Widget<M, Theme, R>
 /// and it processes the press before the widget around it does, so a plain
 /// The reference's own full-access warning, verbatim
 /// (`ui-permission-presets/src/client/locales.ts:35`).
+/// The reference's badge copy for the deployment's registered Auto preset
+/// (`ui-permission-presets/src/client/locales.ts:54`).
+const AUTO_BADGE: &str = "EXP";
 const FULL_ACCESS_RISK: &str = "Full access lets new sessions reduce confirmation steps and perform more actions directly, including sensitive operations, file changes, or external commands. Only use it when you trust subsequent tasks.";
 /// The display name for a permission preset. The reference takes it from the Host's
 /// catalog and falls back to a locale key; native has no catalog here yet, so the three

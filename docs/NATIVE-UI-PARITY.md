@@ -173,7 +173,15 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    shows the menu offering **"Ask every time"** — a name that exists only in the seeded
    reply, replacing the design set's "Read only" — with the current preset in full ink.
    Two corrections to earlier estimates are worth keeping: the delivery is the plain worker
-   event pattern, and no sub-effect module was required. (Superseded note follows.)
+   event pattern, and no sub-effect module was required.
+   The **Auto badge** is landed with it: when the Host's catalog carries the registered Auto
+   preset, the menu row shows the reference's own `EXP` copy beside it
+   (`ui-permission-presets/src/client/locales.ts:54`), and `PresetOption`'s full shape was
+   checked against the Host's declaration (`api-catalog.ts:6293-6295`: `value`, `name`, an
+   optional `description`) — so the Core projection drops nothing the badge would need.
+   Captured with the fixture catalog extended by an Auto option
+   (`shots/69-permission-auto-badge-dp2.png`), which shows `Auto` with `EXP` dimmed beside
+   it below `Full access`. (Superseded note follows.)
    The worker/app plumbing, whose delivery shape is now pinned too: a worker arm
    spawns the request and emits an `Event`, exactly as `app/src/worker.rs:2187` does for
    `Command::Inspect` (`backend.request(CoreCommand::Inspect, …)` mapped into
