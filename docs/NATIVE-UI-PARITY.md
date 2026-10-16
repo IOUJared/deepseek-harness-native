@@ -143,9 +143,19 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    `permission-catalog` and a `permission-set {session, name}` are accepted, while a missing
    name, a 129-character name and an extra key are each refused — on top of the full
    `node --test core/runtime/*.test.mjs` gate at **414 pass / 0 fail**.
-   Still to come: the Core-side command that carries these from the app to the bridge, then
-   the chip, the menu, the Auto-review badge and the confirmation guard, at the geometry
-   below.
+   Still to come, in this order, with the files each touches:
+   (a) `core/src/protocol.rs` — two `Command` variants, their `name()` strings
+   (`permission-catalog`, `permission-set { session, name }`), a `PublicReply` variant and a
+   `public_result` arm, exactly as the Cloudflare family is wired at `:194-201` and
+   `:384-386`;
+   (b) a `core/src/permission.rs` typed client modelled on `core/src/cloudflare.rs` (its
+   own `snapshot(value)` projection plus its own round-trip test, which is the shape
+   `cloudflare.rs:396-413` already uses);
+   (c) the worker/app plumbing that carries the request and its reply;
+   (d) the chip, menu, Auto-review badge and confirmation guard, at the geometry below, with
+   a DP-2 capture.
+   The first two are Core-side and user-independent; the last needs a fixture flag once the
+   chip exists.
    (Original note follows.)
    The wiring, read from the Codex bridge: a bridge is a `core/runtime/<name>.mjs` exporting
    a factory (`createCodexBridge`) whose `switch (command.type)` answers fixed commands
