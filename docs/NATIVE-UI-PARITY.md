@@ -285,8 +285,22 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    this needs new bridge and Core work of the same kind the catalog read needed — a settings
    descriptor read and a write — before any row exists. That is three slices, not one, and
    an earlier revision of this entry called it a mirror of the plugin path.
-   Settling step: add the permission-settings descriptor read and its write to the bridge
-   and Core family, then mirror the `settings.general.item` row in native's General page
+   The bridge half is **landed**: `permission.mjs` answers `permission-settings` and
+   `permission-default-set`. It never guesses a namespace name — it scans `describe()`'s
+   views for the one whose value carries `defaultPreset`, which is the descriptor the
+   reference's own projection reads (`settings-store.ts:45-58`: `view.value.defaultPreset
+   ?? catalog.defaultPreset`), and writes with one `set` at that view's revision so a
+   concurrent change is refused rather than overwritten. Read-only deployments, missing or
+   negative revisions and unbounded names are all refused before anything reaches the Host,
+   and a refusal's own message never crosses the boundary. The row's option list needs no
+   new call: it is the catalog's `defaultOptions`, already projected.
+   Verified: `permission.test.mjs` grew to six tests, the full `node --test
+   core/runtime/*.test.mjs` gate reports **416 pass / 0 fail**, and importing the supervisor
+   directly accepts both new commands with exact key sets while refusing a missing revision,
+   a negative revision, an empty name and an extra key.
+   Settling step: the Core-side half — two `Command` variants, their `name()` strings, a
+   `PublicReply` variant and `public_result` arms, then the app plumbing and the row itself.
+   Then: mirror the row in native's General page, then mirror the `settings.general.item` row in native's General page
    (whose rows are a `column!` of labelled disclosures, `app/src/settings.rs:1014-1045`),
    reusing the landed full-access confirmation, and capture it with a fixture-seeded state. Native's
    settings row should also honour the reference's own rules: hidden when the host exposes

@@ -51,6 +51,10 @@ export function parseForkCommand(line) {
   if (value.type === 'permission-catalog' && exact(value, ['type', 'requestId'])) return value;
   if (value.type === 'permission-set' && exact(value, ['type', 'requestId', 'session', 'name'])
     && validPermissionSession(value.session) && validPermissionName(value.name)) return value;
+  if (value.type === 'permission-settings' && exact(value, ['type', 'requestId'])) return value;
+  if (value.type === 'permission-default-set' && exact(value, ['type', 'requestId', 'name', 'expectedRevision'])
+    && validPermissionName(value.name) && Number.isSafeInteger(value.expectedRevision)
+    && value.expectedRevision >= 0) return value;
   if (value.type === 'codex-runtime-save' && exact(value, ['type', 'requestId', 'expectedRevision', 'values']) && validCodexRuntimeRevision(value.expectedRevision)) {
     try { return { ...value, values: validateCodexRuntimeValues(value.values) }; }
     catch (_error) { throw new Error('Invalid native command'); }
@@ -436,6 +440,7 @@ export function startForkSupervisor({ input = process.stdin, send, loadRuntime =
           value = await codex.handle(command); break;
         case 'codex-usage-load': case 'codex-usage-save': value = await codexUsage.handle(command); break;
         case 'permission-catalog': case 'permission-set': value = await permission.handle(command); break;
+        case 'permission-settings': case 'permission-default-set': value = await permission.handle(command); break;
         case 'inspect': emit({ type: 'inspection', requestId: command.requestId, ...await inspect(ctx) }); return;
         case 'open-workspace': await openWorkspace(ctx, command.path); emit({ type: 'workspace-added', requestId: command.requestId }); return;
         case 'onboarding-read': value = await readOnboarding(ctx, installed.credentialRef); break;

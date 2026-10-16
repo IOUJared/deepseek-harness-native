@@ -33,6 +33,29 @@ export const boundedPermissionCatalog = value => {
   return { options, defaultOptions, defaultPreset };
 };
 const failure = (code, message) => ({ ok: false, error: { code, message } });
+/** The Host's settings service, which owns the permission namespace's descriptor. */
+const settingsService = ctx => {
+  const value = ctx.get('settings');
+  return object(value) && typeof value.describe === 'function' && typeof value.mutate === 'function'
+    ? value
+    : undefined;
+};
+/** The permission view is the one whose value carries the default preset, so the bridge
+ *  never has to guess a namespace name the deployment is free to choose. */
+const permissionView = async settings => {
+  const views = await settings.describe();
+  if (!Array.isArray(views)) return undefined;
+  for (const view of views) {
+    if (!object(view) || !object(view.value) || !validPermissionName(view.ns)) continue;
+    const revision = Number.isSafeInteger(view.revision) && view.revision >= 0 ? view.revision : undefined;
+    if (revision === undefined) continue;
+    const preset = view.value.defaultPreset;
+    if (preset !== undefined && !validPermissionName(preset)) continue;
+    if (preset === undefined) continue;
+    return { ns: view.ns, revision, writable: view.writable === true, defaultPreset: preset };
+  }
+  return undefined;
+};
 const unavailable = () => failure('unavailable', 'permission presets are unavailable');
 /** One bridge per Core process; `ctx.get` resolves the Host's own service. */
 export const createPermissionBridge = ({ ctx }) => {
@@ -67,6 +90,47 @@ export const createPermissionBridge = ({ ctx }) => {
             return { ok: true };
           } catch {
             return failure('invalid', 'permission preset was refused');
+          }
+        }
+        case 'permission-settings': {
+          const settings = settingsService(ctx);
+          if (settings === undefined) return unavailable();
+          try {
+            const view = await permissionView(settings);
+            if (view === undefined) return failure('unavailable', 'permission settings are unavailable');
+            return {
+              ok: true,
+              settings: {
+                currentValue: view.defaultPreset,
+                revision: view.revision,
+                writable: view.writable,
+              },
+            };
+          } catch {
+            return unavailable();
+          }
+        }
+        case 'permission-default-set': {
+          if (!validPermissionName(command.name)) {
+            return failure('invalid', 'permission default needs a bounded preset');
+          }
+          const settings = settingsService(ctx);
+          if (settings === undefined) return unavailable();
+          try {
+            const view = await permissionView(settings);
+            if (view === undefined) return failure('unavailable', 'permission settings are unavailable');
+            if (view.writable !== true) return failure('invalid', 'permission settings are not writable');
+            if (!Number.isSafeInteger(command.expectedRevision) || command.expectedRevision < 0) {
+              return failure('invalid', 'permission default needs an expected revision');
+            }
+            // The Host's own write path: one `set` at the descriptor's own revision, so a
+            // concurrent change is refused rather than overwritten.
+            await settings.mutate(view.ns, [
+              { op: 'set', path: ['defaultPreset'], value: command.name },
+            ], command.expectedRevision);
+            return { ok: true };
+          } catch {
+            return failure('invalid', 'permission default was refused');
           }
         }
         default:
