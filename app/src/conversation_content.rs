@@ -73,7 +73,12 @@ impl Prepared {
             return *height;
         }
         let has_answer = self.has_answer();
-        let mut height = if let Some(document) = &self.document {
+        // An answerless reply reserves nothing for its answer. The web draws only
+        // the disclosure there, and an empty document still measured 20px, which
+        // left a blank gap under the disclosure that no render filled.
+        let mut height = if !has_answer {
+            0.0
+        } else if let Some(document) = &self.document {
             document_height(document, width, self.delta, self.delta_secondary)
         } else {
             plain_height(
@@ -86,10 +91,13 @@ impl Prepared {
             )
         };
         if !self.reasoning.is_empty() {
-            height += REASONING_ROW + self.delta;
+            // The row, then the flow gap that separates this block from the next.
+            height += REASONING_ROW + self.delta + design::BLOCK_GAP;
             if expanded {
                 // The body is drawn indented, so its height has to be measured at
-                // the same narrower width the offset calculation uses.
+                // the same narrower width the offset calculation uses, and it
+                // carries the padding above and below that the web's `.thinkBody`
+                // sets.
                 height += plain_height(
                     &self.reasoning,
                     bounded_width(width - self.content_inset()),
@@ -97,7 +105,7 @@ impl Prepared {
                     design::compact_line(self.delta_secondary),
                     FONT,
                     false,
-                ) + 8.0;
+                ) + 2.0 * REASONING_BODY_PAD;
             }
         }
         // Only real answer content reserves the minimum bubble height; reserving
@@ -153,7 +161,7 @@ impl Prepared {
             0.0
         } else if expanded {
             REASONING_ROW
-                + 8.0
+                + REASONING_BODY_PAD
                 + self.delta
                 + plain_height(
                     &self.reasoning,
@@ -257,11 +265,12 @@ impl Prepared {
                 .on_press_maybe(self.ticket.map(Message::ToggleThoughts))
                 .style(design::ghost)
                 .padding([3, 0])
-                .height(REASONING_ROW - 8.0 + self.delta),
+                .height(REASONING_ROW + self.delta),
             );
             if expanded {
                 // Indent under the title, as the web does, and measure at the same
                 // reduced width: the search offset below already assumed this inset.
+                body = body.push(iced::widget::Space::new().height(REASONING_BODY_PAD));
                 let inner = bounded_width(width - self.content_inset());
                 body = body.push(
                     container(plain_view(
@@ -287,9 +296,9 @@ impl Prepared {
                     ))
                     .clip(true),
                 );
-                body = body.push(iced::widget::Space::new().height(8));
+                body = body.push(iced::widget::Space::new().height(REASONING_BODY_PAD));
             }
-            body = body.push(iced::widget::Space::new().height(8));
+            body = body.push(iced::widget::Space::new().height(design::BLOCK_GAP));
         }
         if !self.has_answer() {
             return body.into();
@@ -559,10 +568,13 @@ pub fn tool_body_height(
 ) -> f32 {
     plain_height(source, width, 13.0 + delta_secondary, line, MONO, false).min(TOOL_BODY_MAX)
 }
-/// The collapsed reasoning disclosure row's height. The web writes the row as
-/// `calc(24px + delta)`; native's own reservation is 30 (a 22px button plus the
-/// 8px gap under it), and the content delta still applies to it.
-const REASONING_ROW: f32 = 30.0;
+/// The reasoning disclosure row's height. The web writes it as
+/// `calc(24px + var(--dsh-content-font-delta))` (`ReasoningRow.module.css:8`),
+/// which is exactly one body line box.
+const REASONING_ROW: f32 = design::LINE_BODY;
+/// The thinking body's own vertical padding, `padding: 4px 0 4px …` on the web's
+/// `.thinkBody` (`ReasoningRow.module.css:75`).
+const REASONING_BODY_PAD: f32 = 4.0;
 /// Longest inline tool body, in native px; the render clips to it too.
 pub const TOOL_BODY_MAX: f32 = 320.0;
 
@@ -1180,8 +1192,11 @@ mod tests {
             FONT,
             false,
         );
-        assert!((answer - (reasoning_height + 38.0)).abs() < 0.1);
-        assert_eq!(p.first_match_offset(180.0, false, "answer"), 30.0);
+        // The answer's first line sits one row box plus the thinking body's top
+        // padding below the disclosure, which is where the offset math puts it.
+        let after_row = REASONING_ROW + REASONING_BODY_PAD;
+        assert!((answer - (reasoning_height + after_row)).abs() < 0.1);
+        assert_eq!(p.first_match_offset(180.0, false, "answer"), REASONING_ROW);
     }
 
     #[test]

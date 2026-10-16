@@ -416,8 +416,16 @@ const WIDTH_HANDLE_OFFSET: f32 = 24.0;
 /// with a `6px` gap (`MessageItem.module.css` `.userRow`), and the geometry and
 /// the view read these together so a reservation cannot drift from what is drawn.
 const ACTION_GAP: f32 = 6.0;
-const ACTION_HEIGHT: f32 = 18.0;
-const ACTION_FOOTER: f32 = ACTION_GAP + ACTION_HEIGHT;
+/// The action row's own height. The web's `.actions` and `.action` are both
+/// `calc(28px + var(--dsh-content-font-delta))` (`MessageIconActions.module.css`),
+/// where native used 18.
+const ACTION_HEIGHT: f32 = 28.0;
+/// The gap between the actions themselves, which the web sets to 8px.
+const ACTION_SPACING: f32 = 8.0;
+/// What a message row reserves for the gap plus the action row.
+fn action_footer(delta: f32) -> f32 {
+    ACTION_GAP + ACTION_HEIGHT + delta
+}
 /// One in-flight conversation-width drag.
 struct WidthDrag {
     side: design::WidthSide,
@@ -6572,7 +6580,7 @@ impl App {
             // An answerless reply keeps only its thoughts disclosure, so it has
             // no action row and must not reserve one.
             let actions = if reply.has_answer() {
-                ACTION_FOOTER
+                action_footer(self.content_delta())
             } else {
                 0.0
             };
@@ -6601,7 +6609,7 @@ impl App {
             || row.role.starts_with("Assistant")
             || row.role == "Interrupted assistant attempt"
         {
-            geometry.height += ACTION_FOOTER;
+            geometry.height += action_footer(self.content_delta());
         }
         if self.activity_is_expanded(row) {
             // The compact line stays; the recorded body sits beneath it in the
@@ -7011,8 +7019,8 @@ impl App {
                             .style(design::ghost)
                             .padding([1, 2])
                     ]
-                    .spacing(6)
-                    .height(18);
+                    .spacing(ACTION_SPACING)
+                    .height(ACTION_HEIGHT + self.content_delta());
                     if human && self.transcript.editable_text(record.key).is_some() {
                         footer = footer.push(
                             button(label("Edit", MUTED).size(10))
