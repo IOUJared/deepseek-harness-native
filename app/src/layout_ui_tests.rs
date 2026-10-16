@@ -241,20 +241,24 @@ fn conversation_column_is_adaptive_and_fits_the_padded_pane() {
 fn composer_editor_grows_with_the_draft_up_to_the_web_line_cap() {
     let (mut app, mut queue) = app();
     drop(app.update(Message::Resized(iced::Size::new(1200.0, 800.0))));
-    // The resting editor keeps roughly its previous fixed height.
+    // The composer draws and reserves the body line box, so every height below is
+    // rows x that box plus the editor's 24px chrome.
+    let line = design::LINE_BODY;
+    let chrome = 24.0;
+    // The web caps the composer text at 336px, which is fourteen of these lines.
+    assert_eq!(14.0 * line, 336.0);
     app.editor = text_editor::Content::with_text("one line");
-    assert_eq!(app.composer_editor_height(), 83.0);
-    // Multi-line drafts grow one line at a time (5 * 19.5 + 24, rounded).
+    assert_eq!(app.composer_editor_height(), (3.0 * line + chrome).round());
     app.editor = text_editor::Content::with_text("a\nb\nc\nd\ne");
-    assert_eq!(app.composer_editor_height(), 122.0);
-    // The web 14-line cap holds; a short window keeps a smaller cap.
+    assert_eq!(app.composer_editor_height(), (5.0 * line + chrome).round());
+    // The web's fourteen-line cap holds; a short window keeps a smaller cap.
     app.editor = text_editor::Content::with_text(&"line\n".repeat(40));
-    assert_eq!(app.composer_editor_height(), 297.0);
+    assert_eq!(app.composer_editor_height(), (14.0 * line + chrome).round());
     drop(app.update(Message::Resized(iced::Size::new(760.0, 560.0))));
-    assert_eq!(app.composer_editor_height(), 180.0);
+    assert_eq!(app.composer_editor_height(), (8.0 * line + chrome).round());
     // Empty and whitespace-only drafts never drop below the resting size.
     app.editor = text_editor::Content::new();
-    assert_eq!(app.composer_editor_height(), 63.0);
+    assert_eq!(app.composer_editor_height(), (2.0 * line + chrome).round());
     drop(app.view());
     assert!(queue.try_recv().is_err());
 }

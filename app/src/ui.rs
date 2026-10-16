@@ -1303,17 +1303,21 @@ impl App {
     }
     /// Composer editor height. The web InputBar grows its draft up to 14 lines
     /// (`--dsh-composer-text-max-height: 336px`) over a 36px minimum. Native
-    /// counts logical lines at 15px/1.3 (19.5px) plus the editor's 24px vertical
+    /// counts logical lines at the body line box plus the editor's 24px vertical
     /// padding, keeps the existing resting size, and uses a shorter cap in a
     /// short window. Wrapped visual lines are not counted; beyond the cap the
     /// editor scrolls internally.
     fn composer_editor_height(&self) -> f32 {
-        const LINE: f32 = 19.5;
+        // The composer holds body text, so it takes the body line box rather than
+        // Iced's relative default; the web caps the text at 336px, which is
+        // fourteen of these lines. Reserving and drawing the same box is what
+        // keeps the cap honest.
+        let line = design::LINE_BODY + self.content_delta();
         const CHROME: f32 = 24.0;
         let short = self.layout_size().height < 620.0;
         let (min_rows, max_rows) = if short { (2.0, 8.0) } else { (3.0, 14.0) };
         let rows = self.editor.text().lines().count().max(1) as f32;
-        (rows.clamp(min_rows, max_rows) * LINE + CHROME).round()
+        (rows.clamp(min_rows, max_rows) * line + CHROME).round()
     }
     fn sidebar_target(&self) -> f32 {
         if !self.compact() && self.sidebar_expanded {
@@ -5504,6 +5508,7 @@ impl App {
             .padding(12)
             .font(FONT)
             .size(15)
+            .line_height(design::body_line(self.content_delta()))
             .style(design::editor)
             .key_binding(move |event| composer_binding(event, keyboard_allowed, menu_open));
         let sending = self
