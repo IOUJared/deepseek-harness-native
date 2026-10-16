@@ -177,7 +177,7 @@ impl Cache {
                     // Measured at the size the transcript draws, so a content-size
                     // preference cannot reserve height for a smaller text than the
                     // one that renders (which clipped the last wrapped line).
-                    size: Pixels(15.0 + self.delta.get()),
+                    size: Pixels(crate::design::BODY_SIZE + self.delta.get()),
                     // The same box the transcript draws in. Measuring with Iced's
                     // relative default (1.3) reserved 19.5px lines for text drawn
                     // in the web's 24px box, which clipped the last wrapped line.

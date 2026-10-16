@@ -5507,7 +5507,7 @@ impl App {
             .height(self.composer_editor_height())
             .padding(12)
             .font(FONT)
-            .size(15)
+            .size(design::BODY_SIZE as u32)
             .line_height(design::body_line(self.content_delta()))
             .style(design::editor)
             .key_binding(move |event| composer_binding(event, keyboard_allowed, menu_open));
@@ -6529,7 +6529,7 @@ impl App {
                 conversation_content::plain_first_match_offset(
                     &rows[index].text,
                     width,
-                    15.0 + self.content_delta(),
+                    design::BODY_SIZE + self.content_delta(),
                     design::body_line(self.content_delta()),
                     self.active_search(),
                 )
@@ -6625,7 +6625,7 @@ impl App {
             geometry.body_height = conversation_content::plain_height(
                 &row.text,
                 geometry.width - chat_geometry::BODY_INSET,
-                15.0 + self.content_delta(),
+                design::BODY_SIZE + self.content_delta(),
                 design::body_line(self.content_delta()),
                 FONT,
                 false,
@@ -7031,7 +7031,7 @@ impl App {
                             conversation_content::plain_view(
                                 &source,
                                 self.active_search(),
-                                (15.0 + self.content_delta()).round() as u32,
+                                (design::BODY_SIZE + self.content_delta()).round() as u32,
                                 design::body_line(self.content_delta()),
                                 TEXT,
                             )

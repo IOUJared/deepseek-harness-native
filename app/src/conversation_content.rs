@@ -33,7 +33,7 @@ pub struct Prepared {
 impl Prepared {
     /// The body text size at this reply's content size.
     fn body_size(&self) -> f32 {
-        15.0 + self.delta
+        design::BODY_SIZE + self.delta
     }
     /// The reasoning text size, one step under the body.
     fn reasoning_size(&self) -> f32 {
@@ -711,7 +711,7 @@ fn block_height(block: &formatted::Block, width: f32, delta: f32, delta_secondar
                 - *indent as f32 * 18.0
                 - if marker.is_some() { 36.0 } else { 0.0 }
                 - if *quote { 20.0 } else { 0.0 },
-            15.0 + delta,
+            design::BODY_SIZE + delta,
             design::body_line(delta),
         ),
         formatted::Block::Heading { level, spans } => inline_height(
@@ -773,13 +773,16 @@ fn document_view(
                 }
                 if let Some(marker) = marker {
                     line = line.push(
-                        container(label(marker.clone(), MUTED).size((15.0 + delta).round() as u32))
-                            .width(36),
+                        container(
+                            label(marker.clone(), MUTED)
+                                .size((design::BODY_SIZE + delta).round() as u32),
+                        )
+                        .width(36),
                     );
                 }
                 line.push(inline_view(
                     spans,
-                    (15.0 + delta).round() as u32,
+                    (design::BODY_SIZE + delta).round() as u32,
                     design::body_line(delta),
                     query,
                 ))

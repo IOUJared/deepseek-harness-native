@@ -39,6 +39,11 @@ pub const LEADING_BOX: f32 = 16.0;
 /// the web gives 24.
 pub const LINE_BODY: f32 = 24.0;
 pub const LINE_COMPACT: f32 = 20.0;
+/// The transcript body size: the web's `--dsh-content-font-size` default
+/// (`gradient-shadow-text.css:57`). Native reserved and drew body text at 15,
+/// which was a size the web never uses; with an absolute line box it also made
+/// the ratio wrong.
+pub const BODY_SIZE: f32 = 14.0;
 /// The gap between assistant blocks. The web's assistant body is a flex column
 /// with `gap: 16px` (`AssistantMarkdown.module.css:20`) and its markdown blocks
 /// carry `margin: 16px 0` (`MarkdownText.module.css:33`), where native used 12.
