@@ -1287,9 +1287,17 @@ impl App {
     /// must use this one value.
     fn chat_lane(&self) -> f32 {
         let column = self.content_column();
-        (column - 40.0)
-            .min(design::chat_width_with(column, self.chat_width_preference))
+        // The web's transcript column is capped at `--dsh-chat-content-width`
+        // and inset by `TRANSCRIPT_INSET` per side inside the scroller.
+        (column - 2.0 * design::TRANSCRIPT_INSET)
+            .min(self.chat_cap())
             .max(0.0)
+    }
+    /// The web's `--dsh-chat-content-width`: the adaptive clamp or the stored
+    /// preference, before any pane inset. The composer's card rides this value
+    /// plus its own 32px overhang (`ConversationRoot.module.css:381-390`).
+    fn chat_cap(&self) -> f32 {
+        design::chat_width_with(self.content_column(), self.chat_width_preference)
     }
     /// Persist the layout preference. Reached only from an explicit gesture
     /// commit, never per frame, so the small synchronous write stays bounded.
@@ -6025,13 +6033,17 @@ impl App {
             on_press: Message::ComposerFocus,
         });
         shell = shell.push(card).push(metadata);
+        // The web caps the composer card at the content width + 32px inside the
+        // seat's own 16px side padding, so the card overhangs the transcript by
+        // 16px per side and its dock strip sits 4px under it
+        // (`ConversationRoot.module.css:388`, `InputBar.module.css:9-20`).
         container(
-            container(shell.spacing(5))
-                .max_width(self.chat_lane())
+            container(shell.spacing(design::COMPOSER_DOCK_GAP))
+                .max_width(self.chat_cap() + design::COMPOSER_CARD_OVERHANG)
                 .width(Length::Fill),
         )
         .center_x(Length::Fill)
-        .padding([10, 20])
+        .padding(design::COMPOSER_SEAT_PAD)
         .into()
     }
     fn sidebar(&self) -> Element<'_, Message> {
@@ -7556,7 +7568,7 @@ impl App {
         let scroll = scrollable(
             container(lane)
                 .center_x(Length::Fill)
-                .padding([design::FLOW_INSET, 20.0]),
+                .padding([design::FLOW_INSET, design::TRANSCRIPT_INSET]),
         )
         .id(self.scroll_id())
         .on_scroll(move |viewport| Message::Scrolled {

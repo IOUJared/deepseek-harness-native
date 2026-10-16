@@ -222,16 +222,28 @@ fn conversation_column_is_adaptive_and_fits_the_padded_pane() {
         let sidebar = app.sidebar_motion.value();
         let pane = width - sidebar;
         let lane = app.chat_lane();
-        let expected = (pane - 40.0).min(design::chat_width(pane));
+        // The web insets the transcript by `--dsh-composer-side-clearance + 16px`
+        // per side inside the scroller and caps it at `--dsh-chat-content-width`.
+        let inset = 2.0 * design::TRANSCRIPT_INSET;
+        let expected = (pane - inset).min(app.chat_cap());
         assert!(
             (lane - expected).abs() < 0.001,
             "width {width}: lane {lane} != expected {expected}"
         );
         assert!(
-            lane <= pane - 40.0 + 0.001,
+            lane <= pane - inset + 0.001,
             "width {width}: lane {lane} must fit the padded pane {pane}"
         );
         assert!(lane <= design::MAX_CHAT + 0.001);
+        // The composer card rides the same cap plus its own 32px overhang, so it
+        // is exactly `COMPOSER_CARD_OVERHANG` wider than the transcript lane
+        // wherever the seat's 16px side padding leaves room.
+        let seat = design::COMPOSER_SEAT_PAD.left + design::COMPOSER_SEAT_PAD.right;
+        let card = (app.chat_cap() + design::COMPOSER_CARD_OVERHANG).min(pane - seat);
+        assert!(
+            (card - lane - design::COMPOSER_CARD_OVERHANG).abs() < 0.001,
+            "width {width}: card {card} is not the overhang wider than lane {lane}"
+        );
         // The rendered view uses the same lane, so its virtual row heights agree.
         drop(app.view());
     }

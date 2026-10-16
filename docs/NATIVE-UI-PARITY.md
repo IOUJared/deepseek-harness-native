@@ -67,6 +67,8 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Composer control row | `2px 8px 6px` · gap 12 | `COMPOSER_ROW_PAD`/`COMPOSER_ROW_GAP` |
 | Composer model chip | `.select` 28 h · `0 20px 0 8px` · radius sm · transparent · 13/20 | `COMPOSER_CHIP_*` + `design::ghost`; in the trailing group |
 | Send / stop control | 34×34 circle · info fill · icon glyph | 34 h · `COMPOSER_CONTROL_HEIGHT`; native keeps the words and its fills |
+| Composer seat | `.root` `0 16px 4px` · dock strip 4px · card = content + 32 | `COMPOSER_SEAT_PAD`/`COMPOSER_DOCK_GAP`/`COMPOSER_CARD_OVERHANG` |
+| Transcript side inset | `calc(clearance + 16px)` = 32 per side | `design::TRANSCRIPT_INSET`; `chat_lane` = `min(column − 64, chat_cap)` |
 | Menu | 13 px · blur 40 · hairline | native panel, no blur |
 
 ## Intentional differences (first pass)
@@ -402,4 +404,38 @@ cell, so new findings go at the end of the file as plain paragraphs.
   (`design::primary`, `design::danger`), because drawn glyphs are blocked and
   the words are the native affordance. The web's 34px *circles* are therefore
   34px *pills* here.
+- **Composer seat and transcript inset — landed, capture- and rect-verified.**
+  The web's composer sits in a seat of its own: `.root { padding: 0
+  var(--dsh-composer-side-clearance) 4px }` with the clearance at `16px`, its
+  dock strip `4px` under the card (`InputBar.module.css:9-20`), and the card
+  capped at `calc(var(--dsh-chat-content-width) + 32px)`
+  (`ConversationRoot.module.css:381-390`). The transcript inside the scroller is
+  inset `calc(var(--dsh-composer-side-clearance) + 16px)` = 32px per side
+  (`ChatView.module.css:26-29`). Native used a 20px inset for both, a `[10, 20]`
+  seat, a 5px dock gap, and capped the composer at the same lane as the
+  transcript — so the card overlapped the transcript exactly instead of
+  overhanging it.
+  `design::TRANSCRIPT_INSET` (32), `COMPOSER_SEAT_PAD` (0/16/4/16),
+  `COMPOSER_DOCK_GAP` (4) and `COMPOSER_CARD_OVERHANG` (32) carry the figures,
+  and `chat_lane` was split from a new `chat_cap`: the lane is
+  `min(column − 64, chat_cap)`, the cap is the web's `--dsh-chat-content-width`
+  (adaptive clamp or stored preference), and the composer's shell caps at
+  `chat_cap + 32` inside the seat's 16px padding, so the card is drawn as
+  `min(column − 32, cap + 32)` — the web's own expression.
+  `layout_ui_tests::conversation_column_is_adaptive_and_fits_the_padded_pane` now
+  pins both: at 760/1200/1980/2560 wide the lane is `min(pane − 64, cap)` and the
+  drawn card is exactly `COMPOSER_CARD_OVERHANG` wider than the lane.
+  Measured at the fixture's 1040-wide window, where the 680px cap binds and so the
+  transcript must not move: the composer card's fill spans `x 310..987` = 678
+  before and **`x 294..1003` = 710** after (the cap and cap + 32), while the
+  transcript's own rows are pixel-identical (the attachment card `746..983` and
+  the user bubble `601..984` in both grabs). The fixture's control rects move with
+  the card's edges: `native-file-open` `318.0 → 302.0`, and
+  `native-model-controls` `708.3 → 724.3`, `native-stop-control` `843.0 → 859.0`,
+  `native-send-control` `906.2 → 922.2` — sixteen pixels each way.
+  `shots/35-composer-seat-dp2.png` is the grab and `shots/35-composer-seat.png`
+  that run's frame (matching at 4.6 mean absolute difference).
+  One native remainder: the `[10, 20]` seat's 10px top gap is gone because the
+  web's composer has no top padding — the transcript's own 16px scroller inset
+  provides the separation, which is how the web's numbers add up.
 

@@ -504,6 +504,23 @@ pub const COMPOSER_CHIP_PAD: iced::Padding = iced::Padding {
 };
 pub const COMPOSER_CHIP_CHEVRON: f32 = 12.0;
 pub const COMPOSER_CONTROL_HEIGHT: f32 = 34.0;
+/// The transcript's own side inset: the web's `.scroll` pads
+/// `calc(var(--dsh-composer-side-clearance) + 16px)` = 32px per side
+/// (`ChatView.module.css:26-29`, `ConversationRoot.module.css:389`).
+pub const TRANSCRIPT_INSET: f32 = 32.0;
+/// The composer seat: the web's `.root { padding: 0
+/// var(--dsh-composer-side-clearance) 4px }` (`InputBar.module.css:9-11`) with
+/// its dock strip 4px below the card (`:13-20`), and a card capped at
+/// `--dsh-chat-content-width + 32px` (`ConversationRoot.module.css:388`) so it
+/// overhangs the transcript by 16px per side.
+pub const COMPOSER_SEAT_PAD: iced::Padding = iced::Padding {
+    top: 0.0,
+    right: 16.0,
+    bottom: 4.0,
+    left: 16.0,
+};
+pub const COMPOSER_DOCK_GAP: f32 = 4.0;
+pub const COMPOSER_CARD_OVERHANG: f32 = 32.0;
 /// The fade itself: transparent at the top, base colour by its bottom, so
 /// scrolled content dissolves instead of meeting the composer at a hard edge.
 ///
