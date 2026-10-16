@@ -5107,16 +5107,27 @@ impl App {
     }
     fn settings_entry(&self, compact: bool) -> Element<'_, Message> {
         // The mutually exclusive sidebar/rail branches share exactly one entry.
-        container(
-            button(label("Settings", MUTED).size(if compact { 10 } else { 12 }))
+        // Expanded it is a web `.panelRow` — `min-height: 36px`, `padding: 7px 8px`,
+        // `radius-md` (`SidebarRoot.module.css:493-505`); the rail keeps the
+        // compact control it already had.
+        let entry = if compact {
+            button(label("Settings", MUTED).size(10))
                 .on_press(Message::Settings(crate::settings::Action::Open))
                 .style(design::ghost)
-                .padding(if compact { [12, 2] } else { [10, 10] })
-                .width(Length::Fill),
-        )
-        .id("native-settings-entry")
-        .width(Length::Fill)
-        .into()
+                .padding([12, 2])
+                .width(Length::Fill)
+        } else {
+            button(label("Settings", MUTED).size(14))
+                .on_press(Message::Settings(crate::settings::Action::Open))
+                .style(|theme, status| design::navigation_row(theme, status, false))
+                .padding(design::PANEL_ROW_PAD)
+                .height(design::PANEL_ROW_HEIGHT)
+                .width(Length::Fill)
+        };
+        container(entry)
+            .id("native-settings-entry")
+            .width(Length::Fill)
+            .into()
     }
     fn conversation_menu_view(&self) -> Element<'_, Message> {
         let context = self.management_context();
@@ -6020,6 +6031,57 @@ impl App {
                 .style(|_| panel(SURFACE))
                 .into();
         }
+        // The web's New Session bar: a filled, hairline-edged `radius-md` bar
+        // with its own 2px inset and 12px of clear space below
+        // (`SidebarRoot.module.css:397-409`).
+        let new_session = container(
+            button(
+                // The web centers the icon and label in the bar
+                // (`SidebarRoot.module.css:470`).
+                container(
+                    row![
+                        label("+", TEXT).size(14),
+                        label(
+                            if self.new_pending {
+                                "Creating…"
+                            } else {
+                                "New conversation"
+                            },
+                            TEXT
+                        )
+                        .size(14),
+                    ]
+                    .spacing(6),
+                )
+                .center_x(Length::Fill),
+            )
+            .on_press_maybe(self.can_create().then_some(Message::NewSession))
+            .style(design::elevated)
+            .padding(design::NEW_SESSION_PAD)
+            .height(design::NEW_SESSION_HEIGHT)
+            .width(Length::Fill),
+        )
+        .padding([0.0, design::NEW_SESSION_INSET]);
+        let workspaces = button(
+            label(
+                if self.workspace_controls {
+                    "⌄  Workspaces"
+                } else {
+                    "›  Workspaces"
+                },
+                MUTED,
+            )
+            .size(14),
+        )
+        .on_press(Message::WorkspaceControls)
+        .style(|theme, status| design::navigation_row(theme, status, false))
+        .padding(design::PANEL_ROW_PAD)
+        .height(design::PANEL_ROW_HEIGHT)
+        .width(Length::Fill);
+        // Native keeps its own sidebar order (sessions, then the workspace
+        // seat, then Settings); only the web's part metrics and its own gaps are
+        // taken: `.logoRow`'s 4px, `.newSession`'s 12px, and `.panelList`'s 4px
+        // gap with its 8px trailing margin.
         let navigation = column![
             row![
                 brand(),
@@ -6031,47 +6093,19 @@ impl App {
             ]
             .spacing(9)
             .align_y(iced::Alignment::Center),
-            button(
-                row![
-                    label("+", TEXT).size(19),
-                    label(
-                        if self.new_pending {
-                            "Creating…"
-                        } else {
-                            "New conversation"
-                        },
-                        TEXT
-                    )
-                    .size(13)
-                ]
-                .spacing(12)
-            )
-            .on_press_maybe(self.can_create().then_some(Message::NewSession))
-            .style(design::ghost)
-            .padding([11, 10])
-            .width(Length::Fill),
+            Space::new().height(design::SIDEBAR_LOGO_GAP),
+            new_session,
+            Space::new().height(design::NEW_SESSION_GAP),
             self.session_navigation(),
-            button(
-                label(
-                    if self.workspace_controls {
-                        "⌄  Workspaces"
-                    } else {
-                        "›  Workspaces"
-                    },
-                    MUTED
-                )
-                .size(12)
-            )
-            .on_press(Message::WorkspaceControls)
-            .style(design::ghost)
-            .padding([8, 10])
-            .width(Length::Fill),
+            Space::new().height(design::PANEL_LIST_GAP),
+            workspaces,
+            Space::new().height(design::PANEL_GAP),
             self.workspace_navigation(),
+            Space::new().height(design::PANEL_GAP),
             self.settings_entry(false)
-        ]
-        .spacing(10);
+        ];
         container(navigation)
-            .padding([18, 14])
+            .padding(design::SIDEBAR_PAD)
             .width(width)
             .height(Length::Fill)
             .clip(true)
@@ -6181,19 +6215,32 @@ impl App {
     fn session_navigation(&self) -> Element<'_, Message> {
         let sessions = self.navigation_sessions();
         let count = sessions.len();
-        let mut list = Column::new().spacing(3);
+        // The web's session cells are 32px tall and stacked with no gap between
+        // them; a native row with a status line grows instead of clipping.
+        let mut list = Column::new();
         for session in sessions.into_iter().take(200) {
             let active = self.selected.as_ref() == Some(&session.session_id);
             let mut identity = column![
-                label(
-                    short(&self.session_title(session), 28),
-                    if active || session.running {
-                        TEXT
-                    } else {
-                        MUTED
-                    },
+                // The web's `.sessionRow .title` is one clipped line
+                // (`Rows.module.css:162-166`, `text-overflow: ellipsis`); Iced has
+                // no ellipsis, so the 20px box clips instead of wrapping the row
+                // taller than the web's 32px cell.
+                container(
+                    label(
+                        short(&self.session_title(session), 28),
+                        if active || session.running {
+                            TEXT
+                        } else {
+                            MUTED
+                        },
+                    )
+                    .size(14)
+                    .line_height(design::session_title_line())
+                    .wrapping(iced::advanced::text::Wrapping::None),
                 )
-                .size(13)
+                .width(Length::Fill)
+                .height(design::SESSION_TITLE_LINE)
+                .clip(true)
             ]
             .spacing(3)
             .width(Length::Fill);
@@ -6233,18 +6280,23 @@ impl App {
                                 && self.sidebar_organization.failure().is_none())
                             .then_some(Message::Select(session.session_id.clone())),
                         )
-                        .style(move |theme, status| design::navigation(theme, status, active))
-                        .padding([11, 10])
+                        .style(move |theme, status| design::navigation_row(theme, status, active))
+                        .padding(design::SESSION_ROW_PAD)
                         .width(Length::Fill),
-                    button(label("⋯", MUTED).size(16))
-                        .style(design::ghost)
-                        .padding([9, 5])
-                        .on_press_maybe(
-                            self.sidebar_target_allowed(&session.session_id)
-                                .then(|| self.sidebar_open_message(&session.session_id))
-                        )
+                    button(
+                        label("⋯", MUTED)
+                            .size(14)
+                            .line_height(design::session_title_line()),
+                    )
+                    .style(design::ghost)
+                    .padding([0.0, 5.0])
+                    .height(design::ROW_ACTION_HEIGHT)
+                    .on_press_maybe(
+                        self.sidebar_target_allowed(&session.session_id)
+                            .then(|| self.sidebar_open_message(&session.session_id))
+                    )
                 ]
-                .spacing(2)
+                .spacing(6)
                 .align_y(iced::Alignment::Center),
             );
         }
@@ -6338,12 +6390,12 @@ impl App {
             return Space::new().height(0).into();
         }
         let mut list = column![
-            button(label("All conversations", TEXT).size(12))
+            button(label("All conversations", TEXT).size(14))
                 .on_press(Message::Workspace(None))
-                .style(design::ghost)
+                .style(|theme, status| design::navigation_row(theme, status, false))
+                .padding(design::SESSION_ROW_PAD)
                 .width(Length::Fill)
-        ]
-        .spacing(3);
+        ];
         for workspace in self.workspaces.iter().take(128) {
             let active = self.workspace.as_ref() == Some(&workspace.workspace_id);
             list = list.push(
@@ -6352,10 +6404,11 @@ impl App {
                         short(&workspace.title, 28),
                         if active { TEXT } else { MUTED },
                     )
-                    .size(12),
+                    .size(14),
                 )
                 .on_press(Message::Workspace(Some(workspace.workspace_id.clone())))
-                .style(move |theme, status| design::navigation(theme, status, active))
+                .style(move |theme, status| design::navigation_row(theme, status, active))
+                .padding(design::SESSION_ROW_PAD)
                 .width(Length::Fill),
             );
         }

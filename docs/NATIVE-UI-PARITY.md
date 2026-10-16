@@ -48,9 +48,10 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 
 | Surface | Web value | Native |
 |---|---|---|
-| Sidebar inline padding | 12 | 14 |
-| Session row | 36 h · 7/8 pad · radius md | 36-ish (11/10 pad) |
-| New-session row | 38 h · 8/12 pad | 38-ish (11/10 pad) |
+| Sidebar column padding | `6px 12px` | `design::SIDEBAR_PAD` 6/12 |
+| Session cell | 32 h · `0 8px` pad · radius md · title 14/20 clipped | `SESSION_ROW_PAD` 6/8 + `SESSION_TITLE_LINE` 20 (32 h), radius md |
+| Panel row | `min-height: 36` · `7px 8px` pad · radius md | `PANEL_ROW_HEIGHT`/`PANEL_ROW_PAD`, radius md |
+| New-session row | 38 h · 8/12 pad · radius md · elevated fill + 0.5px border | `NEW_SESSION_*` + `design::elevated`, 2px inset, 12px below |
 | Conversation header | 76 min-h · bottom 0.5px seam · title 30 row | padding [14,20] + seam |
 | Chat content width | `clamp(680, 64%, 920)` | `design::chat_width(pane)` clamp, bounded by the padded pane |
 | User bubble max-width | `min(70.2% · content, 82%)` | content-sized, fixed 640 cap (≈70.2% of the widest column) |
@@ -268,4 +269,48 @@ cell, so new findings go at the end of the file as plain paragraphs.
   ladder and the height adjustment, and the answerless-row test in
   `transcript_layout_tests.rs` now reads the same ladder rather than asserting the
   old symmetric padding.
+- **Sidebar column and row metrics — landed, capture- and rect-verified.**
+  The web's sidebar is one set of literal boxes: `.root { padding: 6px
+  var(--dsh-sidebar-inline-padding) }` with the inline padding at `12px`
+  (`SidebarRoot.module.css:8-10`), `.newSession { height: 38px; padding: 8px 12px;
+  margin: 0 2px 12px; border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-md) }` with its icon and label centered
+  (`:397-409, :470`), `.panelRow { min-height: 36px; padding: 7px 8px;
+  border-radius: var(--dsw-radius-md) }` (`:493-505`), and a session cell of
+  `height: 32px; padding: 0 8px` whose title is `14px/20px`, clipped with an
+  ellipsis (`Rows.module.css:2-10, 110-118, 162-166`). Native had `[18, 14]`
+  container padding, an `11/10`-padded New conversation row with no box, `8/10`
+  and `10/10` panel rows, and `11/10` session rows with a 13px wrapping title.
+  `design.rs` now carries those metrics as `SIDEBAR_PAD`, `NEW_SESSION_*`,
+  `PANEL_ROW_*`, `SESSION_ROW_*` and `ROW_ACTION_HEIGHT`, and the view reads the
+  same constants it reserves, so no measurement can drift from the render.
+  Two pieces were more than padding:
+  - The New Session bar is a real box now. `design::elevated` fills it with
+    `OVERLAY` — native's elevation rung above the sidebar's `SURFACE`, which is
+    where the web's `--dsw-alias-button-elevated-fill` sits — and draws a `0.5px`
+    `LINE` hairline for `--dsw-alias-border-l3`; the ladder rounds l2 and l3 to the
+    same hairline, and hover darkens to `BASE` in the direction
+    `--dsw-alias-button-floating-hover` takes. Its content is centered and inset
+    2px, as the web's `margin: 0 2px` does.
+  - `design::navigation_row` is `navigation` at `RADIUS_MD`: the web's `.panelRow`,
+    `.sessionRow` and `.projectRow` are all `radius-md`, where native's shared row
+    surface rounds to `RADIUS_SM`. It is a separate style so the settings-category
+    and plugin rows keep their own radius until their web counterparts are read.
+  The session title is one clipped 20px line rather than a wrapped paragraph:
+  the web never wraps a session title, and a wrapped one made the cell taller than
+  the web's 32px. Iced has no ellipsis, so the title clips (the same disposition
+  the file card records) instead of ending in `…`.
+  Verified from two independent sources. The fixture's own `layoutObservation`
+  records `native-settings-entry`: its rect was `x 14, width 232, height 35.6`
+  before and is `x 12, width 236, height 36.0` after — the 12px column inset and
+  the 36px panel-row height, both exact. The DP-2 grab
+  (`shots/31-sidebar-metrics-dp2.png`, that run's frame `shots/31-sidebar-metrics.png`)
+  measures the New conversation bar's hairline box at `y 76..113` = 38px, the
+  selected session cell at `y 202..234` = 32px, and consecutive session-title text
+  tops at a 32px pitch, so the rows are stacked on the web's cell with no gap.
+  Not changed here, and still native's own composition: the sidebar's order
+  (sessions, then the workspace seat, then Settings) differs from the web's
+  brand → New Session → destination panel list → browser region → foot, and the
+  brand row has no macOS titlebar strip, so its own height is unchanged. The
+  RECENT section header and the search field keep their native boxes.
 

@@ -16,6 +16,46 @@ pub const GOLD: Color = Color::from_rgb8(0xf6, 0xc1, 0x77);
 pub const LINE: Color = Color::from_rgb8(0x40, 0x3d, 0x52);
 pub const SIDEBAR: f32 = 260.0;
 pub const RAIL: f32 = 68.0;
+/// Sidebar column metrics, each from the web's own rule
+/// (`ui-sidebar/SidebarRoot.module.css`, `ui-workspace/.../Rows.module.css`):
+/// `.root { padding: 6px var(--dsh-sidebar-inline-padding) }` with the inline
+/// padding at 12px, `.logoRow { margin-bottom: 4px }`,
+/// `.newSession { height: 38px; padding: 8px 12px; margin: 0 2px 12px }`,
+/// `.panelList { gap: 4px; margin-bottom: 8px }`,
+/// `.panelRow { min-height: 36px; padding: 7px 8px }`, and a session cell of
+/// `height: 32px; padding: 0 8px` whose title is `14px/20px` with a 4px/6px
+/// margin.
+pub const SIDEBAR_PAD: [f32; 2] = [6.0, 12.0];
+pub const SIDEBAR_LOGO_GAP: f32 = 4.0;
+pub const NEW_SESSION_HEIGHT: f32 = 38.0;
+pub const NEW_SESSION_PAD: [f32; 2] = [8.0, 12.0];
+/// `.newSession { margin: 0 2px 12px }`: the bar is inset 2px inside the column
+/// padding, and 12px of clear space follows it.
+pub const NEW_SESSION_INSET: f32 = 2.0;
+pub const NEW_SESSION_GAP: f32 = 12.0;
+pub const PANEL_ROW_HEIGHT: f32 = 36.0;
+pub const PANEL_ROW_PAD: [f32; 2] = [7.0, 8.0];
+/// `.panelList { gap: 4px }`, reused for the sidebar's own row stack and as the
+/// browser region's clearance above the workspace seat (`.panelList`'s
+/// `margin-bottom: 8px`).
+pub const PANEL_GAP: f32 = 4.0;
+pub const PANEL_LIST_GAP: f32 = 8.0;
+/// A session row's own box: the web fixes the cell at 32px around a 20px title
+/// line, so native keeps 6px of vertical padding there and lets a status line
+/// grow the row rather than clipping it inside a fixed height.
+pub const SESSION_ROW_PAD: [f32; 2] = [6.0, 8.0];
+pub const SESSION_ROW_HEIGHT: f32 = 32.0;
+pub const SESSION_TITLE_LINE: f32 = 20.0;
+/// The sidebar row title's line box. The web fixes it at `20px`
+/// (`Rows.module.css:162-166`) rather than scaling it with
+/// `--dsh-content-font-delta`, and it is what makes a one-line session cell
+/// exactly `SESSION_ROW_HEIGHT` tall with `SESSION_ROW_PAD`.
+pub fn session_title_line() -> iced::advanced::text::LineHeight {
+    iced::advanced::text::LineHeight::Absolute(iced::Pixels(SESSION_TITLE_LINE))
+}
+/// The web's row action cluster is `height: 20px` (`Rows.module.css:258-262`),
+/// so the compact trailing control fits inside the 32px session cell.
+pub const ROW_ACTION_HEIGHT: f32 = 20.0;
 pub const CHAT: f32 = 800.0;
 pub const MIN_CHAT: f32 = 680.0;
 pub const MAX_CHAT: f32 = 920.0;
@@ -265,6 +305,38 @@ pub fn navigation(theme: &Theme, status: button::Status, selected: bool) -> butt
         style.text_color = TEXT;
     }
     style
+}
+/// [`navigation`] at the web's row radius: `.panelRow` and `.sessionRow` are
+/// both `border-radius: var(--dsw-radius-md)` (`SidebarRoot.module.css:493-505`,
+/// `Rows.module.css:2-10`), where the shared native row surface rounds to
+/// `RADIUS_SM`. Kept a separate style so the other `navigation` surfaces (the
+/// settings categories and plugin rows) keep their own radius until their web
+/// counterparts are checked.
+pub fn navigation_row(theme: &Theme, status: button::Status, selected: bool) -> button::Style {
+    let mut style = navigation(theme, status, selected);
+    style.border.radius = RADIUS_MD.into();
+    style
+}
+/// The web's New Session bar: `--dsw-alias-button-elevated-fill` over the
+/// sidebar fill with a `0.5px solid var(--dsw-alias-border-l3)` edge and
+/// `--dsw-radius-md` (`SidebarRoot.module.css:397-409`). Native's elevation
+/// ladder puts that fill at `OVERLAY` above the sidebar's `SURFACE`, rounds both
+/// l2 and l3 to the `LINE` hairline, and darkens on hover the way
+/// `--dsw-alias-button-floating-hover` does.
+pub fn elevated(_: &Theme, status: button::Status) -> button::Style {
+    button::Style {
+        background: Some(
+            if matches!(status, button::Status::Hovered | button::Status::Pressed) {
+                BASE
+            } else {
+                OVERLAY
+            }
+            .into(),
+        ),
+        text_color: TEXT,
+        border: border(RADIUS_MD, LINE, 0.5),
+        ..Default::default()
+    }
 }
 pub fn danger(_: &Theme, status: button::Status) -> button::Style {
     let disabled = matches!(status, button::Status::Disabled);
