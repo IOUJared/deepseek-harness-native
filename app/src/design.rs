@@ -150,6 +150,17 @@ pub const TIGHT_HEADING_GAP: f32 = 8.0;
 pub const QUOTE_BAR: f32 = 2.0;
 pub const QUOTE_PAD: f32 = 14.0;
 pub const QUOTE_INSET: f32 = QUOTE_BAR + QUOTE_PAD;
+/// The compact markdown ladder (`MarkdownText.module.css:330-380`), used by the
+/// reference's reasoning body and trajectory detail: `p`/`ul`/`ol`/`blockquote` are
+/// `4px 0`, headings `8px 0 4px` at the inherited size and weight 600, `hr` `8px 0`,
+/// a code block `4px 0` with the surrounding text colour, list items `2px` apart, and
+/// a blockquote's padding narrows to `8px`.
+pub const COMPACT_BLOCK_GAP: f32 = 4.0;
+pub const COMPACT_HEADING_GAP: f32 = 8.0;
+pub const COMPACT_RULE_GAP: f32 = 8.0;
+pub const COMPACT_LIST_ITEM_GAP: f32 = 2.0;
+pub const COMPACT_QUOTE_PAD: f32 = 8.0;
+pub const COMPACT_QUOTE_INSET: f32 = QUOTE_BAR + COMPACT_QUOTE_PAD;
 /// The gap between two conversation flow rows. The web gives every flow sibling
 /// `margin-top: var(--dsh-chat-flow-gap, 6px)` (`ChatView.module.css:60-71`), so
 /// two process rows sit 6px apart.

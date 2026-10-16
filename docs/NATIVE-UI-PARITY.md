@@ -62,6 +62,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | User bubble | `padding: 10px 16px` · radius xl · stack cap `min(content × 0.702, 82%)` | `USER_BUBBLE_PAD`/`_INSET`/`_RADIUS`/`_SHARE`; the cap follows the live lane |
 | Code block | `radius-lg` · banner `9px 14px` at 11/18 · `pre` `padding: 16px` · code `11px/19px` · banner one step over the block | `CODE_FONT`/`CODE_LINE`/`CODE_PAD`/`CODE_BANNER_*`/`CODE_CHROME`; both renderers and the offset path read them |
 | Blockquote | `border-left: 2px solid label-caption` · `padding-left: 14px` · `margin: 16px 0 0` | `QUOTE_BAR`/`QUOTE_PAD`/`QUOTE_INSET`; a filled rule whose height is the paragraph's own measured height |
+| Compact markdown | Reasoning body + trajectory detail use the secondary ladder: `p`/`ul`/`ol`/`blockquote` `4px 0`, `li` `2px`, headings `8px 0 4px` at the inherited size/600, `hr` `8px 0`, code `4px 0` in the surrounding colour, quote padding `8px` | `Ladder::Compact` + `COMPACT_*`; the reasoning body is parsed into the same block model |
 | Markdown rhythm | per-block margins, CSS-collapsed: `p` 16/16 · `h1–h3` 32/16 · `h4–h6` 16/16 · `li` 6 inside, list 16 at its edges · nested list 4 · `hr` 32/32 · code 16/11 · `h4–h6`+list 8 | `block_margins`/`document_gap` over `BLOCK_GAP`/`RULE_GAP`/`LIST_ITEM_GAP`/`NESTED_LIST_GAP`/`CODE_LAST_GAP`/`TIGHT_HEADING_GAP`; both renderers and the offset walk read them |
 | Width handles | 10px strip at lane ± 24 · `2px` glow `4px` in, `16px` core, hover/drag only | `WIDTH_HANDLE_*` + `HANDLE_GLOW_*`, hover/drag state, `native-width-handle-*` rects |
 | Jump to latest | `34px` round floating button · slot `bottom: 16px` · right edge on the column (or `32px` in) · only while not following the tail | `TO_BOTTOM_*` + `native-to-bottom` rect; `design::LINE` hover, no shadow |
@@ -936,4 +937,35 @@ cell, so new findings go at the end of the file as plain paragraphs.
   container rather than a real left border, and its height is passed in from the
   measurement instead of stretching — that is why it is derived rather than `Fill`,
   which resolved to zero inside the row.
+- **Compact markdown in the reasoning body — landed, capture-verified.** The reference
+  renders its reasoning row with `variant="compact"` (`ReasoningRow.tsx:72`, and the
+  trajectory table's detail at `TrajectoryTable.tsx:1571`), a second ladder in the same
+  sheet: the body is the secondary `13px/20px` tertiary text, and
+  `p`/`ul`/`ol`/`blockquote` are `margin: 4px 0`, `li:not(:first-child)` `2px`,
+  headings `8px 0 4px` at `font: inherit; font-weight: 600`, `hr` `8px 0`, a code block
+  `margin: 4px 0` with the surrounding text colour, and a blockquote's padding narrows
+  to `8px` (`MarkdownText.module.css:330-383`).
+  Native drew the reasoning body as plain text, so a fenced block, list or heading
+  inside a thought appeared as raw syntax. The shared fixture's reasoning was one plain
+  sentence, so nothing had ever reached the ladder; a new `chat-thoughts-markdown`
+  preset gives the seq-11 reasoning a heading, a paragraph, an ordered list, a fenced
+  rust block and a quote, and expands the row exactly as `chat-thoughts` does.
+  `conversation_content::Ladder` now carries both ladders through `block_margins`,
+  `document_gap`, `block_height`, `document_height` and `document_view`; the reasoning
+  is parsed with the same `formatted::parse` as the answer, held beside it, measured at
+  the compact ladder (falling back to the plain height when it does not parse), and
+  drawn through `document_view` with `Ladder::Compact` under a tertiary text colour,
+  with compact headings rebuilt as bold spans and compact code tokens recoloured to the
+  surrounding text.
+  Verified at that preset: the same 420px-tall grab shows `### PUBLIC compact heading`
+  as a bold line at the body size, the paragraph's bold and inline-code runs resolved,
+  the two ordered items 4px apart, and the fenced block as the reference's code box
+  (banner, `Copy code`, 11px/19px content) instead of a literal fence.
+  `shots/54-reasoning-markdown-dp2.png` is the after grab,
+  `shots/54-reasoning-markdown.png` that run's own frame, and
+  `shots/54-reasoning-markdown-before.png` the same preset before the change.
+  Remainders: the reasoning's *search offset* still walks the plain text rather than the
+  compact document, so a match inside formatted reasoning can sit a few pixels from its
+  glyph (the row's own height and the drawn blocks are exact); the trajectory table's
+  compact markdown is a native surface of its own and was not touched.
 

@@ -222,7 +222,11 @@ fn view(document: &formatted::Document) -> Element<'_, Message> {
                 })
                 .into(),
         };
-        let gap = super::conversation_content::document_gap(&document.blocks, index);
+        let gap = super::conversation_content::document_gap(
+            &document.blocks,
+            index,
+            super::conversation_content::Ladder::Body,
+        );
         body = body.push(if gap > 0.0 {
             Column::new()
                 .push(Space::new().height(gap))

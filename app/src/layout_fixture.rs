@@ -63,6 +63,7 @@ pub const PRESETS: &[&str] = &[
     "chat-transcript",
     "chat-markdown",
     "chat-thoughts",
+    "chat-thoughts-markdown",
     "chat-edit-review",
     "chat-search",
     "chat-recovered",
@@ -210,6 +211,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "chat-transcript"
         | "chat-markdown"
         | "chat-thoughts"
+        | "chat-thoughts-markdown"
         | "chat-edit-review"
         | "chat-search"
         | "chat-recovered"
@@ -408,11 +410,45 @@ fn public_chat_records(preset: &str) -> Vec<Value> {
     }
     if matches!(
         preset,
-        "chat-transcript" | "chat-context-rewrite" | "history-more" | "long-user-message"
+        "chat-transcript"
+            | "chat-context-rewrite"
+            | "history-more"
+            | "long-user-message"
+            | "chat-thoughts-markdown"
     ) {
         let value: Value =
             serde_json::from_str(include_str!("../fixtures/chat-visibility.json")).unwrap();
         let mut records = value["records"].as_array().unwrap().clone();
+        if preset == "chat-thoughts-markdown" {
+            // The shared fixture's reasoning is one plain sentence, so nothing reached
+            // the reference's compact markdown ladder (`MarkdownText.module.css:330-370`);
+            // this preset gives the reasoning a heading, list, code block and quote.
+            for record in &mut records {
+                let event = &mut record["event"];
+                if event["type"] == "assistant/message" {
+                    let text = "### PUBLIC compact heading\n\nFirst thought paragraph with **bold** and `inline code`.\n\n1. First compact item\n2. Second compact item\n\n```rust\nlet PUBLIC_reasoning = 1;\n```\n\n> PUBLIC quoted thought.";
+                    // The reasoning text lives in the message content and again in the
+                    // stream's reasoning frame and block-end, so all three move together.
+                    for part in event["data"]["message"]["content"]
+                        .as_array_mut()
+                        .into_iter()
+                        .flatten()
+                    {
+                        if part["type"] == "reasoning" {
+                            part["text"] = json!(text);
+                        }
+                    }
+                    for frame in event["data"]["stream"].as_array_mut().into_iter().flatten() {
+                        if frame["type"] == "reasoning-chunks" {
+                            frame["texts"] = json!([text]);
+                        }
+                        if frame["chunk"]["block"]["type"] == "reasoning" {
+                            frame["chunk"]["block"]["text"] = json!(text);
+                        }
+                    }
+                }
+            }
+        }
         if preset == "long-user-message" {
             // The fixture's only user text is 22 characters, which never reaches
             // the reference's share-of-column bubble cap; this preset lengthens it
@@ -752,6 +788,7 @@ pub fn build(
             | "chat-transcript"
             | "chat-markdown"
             | "chat-thoughts"
+            | "chat-thoughts-markdown"
             | "chat-edit-review"
             | "chat-search"
             | "chat-recovered"
@@ -826,6 +863,12 @@ pub fn build(
         let ticket = app.reply_parts(1).unwrap().ticket.unwrap();
         drop(app.update(Message::ToggleThoughts(ticket)));
         assert!(app.thoughts_expanded.contains(&1));
+    }
+    if preset == "chat-thoughts-markdown" {
+        // The shared fixture's assistant reply is seq 11.
+        let ticket = app.reply_parts(11).unwrap().ticket.unwrap();
+        drop(app.update(Message::ToggleThoughts(ticket)));
+        assert!(app.thoughts_expanded.contains(&11));
     }
     if preset == "chat-edit-review" {
         app.editor = iced::widget::text_editor::Content::with_text(

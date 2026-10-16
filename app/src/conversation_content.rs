@@ -23,6 +23,10 @@ pub struct Prepared {
     pub reasoning: String,
     pub answer: String,
     document: Option<formatted::Document>,
+    /// The reasoning body parsed into the same block model, drawn with the compact
+    /// ladder (`MarkdownText.module.css:330-370`). `None` when it does not parse,
+    /// which falls back to the plain view.
+    reasoning_document: Option<formatted::Document>,
     widths: RefCell<Vec<(u32, bool, f32)>>,
     /// The content-size deltas this reply's sizes were prepared at. The cache that
     /// built it clears whenever either changes, so a reply can never be drawn or
@@ -79,7 +83,13 @@ impl Prepared {
         let mut height = if !has_answer {
             0.0
         } else if let Some(document) = &self.document {
-            document_height(document, width, self.delta, self.delta_secondary)
+            document_height(
+                document,
+                width,
+                self.delta,
+                self.delta_secondary,
+                Ladder::Body,
+            )
         } else {
             plain_height(
                 &self.answer,
@@ -98,14 +108,24 @@ impl Prepared {
                 // the same narrower width the offset calculation uses, and it
                 // carries the padding above and below that the web's `.thinkBody`
                 // sets.
-                height += plain_height(
-                    &self.reasoning,
-                    bounded_width(width - self.content_inset()),
-                    self.reasoning_size(),
-                    design::compact_line(self.delta_secondary),
-                    FONT,
-                    false,
-                ) + 2.0 * REASONING_BODY_PAD;
+                let inner = bounded_width(width - self.content_inset());
+                height += match &self.reasoning_document {
+                    Some(document) => document_height(
+                        document,
+                        inner,
+                        self.delta,
+                        self.delta_secondary,
+                        Ladder::Compact,
+                    ),
+                    None => plain_height(
+                        &self.reasoning,
+                        inner,
+                        self.reasoning_size(),
+                        design::compact_line(self.delta_secondary),
+                        FONT,
+                        false,
+                    ),
+                } + 2.0 * REASONING_BODY_PAD;
             }
         }
         // Only real answer content reserves the minimum bubble height; reserving
@@ -221,8 +241,8 @@ impl Prepared {
                 if let Some(offset) = found {
                     return (y + offset).clamp(0.0, self.body_height(width, expanded));
                 }
-                y += block_height(block, width, self.delta, self.delta_secondary)
-                    + document_gap(&document.blocks, index)
+                y += block_height(block, width, self.delta, self.delta_secondary, Ladder::Body)
+                    + document_gap(&document.blocks, index, Ladder::Body)
                     + design::BLOCK_GAP;
             }
             0.0
@@ -276,29 +296,55 @@ impl Prepared {
                 // reduced width: the search offset below already assumed this inset.
                 body = body.push(iced::widget::Space::new().height(REASONING_BODY_PAD));
                 let inner = bounded_width(width - self.content_inset());
-                body = body.push(
-                    container(plain_view(
+                let rendered: Element<'static, Message> = match &self.reasoning_document {
+                    Some(document) => container(document_view(
+                        document,
+                        inner,
+                        None,
+                        query,
+                        self.delta,
+                        self.delta_secondary,
+                        Ladder::Compact,
+                    ))
+                    .style(|_| container::Style {
+                        text_color: Some(MUTED),
+                        ..Default::default()
+                    })
+                    .into(),
+                    None => plain_view(
                         &self.reasoning,
                         query,
                         self.reasoning_size().round() as u32,
                         design::compact_line(self.delta_secondary),
                         MUTED,
-                    ))
-                    .padding(iced::Padding {
-                        top: 0.0,
-                        right: 0.0,
-                        bottom: 0.0,
-                        left: self.content_inset(),
-                    })
-                    .height(plain_height(
-                        &self.reasoning,
-                        inner,
-                        self.reasoning_size(),
-                        design::compact_line(self.delta_secondary),
-                        FONT,
-                        false,
-                    ))
-                    .clip(true),
+                    ),
+                };
+                body = body.push(
+                    container(rendered)
+                        .padding(iced::Padding {
+                            top: 0.0,
+                            right: 0.0,
+                            bottom: 0.0,
+                            left: self.content_inset(),
+                        })
+                        .height(match &self.reasoning_document {
+                            Some(document) => document_height(
+                                document,
+                                inner,
+                                self.delta,
+                                self.delta_secondary,
+                                Ladder::Compact,
+                            ),
+                            None => plain_height(
+                                &self.reasoning,
+                                inner,
+                                self.reasoning_size(),
+                                design::compact_line(self.delta_secondary),
+                                FONT,
+                                false,
+                            ),
+                        })
+                        .clip(true),
                 );
                 body = body.push(iced::widget::Space::new().height(REASONING_BODY_PAD));
             }
@@ -315,6 +361,7 @@ impl Prepared {
                 query,
                 self.delta,
                 self.delta_secondary,
+                Ladder::Body,
             ));
         } else {
             body = body.push(plain_view(
@@ -392,6 +439,7 @@ impl Cache {
             self.revision.set(revision);
         }
         let document = formatted::parse(&answer).ok();
+        let reasoning_document = formatted::parse(&reasoning).ok();
         let prepared = Rc::new(Prepared {
             ticket: revision.map(|revision| Ticket {
                 generation,
@@ -401,6 +449,7 @@ impl Cache {
             reasoning,
             answer,
             document,
+            reasoning_document,
             widths: RefCell::new(Vec::new()),
             delta: self.delta.get(),
             delta_secondary: self.delta_secondary.get(),
@@ -711,6 +760,57 @@ fn heading_size(level: u8) -> u32 {
 /// reference's `h1`–`h3` are `margin: 32px 0 16px` against a paragraph's `16px 0`,
 /// so only a heading that is not the document's first block adds the difference
 /// (`MarkdownText.module.css:15-44`); `h4`–`h6` share the paragraph rhythm.
+/// Which of the reference's two markdown ladders a document is drawn with: the
+/// answer body, or the compact secondary ladder its reasoning row uses.
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub(crate) enum Ladder {
+    Body,
+    Compact,
+}
+impl Ladder {
+    fn size(self, delta: f32, delta_secondary: f32) -> f32 {
+        match self {
+            Ladder::Body => design::BODY_SIZE + delta,
+            Ladder::Compact => design::SECONDARY_SIZE + delta_secondary,
+        }
+    }
+    fn line(self, delta: f32, delta_secondary: f32) -> native::LineHeight {
+        match self {
+            Ladder::Body => design::body_line(delta),
+            Ladder::Compact => design::compact_line(delta_secondary),
+        }
+    }
+    fn gap(self) -> f32 {
+        match self {
+            Ladder::Body => design::BLOCK_GAP,
+            Ladder::Compact => design::COMPACT_BLOCK_GAP,
+        }
+    }
+    fn heading_gap(self) -> f32 {
+        match self {
+            Ladder::Body => design::RULE_GAP,
+            Ladder::Compact => design::COMPACT_HEADING_GAP,
+        }
+    }
+    fn rule_gap(self) -> f32 {
+        match self {
+            Ladder::Body => design::RULE_GAP,
+            Ladder::Compact => design::COMPACT_RULE_GAP,
+        }
+    }
+    fn item_gap(self) -> f32 {
+        match self {
+            Ladder::Body => design::LIST_ITEM_GAP,
+            Ladder::Compact => design::COMPACT_LIST_ITEM_GAP,
+        }
+    }
+    fn quote_inset(self) -> f32 {
+        match self {
+            Ladder::Body => design::QUOTE_INSET,
+            Ladder::Compact => design::COMPACT_QUOTE_INSET,
+        }
+    }
+}
 fn is_item(block: &formatted::Block) -> bool {
     matches!(
         block,
@@ -735,33 +835,41 @@ fn is_tight_heading(block: &formatted::Block) -> bool {
 /// pair's own neighbour rules applied. CSS collapses the gap between two blocks to
 /// the larger of the first's bottom and the second's top, which
 /// [`document_gap`] does.
-pub(crate) fn block_margins(blocks: &[formatted::Block], index: usize) -> (f32, f32) {
+pub(crate) fn block_margins(
+    blocks: &[formatted::Block],
+    index: usize,
+    ladder: Ladder,
+) -> (f32, f32) {
     let block = &blocks[index];
     let previous = index.checked_sub(1).map(|i| &blocks[i]);
     let next = blocks.get(index + 1);
     match block {
         formatted::Block::Heading { level, .. } => {
             let top = if *level <= 3 {
-                design::RULE_GAP
+                ladder.heading_gap()
             } else {
-                design::BLOCK_GAP
+                ladder.gap()
             };
             // `h4`-`h6` tighten to 8px against a following list.
             let bottom = if is_tight_heading(block) && next.is_some_and(is_item) {
                 design::TIGHT_HEADING_GAP
             } else {
-                design::BLOCK_GAP
+                ladder.gap()
             };
             (top, bottom)
         }
-        formatted::Block::Rule => (design::RULE_GAP, design::RULE_GAP),
+        formatted::Block::Rule => (ladder.rule_gap(), ladder.rule_gap()),
         formatted::Block::Code { .. } => {
             let bottom = if next.is_some() {
-                design::CODE_LAST_GAP
+                match ladder {
+                    Ladder::Body => design::CODE_LAST_GAP,
+                    // The compact sheet gives a code block `margin: 4px 0`.
+                    Ladder::Compact => design::COMPACT_BLOCK_GAP,
+                }
             } else {
-                design::BLOCK_GAP
+                ladder.gap()
             };
-            (design::BLOCK_GAP, bottom)
+            (ladder.gap(), bottom)
         }
         formatted::Block::Paragraph {
             marker,
@@ -778,44 +886,53 @@ pub(crate) fn block_margins(blocks: &[formatted::Block], index: usize) -> (f32, 
                 let same_run =
                     previous.is_some_and(|block| is_item(block) && indent_of(block) == *indent);
                 let top = if nested {
-                    design::NESTED_LIST_GAP
+                    match ladder {
+                        Ladder::Body => design::NESTED_LIST_GAP,
+                        Ladder::Compact => design::COMPACT_LIST_ITEM_GAP,
+                    }
                 } else if previous.is_some_and(is_tight_heading) {
                     design::TIGHT_HEADING_GAP
                 } else if same_run {
-                    design::LIST_ITEM_GAP
+                    ladder.item_gap()
                 } else {
-                    design::BLOCK_GAP
+                    ladder.gap()
                 };
                 let bottom = if next.is_some_and(is_item) {
                     0.0
                 } else {
-                    design::BLOCK_GAP
+                    ladder.gap()
                 };
                 (top, bottom)
             } else if *quote {
                 // `blockquote { margin: 16px 0 0 }`: the following block's own top
                 // margin supplies the collapsed gap below it.
-                (design::BLOCK_GAP, 0.0)
+                (ladder.gap(), 0.0)
             } else if *indent > 0 {
                 // Inside a list item the reference zeroes the first and last child's
                 // margins, so the item itself owns the rhythm.
                 (0.0, 0.0)
             } else {
-                (design::BLOCK_GAP, design::BLOCK_GAP)
+                (ladder.gap(), ladder.gap())
             }
         }
     }
 }
 /// The collapsed gap between two neighbouring blocks.
-pub(crate) fn document_gap(blocks: &[formatted::Block], index: usize) -> f32 {
+pub(crate) fn document_gap(blocks: &[formatted::Block], index: usize, ladder: Ladder) -> f32 {
     if index == 0 {
         return 0.0;
     }
-    block_margins(blocks, index - 1)
+    block_margins(blocks, index - 1, ladder)
         .1
-        .max(block_margins(blocks, index).0)
+        .max(block_margins(blocks, index, ladder).0)
 }
-fn block_height(block: &formatted::Block, width: f32, delta: f32, delta_secondary: f32) -> f32 {
+fn block_height(
+    block: &formatted::Block,
+    width: f32,
+    delta: f32,
+    delta_secondary: f32,
+    ladder: Ladder,
+) -> f32 {
     match block {
         formatted::Block::Paragraph {
             spans,
@@ -827,15 +944,21 @@ fn block_height(block: &formatted::Block, width: f32, delta: f32, delta_secondar
             width
                 - *indent as f32 * 18.0
                 - if marker.is_some() { 36.0 } else { 0.0 }
-                - if *quote { design::QUOTE_INSET } else { 0.0 },
-            design::BODY_SIZE + delta,
-            design::body_line(delta),
+                - if *quote { ladder.quote_inset() } else { 0.0 },
+            ladder.size(delta, delta_secondary),
+            ladder.line(delta, delta_secondary),
         ),
+        // A compact heading keeps the body's size and weight
+        // (`MarkdownText.module.css:336-341`).
         formatted::Block::Heading { level, spans } => inline_height(
             spans,
             width,
-            heading_size(*level) as f32 + delta,
-            design::body_line(delta),
+            if ladder == Ladder::Compact {
+                ladder.size(delta, delta_secondary)
+            } else {
+                heading_size(*level) as f32 + delta
+            },
+            ladder.line(delta, delta_secondary),
         ),
         formatted::Block::Code { text, .. } => {
             plain_height(
@@ -855,6 +978,7 @@ fn document_height(
     width: f32,
     delta: f32,
     delta_secondary: f32,
+    ladder: Ladder,
 ) -> f32 {
     if document.blocks.is_empty() {
         return 20.0;
@@ -864,8 +988,8 @@ fn document_height(
         .iter()
         .enumerate()
         .map(|(index, block)| {
-            block_height(block, width, delta, delta_secondary)
-                + document_gap(&document.blocks, index)
+            block_height(block, width, delta, delta_secondary, ladder)
+                + document_gap(&document.blocks, index, ladder)
         })
         .sum::<f32>()
 }
@@ -876,7 +1000,10 @@ fn document_view(
     query: &str,
     delta: f32,
     delta_secondary: f32,
+    ladder: Ladder,
 ) -> Element<'static, Message> {
+    let text_size = ladder.size(delta, delta_secondary);
+    let text_line = ladder.line(delta, delta_secondary);
     // Each gap comes from the block pair's own margins, so the column itself spaces
     // nothing (`MarkdownText.module.css` margins, collapsed by `document_gap`).
     let mut body = Column::new().width(Length::Fill);
@@ -892,14 +1019,11 @@ fn document_view(
                     row![iced::widget::Space::new().width(*indent as f32 * 18.0)].spacing(0);
                 if *quote {
                     // `MarkdownText.module.css:151-156`: a 2px caption-coloured rule
-                    // with 14px of padding after it. Its height is the paragraph's own
-                    // measured height, so the rule spans exactly the text it marks.
-                    let bar = inline_height(
-                        spans,
-                        width - design::QUOTE_INSET,
-                        design::BODY_SIZE + delta,
-                        design::body_line(delta),
-                    );
+                    // with 14px of padding after it (8px on the compact ladder). Its
+                    // height is the paragraph's own measured height, so the rule spans
+                    // exactly the text it marks.
+                    let bar =
+                        inline_height(spans, width - ladder.quote_inset(), text_size, text_line);
                     line = line.push(
                         container(Space::new().width(design::QUOTE_BAR))
                             .height(bar)
@@ -908,31 +1032,44 @@ fn document_view(
                                 ..Default::default()
                             }),
                     );
-                    line = line.push(Space::new().width(design::QUOTE_PAD));
+                    line = line.push(Space::new().width(ladder.quote_inset() - design::QUOTE_BAR));
                 }
                 if let Some(marker) = marker {
                     line = line.push(
-                        container(
-                            label(marker.clone(), MUTED)
-                                .size((design::BODY_SIZE + delta).round() as u32),
-                        )
-                        .width(36),
+                        container(label(marker.clone(), MUTED).size(text_size.round() as u32))
+                            .width(36),
                     );
                 }
                 line.push(inline_view(
                     spans,
-                    (design::BODY_SIZE + delta).round() as u32,
-                    design::body_line(delta),
+                    text_size.round() as u32,
+                    text_line,
                     query,
                 ))
                 .into()
             }
-            formatted::Block::Heading { level, spans } => inline_view(
-                spans,
-                (heading_size(*level) as f32 + delta).round() as u32,
-                design::body_line(delta),
-                query,
-            ),
+            formatted::Block::Heading { level, spans } => {
+                if ladder == Ladder::Compact {
+                    // `font: inherit; font-weight: 600` — the body's size, bold.
+                    let bold: Vec<formatted::Span> = spans
+                        .iter()
+                        .map(|part| formatted::Span {
+                            text: part.text.clone(),
+                            bold: true,
+                            italic: part.italic,
+                            code: part.code,
+                        })
+                        .collect();
+                    inline_view(&bold, text_size.round() as u32, text_line, query)
+                } else {
+                    inline_view(
+                        spans,
+                        (heading_size(*level) as f32 + delta).round() as u32,
+                        design::body_line(delta),
+                        query,
+                    )
+                }
+            }
             formatted::Block::Code {
                 language,
                 text: source,
@@ -956,7 +1093,15 @@ fn document_view(
                 )
                 .padding(design::CODE_BANNER_PAD)
                 .style(|_| design::card(design::LINE, 0.0));
-                let code = rich_text(marked(highlight(source, language.as_deref()), query))
+                let tokens = highlight(source, language.as_deref());
+                // `MarkdownText.module.css:381-383`: compact code inherits the
+                // surrounding text colour, so its syntax colours are dropped.
+                let tokens: Vec<_> = if ladder == Ladder::Compact {
+                    tokens.into_iter().map(|token| token.color(MUTED)).collect()
+                } else {
+                    tokens
+                };
+                let code = rich_text(marked(tokens, query))
                     .font(MONO)
                     .size((design::CODE_FONT as f32 + delta_secondary).round() as u32)
                     .line_height(design::code_line(delta_secondary))
@@ -997,10 +1142,10 @@ fn document_view(
                     .into()
             }
         };
-        let gap = document_gap(&document.blocks, index);
+        let gap = document_gap(&document.blocks, index, ladder);
         body = body.push(
             container(Column::new().push(Space::new().height(gap)).push(content))
-                .height(block_height(block, width, delta, delta_secondary) + gap)
+                .height(block_height(block, width, delta, delta_secondary, ladder) + gap)
                 .clip(true),
         );
     }
@@ -1324,46 +1469,64 @@ mod tests {
         };
         let blocks = vec![paragraph(), heading(2), paragraph()];
         assert_eq!(
-            block_margins(&blocks, 0),
+            block_margins(&blocks, 0, Ladder::Body),
             (design::BLOCK_GAP, design::BLOCK_GAP)
         );
         assert_eq!(
-            block_margins(&blocks, 1),
+            block_margins(&blocks, 1, Ladder::Body),
             (design::RULE_GAP, design::BLOCK_GAP)
         );
         // Collapsing takes the larger margin of the pair.
-        assert_eq!(document_gap(&blocks, 0), 0.0);
-        assert_eq!(document_gap(&blocks, 1), design::RULE_GAP);
-        assert_eq!(document_gap(&blocks, 2), design::BLOCK_GAP);
+        assert_eq!(document_gap(&blocks, 0, Ladder::Body), 0.0);
+        assert_eq!(document_gap(&blocks, 1, Ladder::Body), design::RULE_GAP);
+        assert_eq!(document_gap(&blocks, 2, Ladder::Body), design::BLOCK_GAP);
         // A list run owns the list's margins at its edges and 6px inside.
         let list = vec![paragraph(), item(0), item(0), item(0), paragraph()];
-        assert_eq!(block_margins(&list, 1), (design::BLOCK_GAP, 0.0));
-        assert_eq!(block_margins(&list, 2).0, design::LIST_ITEM_GAP);
-        assert_eq!(block_margins(&list, 3).1, design::BLOCK_GAP);
-        assert_eq!(document_gap(&list, 2), design::LIST_ITEM_GAP);
-        assert_eq!(document_gap(&list, 4), design::BLOCK_GAP);
+        assert_eq!(
+            block_margins(&list, 1, Ladder::Body),
+            (design::BLOCK_GAP, 0.0)
+        );
+        assert_eq!(
+            block_margins(&list, 2, Ladder::Body).0,
+            design::LIST_ITEM_GAP
+        );
+        assert_eq!(block_margins(&list, 3, Ladder::Body).1, design::BLOCK_GAP);
+        assert_eq!(document_gap(&list, 2, Ladder::Body), design::LIST_ITEM_GAP);
+        assert_eq!(document_gap(&list, 4, Ladder::Body), design::BLOCK_GAP);
         // A nested list starts at 4px, and a code block keeps 11px before the next
         // block; an hr is 32px on both sides.
         let nested = vec![item(0), item(1)];
-        assert_eq!(block_margins(&nested, 1).0, design::NESTED_LIST_GAP);
+        assert_eq!(
+            block_margins(&nested, 1, Ladder::Body).0,
+            design::NESTED_LIST_GAP
+        );
         let with_code = vec![paragraph(), code(), paragraph()];
-        assert_eq!(block_margins(&with_code, 1).1, design::CODE_LAST_GAP);
-        assert_eq!(document_gap(&with_code, 2), design::BLOCK_GAP);
+        assert_eq!(
+            block_margins(&with_code, 1, Ladder::Body).1,
+            design::CODE_LAST_GAP
+        );
+        assert_eq!(document_gap(&with_code, 2, Ladder::Body), design::BLOCK_GAP);
         let rule = vec![paragraph(), formatted::Block::Rule, paragraph()];
-        assert_eq!(document_gap(&rule, 1), design::RULE_GAP);
-        assert_eq!(document_gap(&rule, 2), design::RULE_GAP);
+        assert_eq!(document_gap(&rule, 1, Ladder::Body), design::RULE_GAP);
+        assert_eq!(document_gap(&rule, 2, Ladder::Body), design::RULE_GAP);
         // An h4 against a list tightens both sides to 8px.
         let tight = vec![heading(4), item(0)];
-        assert_eq!(block_margins(&tight, 0).1, design::TIGHT_HEADING_GAP);
-        assert_eq!(block_margins(&tight, 1).0, design::TIGHT_HEADING_GAP);
+        assert_eq!(
+            block_margins(&tight, 0, Ladder::Body).1,
+            design::TIGHT_HEADING_GAP
+        );
+        assert_eq!(
+            block_margins(&tight, 1, Ladder::Body).0,
+            design::TIGHT_HEADING_GAP
+        );
         // The document height is the blocks plus their collapsed gaps.
         let document = formatted::Document {
             blocks: vec![paragraph(), heading(2)],
         };
         assert_eq!(
-            document_height(&document, 400.0, 0.0, 0.0),
-            block_height(&paragraph(), 400.0, 0.0, 0.0)
-                + block_height(&heading(2), 400.0, 0.0, 0.0)
+            document_height(&document, 400.0, 0.0, 0.0, Ladder::Body),
+            block_height(&paragraph(), 400.0, 0.0, 0.0, Ladder::Body)
+                + block_height(&heading(2), 400.0, 0.0, 0.0, Ladder::Body)
                 + design::RULE_GAP
         );
     }
