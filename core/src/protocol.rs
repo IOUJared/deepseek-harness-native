@@ -201,6 +201,13 @@ fn public_result(command: &str, value: &Value) -> Result<PublicReply, Error> {
         | "cloudflare-auth-mode-save" => {
             Ok(PublicReply::Cloudflare(crate::cloudflare::snapshot(value)?))
         }
+        "permission-catalog" => Ok(PublicReply::PermissionCatalog(crate::permission::catalog(
+            value,
+        )?)),
+        "permission-set" => {
+            crate::permission::set_ack(value)?;
+            Ok(PublicReply::PermissionSet)
+        }
         "codex-status" | "codex-start" | "codex-add" | "codex-cancel" | "codex-enable-models" => {
             Ok(PublicReply::Codex(crate::codex::metadata(value)?))
         }
@@ -382,6 +389,8 @@ impl Command {
             Self::CloudflareOauthCancel { .. } => "cloudflare-oauth-cancel",
             Self::CloudflareOauthDisconnect { .. } => "cloudflare-oauth-disconnect",
             Self::CloudflareRead => "cloudflare-read",
+            Self::PermissionCatalog => "permission-catalog",
+            Self::PermissionSet { .. } => "permission-set",
             Self::CloudflareDisable { .. } => "cloudflare-disable",
             Self::Inspect => "inspect",
             Self::OpenWorkspace(_) => "open-workspace",
@@ -429,6 +438,14 @@ impl Command {
                     return Err(Error::InvalidCommand);
                 }
                 value["expectedEpoch"] = json!(expected_epoch);
+            }
+            Self::PermissionSet { session, name } => {
+                // The same bounds the bridge enforces, refused before the wire.
+                if !crate::permission::valid_name(session) || !crate::permission::valid_name(name) {
+                    return Err(Error::InvalidCommand);
+                }
+                value["session"] = json!(session.as_str());
+                value["name"] = json!(name.as_str());
             }
             Self::CodexCancel { attempt } => {
                 if !crate::codex::valid_id(*attempt) {

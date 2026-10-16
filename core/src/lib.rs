@@ -22,6 +22,7 @@ mod codex_usage;
 #[cfg(test)]
 mod codex_usage_tests;
 mod options;
+mod permission;
 mod process;
 mod protocol;
 mod secret;
@@ -41,6 +42,7 @@ pub use codex_usage::{
     CodexUsageSnapshot,
 };
 pub use options::RustBackendOptions;
+pub use permission::{PermissionCatalog, PresetOption};
 pub use secret::{SecretApiKey, SecretCodexCallback};
 use serde_json::{Value, json};
 use std::{
@@ -157,6 +159,14 @@ pub enum Command {
         revoke: bool,
     },
     CloudflareRead,
+    /// The deployment's permission-preset catalog, read through the bridge's
+    /// `permission-catalog` (`docs/NATIVE-UI-PARITY.md`, permission select).
+    PermissionCatalog,
+    /// Switch one session's preset; the Host records it and updates each changed knob.
+    PermissionSet {
+        session: String,
+        name: String,
+    },
     CloudflareDisable {
         expected_revision: u64,
     },
@@ -242,6 +252,8 @@ pub struct OnboardingMetadata {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PublicReply {
     Cloudflare(CloudflareSnapshot),
+    PermissionCatalog(PermissionCatalog),
+    PermissionSet,
     Codex(CodexMetadata),
     CodexAccounts(CodexAccountsMetadata),
     CodexUsage(CodexUsageSnapshot),

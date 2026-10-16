@@ -144,14 +144,17 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    name, a 129-character name and an extra key are each refused — on top of the full
    `node --test core/runtime/*.test.mjs` gate at **414 pass / 0 fail**.
    Still to come, in this order, with the files each touches:
-   (a) `core/src/protocol.rs` — two `Command` variants, their `name()` strings
-   (`permission-catalog`, `permission-set { session, name }`), a `PublicReply` variant and a
-   `public_result` arm, exactly as the Cloudflare family is wired at `:194-201` and
-   `:384-386`;
-   (b) a `core/src/permission.rs` typed client modelled on `core/src/cloudflare.rs` (its
-   own `snapshot(value)` projection plus its own round-trip test, which is the shape
-   `cloudflare.rs:396-413` already uses);
-   (c) the worker/app plumbing that carries the request and its reply;
+   (a) **done** — `core/src/lib.rs` carries `Command::PermissionCatalog` and
+   `Command::PermissionSet { session, name }` plus the two `PublicReply` variants, and
+   `core/src/protocol.rs` maps their names, refuses a set whose session or name is
+   unbounded before it reaches the wire, and projects both replies;
+   (b) **done** — `core/src/permission.rs` is the typed client: `catalog(value)` keeps only
+   the three rendered fields, falls back to the preset key for a missing label (the Host's
+   own rule), refuses a catalog whose `defaultPreset` names nothing selectable, and
+   `set_ack` accepts only `ok: true`. Its four tests join the Core suite, which reports
+   **108 passed / 0 failed**;
+   (c) the worker/app plumbing that carries the request and its reply (the app already
+   compiles against the new variants);
    (d) the chip, menu, Auto-review badge and confirmation guard, at the geometry below, with
    a DP-2 capture.
    The first two are Core-side and user-independent; the last needs a fixture flag once the
