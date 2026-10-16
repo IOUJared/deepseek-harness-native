@@ -64,6 +64,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Blockquote | `border-left: 2px solid label-caption` · `padding-left: 14px` · `margin: 16px 0 0` | `QUOTE_BAR`/`QUOTE_PAD`/`QUOTE_INSET`; a filled rule whose height is the paragraph's own measured height |
 | Editable context menu | Undo · Redo · — · Cut · Copy · Paste · — · Select all, each enabled from the edit flags, no accelerator labels, 180px panel | `editor_menu::entries`/`view` + a 100-step editor history; `native-editor-menu` rect |
 | Search offset | measured with the drawn block heights, collapsed gaps and the ladder, for the answer and the reasoning alike | `document_first_offset` + `document_first_offset_walks_drawn_heights_and_gaps` |
+| Permission select | control-row chip: `height: 28px`, `padding: 0 4px 0 8px`, transparent, `radius-sm`, `13px/20px` weight 500, `label-secondary`, `max-width: 220px`, a 14px glyph on the trigger and 16px in the rows, hover `interactive-bg-hover`, disabled `label-dimmed`; menu rows plus an Auto-review preset with a badge and a risk confirmation before full access | **not implemented** — no permission projection state; recorded below with the package's parts |
 | Shutdown budgets | DMG shell: graceful 10 s → SIGTERM 5 s → SIGKILL 5 s (`apps/desktop/src/main.ts:3790-3807`) | native 3 s / 1 s / 1 s (`StopPolicy::default`), documented in `NATIVE-CLOSE.md#budgets-against-the-dmg-shell`; aligning needs a measured Host unwind, not the shell's figures |
 | Referenced-session summary | under a user bubble: `Referenced session · labels` at 13px/18px tertiary, labels from the following `session-reference` context record, joined with `, ` | `DisplayRow::references` + `REFERENCE_LINE`/`reference_line` and the row's geometry; `chat-references` preset |
 | Markdown image | unresolvable source renders the alt as tertiary italic; a failed load adds the destination when there is no alt (`imageAlt`, `radius-md` block) | `Span::alt` + `render.tsx:640,653`; no loading or decoding pipeline yet |
@@ -1127,3 +1128,22 @@ cell, so new findings go at the end of the file as plain paragraphs.
   one-line model reserved half that. `shots/60-reference-summary-wrap-dp2.png` is that
   grab.
 
+- **Permission select — recorded, not landed.** The reference ships a whole package
+  (`packages/client/ui-permission-presets/src/client/PermissionSelect.tsx`), not one
+  control. Its trigger is the control row's chip: `height: 28px`,
+  `padding: 0 4px 0 8px`, `background: transparent`, `border-radius: radius-sm`,
+  `font-size: 13px`/`line-height: 20px`/`font-weight: 500`, `color: label-secondary`,
+  `max-width: 220px`, hover `interactive-bg-hover`, disabled `label-dimmed`, a 2px focus
+  ring, and a 14px glyph on the trigger against 16px in the rows
+  (`PermissionSelect.module.css:1-40`). The menu carries the Host's preset catalog
+  (`PresetOption` name/description, host copy preserved), three design presets with their
+  own glyphs — `read-only`, `workspace-write`, and full access — plus an **Auto review**
+  preset that adds a badge and replaces the label and description with locale copy, and
+  selecting full access passes through a `RiskConfirmation` step before it commits.
+  Native keeps **no permission projection state** at all, so there is no chip, menu,
+  confirmation or command to align yet. Landing it means: projecting the Host's
+  permission catalog and current preset (the record kind `permission/preset` appears in
+  `chat_visibility_tests.rs`, so the stream carries it), a control-row chip beside the
+  model and reasoning chips with the geometry above, the menu and its badge, the
+  confirmation guard, and the Host command that changes the preset — several items, each
+  with its own capture, rather than one.
