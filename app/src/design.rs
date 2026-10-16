@@ -608,6 +608,15 @@ pub const PLAN_CHIP_GLYPH: f32 = 14.0;
 pub const PLAN_CHIP_FILL: Color = Color::from_rgba(0.77, 0.65, 0.91, 0.14);
 pub const PLAN_CHIP_HOVER: Color = Color::from_rgba(0.77, 0.65, 0.91, 0.22);
 pub const PLAN_CHIP_FILL_DIM: Color = Color::from_rgba(0.77, 0.65, 0.91, 0.07);
+/// The reference's jump-to-latest control (`ChatView.module.css:223-273`): a
+/// slot 16px above the composer, right-aligned so the button's edge lands on the
+/// content column's right edge — or `--dsh-composer-side-clearance + 16px` = 32px
+/// from the pane edge once the column is narrower — holding a 34px round
+/// floating button with a `100px` radius, the floating fill, the panel elevation
+/// shadow and the primary label ink.
+pub const TO_BOTTOM_SIZE: f32 = 34.0;
+pub const TO_BOTTOM_INSET: f32 = 16.0;
+pub const TO_BOTTOM_EDGE: f32 = 32.0;
 pub const DIFF_STAT_LEFT: f32 = 10.0;
 pub const DIFF_STAT_SIZE: f32 = 11.0;
 /// The fade itself: transparent at the top, base colour by its bottom, so

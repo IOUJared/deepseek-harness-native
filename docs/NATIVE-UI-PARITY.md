@@ -58,6 +58,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Conversation header | 76 min-h · bottom 0.5px seam · 30px title row · tabs 13/16 + 2px bar | padding `10px 28px 0 20px` (tabs) / `… 10px` (no tabs) + 1px seam; `HEADER_*`/`TAB_*` carry the rows (band 77) |
 | Chat content width | `clamp(680, 64%, 920)` | `design::chat_width(pane)` clamp, bounded by the padded pane |
 | Width handles | 10px strip at lane ± 24 · `2px` glow `4px` in, `16px` core, hover/drag only | `WIDTH_HANDLE_*` + `HANDLE_GLOW_*`, hover/drag state, `native-width-handle-*` rects |
+| Jump to latest | `34px` round floating button · slot `bottom: 16px` · right edge on the column (or `32px` in) · only while not following the tail | `TO_BOTTOM_*` + `native-to-bottom` rect; `design::LINE` hover, no shadow |
 | User bubble max-width | `min(70.2% · content, 82%)` | content-sized, fixed 640 cap (≈70.2% of the widest column) |
 | Assistant text | unboxed, full content column | unboxed, spans the shared content column |
 | Message flow gap | 6 process / 12 response / 16 turn | `design::FLOW_GAP`/`RESPONSE_GAP` ladder 6/12; the 16px `turn-process` row is Trajectory-only |
@@ -631,4 +632,27 @@ cell, so new findings go at the end of the file as plain paragraphs.
   Remainders: the web's chip swaps a plan outline for a circled close while
   hovered, which native does not (its hover is the fill mix), and the reference's
   sibling *permission* select has no native counterpart at all.
+- **Jump-to-latest control — landed, rect- and capture-verified.** The reference
+  renders a `.toBottomSlot` 16px above the composer, right-aligned with
+  `padding-right: max(clearance + 16px, (100% − content)/2)`, holding a `.toBottom`
+  button of `34×34`, `border-radius: 100px`, the floating fill, the panel elevation
+  shadow and the primary label ink, hovered one rung above that fill, and shown
+  only while the transcript is *not* following its tail
+  (`ChatView.module.css:223-273`, `ChatView.tsx:288-292`). Native had the state —
+  `follow_bottom`, set from the viewport's relative offset — and the snap-to-end
+  operation, but no control to return to the tail after scrolling up.
+  `TO_BOTTOM_SIZE` (34), `TO_BOTTOM_INSET` (16) and `TO_BOTTOM_EDGE` (32) carry the
+  figures, `Message::ScrollToBottom` re-arms `follow_bottom` and reuses
+  `position_transcript`'s existing snap, and the control rides the transcript's
+  overlay stack with a `native-to-bottom` id.
+  Verified at `chat-transcript` (1040 wide): with `--scrolled-away true` the
+  fixture's rect is **34.0 × 34.0 at `x 956.0`** — the content column's right edge
+  is 990, so 990 − 34 = 956 exactly, which is `max(32, (pane − lane)/2) = 50` in
+  from the pane — and the grab shows the round `↓` button 16px above the composer
+  card; without the flag the same preset reports **no `native-to-bottom` rect**,
+  matching the reference's following-tail rule. `shots/43-to-bottom-dp2.png` is the
+  grab and `shots/43-to-bottom.png` that run's own frame.
+  Native draws no shadow (its documented palette-only elevation stance), and its
+  control follows the transcript's own box rather than the reference's sticky
+  composer-height offset, which is the same 16px once the composer is on screen.
 

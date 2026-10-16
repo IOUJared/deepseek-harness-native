@@ -356,6 +356,9 @@ pub enum Message {
         text: Option<String>,
     },
     /// A conversation-width handle was pressed.
+    /// Jump the transcript back to its live tail, as the reference's floating
+    /// control does (`ChatView.tsx:288-292`).
+    ScrollToBottom,
     WidthHandleHover(design::WidthSide, bool),
     WidthDragStart(design::WidthSide),
     /// A cursor sample while a width drag is in flight.
@@ -2344,6 +2347,13 @@ impl App {
                 return self.update(Message::Settings(crate::settings::Action::Close));
             }
             Message::Resized(size) => self.resize_layout(size),
+            Message::ScrollToBottom => {
+                // Following the tail is the same state the reader anchor is
+                // captured against, so one flag both re-arms the snap and hides
+                // the control.
+                self.follow_bottom = true;
+                return self.position_transcript();
+            }
             Message::WidthHandleHover(side, inside) => {
                 // Enter and exit both arrive; only the side the pointer actually
                 // left clears, so crossing the transcript cannot drop a live hover.
@@ -4627,6 +4637,14 @@ impl App {
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn set_width_handle_glow(&mut self, glow: bool) {
         self.width_handle_glow = glow;
+    }
+    /// Fixture-only: render the transcript as scrolled away from its tail, so a
+    /// capture shows the jump-to-latest control that otherwise needs a scroll.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn set_scrolled_away(&mut self, away: bool) {
+        if away {
+            self.follow_bottom = false;
+        }
     }
     /// Fixture-only: hold a plan toggle in flight, so a capture can show the
     /// chip's disabled state and the strip's in-flight line.
@@ -7861,7 +7879,65 @@ impl App {
         if self.composer_visible() {
             overlaid = overlaid.push(self.composer_fade());
         }
+        if let Some(control) = self.to_bottom_control() {
+            overlaid = overlaid.push(control);
+        }
         chat.push(overlaid).height(Length::Fill).into()
+    }
+    /// The reference's jump-to-latest control: a 34px round floating button in a
+    /// slot 16px above the composer whose right edge rides the content column's
+    /// right edge, or 32px in from the pane when the column is narrower
+    /// (`ChatView.module.css:223-273`). It exists only while the transcript is
+    /// not following the live tail — the same flag the reader anchor uses.
+    fn to_bottom_control(&self) -> Option<Element<'_, Message>> {
+        if self.follow_bottom
+            || self
+                .transcript
+                .display_rows(self.records_expanded)
+                .next()
+                .is_none()
+        {
+            return None;
+        }
+        let lane = self.chat_lane();
+        let inset = ((self.content_column() - lane) / 2.0).max(design::TO_BOTTOM_EDGE);
+        let button = container(
+            button(label("↓", TEXT).size(16))
+                .on_press(Message::ScrollToBottom)
+                .style(|theme, status| {
+                    let mut style = design::ghost(theme, status);
+                    // The reference hovers one rung above its floating fill; this
+                    // palette's next rung over OVERLAY is LINE (Rosé Pine
+                    // highlight-med), the same pair the rest of the shell uses.
+                    style.background = Some(
+                        if matches!(status, button::Status::Hovered) {
+                            design::LINE
+                        } else {
+                            OVERLAY
+                        }
+                        .into(),
+                    );
+                    style.border.radius = (design::TO_BOTTOM_SIZE / 2.0).into();
+                    style
+                })
+                .padding([0.0, 0.0])
+                .width(design::TO_BOTTOM_SIZE)
+                .height(design::TO_BOTTOM_SIZE),
+        )
+        .id("native-to-bottom");
+        Some(
+            container(button)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(iced::Alignment::End)
+                .align_y(iced::Alignment::End)
+                .padding(iced::Padding {
+                    right: inset,
+                    bottom: design::TO_BOTTOM_INSET,
+                    ..iced::Padding::ZERO
+                })
+                .into(),
+        )
     }
     /// The centered empty-state body used where no composer follows (the
     /// sidebar sheet); with a composer the hero and the card share `hero_pane`.
