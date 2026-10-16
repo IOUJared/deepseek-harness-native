@@ -102,3 +102,10 @@ cell, so new findings go at the end of the file as plain paragraphs.
   the title and the `Chat`/`Trajectory` tabs share one band and one left edge.
   The merge is `header()` folding `transcript_tabs()` in at `ui.rs:4991`'s
   caller, with the tab strip's own horizontal padding dropped to zero.
+- **Tabs-less header padding — now covered and verified.** A `no-session`
+  fixture preset (`layout_fixture.rs`) leaves `app.selected` unset, which makes
+  `transcript_tabs_visible()` false and exercises the
+  `ConversationRoot.module.css:27-30` branch. `shots/28-no-session-header.png`
+  shows the title alone with its 10px bottom padding above the seam, where
+  before the preset existed the branch never ran.
+

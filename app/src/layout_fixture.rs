@@ -20,6 +20,7 @@ mod runtime_preferences;
 mod usage_preferences;
 
 pub const PRESETS: &[&str] = &[
+    "no-session",
     "wide-welcome",
     "narrow-welcome",
     "tiny-welcome",
@@ -178,7 +179,8 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "chat-density" => Some((Size::new(1040.0, 1000.0), 1.0)),
         "tool-activity-narrow" => Some((Size::new(760.0, 840.0), 1.0)),
         "tool-activity-tiny" => Some((Size::new(608.0, 448.0), 1.25)),
-        "wide-welcome"
+        "no-session"
+        | "wide-welcome"
         | "conversation"
         | "collapsed-wide"
         | "title-controls"
@@ -582,7 +584,11 @@ pub fn build(
     }))
     .expect("fixed PUBLIC session metadata");
     let selected_id = selected.session_id.clone();
-    app.selected = Some(selected_id.clone());
+    // `no-session` renders the empty conversation state: the header has no tabs,
+    // which is the branch ConversationRoot.module.css:27-30 describes.
+    if preset != "no-session" {
+        app.selected = Some(selected_id.clone());
+    }
     app.sessions.insert(selected_id.clone(), selected);
     for (id, title, updated) in [
         ("PUBLIC-layout-notes", "PUBLIC notes · café · 世界", 900),
