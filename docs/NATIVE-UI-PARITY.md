@@ -378,8 +378,18 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    simply call it: it needs either that read generalised to a second panel identity or its
    own small read over the same namespace family. So the row is one slice — but one that
    includes a scoping change, not a pure UI addition.
-   Settling step: read `UploadRow.tsx`'s copy and states, then land the row with either the
-   generalised read or a dedicated one, and capture it. The correction is recorded because
+   The path is now narrowed another step: the config-forms read does **not** travel through
+   the fork supervisor at all — `fork-supervisor.mjs` knows only the bridge commands native
+   declares there, and `PluginSettings`-style commands appear nowhere in it — so the
+   plugins panel's read is a **Core-level protocol family**, and its `ReadTicket` is the
+   likely gate rather than the mechanism. That is good news for cost: if the Core's read is
+   generic over a namespace, a General-page row needs a ticket of its own (a second panel
+   identity) rather than a new command family.
+   Settling step: probe whether a General-page ticket is accepted — mint one and look at what
+   the Core validates before answering. If it is, the row is an app-side addition with no
+   bridge or Core change; if the panel identity is enforced, the change is to accept a second
+   identity. Either way `UploadRow.tsx`'s copy and states are read first, then the row lands
+   with its own capture. The correction is recorded because
    "native already has this machinery" has now twice proved only half true: the mechanism
    existed in both cases (config forms here, the `/permission` command line earlier), while
    the *scoping* and the *surface* did not.
