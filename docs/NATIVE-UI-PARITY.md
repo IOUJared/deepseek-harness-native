@@ -128,6 +128,16 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    `https://` URLs fetched, are local paths read, or neither? That policy is the user's
    call, and it decides whether the feature is safe to build at all.
 2. **Permission select — buildable in this repository, starting with its runtime bridge.**
+   The wiring, read from the Codex bridge: a bridge is a `core/runtime/<name>.mjs` exporting
+   a factory (`createCodexBridge`) whose `switch (command.type)` answers fixed commands
+   (`codex.mjs:322-324`); it is embedded in the Core binary by adding a
+   `("<name>.mjs", include_str!("../runtime/<name>.mjs"))` entry to the list in
+   `core/src/lib.rs:561-565`; and its test is a JS module driven from a `core/src/*_tests.rs`
+   file, which imports the factory (`codex_tests.rs:120` imports `createCodexBridge`). A
+   permission bridge therefore needs exactly three things: the `.mjs` calling
+   `ctx.permissionPresets.catalog()` and `.set(session, name)`, its `include_str!` line, and
+   a `permission_tests.rs` driving both commands against a fake ctx (the catalogue's
+   ok/error and pending/failure shape is in `catalog.ts:134-148`).
    (Corrected: an earlier revision called this gate "outside the app crate" and that was
    wrong — native owns its bridge scripts, `core/runtime/*.mjs`, and `codex.mjs:322-324` is
    the pattern to copy: a `switch (command.type)` over fixed commands such as
