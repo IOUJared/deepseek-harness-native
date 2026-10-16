@@ -83,3 +83,22 @@ Remaining unqualified native work is unchanged: physical input/IME, CJK, accessi
 ## Verification owners
 
 Native geometry/cache tests, `layout_smoke` PUBLIC fixtures, App reducer tests, and `docs/FEATURE-PARITY.md` status. Source-only comparison is not visual parity; rendered capture status is recorded in the handoff.
+
+## Verification log (append-only)
+
+Entries here are appended, never inserted: earlier notes were lost because they
+were anchored onto rows of a markdown table above and collapsed into a single
+cell, so new findings go at the end of the file as plain paragraphs.
+
+- **Assistant tail clock — verified.** `shots/27-assistant-tail-clock.png`: the
+  assistant row reads `[copy] Details` then `18:00`, dim, at the reference's
+  secondary-minus-one size (`MessageIconActions.module.css:23-37`).
+- **Tabs-less header padding — uncovered, not merely unverified.** The branch
+  from `ConversationRoot.module.css:27-30` never runs in any current fixture:
+  `wide-welcome` still selects a session, so `transcript_tabs_visible()` is true
+  and the band keeps `bottom: 0`. A preset with no selected session would
+  exercise it; until then the branch has no coverage.
+- **Conversation header merge — verified.** `shots/25-single-band-header.png`:
+  the title and the `Chat`/`Trajectory` tabs share one band and one left edge.
+  The merge is `header()` folding `transcript_tabs()` in at `ui.rs:4991`'s
+  caller, with the tab strip's own horizontal padding dropped to zero.
