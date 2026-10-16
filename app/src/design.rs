@@ -56,6 +56,18 @@ pub fn session_title_line() -> iced::advanced::text::LineHeight {
 /// The web's row action cluster is `height: 20px` (`Rows.module.css:258-262`),
 /// so the compact trailing control fits inside the 32px session cell.
 pub const ROW_ACTION_HEIGHT: f32 = 20.0;
+/// The browser region above the session list
+/// (`ui-workspace/.../WorkspaceBrowser.module.css`): the expanded search is
+/// `height: 30px` with `13px/18px` input text (`:160-171, :214-222`), and
+/// `.sectionHeader` is a `height: 36px` box with `gap: 4px` and a 4px trailing
+/// margin (`:53-62`), its trailing icon controls `28px` squares (`:17-30`).
+pub const SEARCH_HEIGHT: f32 = 30.0;
+pub const SEARCH_PAD: [f32; 2] = [6.0, 10.0];
+pub const SEARCH_FONT: f32 = 13.0;
+pub const SEARCH_LINE: f32 = 18.0;
+pub const SECTION_HEADER_HEIGHT: f32 = 36.0;
+pub const SECTION_HEADER_GAP: f32 = 4.0;
+pub const SECTION_ACTION_HEIGHT: f32 = 28.0;
 pub const CHAT: f32 = 800.0;
 pub const MIN_CHAT: f32 = 680.0;
 pub const MAX_CHAT: f32 = 920.0;
@@ -359,6 +371,33 @@ pub fn field(_: &Theme, status: text_input::Status) -> text_input::Style {
                 OVERLAY
             },
             1.0,
+        ),
+        icon: MUTED,
+        placeholder: MUTED,
+        value: if matches!(status, text_input::Status::Disabled) {
+            MUTED
+        } else {
+            TEXT
+        },
+        selection: OVERLAY,
+    }
+}
+/// The web's expanded sidebar search: a transparent fill under a `0.5px`
+/// `var(--dsw-alias-border-l4)` hairline at `--dsw-radius-md`
+/// (`WorkspaceBrowser.module.css:160-171`), with `13px/18px` input text
+/// (`:214-222`). Native rounds l4 to the `LINE` hairline and keeps the accent
+/// ring on focus.
+pub fn search_field(_: &Theme, status: text_input::Status) -> text_input::Style {
+    text_input::Style {
+        background: Color::TRANSPARENT.into(),
+        border: border(
+            RADIUS_MD,
+            if matches!(status, text_input::Status::Focused { .. }) {
+                ACCENT
+            } else {
+                LINE
+            },
+            0.5,
         ),
         icon: MUTED,
         placeholder: MUTED,

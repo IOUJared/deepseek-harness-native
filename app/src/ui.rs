@@ -6329,12 +6329,25 @@ impl App {
             );
         }
         column![
+            // The web's expanded search control: a 30px box with a `0.5px`
+            // hairline over a transparent fill and `13px/18px` text
+            // (`WorkspaceBrowser.module.css:160-171, 214-222`). Native keeps the
+            // field mounted where the web expands it from a 28px icon control.
             text_input("Search conversations", &self.filter)
                 .on_input(Message::Filter)
-                .padding(10)
-                .size(12)
+                .padding(design::SEARCH_PAD)
+                .size(design::SEARCH_FONT)
+                // Iced's `line_height(f32)` is a *factor* of the font size;
+                // the web's `18px` box needs `Pixels` for an absolute height.
+                .line_height(iced::Pixels(design::SEARCH_LINE))
                 .font(FONT)
-                .style(design::field),
+                .style(design::search_field),
+            Space::new().height(design::SECTION_HEADER_GAP),
+            // The web's `.sectionHeader` is a 36px box with a 4px gap and a 4px
+            // trailing margin (`WorkspaceBrowser.module.css:53-62`). Its label is
+            // 14px there and its trailing controls are 28px icon squares; native's
+            // denser `RECENT`/view controls keep the hint tier and text stand-ins,
+            // so only the box and the control height are taken.
             row![
                 label(
                     if self.show_trash {
@@ -6360,13 +6373,20 @@ impl App {
                     .size(10)
                 )
                 .on_press(Message::ArchivedView)
-                .style(design::ghost),
+                .style(design::ghost)
+                .height(design::SECTION_ACTION_HEIGHT),
                 button(label(if self.show_trash { "Recent" } else { "Trash" }, MUTED).size(10))
                     .on_press(Message::Sidebar(sidebar_ui::Action::TrashView))
                     .style(design::ghost)
+                    .height(design::SECTION_ACTION_HEIGHT)
             ]
+            .spacing(design::SECTION_HEADER_GAP)
+            .height(design::SECTION_HEADER_HEIGHT)
             .align_y(iced::Alignment::Center),
+            Space::new().height(design::SECTION_HEADER_GAP),
             scrollable(list).height(Length::Fill),
+            // Native's own footer line, set off by the panel rhythm.
+            Space::new().height(design::PANEL_GAP),
             label(
                 format!(
                     "{} conversations{}",
@@ -6381,7 +6401,7 @@ impl App {
             )
             .size(10)
         ]
-        .spacing(9)
+        .spacing(0)
         .height(Length::Fill)
         .into()
     }

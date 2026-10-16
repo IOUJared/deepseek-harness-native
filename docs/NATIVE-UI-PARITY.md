@@ -52,6 +52,8 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Session cell | 32 h · `0 8px` pad · radius md · title 14/20 clipped | `SESSION_ROW_PAD` 6/8 + `SESSION_TITLE_LINE` 20 (32 h), radius md |
 | Panel row | `min-height: 36` · `7px 8px` pad · radius md | `PANEL_ROW_HEIGHT`/`PANEL_ROW_PAD`, radius md |
 | New-session row | 38 h · 8/12 pad · radius md · elevated fill + 0.5px border | `NEW_SESSION_*` + `design::elevated`, 2px inset, 12px below |
+| Sidebar search | 30 h expanded · `0.5px` l4 hairline · radius md · 13/18 text | `design::search_field` + `SEARCH_*` |
+| Browser section header | 36 h · gap 4 · 4px trailing margin · 28px icon controls | `SECTION_HEADER_*` box; label and text stand-ins keep native's hint tier |
 | Conversation header | 76 min-h · bottom 0.5px seam · title 30 row | padding [14,20] + seam |
 | Chat content width | `clamp(680, 64%, 920)` | `design::chat_width(pane)` clamp, bounded by the padded pane |
 | User bubble max-width | `min(70.2% · content, 82%)` | content-sized, fixed 640 cap (≈70.2% of the widest column) |
@@ -311,6 +313,33 @@ cell, so new findings go at the end of the file as plain paragraphs.
   Not changed here, and still native's own composition: the sidebar's order
   (sessions, then the workspace seat, then Settings) differs from the web's
   brand → New Session → destination panel list → browser region → foot, and the
-  brand row has no macOS titlebar strip, so its own height is unchanged. The
-  RECENT section header and the search field keep their native boxes.
+  brand row has no macOS titlebar strip, so its own height is unchanged.
+- **Sidebar search and browser section header — landed, capture-verified.**
+  The region above the session list has two literal boxes in the web: the
+  expanded search is `height: 30px` with a `0.5px solid
+  var(--dsw-alias-border-l4)` edge at `--dsw-radius-md` over a transparent fill,
+  its input `13px/18px` (`WorkspaceBrowser.module.css:160-171, 214-222`), and
+  `.sectionHeader` is `height: 36px` with `gap: 4px` and a 4px trailing margin
+  (`:53-62`), its trailing controls `28px` squares (`:17-30`). Native had a
+  `design::field` search (SURFACE fill, 1px `OVERLAY` border, radius 10,
+  `12px` text, ~37px tall) and a bare header row with no height or spacing.
+  `design::search_field` and the `SEARCH_*`/`SECTION_HEADER_*` constants now carry
+  those values, and the header row takes the box, the 4px gaps and the 28px
+  control height.
+  **The first capture of this change caught a real bug**, which is why the box is
+  drawn and measured rather than assumed: `TextInput::line_height(f32)` converts
+  through `impl From<f32> for LineHeight`, which is `Relative`, so `line_height(18.0)`
+  asked for an eighteen-line box and the field filled the region (`y 126..320+`,
+  the placeholder centered in it). `iced::Pixels(SEARCH_LINE)` is the absolute
+  18px box the web writes; with it the field's hairline box measures `y 127..156`
+  = exactly 30px, the header sits `160..196` = 36px between its 4px gaps, and the
+  session titles below keep a 32px pitch (`211, 243, 275`), so the previous
+  item's cell is untouched. The fixture's `native-settings-entry` rect is also
+  unchanged at `x 12 / width 236 / height 36.0`.
+  Deliberately kept: native's `RECENT`/`ARCHIVED`/`TRASH` label and its
+  `View archived`/`Trash` text stand-ins for the web's single `Sessions` label and
+  28px icon buttons, so the label and those controls keep native's hint tier while
+  their box takes the web's size. Native also keeps the search field mounted where
+  the web expands it from a 28px icon control, and its "N conversations" footer is
+  native's own line (the web has no such element).
 
