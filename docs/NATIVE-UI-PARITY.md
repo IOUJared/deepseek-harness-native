@@ -152,4 +152,15 @@ cell, so new findings go at the end of the file as plain paragraphs.
   therefore: add a preset whose user message carries a `"file"` part (the same
   move as the `no-session` preset that uncovered the tabs-less header), then make
   the three-site change, then capture.
+- **Attachment fixture — the exact edit.** `public_tool_records()`
+  (`layout_fixture.rs:420`) builds the conversation's first user message, whose
+  content is already an array:
+  `"content":[{"type":"text","text":"PUBLIC conversation · compare user, …"}]`
+  (`:433`). Adding a second part
+  `{"type":"file","attachment":{"name":"PUBLIC-note.txt","bytes":12}}` there is
+  what produces a `File · …` line through `content()` (`reducer.rs:765`). The
+  function takes no arguments and is shared by several presets, so gating it means
+  threading the preset name into it (or adding a dedicated record builder) rather
+  than editing the shared message, which would change every preset that includes
+  it and the tests that count its rows.
 
