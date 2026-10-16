@@ -336,6 +336,20 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    nothing, closed while `status === 'unavailable'` or unwritable, and busy during
    `loading`/`saving`/`confirmingFullAccess`.
 
+8. **The General page's other registered rows — a survey, not yet a decision.** Seven
+   packages register `settings.general.item` rows in the reference: `ui-settings-general`
+   itself, `ui-chat`, `ui-conversation`, `ui-permission-presets` (**landed** above),
+   `ui-settings-session-log`, `ui-shortcuts` and `ui-theme`. Native's General page carries
+   the shortcuts disclosure already and a fixed dark Rosé Pine theme by the user's own
+   preference, so neither of those is automatically a gap. What is unaudited is what
+   `ui-settings-general`, `ui-chat`, `ui-conversation` and `ui-settings-session-log` each
+   put in that slot, and whether each is a functional control native lacks or a row the
+   user's "keep settings minimal — no metadata lines, revision numbers or field counts"
+   preference should deliberately omit. This is recorded as a survey with the filter stated,
+   because treating all seven as divergences would contradict that preference.
+   Settling step: read each of the four remaining packages' registered row, then land the
+   functional ones and record the deliberate omissions with their reason.
+
 ## Verification log (append-only)
 
 Entries here are appended, never inserted: earlier notes were lost because they
