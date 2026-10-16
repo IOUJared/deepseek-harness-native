@@ -61,6 +61,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | User bubble | `padding: 10px 16px` · radius xl · stack cap `min(content × 0.702, 82%)` | `USER_BUBBLE_PAD`/`_INSET`/`_RADIUS`/`_SHARE`; the cap follows the live lane |
 | Width handles | 10px strip at lane ± 24 · `2px` glow `4px` in, `16px` core, hover/drag only | `WIDTH_HANDLE_*` + `HANDLE_GLOW_*`, hover/drag state, `native-width-handle-*` rects |
 | Jump to latest | `34px` round floating button · slot `bottom: 16px` · right edge on the column (or `32px` in) · only while not following the tail | `TO_BOTTOM_*` + `native-to-bottom` rect; `design::LINE` hover, no shadow |
+| Scrollbars | `5px` bar · invisible rail · `scrollbar-bg-l1` thumb, `hover-l1` on hover, declared for every element | `SCROLLBAR_WIDTH` + `design::scrollbar`/`scrollable_style` on all 18 scrollers; `LINE`/`MUTED` as the l1 pair |
 | Load earlier | centered row · button `4px 12px` · radius sm · `12px` secondary on the hover-solid fill · disabled while loading | `design::fill_solid` + `native-load-older` rect; the duplicate left native's own bar |
 | User bubble max-width | `min(70.2% · content, 82%)` | content-sized, fixed 640 cap (≈70.2% of the widest column) |
 | Assistant text | unboxed, full content column | unboxed, spans the shared content column |
@@ -788,4 +789,27 @@ cell, so new findings go at the end of the file as plain paragraphs.
   the bubble's own minimum, and the two scroll rewrap fixtures needed a longer PUBLIC
   row so the wide and narrow lanes still land on different line counts under the
   smaller cap.
+- **Scrollbar skin — landed, capture-verified.** The reference declares one skin for
+  every element: `--dsh-scrollbar-width: 5px`, an invisible rail, and the
+  `scrollbar-bg-l1` / `scrollbar-hover-l1` thumb pair, with elevated surfaces
+  rebinding to the `l2` pair on their own container
+  (`ui-theme/src/styles/scrollbar.css:20-24`). Native used iced's default: a `10px`
+  translucent grey bar.
+  `design::SCROLLBAR_WIDTH` (5), `design::scrollbar()` (the `Scrollbar` width and
+  scroller width) and `design::scrollable_style` (an invisible rail, a `2px`-radius
+  scroller in `LINE`, `MUTED` while the bar is hovered or dragged, and a transparent
+  autoscroll overlay) are now applied to **all 18** scrolling surfaces, which is what
+  the global rule asks for; `LINE` and `MUTED` are this palette's two rungs over the
+  surface, standing in for the `l1`/`hover-l1` pair.
+  Verified at the `history-more` preset in a 420px-tall window, where the transcript
+  must overflow for a bar to exist at all: the bar measures **5 columns** at
+  `x 1034..1038` with a `(64,61,81)` thumb — `LINE` is `0x40,0x3d,0x52` — where the
+  same grab under iced's default measured **10 columns** at `x 1030..1039` with a
+  translucent grey thumb. `shots/49-scrollbar-dp2.png` is the grab and
+  `shots/49-scrollbar.png` that run's own frame.
+  This is the pass the previous round recorded as not-half-applied: the first attempt
+  scripted the insertion and put the two calls inside each `scrollable(…)` call's
+  parentheses, which the compiler caught, and the second run inserted them after the
+  matching close paren. A surface's content box shrinks by the bar's width only while
+  it actually overflows, which is also how the reference behaves.
 

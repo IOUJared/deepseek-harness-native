@@ -710,6 +710,61 @@ pub fn fill_solid(_: &Theme, status: button::Status) -> button::Style {
         ..Default::default()
     }
 }
+/// The reference's scrollbar skin (`ui-theme/src/styles/scrollbar.css:20-24`): a
+/// `5px` bar, an invisible rail, and the `scrollbar-bg-l1` / `scrollbar-hover-l1`
+/// thumb pair, declared for every element so each surface substitutes the tokens
+/// it rebinds. Elevated surfaces take the `l2` pair there; this palette steps
+/// `LINE` up to `MUTED` instead, the next rung of its own ladder.
+pub const SCROLLBAR_WIDTH: f32 = 5.0;
+pub fn scrollbar() -> iced::widget::scrollable::Direction {
+    iced::widget::scrollable::Direction::Vertical(
+        iced::widget::scrollable::Scrollbar::default()
+            .width(SCROLLBAR_WIDTH)
+            .scroller_width(SCROLLBAR_WIDTH),
+    )
+}
+pub fn scrollable_style(
+    _: &Theme,
+    status: iced::widget::scrollable::Status,
+) -> iced::widget::scrollable::Style {
+    use iced::widget::scrollable::{Rail, Scroller, Status};
+    let lit = matches!(
+        status,
+        Status::Hovered {
+            is_vertical_scrollbar_hovered: true,
+            ..
+        } | Status::Dragged {
+            is_vertical_scrollbar_dragged: true,
+            ..
+        }
+    );
+    let rail = Rail {
+        background: None,
+        border: iced::Border::default(),
+        scroller: Scroller {
+            background: if lit { MUTED } else { LINE }.into(),
+            border: iced::Border {
+                radius: 2.0.into(),
+                ..iced::Border::default()
+            },
+        },
+    };
+    iced::widget::scrollable::Style {
+        container: Default::default(),
+        vertical_rail: rail,
+        horizontal_rail: rail,
+        gap: None,
+        auto_scroll: iced::widget::scrollable::AutoScroll {
+            background: Color::TRANSPARENT.into(),
+            border: iced::Border {
+                radius: 2.0.into(),
+                ..iced::Border::default()
+            },
+            shadow: Default::default(),
+            icon: MUTED,
+        },
+    }
+}
 pub const TO_BOTTOM_SIZE: f32 = 34.0;
 pub const TO_BOTTOM_INSET: f32 = 16.0;
 pub const TO_BOTTOM_EDGE: f32 = 32.0;

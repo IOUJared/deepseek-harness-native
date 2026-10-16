@@ -4897,11 +4897,16 @@ impl App {
         }
         body = body.push(label("An admitted filesystem save is synchronous and cannot be cancelled. Closing the application waits for owned filesystem work; an unhealthy filesystem may delay shutdown. Close never promises rollback or secure erasure.", MUTED));
         let size = settings_modal_size(self.layout_size());
-        container(scrollable(body).height(Length::Fill))
-            .width(size.width)
-            .height(size.height)
-            .style(|_| panel(SURFACE))
-            .into()
+        container(
+            scrollable(body)
+                .direction(design::scrollbar())
+                .style(design::scrollable_style)
+                .height(Length::Fill),
+        )
+        .width(size.width)
+        .height(size.height)
+        .style(|_| panel(SURFACE))
+        .into()
     }
     fn rename_view(&self) -> Element<'_, Message> {
         use crate::rename::{Action, Notice};
@@ -5002,11 +5007,16 @@ impl App {
             .size(11),
         });
         let size = settings_modal_size(self.layout_size());
-        container(scrollable(body).height(Length::Fill))
-            .width(size.width.min(560.0))
-            .height(size.height.min(360.0))
-            .style(|_| panel(SURFACE))
-            .into()
+        container(
+            scrollable(body)
+                .direction(design::scrollbar())
+                .style(design::scrollable_style)
+                .height(Length::Fill),
+        )
+        .width(size.width.min(560.0))
+        .height(size.height.min(360.0))
+        .style(|_| panel(SURFACE))
+        .into()
     }
     fn fork_view(&self) -> Element<'_, Message> {
         use crate::fork::{Action, Notice};
@@ -5113,11 +5123,16 @@ impl App {
             .size(11),
         });
         let size = settings_modal_size(self.layout_size());
-        container(scrollable(body).height(Length::Fill))
-            .width(size.width.min(560.0))
-            .height(size.height.min(360.0))
-            .style(|_| panel(SURFACE))
-            .into()
+        container(
+            scrollable(body)
+                .direction(design::scrollbar())
+                .style(design::scrollable_style)
+                .height(Length::Fill),
+        )
+        .width(size.width.min(560.0))
+        .height(size.height.min(360.0))
+        .style(|_| panel(SURFACE))
+        .into()
     }
     fn management_view(&self) -> Element<'_, Message> {
         use crate::management::{Action, Notice, Operation};
@@ -5224,12 +5239,17 @@ impl App {
         );
         body = body.push(label("No forced stop, session deletion, rename, fork, provider/model call or automatic retry. A matching ACK does not replace newer stream state.", MUTED));
         let size = settings_modal_size(self.layout_size());
-        container(scrollable(body).height(Length::Fill))
-            .padding(22)
-            .width(size.width)
-            .height(size.height)
-            .style(|_| panel(SURFACE))
-            .into()
+        container(
+            scrollable(body)
+                .direction(design::scrollbar())
+                .style(design::scrollable_style)
+                .height(Length::Fill),
+        )
+        .padding(22)
+        .width(size.width)
+        .height(size.height)
+        .style(|_| panel(SURFACE))
+        .into()
     }
     fn settings_modal_visible(&self) -> bool {
         matches!(self.close, Close::None) && self.settings.is_open()
@@ -5495,7 +5515,10 @@ impl App {
         ]
         .spacing(14);
         container(
-            scrollable(container(content).max_width(440).width(Length::Fill)).height(Length::Fill),
+            scrollable(container(content).max_width(440).width(Length::Fill))
+                .direction(design::scrollbar())
+                .style(design::scrollable_style)
+                .height(Length::Fill),
         )
         .padding(24)
         .width(Length::Fill)
@@ -5589,6 +5612,8 @@ impl App {
                         .cards(self.decision_replies_enabled())
                         .map(Message::Interaction),
                 )
+                .direction(design::scrollbar())
+                .style(design::scrollable_style)
                 .height(94),
             );
         }
@@ -6115,8 +6140,12 @@ impl App {
                 inner = inner.push(label(description, MUTED).size(11));
             }
             if self.pending.expanded {
-                inner =
-                    inner.push(scrollable(label(pending.text.clone(), TEXT).size(12)).height(100));
+                inner = inner.push(
+                    scrollable(label(pending.text.clone(), TEXT).size(12))
+                        .direction(design::scrollbar())
+                        .style(design::scrollable_style)
+                        .height(100),
+                );
             }
         }
         if self.files.editor_open()
@@ -6881,7 +6910,10 @@ impl App {
             .height(design::SECTION_HEADER_HEIGHT)
             .align_y(iced::Alignment::Center),
             Space::new().height(design::SECTION_HEADER_GAP),
-            scrollable(list).height(Length::Fill),
+            scrollable(list)
+                .direction(design::scrollbar())
+                .style(design::scrollable_style)
+                .height(Length::Fill),
             // Native's own footer line, set off by the panel rhythm.
             Space::new().height(design::PANEL_GAP),
             label(
@@ -6930,7 +6962,10 @@ impl App {
             );
         }
         column![
-            scrollable(list).height(if self.sidebar_sheet { 110 } else { 80 }),
+            scrollable(list)
+                .direction(design::scrollbar())
+                .style(design::scrollable_style)
+                .height(if self.sidebar_sheet { 110 } else { 80 }),
             text_input("Absolute workspace directory", &self.workspace_path)
                 .on_input(Message::WorkspacePath)
                 .padding(9)
@@ -6984,11 +7019,20 @@ impl App {
             self.workspace_navigation()
         ]
         .spacing(14);
-        container(column![toolbar, scrollable(sheet).height(Length::Fill)].spacing(18))
-            .padding(24)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into()
+        container(
+            column![
+                toolbar,
+                scrollable(sheet)
+                    .direction(design::scrollbar())
+                    .style(design::scrollable_style)
+                    .height(Length::Fill)
+            ]
+            .spacing(18),
+        )
+        .padding(24)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
     }
     fn detail_view<'a>(&'a self, detail: &'a detail_panel::Detail) -> Element<'a, Message> {
         let mut toolbar = row![
@@ -7046,7 +7090,9 @@ impl App {
         let rendered = container(rendered).id("native-detail-body");
         body = body.push(rendered);
         let content=column![toolbar,label(detail.notice(),MUTED).size(11),
-            scrollable(container(body).padding(16)).height(Length::Fill),
+            scrollable(container(body).padding(16))
+                .direction(design::scrollbar())
+                .style(design::scrollable_style).height(Length::Fill),
             label("Bounded native display source (up to 32 KiB); raw records and unsupported content may not be fully represented.",MUTED).size(11)
         ].spacing(12).height(Length::Fill);
         container(
@@ -8064,6 +8110,8 @@ impl App {
                 .center_x(Length::Fill)
                 .padding([design::FLOW_INSET, design::TRANSCRIPT_INSET]),
         )
+        .direction(design::scrollbar())
+        .style(design::scrollable_style)
         .id(self.scroll_id())
         .on_scroll(move |viewport| Message::Scrolled {
             generation,
@@ -8206,6 +8254,8 @@ impl App {
                 .center_x(Length::Fill)
                 .center_y(Length::Fill),
         )
+        .direction(design::scrollbar())
+        .style(design::scrollable_style)
         .height(Length::Fill)
         .into()
     }
@@ -8387,6 +8437,8 @@ impl App {
             .center_x(Length::Fill)
             .padding(24),
         )
+        .direction(design::scrollbar())
+        .style(design::scrollable_style)
         .height(Length::Fill)
         .into()
     }
@@ -8463,6 +8515,8 @@ impl App {
             .center_x(Length::Fill)
             .padding(24),
         )
+        .direction(design::scrollbar())
+        .style(design::scrollable_style)
         .height(Length::Fill)
         .into()
     }
@@ -8744,20 +8798,24 @@ impl App {
             }
             let text = self.terminal.output().tail(DISPLAY_BYTES);
             body = body.push(
-                container(scrollable(
-                    container(
-                        label(
-                            if text.is_empty() {
-                                "(no output yet)".to_owned()
-                            } else {
-                                text
-                            },
-                            TEXT,
+                container(
+                    scrollable(
+                        container(
+                            label(
+                                if text.is_empty() {
+                                    "(no output yet)".to_owned()
+                                } else {
+                                    text
+                                },
+                                TEXT,
+                            )
+                            .size(11),
                         )
-                        .size(11),
+                        .width(Length::Fill),
                     )
-                    .width(Length::Fill),
-                ))
+                    .direction(design::scrollbar())
+                    .style(design::scrollable_style),
+                )
                 .height(Length::Fixed(240.0))
                 .width(Length::Fill)
                 .padding(8)
@@ -8910,6 +8968,8 @@ impl App {
             .center_x(Length::Fill)
             .padding(24),
         )
+        .direction(design::scrollbar())
+        .style(design::scrollable_style)
         .height(Length::Fill)
         .into()
     }
@@ -9065,6 +9125,8 @@ impl App {
             .center_x(Length::Fill)
             .padding(24),
         )
+        .direction(design::scrollbar())
+        .style(design::scrollable_style)
         .height(Length::Fill)
         .into()
     }
