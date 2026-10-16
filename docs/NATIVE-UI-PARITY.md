@@ -1362,3 +1362,22 @@ cell, so new findings go at the end of the file as plain paragraphs.
   document. The menu lists the three design presets rather than the Host's catalog (which
   still needs the remote read), the Auto-review badge and the risk-confirmation step are
   not built, and the display-name fallback to the preset key stands.
+
+- **Full-access risk confirmation — landed, capture-verified.** The reference does not let a
+  pick commit full access directly: it passes through `RiskConfirmation`
+  (`PermissionSelect.tsx:198`, `PermissionRow.tsx:105`) with a title, a warning, an explicit
+  acknowledgement and Cancel/Enable (`ui-permission-presets/src/client/locales.ts:34-38`).
+  Native now carries the same guard: picking Full access opens that confirmation instead of
+  submitting, the copy is the sheet's own verbatim warning, Enable stays inert until the
+  acknowledgement is ticked, and Cancel or the chip's own press dismisses it. The preset
+  reaches the session through the same `/permission <preset>` line as before.
+  Verified at the `chat-transcript` preset with a new `--permission-confirm true` fixture
+  flag: the observation records `native-permission-confirm` at **360.0 × 165.1**
+  (x 158, y 701) above the chip, and the grab shows the title, the warning, the unticked
+  acknowledgement and both buttons. `shots/64-permission-confirm-dp2.png` is the grab and
+  `shots/64-permission-confirm.png` that run's own frame.
+  Remainders, stated plainly: the guard is a panel anchored to the chip where the reference
+  shows a modal over the conversation, so the *presentation* differs even though the copy,
+  the acknowledgement gate and the buttons match; the Enable button renders in the primary
+  style while unticked and is inert rather than visibly disabled; and the acknowledgement
+  only ticks from the box itself, since Iced's checkbox carries no label.

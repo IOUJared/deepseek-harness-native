@@ -218,6 +218,12 @@ pub enum Message {
     TogglePermissionMenu,
     /// Sends one permission preset as the command line the reference's picker submits.
     PermissionPick(String),
+    /// Ticks or clears the risk acknowledgement.
+    PermissionConfirmAcknowledge(bool),
+    /// Cancels a pending full-access confirmation.
+    PermissionConfirmCancel,
+    /// Commits the confirmed preset.
+    PermissionConfirmEnable,
     Send,
     KeyboardSend,
     /// Wayland composer paste: read the clipboard off the UI thread.
@@ -697,6 +703,10 @@ pub struct App {
     editor_menu: bool,
     /// The permission chip's menu, opened by its own press.
     permission_menu: bool,
+    /// The preset awaiting the reference's risk confirmation, and whether its
+    /// acknowledgement is ticked. Full access never commits on one press.
+    permission_confirm: Option<String>,
+    permission_acknowledged: bool,
     editor_undo: Vec<String>,
     editor_redo: Vec<String>,
     draft_serial: u64,
@@ -910,6 +920,8 @@ impl App {
                 editor: text_editor::Content::new(),
                 editor_menu: false,
                 permission_menu: false,
+                permission_confirm: None,
+                permission_acknowledged: false,
                 editor_undo: Vec::new(),
                 editor_redo: Vec::new(),
                 draft_serial: 0,
@@ -2799,20 +2811,35 @@ impl App {
             {
                 return self.load_drafts(true);
             }
+            Message::PermissionConfirmAcknowledge(acknowledged)
+                if self.permission_confirm.is_some() =>
+            {
+                self.permission_acknowledged = acknowledged;
+            }
+            Message::PermissionConfirmCancel if self.permission_confirm.is_some() => {
+                self.permission_confirm = None;
+                self.permission_acknowledged = false;
+            }
+            Message::PermissionConfirmEnable
+                if self.permission_confirm.is_some() && self.permission_acknowledged =>
+            {
+                let preset = self.permission_confirm.take().unwrap_or_default();
+                self.permission_acknowledged = false;
+                self.send_permission_preset(&preset);
+            }
             Message::TogglePermissionMenu if self.composer_visible() => {
                 self.permission_menu = !self.permission_menu;
             }
             Message::PermissionPick(preset) if self.composer_visible() => {
                 self.permission_menu = false;
-                // The mutation the reference's picker performs: a `/permission <preset>`
-                // command line into the session (`ui-permission-presets/src/client/
-                // index.ts:3-11`), the same shape the plan chip uses for `/plan`.
-                if let Some(session_id) = self.selected.clone() {
-                    self.command(Command::CommandsExecute {
-                        session_id,
-                        line: format!("/permission {preset}"),
-                    });
+                // `PermissionSelect.tsx:198`: full access passes through a risk
+                // confirmation with an explicit acknowledgement before it commits.
+                if preset == "full-access" {
+                    self.permission_confirm = Some(preset);
+                    self.permission_acknowledged = false;
+                    return Task::none();
                 }
+                self.send_permission_preset(&preset);
             }
             Message::EditorMenu(open) if self.composer_visible() => {
                 self.editor_menu = open;
@@ -4843,6 +4870,13 @@ impl App {
     pub(crate) fn set_permission_menu(&mut self, open: bool) {
         self.permission_menu = open;
     }
+    /// Fixture-only: hold the full-access confirmation open, which a real run reaches by
+    /// picking Full access from the chip's menu.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn set_permission_confirm(&mut self, open: bool) {
+        self.permission_confirm = open.then(|| "full-access".to_owned());
+        self.permission_acknowledged = false;
+    }
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn set_editor_menu(&mut self, open: bool) {
         self.editor_menu = open;
@@ -6081,16 +6115,81 @@ impl App {
         .style(design::ghost)
         .padding(design::COMPOSER_CHIP_PAD)
         .height(design::COMPOSER_CHIP_HEIGHT);
+        // The reference shows the risk confirmation as a modal over the conversation
+        // (`PermissionSelect.tsx:198`); native swaps the chip's own panel for it, keeping
+        // the guard and its copy identical while staying inside the popup pattern this app
+        // already uses for menus.
+        let popup = match &self.permission_confirm {
+            Some(_) => Some(self.permission_confirm_view()),
+            None => self
+                .permission_menu
+                .then(|| self.permission_menu_view(&preset)),
+        };
         Some(
             container(anchored_popup::anchored(
                 chip.into(),
-                self.permission_menu
-                    .then(|| self.permission_menu_view(&preset)),
+                popup,
                 Message::TogglePermissionMenu,
             ))
             .id("native-permission-control")
             .into(),
         )
+    }
+    /// The reference's full-access risk confirmation, copy and all: title, description, an
+    /// explicit acknowledgement, Cancel and Enable
+    /// (`ui-permission-presets/src/client/locales.ts:34-38`). Enable stays disabled until
+    /// the acknowledgement is ticked, which is what makes the guard meaningful.
+    fn permission_confirm_view(&self) -> Element<'_, Message> {
+        let enable = button(label("Enable Full access", TEXT).size(13))
+            .style(design::primary)
+            .padding([4, 10])
+            .on_press_maybe(
+                self.permission_acknowledged
+                    .then_some(Message::PermissionConfirmEnable),
+            );
+        container(
+            Column::new()
+                .spacing(8)
+                .push(label("Enable Full access?", TEXT).size(14))
+                .push(label(FULL_ACCESS_RISK, MUTED).size(12))
+                .push(
+                    row![
+                        iced::widget::checkbox(self.permission_acknowledged)
+                            .on_toggle(Message::PermissionConfirmAcknowledge)
+                            .size(14),
+                        // Iced's checkbox carries no label, so the acknowledgement text
+                        // sits beside it. Clicking the words alone does not tick it.
+                        label("I understand the risks and want to continue", MUTED).size(12),
+                    ]
+                    .spacing(6)
+                    .align_y(iced::Alignment::Center),
+                )
+                .push(
+                    row![
+                        Space::new().width(Length::Fill),
+                        button(label("Cancel", MUTED).size(13))
+                            .style(design::ghost)
+                            .padding([4, 10])
+                            .on_press(Message::PermissionConfirmCancel),
+                        enable,
+                    ]
+                    .spacing(6),
+                ),
+        )
+        .id("native-permission-confirm")
+        .width(360)
+        .padding(10)
+        .style(|_| design::card(SURFACE, 10.0))
+        .into()
+    }
+    /// Sends one preset as the command line the reference's picker submits.
+    fn send_permission_preset(&mut self, preset: &str) {
+        if let Some(session_id) = self.selected.clone() {
+            self.command(Command::CommandsExecute {
+                session_id,
+                line: format!("/permission {preset}"),
+            });
+        }
     }
     /// The presets the menu offers: the reference's design set, with the current one in
     /// full ink. The Host's own catalog would extend this list once the catalog read lands.
@@ -10322,6 +10421,9 @@ impl<M: Clone, R: iced::advanced::Renderer> iced::advanced::Widget<M, Theme, R>
 ///
 /// Iced's text editor clears its own focus on any left press outside its bounds,
 /// and it processes the press before the widget around it does, so a plain
+/// The reference's own full-access warning, verbatim
+/// (`ui-permission-presets/src/client/locales.ts:35`).
+const FULL_ACCESS_RISK: &str = "Full access lets new sessions reduce confirmation steps and perform more actions directly, including sensitive operations, file changes, or external commands. Only use it when you trust subsequent tasks.";
 /// The display name for a permission preset. The reference takes it from the Host's
 /// catalog and falls back to a locale key; native has no catalog here yet, so the three
 /// design presets carry their own names and anything host-configured shows its own key,

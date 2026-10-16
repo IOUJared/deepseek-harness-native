@@ -76,6 +76,7 @@ const KNOWN_IDS: &[&str] = &[
     "native-reference-summary",
     "native-permission-control",
     "native-permission-menu",
+    "native-permission-confirm",
     "native-to-bottom",
     "native-width-handle-left",
     "native-width-handle-right",
@@ -122,6 +123,8 @@ struct Options {
     editor_menu: bool,
     /// Open the permission chip's menu, so a capture shows it without a press.
     permission_menu: bool,
+    /// Hold the full-access risk confirmation open for a capture.
+    permission_confirm: bool,
 }
 fn public_drop_file(value: String) -> Result<PathBuf, &'static str> {
     let path = PathBuf::from(value);
@@ -202,6 +205,7 @@ fn options() -> Result<Options, &'static str> {
             "--plan-pending",
             "--editor-menu",
             "--permission-menu",
+            "--permission-confirm",
             "--scrolled-away",
             "--page-pending",
         ]
@@ -281,6 +285,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         width_handle_glow: match values.remove("--width-handle-glow") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        permission_confirm: match values.remove("--permission-confirm") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -518,6 +526,9 @@ impl Fixture {
         }
         if options.permission_menu {
             app.set_permission_menu(true);
+        }
+        if options.permission_confirm {
+            app.set_permission_confirm(true);
         }
         if options.scrolled_away {
             app.set_scrolled_away(true);
