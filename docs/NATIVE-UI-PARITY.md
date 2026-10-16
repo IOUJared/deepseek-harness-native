@@ -353,8 +353,20 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    `ui-settings-general` registers two: `developer-tools` (order 15) and `current-version`
    (order 100). Both are **deliberate omissions**: a version row is exactly the metadata the
    "no revision numbers or field counts" preference excludes, and a developer-tools row has
-   no subject in an app with no webview and no embedded browser. `ui-shortcuts` and
-   `ui-theme` were already covered — a present disclosure and a deliberately fixed theme.
+   no subject in an app with no webview and no embedded browser. `ui-theme` is a deliberately
+   fixed theme, but `ui-shortcuts` is **not** covered and an earlier revision of this entry was
+   wrong to say so: the reference's row (id `shortcuts`, order 16, `ShortcutsRow`) is an
+   **editable keybinding editor**, not a list. Its `Editor.tsx` captures a candidate binding,
+   saves it (`save({ type: 'set', id, binding })`) and handles staleness with a retry
+   (`ui-shortcuts/src/client/Editor.tsx:57-71`); the same package registers a `shortcuts.open`
+   command whose desktop defaults are `primary + Slash` on macOS and Windows alike, rendered
+   through a `shell.overlay` (`ui-shortcuts/src/client/index.ts:42-52`). Native has a static
+   shortcuts disclosure and hardcoded input handling, so matching this means a binding store,
+   an editor with capture and conflict handling, the overlay and the trigger — a functional
+   feature rather than a row, and the largest gap this survey has found. Settling step: decide
+   scope with the user, since it changes behaviour the user has explicitly asked to preserve
+   (existing bindings and startup focus); a read-only catalog of the live bindings is the
+   smaller faithful step if a full editor is not wanted.
    That leaves one genuine gap: `ui-settings-session-log` injects a row (order 90) whose
    component is `UploadRow`, alongside a `session-log-upload-toast` overlay — it uploads the
    session log for support. Native has the Trajectory tab but no upload affordance, and this
