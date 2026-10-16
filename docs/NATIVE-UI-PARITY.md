@@ -2467,3 +2467,22 @@ state, which needs a Host that advertises that namespace.
    (`sessionId` required, `jobId` required with an optional `offset`, and **whole-set
    replacement**). Everything else is a mirror of code already in this repository, which is the
    strongest position any item in this document has reached.
+
+   **The follow frame has three variants, not two, and two distinct update semantics.**
+   `JobFollowFrame` (`job-controller/src/types.ts:72-89`) is:
+   - `{ type: 'opened', job: JobView, from: number }` — a job opening, with the offset the first
+     output frame continues from;
+   - `{ type: 'output', chunks: readonly JobChunk[], next: number, lossy?: true }` — output as a
+     **list of chunks** (not one), the offset to resume from, and a `lossy` marker meaning bytes
+     between the requested offset and the chunks **were already evicted**;
+   - `{ type: 'status', job: JobView }` — a whole view, so a single job's state can change through
+     the follow stream.
+   Two semantics follow, and they differ: the **list** stream is whole-set replacement for the
+   session's rows (`:19-24`), while the **follow** stream carries per-job frames — `opened`,
+   `output` and `status` — that update one row and its output buffer. An implementation that
+   treated both streams as replacement, or both as merge, would be wrong for one of them.
+   This also corrects the previous round's summary of the frame as "opened and output": the
+   `status` variant is a third, and the `lossy` marker is a detail that matters for the output
+   buffer — an evicted range must be shown as a gap rather than silently joined.
+   The wire design is now complete and quoted: request keys, three frame variants with their
+   fields, whole-set replacement for lists and per-job updates for follows.
