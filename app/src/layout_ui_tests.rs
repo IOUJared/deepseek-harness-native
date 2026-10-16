@@ -241,14 +241,16 @@ fn conversation_column_is_adaptive_and_fits_the_padded_pane() {
 fn composer_editor_grows_with_the_draft_up_to_the_web_line_cap() {
     let (mut app, mut queue) = app();
     drop(app.update(Message::Resized(iced::Size::new(1200.0, 800.0))));
-    // The composer draws and reserves the body line box, so every height below is
-    // rows x that box plus the editor's 24px chrome.
+    // The composer draws and reserves the body line box plus the input's own
+    // chrome (4px top pad + the 8px breath below a single line), so one line is
+    // exactly the web's 36px `min-height`.
     let line = design::LINE_BODY;
-    let chrome = 24.0;
+    let chrome = design::COMPOSER_INPUT_CHROME;
+    assert_eq!(line + chrome, design::COMPOSER_INPUT_MIN);
     // The web caps the composer text at 336px, which is fourteen of these lines.
     assert_eq!(14.0 * line, 336.0);
     app.editor = text_editor::Content::with_text("one line");
-    assert_eq!(app.composer_editor_height(), (3.0 * line + chrome).round());
+    assert_eq!(app.composer_editor_height(), (line + chrome).round());
     app.editor = text_editor::Content::with_text("a\nb\nc\nd\ne");
     assert_eq!(app.composer_editor_height(), (5.0 * line + chrome).round());
     // The web's fourteen-line cap holds; a short window keeps a smaller cap.
@@ -256,9 +258,9 @@ fn composer_editor_grows_with_the_draft_up_to_the_web_line_cap() {
     assert_eq!(app.composer_editor_height(), (14.0 * line + chrome).round());
     drop(app.update(Message::Resized(iced::Size::new(760.0, 560.0))));
     assert_eq!(app.composer_editor_height(), (8.0 * line + chrome).round());
-    // Empty and whitespace-only drafts never drop below the resting size.
+    // An empty draft rests on the same floor rather than a taller stack.
     app.editor = text_editor::Content::new();
-    assert_eq!(app.composer_editor_height(), (2.0 * line + chrome).round());
+    assert_eq!(app.composer_editor_height(), design::COMPOSER_INPUT_MIN);
     drop(app.view());
     assert!(queue.try_recv().is_err());
 }

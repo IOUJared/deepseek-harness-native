@@ -438,14 +438,16 @@ pub fn card(background: Color, radius: f32) -> container::Style {
         ..Default::default()
     }
 }
-/// A message's attachment card. The reference's `.fileCard` fills with
-/// `--dsw-specific-input-major` — the same bluish-850 the bubble uses — and
-/// draws `0.5px solid var(--dsw-alias-border-l2)`
-/// (`MessageItem.module.css:320-332`); in dark mode that edge resolves to
-/// `rgba(255,255,255,0.12)` over the fill, which is this palette's `LINE`, so
-/// the card keeps the reference's visible hairline instead of `card`'s
-/// same-as-fill stroke.
-pub fn file_card(_: &Theme) -> container::Style {
+/// The web's elevated input surface, shared by the composer card and a message's
+/// attachment card: both fill with `--dsw-specific-input-major` — the same
+/// bluish-850 the user bubble uses — and carry the elevation stroke, a `0.5px`
+/// `var(--dsw-alias-border-l2)` hairline (`InputBar.module.css:60-100`,
+/// `MessageItem.module.css:320-332`, `gradient-shadow-text.css:33-40`). In dark
+/// mode that edge resolves to `rgba(255,255,255,0.12)` over the fill, which is
+/// this palette's `LINE`; native's elevation ladder puts the fill at `OVERLAY`
+/// above `BASE`/`SURFACE`, so the card keeps the reference's visible hairline
+/// instead of `card`'s same-as-fill stroke. The web's soft shadow is not drawn.
+pub fn elevated_surface(_: &Theme) -> container::Style {
     container::Style {
         background: Some(OVERLAY.into()),
         text_color: Some(TEXT),
@@ -456,6 +458,36 @@ pub fn file_card(_: &Theme) -> container::Style {
 /// Height of the fade above the composer. The web fades over its composer seat
 /// with `linear-gradient(180deg, … 0px, var(--dsw-alias-bg-base) 36px)`.
 pub const COMPOSER_FADE_HEIGHT: f32 = 36.0;
+/// The composer card's own inset and the gap between its text area and its
+/// control row, from the web's `InputBar.module.css`: `.card { padding-top: 8px;
+/// gap: 12px }` (`:60-72`). The card has no side or bottom padding — the text
+/// area and the control row carry their own insets below.
+pub const COMPOSER_CARD_TOP: f32 = 8.0;
+pub const COMPOSER_CARD_GAP: f32 = 12.0;
+/// `.input { min-height: 36px; padding: 4px 8px 0 14px; line-height: 24px }`
+/// (`InputBar.module.css:169-176`): 14px of left inset for the draft, and the
+/// 8px breath the web leaves under a single line inside the 36px floor.
+pub const COMPOSER_INPUT_PAD: iced::Padding = iced::Padding {
+    top: 4.0,
+    right: 8.0,
+    bottom: 0.0,
+    left: 14.0,
+};
+pub const COMPOSER_INPUT_MIN: f32 = 36.0;
+/// The input's vertical chrome: its 4px top pad plus the 8px breath below a
+/// single line. One line plus this chrome is exactly `COMPOSER_INPUT_MIN`, and
+/// at the fourteen-line cap the text box is still the web's 336px.
+pub const COMPOSER_INPUT_CHROME: f32 = 12.0;
+/// `.row { padding: 2px 8px 6px; gap: 12px }` (`InputBar.module.css:251-260`):
+/// the controls sit 8px in from the card edge and the row's own 2px downward
+/// shift is part of its box.
+pub const COMPOSER_ROW_PAD: iced::Padding = iced::Padding {
+    top: 2.0,
+    right: 8.0,
+    bottom: 6.0,
+    left: 8.0,
+};
+pub const COMPOSER_ROW_GAP: f32 = 12.0;
 /// The fade itself: transparent at the top, base colour by its bottom, so
 /// scrolled content dissolves instead of meeting the composer at a hard edge.
 ///

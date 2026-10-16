@@ -54,7 +54,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | New-session row | 38 h · 8/12 pad · radius md · elevated fill + 0.5px border | `NEW_SESSION_*` + `design::elevated`, 2px inset, 12px below |
 | Sidebar search | 30 h expanded · `0.5px` l4 hairline · radius md · 13/18 text | `design::search_field` + `SEARCH_*` |
 | Browser section header | 36 h · gap 4 · 4px trailing margin · 28px icon controls | `SECTION_HEADER_*` box; label and text stand-ins keep native's hint tier |
-| Conversation header | 76 min-h · bottom 0.5px seam · title 30 row | padding [14,20] + seam |
+| Conversation header | 76 min-h · bottom 0.5px seam · title 30 row | padding `10px 28px 0 20px` (tabs) / `… 10px` (no tabs) + 1px seam; row heights emerge, no min-height |
 | Chat content width | `clamp(680, 64%, 920)` | `design::chat_width(pane)` clamp, bounded by the padded pane |
 | User bubble max-width | `min(70.2% · content, 82%)` | content-sized, fixed 640 cap (≈70.2% of the widest column) |
 | Assistant text | unboxed, full content column | unboxed, spans the shared content column |
@@ -62,8 +62,9 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Tool activity | compact unboxed single muted line | compact unboxed single muted line, expands in place |
 | Tool-row file path | grey **dotted** underline, clickable | solid `MUTED` underline (Read/Edit/Write) |
 | Edit diff stat | parsed-result diff `+N -M` after the summary | call-argument line diff `+N −M` after the target |
-| Composer card radius | panel 28 | 20 |
-| Composer text max-height | 336 (14×24) | auto-grows: 14 logical lines (297 px), 8 in a short window |
+| Composer card | panel 28 · `padding-top: 8` · `gap: 12` · input-major + l2 hairline | `RADIUS_XL` 20; `COMPOSER_CARD_*` + `design::elevated_surface` |
+| Composer input | `min-height: 36` · `4px 8px 0 14px` · 14-line text cap 336 | `COMPOSER_INPUT_*`, one-line floor 36, 14 lines (8 in a short window) |
+| Composer control row | `2px 8px 6px` · gap 12 | `COMPOSER_ROW_PAD`/`COMPOSER_ROW_GAP` |
 | Send button | 34×34 · pill | Send pill, 8/14 pad |
 | Menu | 13 px · blur 40 · hairline | native panel, no blur |
 
@@ -342,4 +343,33 @@ cell, so new findings go at the end of the file as plain paragraphs.
   their box takes the web's size. Native also keeps the search field mounted where
   the web expands it from a 28px icon control, and its "N conversations" footer is
   native's own line (the web has no such element).
+- **Composer card surface and insets — landed, capture-verified.** The web's
+  composer is the elevated input surface: `.card` fills with
+  `--dsw-specific-input-major` — the same bluish-850 the user bubble and the
+  attachment card use — draws the `0.5px` l2 elevation hairline, and pads only
+  its top by `8px` with a `12px` gap before the control row
+  (`InputBar.module.css:60-100`, `gradient-shadow-text.css:33-40`); `.input` is
+  `min-height: 36px` with `padding: 4px 8px 0 14px` (`:169-176`), and `.row` is
+  `padding: 2px 8px 6px` with a `12px` gap (`:251-260`). Native had a `SURFACE`
+  card with `design::card`'s 1px same-as-fill stroke, a uniform 10px inset, `22px`
+  of text inset inside the editor, a control row with a 7px gap and no padding,
+  and a resting editor of three lines.
+  `design::file_card` became `design::elevated_surface` (one owner for the token
+  both surfaces share), `COMPOSER_CARD_*`, `COMPOSER_INPUT_*` and
+  `COMPOSER_ROW_*` carry the figures, and `composer_editor_height` reads them:
+  `rows × line + COMPOSER_INPUT_CHROME` floored at `COMPOSER_INPUT_MIN`, so one
+  line is exactly the web's 36px and the fourteen-line text cap stays 336px. The
+  short-window 8-row cap remains native's own adaptation.
+  Verified on DP-2 (`shots/33-composer-surface-dp2.png`; that run's frame is
+  `shots/33-composer-surface.png`, matching at a mean absolute difference of 5.8):
+  the card's fill reads the compositor's OVERLAY (`(41,40,56)`) where it read
+  SURFACE (`(32,30,46)`) before; its box measures `946..1042` = **97px**, against
+  the web's own arithmetic `8 + 36 + 12 + 42 = 98` and 153px before; and the
+  draft's first text row sits **17px** below the card's top where it sat 27px,
+  which is the web's 8px card pad + 4px input pad + the glyph's leading inside the
+  24px line box.
+  Not changed here, and next: the control row's own order and control boxes (the
+  web puts attach on the left and the model chip with it on the right, inside
+  28px/34px circular controls), and the composer's outer padding (`InputBar`
+  `.root` is `0 16px 4px` with a 4px dock inset, where native uses `[10, 20]`).
 

@@ -518,7 +518,7 @@ fn attachment_cards(files: Vec<FileCard>) -> Element<'static, Message> {
             .align_y(iced::Alignment::Center)
             .width(design::ATTACHMENT_CARD_WIDTH)
             .height(design::ATTACHMENT_CARD_HEIGHT)
-            .style(design::file_card),
+            .style(design::elevated_surface),
         );
     }
     cards.into()
@@ -1383,15 +1383,22 @@ impl App {
     /// editor scrolls internally.
     fn composer_editor_height(&self) -> f32 {
         // The composer holds body text, so it takes the body line box rather than
-        // Iced's relative default; the web caps the text at 336px, which is
-        // fourteen of these lines. Reserving and drawing the same box is what
-        // keeps the cap honest.
+        // Iced's relative default, plus the input's own chrome: one line is then
+        // exactly the web's `min-height: 36px` (`InputBar.module.css:169-176`)
+        // and the fourteen-line cap keeps the text box at the web's 336px.
+        // Reserving and drawing the same box is what keeps both figures honest.
+        // A short window keeps native's smaller cap so the transcript stays
+        // visible; the web has no such variant.
         let line = design::LINE_BODY + self.content_delta();
-        const CHROME: f32 = 24.0;
-        let short = self.layout_size().height < 620.0;
-        let (min_rows, max_rows) = if short { (2.0, 8.0) } else { (3.0, 14.0) };
-        let rows = self.editor.text().lines().count().max(1) as f32;
-        (rows.clamp(min_rows, max_rows) * line + CHROME).round()
+        let max_rows = if self.layout_size().height < 620.0 {
+            8.0
+        } else {
+            14.0
+        };
+        let rows = (self.editor.text().lines().count().max(1) as f32).min(max_rows);
+        (rows * line + design::COMPOSER_INPUT_CHROME)
+            .max(design::COMPOSER_INPUT_MIN)
+            .round()
     }
     fn sidebar_target(&self) -> f32 {
         if !self.compact() && self.sidebar_expanded {
@@ -5614,7 +5621,7 @@ impl App {
             .placeholder("Message DeepSeek Harness… or drop a file")
             .on_action(Message::Editor)
             .height(self.composer_editor_height())
-            .padding(12)
+            .padding(design::COMPOSER_INPUT_PAD)
             .font(FONT)
             .size(design::BODY_SIZE as u32)
             .line_height(design::body_line(self.content_delta()))
@@ -5624,7 +5631,7 @@ impl App {
             .pending
             .values()
             .any(|p| Some(&p.session) == self.selected.as_ref());
-        let mut inner = column![editor].spacing(4);
+        let mut inner = column![editor].spacing(design::COMPOSER_CARD_GAP);
         if self.sidebar_organization.failure().is_some() {
             inner = inner.push(row![
                 label(
@@ -5767,54 +5774,60 @@ impl App {
                 && self.transcript.cursor() == self.transcript.opening_cursor(),
             self.transcript.records(),
         );
+        // The web's `.row` pads itself 2/8/6 and gaps its groups by 12px
+        // (`InputBar.module.css:251-260`); the card contributes no side padding.
         inner = inner.push(
-            row![
-                self.model_control(),
-                Space::new().width(Length::Fill),
-                container(
-                    button(
-                        label(
-                            if self.files.count() == 0 {
-                                "+ Attach".to_owned()
-                            } else {
-                                format!(
-                                    "+ Attach · {}/{}",
-                                    self.files.count(),
-                                    attachment_draft::MAX_ATTACHMENTS
-                                )
-                            },
-                            MUTED,
+            container(
+                row![
+                    self.model_control(),
+                    Space::new().width(Length::Fill),
+                    container(
+                        button(
+                            label(
+                                if self.files.count() == 0 {
+                                    "+ Attach".to_owned()
+                                } else {
+                                    format!(
+                                        "+ Attach · {}/{}",
+                                        self.files.count(),
+                                        attachment_draft::MAX_ATTACHMENTS
+                                    )
+                                },
+                                MUTED,
+                            )
+                            .size(11)
                         )
-                        .size(11)
+                        .on_press_maybe(
+                            (self.file_context().allowed
+                                && !self.files.editor_open()
+                                && !self.files.at_capacity()
+                                && !self.files.pending()
+                                && !self.files.prompt_pending()
+                                && !self.local_files.busy())
+                            .then_some(Message::FileChoose)
+                        )
+                        .style(design::ghost)
+                        .padding([6, 9])
                     )
-                    .on_press_maybe(
-                        (self.file_context().allowed
-                            && !self.files.editor_open()
-                            && !self.files.at_capacity()
-                            && !self.files.pending()
-                            && !self.files.prompt_pending()
-                            && !self.local_files.busy())
-                        .then_some(Message::FileChoose)
+                    .id("native-file-open"),
+                    self.stop_button(),
+                    container(
+                        button(
+                            text(if sending { "Sending…" } else { "Send ↑" })
+                                .font(FONT)
+                                .size(13)
+                        )
+                        .on_press_maybe(allowed.then_some(Message::Send))
+                        .style(design::primary)
+                        .padding([8, 14])
                     )
-                    .style(design::ghost)
-                    .padding([6, 9])
-                )
-                .id("native-file-open"),
-                self.stop_button(),
-                container(
-                    button(
-                        text(if sending { "Sending…" } else { "Send ↑" })
-                            .font(FONT)
-                            .size(13)
-                    )
-                    .on_press_maybe(allowed.then_some(Message::Send))
-                    .style(design::primary)
-                    .padding([8, 14])
-                )
-                .id("native-send-control")
-            ]
-            .spacing(7)
-            .align_y(iced::Alignment::Center),
+                    .id("native-send-control")
+                ]
+                .spacing(design::COMPOSER_ROW_GAP)
+                .align_y(iced::Alignment::Center),
+            )
+            .padding(design::COMPOSER_ROW_PAD)
+            .width(Length::Fill),
         );
         if !self.transcript.safe_to_send() {
             inner = inner.push(
@@ -5836,10 +5849,18 @@ impl App {
                 .size(11),
             );
         }
+        // The web's card is the elevated input surface (the same token as the
+        // attachment card) with an 8px top inset only; the text area and the
+        // control row own their insets (`InputBar.module.css:60-72`).
         let card = container(inner)
-            .padding(10)
+            .padding(iced::Padding {
+                top: design::COMPOSER_CARD_TOP,
+                right: 0.0,
+                bottom: 0.0,
+                left: 0.0,
+            })
             .width(Length::Fill)
-            .style(|_| design::card(SURFACE, design::RADIUS_XL));
+            .style(design::elevated_surface);
         // The card owns the space around its controls: a press there is the user
         // reaching for the composer, not leaving it. Inner presses are consumed by
         // the widget that handles them, so this only fires on the card itself.
