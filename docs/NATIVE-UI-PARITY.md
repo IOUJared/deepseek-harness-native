@@ -494,8 +494,22 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    data the conversation holds.
    `ui-chat`'s own tail registration was **not located** in its package index this round, so
    it remains unread rather than assumed absent.
-   Settling step: read `conversation.session.header.actions`, then locate `ui-chat`'s
-   registration; decide with the user whether a changes view belongs in this app at all,
+   **Third read: the session header's action band, and it carries a stated ordering
+   convention.** The reference's own comments describe the band — "Static session context
+   occupies the header's leading negative-order band", so `ui-agent-preset` registers
+   `agent-preset` at `order: -10`, and "Background work follows the preset label in the
+   header actions band", so `ui-jobs` registers `job-list` at `order: 20`
+   (`ui-agent-preset/src/client/index.ts:216-220`, `ui-jobs/src/client/index.ts:36-42`).
+   `ui-subagent` registers a third; `ui-sidebar-terminal`'s registration is **commented
+   out** in the reference itself, so its absence is not a gap to close. So the header shows
+   what the session *is* (its agent preset) ahead of what it is *doing* (background jobs and
+   subagents) — an ordering rule worth matching even where the rows differ.
+   Against native: whether it surfaces an agent preset, background jobs or subagents is not
+   yet established, and each is a *harness capability* rather than decoration, so this read
+   names three candidate gaps of feature size and claims none of them. The ordering rule
+   itself is the cheap, faithful part.
+   Settling step: check what native's session header renders today against that band, then
+   locate `ui-chat`'s tail registration; decide with the user whether a changes view belongs in this app at all,
    given the tool rows already carry counts and the detail panel already holds full records.
 
 Entries here are appended, never inserted: earlier notes were lost because they
