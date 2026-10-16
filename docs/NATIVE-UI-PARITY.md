@@ -1752,3 +1752,20 @@ cell, so new findings go at the end of the file as plain paragraphs.
   `design::scrollable_style` separates a lit `Status::Hovered` rail from the resting one
   (`app/src/design.rs:835-845`) — so there is nothing here to match, and a capture cannot
   show a hover state anyway. Recorded so a later pass does not spend a round chasing it.
+
+10. **The session projection keys the reference reads — and two native lacks.** The
+   reference's client packages read exactly four session projection values: `agentPreset`
+   (seven uses; **landed** above), `subagent` (the lineage the header trail already renders),
+   `subagentTiming` (two uses) and `tokenUsage` (one). The last two are the interesting ones
+   because they ride the snapshot native already parses into a projections map
+   (`app/src/reducer.rs:96-135`), so each is an accessor beside `agent_preset` plus a test —
+   the same small slice that item turned out to be — rather than a new bridge read.
+   It also corrects the ordering of the three authorized header rows: **jobs are not a
+   projection at all**, since `ui-jobs`' row does not appear among these keys, so background
+   jobs need a read of their own and are in fact the largest of the three despite being
+   listed second.
+   Settling step: read the two consumers — whoever reads `subagentTiming` and `tokenUsage` —
+   to learn what each value means and where it surfaces, then land the accessors and the
+   surfaces they feed. Check first whether native's composer context readout already covers
+   `tokenUsage` under its own `contextPressure` projection, since that would make one of the
+   two a deliberate duplicate rather than a gap.
