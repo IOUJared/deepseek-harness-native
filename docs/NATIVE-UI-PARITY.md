@@ -1382,7 +1382,9 @@ cell, so new findings go at the end of the file as plain paragraphs.
   preset — `--permission-confirm true` for the unticked state and `--permission-confirm true
   --permission-acknowledged true` for the ticked one (`shots/65-permission-confirm-enabled.png`
   is the second); a new fixture setter carries the tick.
-  Remainders, stated plainly: the guard is a panel anchored to the chip where the reference
+  The third remainder is closed too: the acknowledgement text now toggles the box on a
+  press, the way a checkbox's own label does, because Iced's checkbox carries no label and
+  the reference's acknowledgement behaves that way (`locales.ts:36`).
+  Remainder, stated plainly: the guard is a panel anchored to the chip where the reference
   shows a modal over the conversation, so the *presentation* differs even though the copy,
-  the acknowledgement gate, the button styles and the actions match; and the acknowledgement
-  only ticks from the box itself, since Iced's checkbox carries no label.
+  the acknowledgement gate, the button styles and the actions match.

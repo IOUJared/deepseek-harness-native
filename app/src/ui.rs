@@ -6179,8 +6179,15 @@ impl App {
                             .on_toggle(Message::PermissionConfirmAcknowledge)
                             .size(14),
                         // Iced's checkbox carries no label, so the acknowledgement text
-                        // sits beside it. Clicking the words alone does not tick it.
-                        label("I understand the risks and want to continue", MUTED).size(12),
+                        // sits beside it and answers a press itself: a checkbox's label
+                        // toggles its box, and the reference's acknowledgement behaves that
+                        // way (`locales.ts:36`).
+                        iced::widget::mouse_area(
+                            label("I understand the risks and want to continue", MUTED).size(12),
+                        )
+                        .on_press(Message::PermissionConfirmAcknowledge(
+                            !self.permission_acknowledged,
+                        )),
                     ]
                     .spacing(6)
                     .align_y(iced::Alignment::Center),
