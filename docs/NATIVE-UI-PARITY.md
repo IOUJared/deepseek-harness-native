@@ -2249,3 +2249,18 @@ navigation, `subagentTiming`'s activity marker, and editable keybinding rebindin
    layer cited: the registry's declaration and lock code, the generated client's argument names,
    the in-repo `commands/list` precedent for the body, the transport endpoint and its test, the
    worker arm, and the seat's pick and announcement.
+
+12. **Background jobs — the data source is a client service, so the row needs a controller and
+   live updates, not a read.** `ui-jobs` declares `inject = ['jobs', 'slots', 'locale']`
+   (`packages/client/ui-jobs/src/client/index.ts:27`) and imports the job controller's client
+   types (`:11`), so the row is driven by a **`jobs` client service** over
+   `@deepseek-ai/dsh-api-job-controller` rather than by a session projection — which confirms
+   round 108's finding that jobs appear in none of the four projection keys, and explains why
+   they are the largest of the three authorized header rows.
+   That makes a faithful jobs row more than a control: it needs the controller's own API (a
+   list, and whatever keeps it current as jobs start and finish), a subscription or poll for
+   changes, and only then the header row itself with its own count and states. None of that
+   exists in this app today.
+   Settling step: read the job controller's client API — what it subscribes to and what a job
+   entry carries — before sizing the app-side work. If the API is a subscription, this is a
+   stream family and should be built like one rather than bolted onto the command pattern.
