@@ -109,3 +109,27 @@ cell, so new findings go at the end of the file as plain paragraphs.
   shows the title alone with its 10px bottom padding above the seam, where
   before the preset existed the branch never ran.
 
+### Open items and their dispositions
+
+- **Attachment parts — open, with the route known.** `file_summary`
+  (`reducer.rs:736`) feeds `content()`, and `content()` joins every content part
+  with a newline (`reducer.rs:769-770`), so an attachment and its message text
+  are one row holding one joined string. The reference draws a distinct file card
+  above the text with `.userStack`'s 8px gap (`MessageItem.tsx:194-221`), so
+  closing this means keeping the parts distinct through `content()` and giving the
+  attachment block that gap. It is a `reducer.rs` change, and that file is shared
+  with a concurrent writer, so it wants a session with room to re-run both suites
+  and capture.
+- **Assistant `Details ▸` — not a divergence.** The reference's action row is
+  copy-and-branch icons with no labelled disclosure, so there is no reference
+  value to copy; `Details ▸` is native's door to the detail panel, which is a
+  deliberate native surface. Documented rather than changed.
+- **Drawn action icons — blocked, two independent reasons.** `iced`'s `canvas`
+  feature needs the lyon crates, which the offline cache does not hold, so it is a
+  new dependency family; and composing two sheets from `pin`/`Stack` was tried and
+  fails, because a widget's fill occludes rather than strokes. The DejaVu glyphs
+  (`❐`, `✎`) stand.
+- **Small radius — decided, not overlooked.** The web's `--dsw-radius-sm` is 8px
+  against native's `RADIUS_SM` 9. It is part of native's documented radius ladder
+  and is shared by every small-radius surface, so moving it is a cross-surface
+  decision; no measurement depends on it.
