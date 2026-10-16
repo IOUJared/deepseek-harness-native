@@ -422,6 +422,13 @@ const ACTION_GAP: f32 = 6.0;
 const ACTION_HEIGHT: f32 = 28.0;
 /// The gap between the actions themselves, which the web sets to 8px.
 const ACTION_SPACING: f32 = 8.0;
+/// Action targets are icon buttons, as the reference draws them (a copy mark and
+/// a pencil), not words. `❐` and `✎` are the shapes DejaVu Sans actually has;
+/// the web's own outline icons live in `ui-primitives/icons`.
+const ACTION_COPY: &str = "❐";
+const ACTION_EDIT: &str = "✎";
+/// The web's `.action { padding: 6px }` around a 15px glyph.
+const ACTION_PAD: f32 = 6.0;
 /// What a message row reserves for the gap plus the action row.
 fn action_footer(delta: f32) -> f32 {
     ACTION_GAP + ACTION_HEIGHT + delta
@@ -7009,7 +7016,7 @@ impl App {
                             )
                         };
                     let mut footer = row![
-                        button(label("Copy", MUTED).size(10))
+                        button(label(ACTION_COPY, MUTED).size(14))
                             .on_press_maybe(self.row_copy_source(record.key).is_some().then_some(
                                 Message::CopyReply {
                                     generation: self.generation,
@@ -7017,13 +7024,13 @@ impl App {
                                 }
                             ))
                             .style(design::ghost)
-                            .padding([1, 2])
+                            .padding([ACTION_PAD, ACTION_PAD])
                     ]
                     .spacing(ACTION_SPACING)
                     .height(ACTION_HEIGHT + self.content_delta());
                     if human && self.transcript.editable_text(record.key).is_some() {
                         footer = footer.push(
-                            button(label("Edit", MUTED).size(10))
+                            button(label(ACTION_EDIT, MUTED).size(14))
                                 .on_press_maybe(
                                     self.edit_message_allowed(self.generation, record.key)
                                         .then_some(Message::EditReply {
@@ -7032,7 +7039,7 @@ impl App {
                                         }),
                                 )
                                 .style(design::ghost)
-                                .padding([1, 2]),
+                                .padding([ACTION_PAD, ACTION_PAD]),
                         );
                     }
                     if assistant || excerpt(&record.text) != record.text {
