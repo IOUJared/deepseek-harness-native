@@ -529,6 +529,18 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    transcript or session state already carries projection values; if it does, the projection
    is a small addition beside `permission_preset`, and if it does not, the read has to come
    from wherever native keeps session metadata.
+   **Answered, and it is the easy half.** Native already parses projections: `Transcript`
+   keeps a `projections: BTreeMap<String, serde_json::Value>` with an accessor
+   (`app/src/reducer.rs:96-135`), filled from the snapshot's `projections.values`
+   (`:324-329`), and the fixture exercises the same path for the plan and context-pressure
+   values (`app/src/layout_fixture.rs:884-898`). So the agent preset's value is reachable
+   without any new read — a typed accessor beside `permission_preset`, of the kind already
+   written for the plan and permission presets.
+   The remaining half is the **label**: the reference turns the value into display text
+   through the agent-preset registry and its `settings.agentPreset` locale
+   (`ui-agent-preset/src/client/index.ts:65`, `locales.ts:127`), so native needs either that
+   roster read or a fallback to the raw key — the same choice the permission chip already
+   made and documented when its catalog is absent.
    **Decided by the user (round 101): all three rows are authorized work** — the agent preset
    label, background jobs and subagents, in that order, smallest first, with the ordering rule
    above governing their placement (what the session is, ahead of what it is doing).
