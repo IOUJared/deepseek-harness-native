@@ -58,6 +58,7 @@ pub const PRESETS: &[&str] = &[
     "chat-preparation-error",
     "chat-stream-live",
     "chat-context-rewrite",
+    "history-more",
     "chat-transcript",
     "chat-markdown",
     "chat-thoughts",
@@ -203,6 +204,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "chat-preparation-error"
         | "chat-stream-live"
         | "chat-context-rewrite"
+        | "history-more"
         | "chat-transcript"
         | "chat-markdown"
         | "chat-thoughts"
@@ -402,7 +404,10 @@ fn public_chat_records(preset: &str) -> Vec<Value> {
             ]}}}),
         ];
     }
-    if matches!(preset, "chat-transcript" | "chat-context-rewrite") {
+    if matches!(
+        preset,
+        "chat-transcript" | "chat-context-rewrite" | "history-more"
+    ) {
         let value: Value =
             serde_json::from_str(include_str!("../fixtures/chat-visibility.json")).unwrap();
         let mut records = value["records"].as_array().unwrap().clone();
@@ -726,6 +731,7 @@ pub fn build(
             | "chat-preparation-error"
             | "chat-stream-live"
             | "chat-context-rewrite"
+            | "history-more"
             | "chat-transcript"
             | "chat-markdown"
             | "chat-thoughts"
@@ -784,7 +790,8 @@ pub fn build(
         _ => json!({}),
     };
     let snapshot: SessionFollowFrame = serde_json::from_value(json!({
-        "type":"snapshot", "records":records, "cursor":cursor, "hasMore":false,
+        "type":"snapshot", "records":records, "cursor":cursor,
+        "hasMore":preset == "history-more",
         "header":{"version":4, "id":"PUBLIC-layout-conversation", "createdAt":1000, "isSeeded":false},
         "projections":{"asOfSeq":cursor, "values":projection_values}, "assistantStream":{"revision":0}
     })).expect("fixed PUBLIC valid follow snapshot");

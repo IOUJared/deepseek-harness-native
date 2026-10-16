@@ -653,6 +653,29 @@ pub const CRUMB_SIZE: f32 = 14.0;
 pub const CRUMB_LINE: f32 = 20.0;
 pub const CRUMB_SUBAGENT_SIZE: f32 = 12.0;
 pub const CRUMB_SUBAGENT_LINE: f32 = 18.0;
+/// A button filled at rest, for the reference's history control:
+/// `.older button { border-radius: radius-sm; padding: 4px 12px; font-size: 12px;
+/// color: label-secondary; background: interactive-bg-hover-solid }`
+/// (`ChatView.module.css:206-218`). Native steps one rung up on hover.
+pub fn fill_solid(_: &Theme, status: button::Status) -> button::Style {
+    button::Style {
+        background: Some(
+            if matches!(status, button::Status::Hovered | button::Status::Pressed) {
+                LINE
+            } else {
+                OVERLAY
+            }
+            .into(),
+        ),
+        text_color: if matches!(status, button::Status::Disabled) {
+            MUTED
+        } else {
+            TEXT
+        },
+        border: border(RADIUS_SM, Color::TRANSPARENT, 0.0),
+        ..Default::default()
+    }
+}
 pub const TO_BOTTOM_SIZE: f32 = 34.0;
 pub const TO_BOTTOM_INSET: f32 = 16.0;
 pub const TO_BOTTOM_EDGE: f32 = 32.0;

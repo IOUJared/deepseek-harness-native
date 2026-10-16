@@ -60,6 +60,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Chat content width | `clamp(680, 64%, 920)` | `design::chat_width(pane)` clamp, bounded by the padded pane |
 | Width handles | 10px strip at lane ± 24 · `2px` glow `4px` in, `16px` core, hover/drag only | `WIDTH_HANDLE_*` + `HANDLE_GLOW_*`, hover/drag state, `native-width-handle-*` rects |
 | Jump to latest | `34px` round floating button · slot `bottom: 16px` · right edge on the column (or `32px` in) · only while not following the tail | `TO_BOTTOM_*` + `native-to-bottom` rect; `design::LINE` hover, no shadow |
+| Load earlier | centered row · button `4px 12px` · radius sm · `12px` secondary on the hover-solid fill · disabled while loading | `design::fill_solid` + `native-load-older` rect; the duplicate left native's own bar |
 | User bubble max-width | `min(70.2% · content, 82%)` | content-sized, fixed 640 cap (≈70.2% of the widest column) |
 | Assistant text | unboxed, full content column | unboxed, spans the shared content column |
 | Message flow gap | 6 process / 12 response / 16 turn | `design::FLOW_GAP`/`RESPONSE_GAP` ladder 6/12; the 16px `turn-process` row is Trajectory-only |
@@ -709,4 +710,27 @@ cell, so new findings go at the end of the file as plain paragraphs.
   reference's anchored menu, and DejaVu carries no folder outline, so the glyph is
   the house mark it does carry (the reference also swaps a closed folder for an open
   one when a workspace is chosen, which native does not).
+- **Load-earlier control — landed, rect- and capture-verified.** The reference
+  centers its history control at the top of the transcript column —
+  `.older { display: flex; justify-content: center }` around a button with
+  `border-radius: radius-sm`, `padding: 4px 12px`, `12px` secondary text on the
+  `interactive-bg-hover-solid` fill, `opacity: 0.6` while disabled, and the label
+  switching to the loading string (`ChatView.module.css:201-218`,
+  `ChatView.tsx:249-256`, locale `chat.loadOlder` = "Load earlier"). Native had the
+  action only in its own top control bar, as an 11px ghost text button beside
+  Reload/Find/Latest.
+  `design::fill_solid` carries the filled-at-rest style and the control now sits
+  inside the lane, centered, with a `native-load-older` id; the duplicate left the
+  top bar, which keeps its own Reload/Find/Latest affordances.
+  Verified at a new `history-more` preset — the fixture's snapshot always wrote
+  `hasMore: false`, so the control had no coverage at all: the rect is
+  **23.6 tall × 95.3 at `x 602.4`**, which is the reference's `4 + 12×1.3 + 4` box
+  centered in the 310..990 lane (650 − 95.3/2 = 602.4 exactly), and the grabs show
+  the filled `Load earlier` button and, with `--page-pending true`, its dimmed
+  `Loading…` form. `shots/46-load-earlier-dp2.png` (own frame
+  `shots/46-load-earlier.png`) and `shots/46-load-earlier-pending-dp2.png` are
+  those grabs.
+  Remainder: the reference's zoomed-out `.hint` line for an opening transcript
+  (13/18 tertiary) has no native counterpart, because native has no partial-open
+  state to show it in.
 

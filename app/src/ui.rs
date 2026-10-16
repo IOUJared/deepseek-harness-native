@@ -7,8 +7,8 @@ use crate::{
 use dsh_native_core::{Inspection, PublicEvent, StopResult};
 use dsh_native_transport::dto::*;
 use iced::widget::{
-    Column, Space, button, column, container, rich_text, row, scrollable, span, text, text_editor,
-    text_input,
+    Button, Column, Space, button, column, container, rich_text, row, scrollable, span, text,
+    text_editor, text_input,
 };
 use iced::{Color, Element, Length, Subscription, Task, Theme, keyboard, window};
 use std::collections::BTreeMap;
@@ -4638,6 +4638,12 @@ impl App {
     pub(crate) fn set_width_handle_glow(&mut self, glow: bool) {
         self.width_handle_glow = glow;
     }
+    /// Fixture-only: hold a history page in flight, so a capture shows the
+    /// history control's disabled loading form.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn set_page_pending(&mut self, pending: bool) {
+        self.page_pending = pending;
+    }
     /// Fixture-only: render the transcript as scrolled away from its tail, so a
     /// capture shows the jump-to-latest control that otherwise needs a scroll.
     #[cfg(feature = "public-layout-fixture")]
@@ -7889,25 +7895,6 @@ impl App {
         }
         contents = contents.push(Space::new().height(heights[range.end..].iter().sum::<f32>()));
         let controls = row![
-            button(
-                label(
-                    if self.page_pending {
-                        "Loading…"
-                    } else {
-                        "Older messages"
-                    },
-                    MUTED
-                )
-                .size(11)
-            )
-            .on_press_maybe(
-                (self.ready
-                    && self.follow_ready
-                    && self.transcript.has_more()
-                    && !self.page_pending)
-                    .then_some(Message::Older)
-            )
-            .style(design::ghost),
             button(label("Reload", MUTED).size(11))
                 .on_press_maybe((self.ready && self.selected.is_some()).then_some(Message::Reload))
                 .style(design::ghost),
@@ -7933,7 +7920,44 @@ impl App {
         .align_y(iced::Alignment::Center);
         let generation = self.generation;
         let revision = self.scroll_revision;
-        let lane = container(contents)
+        // The reference centers its history control at the top of the column:
+        // `.older { display: flex; justify-content: center }` around a button of
+        // `padding: 4px 12px`, `radius-sm`, `12px` secondary text on the
+        // interactive hover-solid fill, disabled while a page is in flight
+        // (`ChatView.module.css:201-218`, `ChatView.tsx:249-256`).
+        let mut lane_body = Column::new().width(Length::Fill);
+        if self.transcript.has_more() {
+            // The scroller's own `[16, 32]` padding supplies the edge inset, so
+            // the control adds none of its own.
+            lane_body = lane_body.push(
+                container(
+                    container(
+                        Button::new(
+                            label(
+                                if self.page_pending {
+                                    "Loading…"
+                                } else {
+                                    "Load earlier"
+                                },
+                                MUTED,
+                            )
+                            .size(12),
+                        )
+                        .on_press_maybe(
+                            (self.ready && self.follow_ready && !self.page_pending)
+                                .then_some(Message::Older),
+                        )
+                        .style(design::fill_solid)
+                        .padding([4.0, 12.0]),
+                    )
+                    .id("native-load-older"),
+                )
+                .width(Length::Fill)
+                .center_x(Length::Fill),
+            );
+        }
+        lane_body = lane_body.push(contents);
+        let lane = container(lane_body)
             .max_width(self.chat_lane())
             .width(Length::Fill);
         let mut chat = column![container(controls).padding([2, 20])];

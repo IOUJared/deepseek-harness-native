@@ -69,6 +69,7 @@ const KNOWN_IDS: &[&str] = &[
     "native-model-controls",
     "native-reasoning-control",
     "native-hero-workspace",
+    "native-load-older",
     "native-plan-control",
     "native-to-bottom",
     "native-width-handle-left",
@@ -109,6 +110,8 @@ struct Options {
     /// Render the transcript as scrolled away from its tail, so a capture shows
     /// the jump-to-latest control.
     scrolled_away: bool,
+    /// Hold a history page in flight, so a capture shows the control's loading form.
+    page_pending: bool,
 }
 fn public_drop_file(value: String) -> Result<PathBuf, &'static str> {
     let path = PathBuf::from(value);
@@ -188,6 +191,7 @@ fn options() -> Result<Options, &'static str> {
             "--width-handle-glow",
             "--plan-pending",
             "--scrolled-away",
+            "--page-pending",
         ]
         .contains(&key.as_str())
         {
@@ -273,6 +277,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         scrolled_away: match values.remove("--scrolled-away") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        page_pending: match values.remove("--page-pending") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -487,6 +495,9 @@ impl Fixture {
         }
         if options.scrolled_away {
             app.set_scrolled_away(true);
+        }
+        if options.page_pending {
+            app.set_page_pending(true);
         }
         let mut report = ui::layout_fixture::metadata(&app, &options.mode);
         report["pid"] = json!(std::process::id());
