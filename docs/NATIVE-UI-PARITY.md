@@ -1888,3 +1888,16 @@ cell, so new findings go at the end of the file as plain paragraphs.
    **Standing rule for the rest of this work:** any gate whose status gates a commit must have
    its exit code captured in a variable. A `cargo test … | tail` returns `tail`'s status and
    cannot fail a chain, which is how a red tree was committed once in this session.
+
+   **The three failing tests were right, and the reason is a discipline native already
+   documents.** `request_commands` carries its own comment: it asks the Host for a session's
+   commands "once per composer session", and — explicitly — "the trigger is a user action -- a
+   leading slash -- so no frame dispatch and no selection does this on its own"
+   (`app/src/ui.rs:6214-6230`). My inserted roster read sat in that arm, so it fired on
+   selection, which is exactly what those tests exist to prevent. They were not brittle
+   order-assertions to be updated; they were the enforcement of a rule, and the correct
+   reading of their failure is that the roster's request belongs somewhere else.
+   The roster is session-independent, so the faithful trigger is a **one-time read when the
+   app becomes ready** (or the first user action that could need a preset name), not a
+   per-selection read beside the session's commands. That is the slice's real shape, and it is
+   recorded rather than retried in the same place.
