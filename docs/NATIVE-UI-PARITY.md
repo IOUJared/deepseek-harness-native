@@ -521,6 +521,14 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    the permission preset (`:147-160`), so this row needs a projection first — the projection,
    then the header label, then the hero chip — rather than being the pure-UI addition the
    ordering "smallest first" implied.
+   Where the value comes from is now known: the reference reads
+   `session?.projectionValues?.agentPreset` (`ui-agent-preset/src/client/seat-store.ts:253`),
+   a **session projection value** rather than a transcript record — the same family as the
+   `permissions` projection the package's own header mentions. Native reaches the permission
+   preset through a `permission/preset` record instead, so the next question is whether its
+   transcript or session state already carries projection values; if it does, the projection
+   is a small addition beside `permission_preset`, and if it does not, the read has to come
+   from wherever native keeps session metadata.
    **Decided by the user (round 101): all three rows are authorized work** — the agent preset
    label, background jobs and subagents, in that order, smallest first, with the ordering rule
    above governing their placement (what the session is, ahead of what it is doing).
