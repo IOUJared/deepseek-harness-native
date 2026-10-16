@@ -44,6 +44,10 @@ pub const LINE_COMPACT: f32 = 20.0;
 /// which was a size the web never uses; with an absolute line box it also made
 /// the ratio wrong.
 pub const BODY_SIZE: f32 = 14.0;
+/// The secondary tier: the web's `--dsh-content-font-size-secondary`
+/// (`gradient-shadow-text.css:58`), which is 13 at the default size and steps
+/// one under the body's own delta below it, two above.
+pub const SECONDARY_SIZE: f32 = 13.0;
 /// The gap between assistant blocks. The web's assistant body is a flex column
 /// with `gap: 16px` (`AssistantMarkdown.module.css:20`) and its markdown blocks
 /// carry `margin: 16px 0` (`MarkdownText.module.css:33`), where native used 12.

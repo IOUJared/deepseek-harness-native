@@ -37,11 +37,11 @@ impl Prepared {
     }
     /// The reasoning text size, one step under the body.
     fn reasoning_size(&self) -> f32 {
-        14.0 + self.delta_secondary
+        design::SECONDARY_SIZE + self.delta_secondary
     }
     /// The mono size for recorded bodies and code blocks.
     fn mono_size(&self) -> f32 {
-        13.0 + self.delta_secondary
+        design::SECONDARY_SIZE + self.delta_secondary
     }
     /// The inset the expanded thinking body sits at, under the disclosure title
     /// rather than under its glyph. The web writes it
@@ -1190,7 +1190,7 @@ mod tests {
         let reasoning_height = plain_height(
             &p.reasoning,
             bounded_width(180.0 - design::CONTENT_INSET),
-            14.0,
+            design::SECONDARY_SIZE,
             design::compact_line(0.0),
             FONT,
             false,
