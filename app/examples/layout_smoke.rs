@@ -860,6 +860,11 @@ impl Fixture {
                         Some(Message::App(ui::Message::FileDropCancelled(id)))
                     }
                     window::Event::Opened { .. } => Some(Message::Opened(id)),
+                    // A compositor may tile or fullscreen the window regardless of
+                    // the requested size. Dropping this left the app laid out for
+                    // the old size, so a grabbed frame showed a stale layout with
+                    // unpainted space beside it.
+                    window::Event::Resized(size) => Some(Message::App(ui::Message::Resized(size))),
                     window::Event::CloseRequested => Some(Message::Close),
                     window::Event::Closed => Some(Message::Closed),
                     _ => None,
