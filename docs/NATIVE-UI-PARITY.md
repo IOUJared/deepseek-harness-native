@@ -133,3 +133,14 @@ cell, so new findings go at the end of the file as plain paragraphs.
   against native's `RADIUS_SM` 9. It is part of native's documented radius ladder
   and is shared by every small-radius surface, so moving it is a cross-surface
   decision; no measurement depends on it.
+- **Attachment gap — the three sites that must move together (located).** Drawing
+  a user row's text happens at `ui.rs:7055-7060` through
+  `conversation_content::plain_view`, but its height comes from two other places:
+  the cached measurement at `ui.rs:6652`
+  (`chat_geometry::geometry(row.key, role, &excerpt(&row.text), lane)`, whose
+  human-row paragraph is measured in `chat_geometry` at the body line box) and the
+  search-expanded override, which calls `plain_height(&row.text, ...)`. Any
+  `File · …` block plus its 8px gap therefore has to be added in all three, exactly
+  as the line-box and content-size changes were. Adding it to the view alone is
+  the shape of bug that clipped a four-line bubble earlier in this work.
+
