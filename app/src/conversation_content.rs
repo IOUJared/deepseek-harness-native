@@ -43,6 +43,13 @@ impl Prepared {
     fn mono_size(&self) -> f32 {
         13.0 + self.delta_secondary
     }
+    /// The inset the expanded thinking body sits at, under the disclosure title
+    /// rather than under its glyph. The web writes it
+    /// `calc(22px + var(--dsh-content-font-delta))` (`ReasoningRow.module.css`),
+    /// so it tracks the body size the way the row heights do.
+    fn content_inset(&self) -> f32 {
+        design::CONTENT_INSET + self.delta
+    }
     pub fn code(&self, index: usize) -> Option<&str> {
         match self.document.as_ref()?.blocks.get(index)? {
             formatted::Block::Code { text, .. } => Some(text),
@@ -78,7 +85,7 @@ impl Prepared {
                 // the same narrower width the offset calculation uses.
                 height += plain_height(
                     &self.reasoning,
-                    bounded_width(width - design::CONTENT_INSET),
+                    bounded_width(width - self.content_inset()),
                     self.reasoning_size(),
                     FONT,
                     false,
@@ -131,7 +138,7 @@ impl Prepared {
                 false,
             )
         {
-            return design::CONTENT_INSET + offset;
+            return self.content_inset() + offset;
         }
         let mut y = if self.reasoning.is_empty() {
             0.0
@@ -141,7 +148,7 @@ impl Prepared {
                 + self.delta
                 + plain_height(
                     &self.reasoning,
-                    bounded_width(width - design::CONTENT_INSET),
+                    bounded_width(width - self.content_inset()),
                     self.reasoning_size(),
                     FONT,
                     false,
@@ -240,7 +247,7 @@ impl Prepared {
             if expanded {
                 // Indent under the title, as the web does, and measure at the same
                 // reduced width: the search offset below already assumed this inset.
-                let inner = bounded_width(width - design::CONTENT_INSET);
+                let inner = bounded_width(width - self.content_inset());
                 body = body.push(
                     container(plain_view(
                         &self.reasoning,
@@ -252,7 +259,7 @@ impl Prepared {
                         top: 0.0,
                         right: 0.0,
                         bottom: 0.0,
-                        left: design::CONTENT_INSET,
+                        left: self.content_inset(),
                     })
                     .height(plain_height(
                         &self.reasoning,
