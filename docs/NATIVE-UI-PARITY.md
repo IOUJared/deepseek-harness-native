@@ -2418,3 +2418,17 @@ state, which needs a Host that advertises that namespace.
    `NativeStream<JobListFrame>`/`NativeStream<JobFollowFrame>`, and a `JobView`-shaped frame
    projection beside the session follow's. The one thing to read next is the `Kind` enum's own
    name table, which is one line and settles whether the endpoint is named per kind or per method.
+
+   **The `Kind` table settles it, so jobs' transport half has no unknowns left.** `enum Kind
+   { Workspace, Session, Events, Control, Question, Terminal }` (`transport/src/mux.rs:27-34`)
+   gives each stream its own kind, and `impl Kind { fn endpoint(self) -> &'static str }` (`:35-37`)
+   maps it to a wire name the way `Endpoint::name` does for requests. So jobs adds two kinds —
+   `JobList` → `jobs/list` and `JobFollow` → `jobs/follow` — plus `jobs_list()`/`jobs_follow()`
+   methods shaped exactly like `session_follow` (`:308-317`) and their frame types.
+   Everything jobs needs is now read and cited: the controller's two streams and its `kill`
+   command; the mux's `Kind`/`open` shape; the worker loop that publishes frames and clears on
+   error; the frame contents (`JobListFrame { jobs }`, `JobFollowFrame` opened/output,
+   `JobView { id, kind, label, owner?, status, … }`); the row's form with its state dot, label,
+   kind, status, duration and expansion; and the copy, including a counted header action, two
+   sections, a clear and a two-click kill. **Nothing here needs a guess**, which is the first
+   time that can be said of a whole feature in this document.
