@@ -2114,3 +2114,21 @@ navigation, `subagentTiming`'s activity marker, and editable keybinding rebindin
    semantics and the appended record. Recording that negative matters as much as the positive.
    No unknowns remain for this endpoint: three transport edits, the Core family, the app's pick,
    and the seat announces an `agentPreset/locked` refusal.
+
+   **Corrected again, this time by native's own working precedent.** The previous round read the
+   descriptor's `scope: { context: 'agent', wire: 'agentId' }` as meaning the agent is *not* a
+   body field. Native's transport shows otherwise: agent-scoped endpoints are invoked with
+   `agentId` **in the body** — `commands/list` sends `json!({ "agentId": session_id })` with the
+   comment "Host contract: `commands/list: (agentId: SessionId)`" (`transport/src/http.rs:551-558`),
+   `terminal/shells` and `terminal/environment` send `json!({"agentId": agent_id})` (`:906`,
+   `:916`), and a call answer sends it beside `callId` (`:763`). So the scope descriptor names
+   the *wire key* and the body carries it, which is exactly how this transport already works.
+   The synthesis is therefore fully evidenced: the descriptor supplies the wire names
+   (`agentId`, `agentPreset`) and the precedent supplies the placement, so
+   `agentPresets/select` takes `json!({"agentId": session_id, "agentPreset": preset})` — with
+   `commands/list` as the working proof that the Host accepts an agent id in the body.
+   Three corrections in three rounds on this one request, each from reading one layer deeper.
+   The lesson is not that reading is slow: it is that a descriptor's vocabulary (`scope`,
+   `wire`, `lookup`) is not the transport's actual shape, and only a working call site settles
+   that. No unknowns remain, and the transport edits can be written against a precedent inside
+   this repository rather than a reference interpretation.
