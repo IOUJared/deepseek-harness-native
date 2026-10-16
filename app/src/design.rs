@@ -39,6 +39,10 @@ pub const LEADING_BOX: f32 = 16.0;
 /// the web gives 24.
 pub const LINE_BODY: f32 = 24.0;
 pub const LINE_COMPACT: f32 = 20.0;
+/// The gap between assistant blocks. The web's assistant body is a flex column
+/// with `gap: 16px` (`AssistantMarkdown.module.css:20`) and its markdown blocks
+/// carry `margin: 16px 0` (`MarkdownText.module.css:33`), where native used 12.
+pub const BLOCK_GAP: f32 = 16.0;
 /// The body line box at a content-size delta.
 pub fn body_line(delta: f32) -> iced::advanced::text::LineHeight {
     iced::advanced::text::LineHeight::Absolute(iced::Pixels(LINE_BODY + delta))

@@ -210,7 +210,8 @@ impl Prepared {
                 if let Some(offset) = found {
                     return (y + offset).clamp(0.0, self.body_height(width, expanded));
                 }
-                y += block_height(block, width, self.delta, self.delta_secondary) + 12.0;
+                y += block_height(block, width, self.delta, self.delta_secondary)
+                    + design::BLOCK_GAP;
             }
             0.0
         } else {
@@ -734,7 +735,7 @@ fn document_height(
         .iter()
         .map(|block| block_height(block, width, delta, delta_secondary))
         .sum::<f32>()
-        + document.blocks.len().saturating_sub(1) as f32 * 12.0
+        + document.blocks.len().saturating_sub(1) as f32 * design::BLOCK_GAP
 }
 fn document_view(
     document: &formatted::Document,
@@ -744,7 +745,7 @@ fn document_view(
     delta: f32,
     delta_secondary: f32,
 ) -> Element<'static, Message> {
-    let mut body = Column::new().spacing(12).width(Length::Fill);
+    let mut body = Column::new().spacing(design::BLOCK_GAP).width(Length::Fill);
     for (index, block) in document.blocks.iter().enumerate() {
         let content: Element<'static, Message> = match block {
             formatted::Block::Paragraph {
