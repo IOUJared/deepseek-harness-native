@@ -385,6 +385,13 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    likely gate rather than the mechanism. That is good news for cost: if the Core's read is
    generic over a namespace, a General-page row needs a ticket of its own (a second panel
    identity) rather than a new command family.
+   Its copy is read and recorded, so only the transport question is open: title **"Upload
+   Session Log when using the official model API"**, description **"Help improve DeepSeek
+   models and products."**, plus `Preference saved` and `Could not save preference` for the
+   two outcomes (`ui-settings-session-log/src/client/locales.ts:1-9`). The row is a switch on
+   `upload.value?.enabled === true` with a toast overlay for those two outcomes
+   (`UploadRow.tsx:26-48`), and the upload itself is the Host's — so landing the row gives the
+   user a control over a Host behaviour rather than moving any data on their behalf.
    Settling step: probe whether a General-page ticket is accepted — mint one and look at what
    the Core validates before answering. If it is, the row is an app-side addition with no
    bridge or Core change; if the panel identity is enforced, the change is to accept a second
