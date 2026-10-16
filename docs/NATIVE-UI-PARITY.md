@@ -1402,3 +1402,12 @@ cell, so new findings go at the end of the file as plain paragraphs.
   table itself — `shots/67-wide-table-pad-dp2.png` shows the five-column fixture table with
   its header rules, both rows, and cleared space before the following paragraph. The
   three-column path keeps its geometry, since the pad sits on the horizontal branch only.
+
+- **Checked and dismissed: the wide table's bar reveal is not a CSS divergence.** The
+  reference's `.md-table-wide` rules (`AssistantMarkdown.module.css:23-51`) cover the
+  breakout width, the negative lead margin and the painted table's z-index; they carry no
+  scrollbar rule at all, so the bar's dim-until-hover behaviour comes from platform overlay
+  scrollbars rather than from the sheet. Native already models that distinction —
+  `design::scrollable_style` separates a lit `Status::Hovered` rail from the resting one
+  (`app/src/design.rs:835-845`) — so there is nothing here to match, and a capture cannot
+  show a hover state anyway. Recorded so a later pass does not spend a round chasing it.
