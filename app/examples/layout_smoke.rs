@@ -71,6 +71,7 @@ const KNOWN_IDS: &[&str] = &[
     "native-composer-rail",
     "native-hero-workspace",
     "native-hero-preset",
+    "native-hero-preset-menu",
     "native-load-older",
     "native-plan-control",
     "native-editor-menu",
@@ -133,6 +134,8 @@ struct Options {
     permission_catalog: bool,
     /// Seed a Host-shaped agent roster, so the label's display name is captured.
     agent_roster: bool,
+    /// Open the hero preset seat's list, so its rows are captured.
+    agent_seat: bool,
     /// Open the settings modal, so its General page is captured.
     settings: bool,
 }
@@ -219,6 +222,7 @@ fn options() -> Result<Options, &'static str> {
             "--permission-acknowledged",
             "--permission-catalog",
             "--agent-roster",
+            "--agent-seat",
             "--settings",
             "--scrolled-away",
             "--page-pending",
@@ -303,6 +307,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         settings: match values.remove("--settings") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        agent_seat: match values.remove("--agent-seat") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -568,6 +576,9 @@ impl Fixture {
         }
         if options.agent_roster {
             app.set_agent_roster();
+        }
+        if options.agent_seat {
+            app.set_agent_seat_open();
         }
         if options.settings {
             app.set_settings_open();

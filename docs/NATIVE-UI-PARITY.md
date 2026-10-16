@@ -1929,3 +1929,16 @@ cell, so new findings go at the end of the file as plain paragraphs.
    (`shots/75-hero-preset-chip-dp2.png`). Both suites green with their exit codes captured.
    Remaining from this read: the selection list behind the chevron, which the roster now makes
    possible, and the subagent activity marker.
+
+   **The seat's selection list landed, and it renders the roster's own states.** Behind the
+   chevron the hero seat now opens a 220px card listing every advertised preset: the
+   deployment's default in full ink, the others dim, and a declared preset whose activation
+   failed in red and **unchoosable** — the reference keeps such a row visible precisely so a
+   broken preset is not mistaken for an absent one
+   (`ui-agent-preset/src/client/index.ts:210-232`, `AgentPresetRow.broken`). A pick submits
+   `/agent <id>` through the same composer path the permission chip uses, so no new transport
+   is involved.
+   Verified at the hero fixture with a three-row roster — default, ordinary and broken: the
+   grab shows `Implementer` in full ink, `Reviewer` dim and `Scout` red above the chip
+   (`shots/76-agent-preset-seat-dp2.png`). Both suites green with exit codes captured.
+   Remaining from this read: the subagent activity marker. Then jobs and team navigation.

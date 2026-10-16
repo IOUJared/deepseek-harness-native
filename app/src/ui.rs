@@ -216,6 +216,8 @@ pub enum Message {
     EditorMenuAction(editor_menu::Action),
     /// The hero preset chip's own press: a user action, and the roster read's only trigger.
     AgentPresetSeat,
+    /// Chooses one advertised preset from the hero seat's list.
+    AgentPresetPick(String),
     /// Opens or dismisses the permission chip's menu.
     TogglePermissionMenu,
     /// Sends one permission preset as the command line the reference's picker submits.
@@ -721,6 +723,8 @@ pub struct App {
     /// The Host's agent-preset roster, once its read answers. `None` keeps every surface
     /// that reads it hidden rather than showing a guessed name.
     agent_roster: Option<dsh_native_core::AgentPresetRoster>,
+    /// The hero preset seat's selection list is open.
+    agent_seat_open: bool,
     /// A write is in flight; the row is busy until its acknowledgement lands.
     permission_default_saving: bool,
     editor_undo: Vec<String>,
@@ -941,6 +945,7 @@ impl App {
                 permission_catalog: None,
                 permission_settings: None,
                 agent_roster: None,
+                agent_seat_open: false,
                 permission_default_saving: false,
                 editor_undo: Vec::new(),
                 editor_redo: Vec::new(),
@@ -2852,6 +2857,18 @@ impl App {
                 // discipline the suites enforce: no read is queued without a user action.
                 if self.agent_roster.is_none() {
                     self.command(Command::AgentPresetsRead);
+                }
+                self.agent_seat_open = !self.agent_seat_open;
+            }
+            Message::AgentPresetPick(id) => {
+                self.agent_seat_open = false;
+                // A preset is a property of the session the Host will start, so the pick is a
+                // command line into the composer, exactly as the picker's own surface does.
+                if let Some(session_id) = self.selected.clone() {
+                    self.command(Command::CommandsExecute {
+                        session_id,
+                        line: format!("/agent {id}"),
+                    });
                 }
             }
             Message::TogglePermissionMenu if self.composer_visible() => {
@@ -4990,15 +5007,35 @@ impl App {
     /// Fixture-only: stand in for the Host's roster reply, so the label's display name is
     /// capturable without a running Host.
     #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn set_agent_seat_open(&mut self) {
+        self.agent_seat_open = true;
+    }
     pub(crate) fn set_agent_roster(&mut self) {
         self.agent_roster = Some(dsh_native_core::AgentPresetRoster {
-            presets: vec![dsh_native_core::AgentPresetRow {
-                id: "implementer".to_owned(),
-                is_default: true,
-                name: Some("Implementer".to_owned()),
-                description: None,
-                broken: None,
-            }],
+            presets: vec![
+                dsh_native_core::AgentPresetRow {
+                    id: "implementer".to_owned(),
+                    is_default: true,
+                    name: Some("Implementer".to_owned()),
+                    description: None,
+                    broken: None,
+                },
+                dsh_native_core::AgentPresetRow {
+                    id: "reviewer".to_owned(),
+                    is_default: false,
+                    name: Some("Reviewer".to_owned()),
+                    description: None,
+                    broken: None,
+                },
+                // A declared preset whose activation failed: visible, and unchoosable.
+                dsh_native_core::AgentPresetRow {
+                    id: "scout".to_owned(),
+                    is_default: false,
+                    name: Some("Scout".to_owned()),
+                    description: None,
+                    broken: Some("activation failed".to_owned()),
+                },
+            ],
         });
     }
     pub(crate) fn set_permission_settings(&mut self, writable: bool) {
@@ -8844,7 +8881,53 @@ impl App {
         .style(design::ghost)
         .padding(design::HERO_CHIP_PAD)
         .height(design::COMPOSER_CHIP_HEIGHT);
-        let preset_chip = container(preset_chip).id("native-hero-preset");
+        let preset_chip = if self.agent_seat_open {
+            let mut items = Column::new().spacing(2);
+            for row in self
+                .agent_roster
+                .as_ref()
+                .map(|roster| roster.presets.as_slice())
+                .unwrap_or_default()
+            {
+                let name = row.name.clone().unwrap_or_else(|| row.id.clone());
+                let ink = match (row.broken.is_some(), row.is_default) {
+                    // A declared preset whose activation failed stays visible but unchoosable.
+                    (true, _) => DANGER,
+                    (false, true) => TEXT,
+                    (false, false) => MUTED,
+                };
+                items = items.push(
+                    button(
+                        label(name, ink)
+                            .size(13)
+                            .wrapping(iced::advanced::text::Wrapping::None),
+                    )
+                    .on_press_maybe(
+                        row.broken
+                            .is_none()
+                            .then(|| Message::AgentPresetPick(row.id.clone())),
+                    )
+                    .style(design::ghost)
+                    .padding([4, 8])
+                    .width(Length::Fill),
+                );
+            }
+            container(anchored_popup::anchored(
+                preset_chip.into(),
+                Some(
+                    container(items)
+                        .id("native-hero-preset-menu")
+                        .width(220)
+                        .padding(6)
+                        .style(|_| design::card(SURFACE, 10.0))
+                        .into(),
+                ),
+                Message::AgentPresetSeat,
+            ))
+            .id("native-hero-preset")
+        } else {
+            container(preset_chip).id("native-hero-preset")
+        };
         container(
             container(
                 row![chip, preset_chip]
