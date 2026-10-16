@@ -4940,6 +4940,16 @@ impl App {
                 Message::Settings(crate::settings::Action::Close),
             );
         }
+        // The reference shows full access's risk confirmation as a modal over the
+        // conversation (`PermissionSelect.tsx:198`), so native uses the same overlay the
+        // settings and exporter dialogs use rather than a panel anchored to the chip.
+        if self.permission_confirm.is_some() {
+            return settings_overlay(
+                self.presentation_shell(false),
+                self.permission_confirm_view(),
+                Message::PermissionConfirmCancel,
+            );
+        }
         if let Some(ticket) = self.exporter.ticket() {
             return settings_overlay(
                 self.presentation_shell(false),
@@ -6125,16 +6135,11 @@ impl App {
         // (`PermissionSelect.tsx:198`); native swaps the chip's own panel for it, keeping
         // the guard and its copy identical while staying inside the popup pattern this app
         // already uses for menus.
-        let popup = match &self.permission_confirm {
-            Some(_) => Some(self.permission_confirm_view()),
-            None => self
-                .permission_menu
-                .then(|| self.permission_menu_view(&preset)),
-        };
         Some(
             container(anchored_popup::anchored(
                 chip.into(),
-                popup,
+                self.permission_menu
+                    .then(|| self.permission_menu_view(&preset)),
                 Message::TogglePermissionMenu,
             ))
             .id("native-permission-control")

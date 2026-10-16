@@ -1385,6 +1385,9 @@ cell, so new findings go at the end of the file as plain paragraphs.
   The third remainder is closed too: the acknowledgement text now toggles the box on a
   press, the way a checkbox's own label does, because Iced's checkbox carries no label and
   the reference's acknowledgement behaves that way (`locales.ts:36`).
-  Remainder, stated plainly: the guard is a panel anchored to the chip where the reference
-  shows a modal over the conversation, so the *presentation* differs even though the copy,
-  the acknowledgement gate, the button styles and the actions match.
+  The presentation remainder is closed as well: the confirmation is now the same **modal
+  over a dimmed conversation** the reference renders, using `settings_overlay` — the helper
+  the settings and exporter dialogs already share — instead of a panel anchored to the chip,
+  with Escape and Cancel both dismissing it. `shots/66-permission-confirm-modal-dp2.png` is
+  the grab, showing the scrim, the centred panel and the acknowledgement row.
+  No remainders left in the guard itself.
