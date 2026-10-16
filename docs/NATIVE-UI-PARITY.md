@@ -464,9 +464,21 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    wholesale. The method that worked for settings is the method here too: read what each
    registration actually renders, then land the functional gaps and record the deliberate
    omissions with their reason.
-   Settling step: work the list in order of user-visible weight, starting with
-   `conversation.chat.turnTail` and `conversation.session.header.actions`, since both concern
-   controls a user reaches for directly rather than decoration.
+   **First slot read: `conversation.chat.turnTail`, and it holds three things.** `ui-plan`
+   registers a tail row (`id: previewId`) — the plan *preview* inside the conversation, not
+   the composer chip native already has; `ui-schedule` registers `schedule-created` (order 20)
+   — a scheduled-task row; and `ui-deliverables` registers a third whose package name is its
+   id. A fourth registration comes from `ui-chat` itself.
+   Against native: the plan preview is a **deliberate difference** in placement, since the
+   user's own preference puts the plan in a standing composer chip and the native plan
+   projection already feeds it; the schedule row belongs to a **feature native does not
+   implement at all** (scheduled tasks), which is an absence of capability rather than a
+   missing control to draw; and the deliverables and `ui-chat` rows are **not yet read**, so
+   neither is claimed either way. That is the shape of this audit: reading a slot produces
+   named rows, and each becomes a deliberate difference, an unsupported feature, or the next
+   thing to read.
+   Settling step: read the `ui-deliverables` row and `ui-chat`'s own tail registration, then
+   `conversation.session.header.actions`.
 
 Entries here are appended, never inserted: earlier notes were lost because they
 were anchored onto rows of a markdown table above and collapsed into a single
