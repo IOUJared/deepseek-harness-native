@@ -514,8 +514,11 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    label, background jobs and subagents, in that order, smallest first, with the ordering rule
    above governing their placement (what the session is, ahead of what it is doing).
    Settling step: check what native's session header renders today against that band, then
-   locate `ui-chat`'s tail registration; decide with the user whether a changes view belongs in this app at all,
-   given the tool rows already carry counts and the detail panel already holds full records.
+   locate `ui-chat`'s tail registration.
+   **Also decided by the user (round 101): the changes view is a deliberate omission.** Native
+   keeps its per-tool `+N −N` counts and its detail panel and does not grow a turn-tail diff,
+   summary or presented-file opener, so the one feature gap the deliverables read found is
+   closed with its reason recorded rather than matched quietly or left unclaimed.
 
 Entries here are appended, never inserted: earlier notes were lost because they
 were anchored onto rows of a markdown table above and collapsed into a single
