@@ -157,38 +157,42 @@ fn view(document: &formatted::Document) -> Element<'_, Message> {
                 text: code,
                 indent,
             } => {
+                // The same code box the transcript draws: the reference's 11px/19px
+                // code font, a 9px/14px banner at 11px/18px, a 16px pre padding and
+                // a radius-lg block with no padding of its own
+                // (`ui-primitives/markdown/CodeBlock.module.css`).
                 let code_text = text(code.as_str())
                     .font(MONO)
                     .shaping(text::Shaping::Advanced)
-                    .size(13)
-                    .line_height(1.3)
+                    .size(design::CODE_FONT)
+                    .line_height(design::code_line(0.0))
                     .wrapping(text::Wrapping::None)
                     .color(TEXT);
-                let code_scroll = scrollable(container(code_text).padding(12))
+                let code_scroll = scrollable(container(code_text).padding(design::CODE_PAD))
                     .direction(scrollable::Direction::Horizontal(
                         scrollable::Scrollbar::default(),
                     ))
                     .width(Length::Fill);
-                container(
-                    Column::new()
-                        .push(
-                            label(
-                                super::short(language.as_deref().unwrap_or("code"), 48),
-                                MUTED,
-                            )
-                            .size(11),
-                        )
-                        .push(code_scroll)
-                        .spacing(5),
+                let banner = container(
+                    label(
+                        super::short(language.as_deref().unwrap_or("code"), 48),
+                        MUTED,
+                    )
+                    .size(design::CODE_FONT)
+                    .line_height(iced::Pixels(design::CODE_BANNER_LINE))
+                    .width(Length::Fill),
                 )
-                .padding(10)
-                .style(|_| design::card(design::OVERLAY, 9.0))
-                .width(Length::Fill)
-                .padding(iced::Padding {
-                    left: 10.0 + *indent as f32 * 18.0,
-                    ..iced::Padding::from(10.0)
-                })
-                .into()
+                .padding(design::CODE_BANNER_PAD)
+                .style(|_| design::card(design::LINE, 0.0));
+                container(Column::new().push(banner).push(code_scroll).spacing(0))
+                    .style(|_| design::card(design::OVERLAY, design::RADIUS_LG))
+                    .width(Length::Fill)
+                    .padding(iced::Padding {
+                        left: *indent as f32 * 18.0,
+                        ..iced::Padding::ZERO
+                    })
+                    .clip(true)
+                    .into()
             }
             formatted::Block::Rule => container(Space::new().height(1).width(Length::Fill))
                 .style(|_| container::Style {

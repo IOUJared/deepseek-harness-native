@@ -60,6 +60,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Chat content width | `clamp(680, 64%, 920)` | `design::chat_width(pane)` clamp, bounded by the padded pane |
 | Window box | main 1280×820 · min 520×600 | `design::WINDOW_*`/`WINDOW_MIN_*`, pinned by `the_window_box_matches_the_reference` |
 | User bubble | `padding: 10px 16px` · radius xl · stack cap `min(content × 0.702, 82%)` | `USER_BUBBLE_PAD`/`_INSET`/`_RADIUS`/`_SHARE`; the cap follows the live lane |
+| Code block | `radius-lg` · banner `9px 14px` at 11/18 · `pre` `padding: 16px` · code `11px/19px` · banner one step over the block | `CODE_FONT`/`CODE_LINE`/`CODE_PAD`/`CODE_BANNER_*`/`CODE_CHROME`; both renderers and the offset path read them |
 | Width handles | 10px strip at lane ± 24 · `2px` glow `4px` in, `16px` core, hover/drag only | `WIDTH_HANDLE_*` + `HANDLE_GLOW_*`, hover/drag state, `native-width-handle-*` rects |
 | Jump to latest | `34px` round floating button · slot `bottom: 16px` · right edge on the column (or `32px` in) · only while not following the tail | `TO_BOTTOM_*` + `native-to-bottom` rect; `design::LINE` hover, no shadow |
 | Scrollbars | `5px` bar · invisible rail · `scrollbar-bg-l1` thumb, `hover-l1` on hover, declared for every element | `SCROLLBAR_WIDTH` + `design::scrollbar`/`scrollable_style` on all 18 scrollers; `LINE`/`MUTED` as the l1 pair |
@@ -828,4 +829,32 @@ cell, so new findings go at the end of the file as plain paragraphs.
   = true })` in the shipped config), so driving a programmatic below-minimum resize
   is the same blocked input path the width-drag handles have. Confirming the clamp
   by hand needs a drag on a real window: shrink it and check it stops at 520x600.
+- **Code block box — landed, capture-verified.** The reference's fenced code block is
+  a `radius-lg` block with a banner of `padding: 9px 14px` at `11px/18px` and a
+  `<pre>` of `padding: 16px` carrying the `11px/19px` code font
+  (`ui-primitives/markdown/CodeBlock.module.css`, with
+  `--dsw-font-markdown-code-block: 11px/19px` from `gradient-shadow-text.css:166`); the
+  banner's fill is one step above the block's (`neutral-bluish-850` over `-900`, which
+  this palette expresses as `LINE` over `OVERLAY`).
+  Native had **three different sets of numbers for one element**: the transcript's
+  renderer drew a 22px header, a 13px/24px code font and `padding(10)`/`padding(12)`
+  inside a radius-9 card with a 5px gap; the details panel drew a label-only header at
+  a relative `1.3` line height and a 13px font; and the first-match offset path
+  hardcoded `49.0` of chrome. `CODE_FONT` (11), `CODE_LINE` (19), `CODE_PAD` (16),
+  `CODE_BANNER_PAD` (9/14), `CODE_BANNER_LINE` (18), `CODE_BANNER_HEIGHT` (36),
+  `CODE_CHROME` (68) and `design::code_line` now carry the figures, and both renderers
+  and the offset path read them, so the block, its height and its scroll offsets
+  cannot drift again.
+  Verified at `assistant-details-formatted` (1040 wide): the code's line pitch measures
+  **19** where the same grab measured **17** under the details panel's relative line
+  height, the ink bands are **10..12** rows tall (an 11px font) where they were 13..14
+  (13px), and the banner is a full-width strip spanning **646px** — the block's own
+  width — in **34** rows. `shots/50-code-block-dp2.png` is the grab and
+  `shots/50-code-block.png` that run's own frame. The `native_first_match_offsets…`
+  test moved with the metrics: its bound is now body-relative, and its exact relation
+  asserts the banner plus the pre's top padding, which is what caught the third copy.
+  Remainders: the banner measures 34 rows against the nominal 36 because Iced renders
+  the 11px label's line box as 16 rather than the requested 18, and the reference's
+  `margin: 16px 0` / `margin-bottom: 11px` rhythm around a code block is not modelled
+  — native spaces blocks through its own flow gaps.
 

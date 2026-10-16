@@ -203,16 +203,19 @@ impl Prepared {
                         FONT,
                         false,
                     ),
+                    // The same code metrics the block is drawn and measured with:
+                    // the 11px code font, the 19px code line, and the banner plus
+                    // the pre's top padding above the text.
                     formatted::Block::Code { text, language, .. } => first_offset(
                         highlight(text, language.as_deref()),
                         query,
                         width,
-                        self.mono_size(),
-                        design::body_line(self.delta),
+                        design::CODE_FONT as f32 + self.delta_secondary,
+                        design::code_line(self.delta_secondary),
                         MONO,
                         true,
                     )
-                    .map(|offset| offset + 49.0),
+                    .map(|offset| offset + design::CODE_BANNER_HEIGHT + design::CODE_PAD),
                     formatted::Block::Rule => None,
                 };
                 if let Some(offset) = found {
@@ -724,11 +727,11 @@ fn block_height(block: &formatted::Block, width: f32, delta: f32, delta_secondar
             plain_height(
                 text,
                 width,
-                13.0 + delta_secondary,
-                design::body_line(delta),
+                design::CODE_FONT as f32 + delta_secondary,
+                design::code_line(delta_secondary),
                 MONO,
                 true,
-            ) + 83.0
+            ) + design::CODE_CHROME
         }
         formatted::Block::Rule => 1.0,
     }
@@ -799,25 +802,30 @@ fn document_view(
                 text: source,
                 indent,
             } => {
-                let header = row![
-                    label(
-                        super::short(language.as_deref().unwrap_or("code"), 48),
-                        MUTED
-                    )
-                    .size(11)
-                    .width(Length::Fill),
-                    button(label("Copy code", MUTED).size(11))
-                        .on_press_maybe(ticket.map(|ticket| Message::CopyCode(ticket, index)))
-                        .style(design::ghost)
-                        .padding([2, 4])
-                ]
-                .height(22);
+                let banner = container(
+                    row![
+                        label(
+                            super::short(language.as_deref().unwrap_or("code"), 48),
+                            MUTED
+                        )
+                        .size(design::CODE_FONT)
+                        .line_height(iced::Pixels(design::CODE_BANNER_LINE))
+                        .width(Length::Fill),
+                        button(label("Copy code", MUTED).size(design::CODE_FONT))
+                            .on_press_maybe(ticket.map(|ticket| Message::CopyCode(ticket, index)))
+                            .style(design::ghost)
+                            .padding([2, 4])
+                    ]
+                    .align_y(iced::Alignment::Center),
+                )
+                .padding(design::CODE_BANNER_PAD)
+                .style(|_| design::card(design::LINE, 0.0));
                 let code = rich_text(marked(highlight(source, language.as_deref()), query))
                     .font(MONO)
-                    .size((13.0 + delta_secondary).round() as u32)
-                    .line_height(design::body_line(delta))
+                    .size((design::CODE_FONT as f32 + delta_secondary).round() as u32)
+                    .line_height(design::code_line(delta_secondary))
                     .wrapping(text::Wrapping::None);
-                let code = scrollable(container(code).padding(12))
+                let code = scrollable(container(code).padding(design::CODE_PAD))
                     .direction(scrollable::Direction::Horizontal(
                         scrollable::Scrollbar::default(),
                     ))
@@ -825,21 +833,23 @@ fn document_view(
                         plain_height(
                             source,
                             width,
-                            13.0 + delta_secondary,
-                            design::body_line(delta),
+                            design::CODE_FONT as f32 + delta_secondary,
+                            design::code_line(delta_secondary),
                             MONO,
                             true,
-                        ) + 36.0,
+                        ) + 2.0 * design::CODE_PAD,
                     )
                     .width(Length::Fill);
-                container(Column::new().push(header).push(code).spacing(5))
-                    .padding(10)
-                    .style(|_| design::card(design::OVERLAY, 9.0))
+                // The banner and the pre own their own padding, so the block adds
+                // none; only a list indent moves the whole block right.
+                container(Column::new().push(banner).push(code).spacing(0))
+                    .style(|_| design::card(design::OVERLAY, design::RADIUS_LG))
                     .width(Length::Fill)
                     .padding(iced::Padding {
-                        left: 10.0 + *indent as f32 * 18.0,
-                        ..iced::Padding::from(10.0)
+                        left: *indent as f32 * 18.0,
+                        ..iced::Padding::ZERO
                     })
+                    .clip(true)
                     .into()
             }
             formatted::Block::Rule => {
@@ -1167,18 +1177,22 @@ mod tests {
         let code = format!("{}TARGET end\n", "let PUBLIC_value = 42;\n".repeat(80));
         let p = cache.prepare(1, 3, String::new(), format!("```rust\n{code}```"));
         let offset = p.first_match_offset(180.0, false, "target");
-        assert!(offset > 1000.0 && offset < p.body_height(180.0, false));
+        let body = p.body_height(180.0, false);
+        // The match sits on the code block's last line, so its offset is deep and
+        // never past the body; the exact chrome relation is asserted below.
+        assert!(offset > body * 0.5 && offset <= body, "{offset} vs {body}");
         let expected = first_offset(
             highlight(&code, Some("rust")),
             "target",
             180.0,
-            13.0,
-            design::body_line(0.0),
+            design::CODE_FONT as f32,
+            design::code_line(0.0),
             MONO,
             true,
         )
         .unwrap();
-        assert!((offset - (expected + 49.0)).abs() < 0.1);
+        // The banner plus the pre's top padding, both inside the block's height.
+        assert!((offset - (expected + design::CODE_BANNER_HEIGHT + design::CODE_PAD)).abs() < 0.1);
         let p = cache.prepare(1, 4, source, "PUBLIC answer".into());
         let reasoning = p.first_match_offset(180.0, true, "target");
         assert!(reasoning > 500.0 && reasoning < p.body_height(180.0, true));

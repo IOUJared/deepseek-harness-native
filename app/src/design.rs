@@ -144,6 +144,11 @@ pub const FLOW_INSET: f32 = 16.0;
 pub fn body_line(delta: f32) -> iced::advanced::text::LineHeight {
     iced::advanced::text::LineHeight::Absolute(iced::Pixels(LINE_BODY + delta))
 }
+/// The code line box: the reference's fixed `19px` code line, moved by the
+/// secondary delta so the content-size preference scales code with the body.
+pub fn code_line(delta_secondary: f32) -> iced::advanced::text::LineHeight {
+    iced::advanced::text::LineHeight::Absolute(iced::Pixels(CODE_LINE + delta_secondary))
+}
 /// The compact line box, at the secondary delta.
 pub fn compact_line(delta_secondary: f32) -> iced::advanced::text::LineHeight {
     iced::advanced::text::LineHeight::Absolute(iced::Pixels(LINE_COMPACT + delta_secondary))
@@ -269,6 +274,27 @@ pub fn chat_width_drag(base: f32, origin_x: f32, current_x: f32, side: WidthSide
 /// `240px` box with a `64px` minimum height (`MessageItem.module.css:320-332`),
 /// whose name and meta lines (22 and 15) fit inside it at every content size —
 /// only `.bubble` follows `--dsh-content-font-size`.
+/// The reference's fenced code block (`ui-primitives/markdown/CodeBlock.module.css`,
+/// with `--dsw-font-markdown-code-block: 11px/19px` from
+/// `ui-theme/src/styles/gradient-shadow-text.css:166`): `radius-lg`, a banner of
+/// `padding: 9px 14px` at `11px/18px`, and a `<pre>` of `padding: 16px` carrying the
+/// same 11px code font. The banner fill is one step above the block's — the reference
+/// steps `neutral-bluish-850` over `-900`, which this palette expresses as `LINE`
+/// over `OVERLAY`.
+pub const CODE_FONT: u32 = 11;
+pub const CODE_LINE: f32 = 19.0;
+pub const CODE_PAD: f32 = 16.0;
+pub const CODE_BANNER_PAD: iced::Padding = iced::Padding {
+    top: 9.0,
+    right: 14.0,
+    bottom: 9.0,
+    left: 14.0,
+};
+pub const CODE_BANNER_LINE: f32 = 18.0;
+pub const CODE_BANNER_HEIGHT: f32 = 36.0;
+/// The banner plus both sides of the content padding: the whole chrome the code
+/// block reserves around its text.
+pub const CODE_CHROME: f32 = CODE_BANNER_HEIGHT + 2.0 * CODE_PAD;
 pub const ATTACHMENT_CARD_WIDTH: f32 = 240.0;
 pub const ATTACHMENT_CARD_HEIGHT: f32 = 64.0;
 /// `.userStack { gap: 8px }`, the gap between the attachment row and the bubble
