@@ -1813,3 +1813,17 @@ cell, so new findings go at the end of the file as plain paragraphs.
    Settling step: add the bridge command beside `permission.mjs`'s pair (same shape: bounded
    projection, `ok`/error envelope, tests in the package's own node suite), route it in the
    supervisor, then take the Core family and the app plumbing as the catalog did.
+
+   **Bridge half landed.** `core/runtime/agent-preset.mjs` answers `agent-presets` for the
+   Host's `agentPresets` service through its own `@Remote('list')` read
+   (`api-catalog.ts:133-165`), projecting only the five fields `AgentPresetRow` declares —
+   `id`, `isDefault`, an optional `name`, `description` and `broken` (`:4605-4611`) — bounded
+   to 64 presets and 4 KiB each, with a roster that carries no default refused outright,
+   because without one a client cannot say which preset a new session gets. Its
+   `core/runtime/agent-preset.test.mjs` joins the node gate, which now reports **419 pass /
+   0 fail**; the Core checks with the bridge embedded, and importing the supervisor accepts
+   `agent-presets` with its exact key set while refusing an extra key and a missing
+   `requestId`. Formatting caught the new `include_str!` block's indentation, as it did for
+   the permission bridge, and the gate is back to 0.
+   Settling step: the Core family and the app plumbing, then the three surfaces it unlocks —
+   the hero chip, the label's display name and the subagent activity marker.

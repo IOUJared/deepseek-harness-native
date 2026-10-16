@@ -3,6 +3,7 @@
 import { createRequire } from 'node:module';
 import { createCodexBridge, validCodexAccountId, validCodexLabel } from './codex.mjs';
 import { createPermissionBridge, validPermissionName, validPermissionSession } from './permission.mjs';
+import { createAgentPresetBridge, validPresetId } from './agent-preset.mjs';
 import { createCloudflareBridge, validCloudflareRevision, validCloudflareSave, validCloudflareOAuthCommand } from './cloudflare.mjs';
 import { initializeManagedCodex } from './codex-profile.mjs';
 import { createCodexUsageBridge } from './codex-usage-bridge.mjs';
@@ -51,6 +52,7 @@ export function parseForkCommand(line) {
   if (value.type === 'permission-catalog' && exact(value, ['type', 'requestId'])) return value;
   if (value.type === 'permission-set' && exact(value, ['type', 'requestId', 'session', 'name'])
     && validPermissionSession(value.session) && validPermissionName(value.name)) return value;
+  if (value.type === 'agent-presets' && exact(value, ['type', 'requestId'])) return value;
   if (value.type === 'permission-settings' && exact(value, ['type', 'requestId'])) return value;
   if (value.type === 'permission-default-set' && exact(value, ['type', 'requestId', 'name', 'expectedRevision'])
     && validPermissionName(value.name) && Number.isSafeInteger(value.expectedRevision)
@@ -366,6 +368,7 @@ export function startForkSupervisor({ input = process.stdin, send, loadRuntime =
   let runtime;
   let codex;
   let permission;
+  let agentPreset;
   let codexUsage;
   let cloudflare;
   let boot;
@@ -441,6 +444,7 @@ export function startForkSupervisor({ input = process.stdin, send, loadRuntime =
         case 'codex-usage-load': case 'codex-usage-save': value = await codexUsage.handle(command); break;
         case 'permission-catalog': case 'permission-set': value = await permission.handle(command); break;
         case 'permission-settings': case 'permission-default-set': value = await permission.handle(command); break;
+        case 'agent-presets': value = await agentPreset.handle(command); break;
         case 'inspect': emit({ type: 'inspection', requestId: command.requestId, ...await inspect(ctx) }); return;
         case 'open-workspace': await openWorkspace(ctx, command.path); emit({ type: 'workspace-added', requestId: command.requestId }); return;
         case 'onboarding-read': value = await readOnboarding(ctx, installed.credentialRef); break;
@@ -486,6 +490,7 @@ export function startForkSupervisor({ input = process.stdin, send, loadRuntime =
     if (cancelled) return;
     codex = createCodexBridge({ ctx: runtime.ctx, emit, addSecret });
     permission = createPermissionBridge({ ctx: runtime.ctx });
+    agentPreset = createAgentPresetBridge({ ctx: runtime.ctx });
     cloudflare = createCloudflareBridge({ ctx: runtime.ctx, credentialRef: installed.credentialRef, addSecret, emit });
     codexUsage = createCodexUsageBridge({ openStorage: () => {
       if (typeof installed.openUsageStorage !== 'function') throw new Error('Preference storage unavailable');
