@@ -2189,3 +2189,22 @@ navigation, `subagentTiming`'s activity marker, and editable keybinding rebindin
    `Command::CloudflareRead` is handled and follow it to the call that leaves the process.
    Recording the negative is the point: three rounds have now been saved from editing the wrong
    layer by finding that a layer does not contain what its name implies.
+
+   **The boundary is the app's worker, and the Core half is not needed at all.** Two clean greps
+   settle it: `grep -rn 'Endpoint::' core/src/` exits 1 with **zero** lines, so the Core never
+   invokes the transport; and the transport's plugin calls are made from the **app's worker** —
+   `client.plugin_inventory()` and `client.plugin_settings()` at `app/src/worker.rs:1047`, and
+   `client.plugin_inventory()` again at `:1584`. The plugin family's route proves the pattern
+   end to end: an app-side `Command`, a worker call to a transport method, and an `Event` back —
+   with no Core `Command` or protocol work involved, because the Core's command/protocol family
+   serves cloudflare and codex instead.
+   So selection's slice is **shorter than four rounds of specification assumed**, and the Core
+   half described in items 11 and 13 does not exist: add the app `Command`, call
+   `client.agent_preset_select(session_id, preset)` from the worker exactly as `:1047` calls the
+   plugin pair, map the reply to an `Event`, and let the seat's pick land — announcing
+   `Error::RemoteCode("agentPreset/locked")` when the Host refuses a started session.
+   The transport work from rounds 130-132 is the correct half and stands; what it was missing was
+   a caller, and the caller was in the app all along.
+   Also recorded: the round-133 negative was correct, but this round's *first* attempt at it was
+   nearly discredited by a grep whose output a broken pipe had truncated. Re-running it without
+   truncation is what confirmed it, and the same care is why the boundary was found at all.
