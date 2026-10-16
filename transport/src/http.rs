@@ -180,6 +180,7 @@ enum Endpoint {
     QuestionAnswer,
     EventResult,
     PluginInventory,
+    AgentPresetSelect,
     PluginSettings,
     PluginMutate,
     TerminalCreate,
@@ -215,6 +216,7 @@ impl Endpoint {
             Self::QuestionAnswer => "userQuestions/answer",
             Self::EventResult => "$events/result",
             Self::PluginInventory => "pluginInventory/list",
+            Self::AgentPresetSelect => "agentPresets/select",
             Self::PluginSettings => "settings/describe",
             Self::PluginMutate => "settings/mutate",
             Self::TerminalCreate => "terminal/create",
@@ -654,6 +656,24 @@ impl NativeClient {
         }
         self.invoke(Endpoint::Page, request_args(request)?).await
     }
+    /// Stage an agent preset for the session that starts next. The Host refuses a session
+    /// that has already started with `agentPreset/locked`; the reply carries the committed
+    /// identity. `agentId` travels in the body, as `commands/list` sends it
+    /// (`transport/src/http.rs:551-558`).
+    pub async fn agent_preset_select(
+        &self,
+        session_id: &SessionId,
+        agent_preset: &str,
+    ) -> Result<String> {
+        agent_preset_of(
+            self.invoke(
+                Endpoint::AgentPresetSelect,
+                json!({"agentId": session_id, "agentPreset": agent_preset}),
+            )
+            .await?,
+        )
+    }
+
     /// Metadata-only global Loader rows; no installation or enablement authority.
     pub async fn plugin_inventory(&self) -> Result<crate::plugin::PluginInventorySnapshot> {
         crate::plugin::project_inventory(self.invoke(Endpoint::PluginInventory, json!({})).await?)
@@ -991,6 +1011,21 @@ fn accepted(value: Accepted) -> Result<Accepted> {
         Err(Error::InvalidDto)
     }
 }
+/// The committed preset identity from an `agentPresets/select` reply: a bare string, or an
+/// object carrying one. Anything else is refused rather than guessed.
+fn agent_preset_of(value: serde_json::Value) -> Result<String> {
+    let id = match &value {
+        serde_json::Value::String(id) => Some(id.clone()),
+        value => value
+            .get("agentPreset")
+            .or_else(|| value.get("id"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned),
+    };
+    id.filter(|id| !id.is_empty() && id.len() <= 512)
+        .ok_or(crate::Error::InvalidDto)
+}
+
 pub(crate) fn request_args(value: impl Serialize) -> Result<Value> {
     serde_json::to_value(value)
         .map(|request| json!({"request":request}))

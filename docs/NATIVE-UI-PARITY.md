@@ -2148,3 +2148,17 @@ navigation, `subagentTiming`'s activity marker, and editable keybinding rebindin
    the same class of failure — pattern-matching text instead of reading the target. The slice
    itself is unchanged and fully specified: endpoint variant, client method with the
    `{agentId, agentPreset}` body, projection, error arm, Core family, app pick.
+
+   **Transport half landed, and the line-index insertion is what made it land.** Line 182 takes
+   `AgentPresetSelect,` in the enum, `:218` its name arm in the table, `:658` the client method
+   `agent_preset_select(session_id, agent_preset)` sending `{"agentId", "agentPreset"}` exactly
+   as `commands/list` sends its agent id, and `:1013` the `agent_preset_of` projection. The
+   transport suite passes at **82 plus 7 doctests, exit 0**.
+   One error on the way is worth keeping: the projection first returned `crate::Error::Protocol`,
+   which is the *Core's* variant, not the transport's — this crate's own enum has `InvalidDto`
+   for a malformed reply (`transport/src/lib.rs:21-40`), and that is what the other projections
+   in the same file use. Guessing an error name from the sibling crate cost one compile cycle.
+   **Gap stated rather than glossed:** `agent_preset_of` has no unit test yet, so the project's
+   rule — new code arrives with a verifier — is not satisfied for it. That is the first thing
+   the next round should do, alongside the `agentPreset/locked` error arm, which is the last
+   transport edit and the one that turns the Host's refusal into the seat's announcement.
