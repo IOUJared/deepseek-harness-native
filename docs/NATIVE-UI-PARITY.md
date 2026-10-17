@@ -5856,3 +5856,15 @@ treats the composer as present); its opening is unit-tested. The live reads rema
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+### Round 300 — `@` file-reference discovery (transport half)
+
+**The `@` file-reference lookup is now a Rust transport call.** `file_references` invokes the
+canonical `fileReferences/list` with the session as `agentId` and the path query, then bounds the
+reply (at most 50 candidates, non-empty paths ≤4096 bytes, kinds `file`/`directory`). Control
+characters and queries over 512 characters are refused before the call. One test covers valid,
+empty-path, unknown-kind and over-limit replies; the transport gate is **52 + 17 + 82 + 7**.
+
+The composer still has no `@` menu; that is the next item. The reference also folds session
+candidates into the same menu and supports quoted paths and directory drill-down; native has not
+built those.

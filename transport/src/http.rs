@@ -204,6 +204,7 @@ enum Endpoint {
     ScheduleDelete,
     ScheduleHistory,
     ScheduleUpdate,
+    FileReferences,
 }
 impl Endpoint {
     fn name(self) -> &'static str {
@@ -228,6 +229,7 @@ impl Endpoint {
             Self::ScheduleDelete => "schedule/delete",
             Self::ScheduleHistory => "schedule/history",
             Self::ScheduleUpdate => "schedule/update",
+            Self::FileReferences => "fileReferences/list",
             Self::Page => "session/page",
             Self::AccountState => "account/getState",
             Self::WorkspaceCreate => "workspace/create",
@@ -777,6 +779,27 @@ impl NativeClient {
         .await
     }
     /// The Host's whole schedule catalog, bounded to 4096 rows and validated for display.
+    /// List `@` file-reference candidates for one session's working directory. The Host ranks
+    /// them; native only bounds the reply.
+    pub async fn file_references(
+        &self,
+        session_id: &SessionId,
+        query: &str,
+    ) -> Result<Vec<FileReferenceCandidate>> {
+        if query.chars().count() > 512 || query.chars().any(char::is_control) {
+            return Err(Error::InvalidDto);
+        }
+        let items: Vec<FileReferenceCandidate> = self
+            .invoke(
+                Endpoint::FileReferences,
+                json!({
+                    "agentId": session_id.as_str(),
+                    "query": query,
+                }),
+            )
+            .await?;
+        bounded_file_references(items).ok_or(Error::InvalidDto)
+    }
     /// One turn's changed-file summary from the authenticated GET route the deliverables card
     /// reads (`/api/changes.summary?sessionId&seq`). A 404 is an absent summary, not a transport
     /// failure: the caller shows no card.
@@ -1595,6 +1618,21 @@ fn parse_changes_summary(value: Value) -> Option<ChangesSummary> {
         deleted,
     })
 }
+fn bounded_file_references(
+    items: Vec<FileReferenceCandidate>,
+) -> Option<Vec<FileReferenceCandidate>> {
+    if items.len() > 50
+        || items
+            .iter()
+            .any(|item| item.path.is_empty() || item.path.len() > 4096)
+        || items
+            .iter()
+            .any(|item| item.kind != "file" && item.kind != "directory")
+    {
+        return None;
+    }
+    Some(items)
+}
 fn parse_changes_diff(value: Value) -> Option<ChangesDiff> {
     let object = value.as_object()?;
     let path = object.get("path")?.as_str()?;
@@ -2151,5 +2189,39 @@ mod changes_tests {
         ] {
             assert_eq!(parse_changes_summary(bad), None);
         }
+    }
+}
+
+#[cfg(test)]
+mod file_reference_tests {
+    use super::bounded_file_references;
+    use crate::dto::FileReferenceCandidate;
+
+    fn candidate(path: &str, kind: &str) -> FileReferenceCandidate {
+        FileReferenceCandidate {
+            path: path.into(),
+            kind: kind.into(),
+        }
+    }
+
+    #[test]
+    fn file_reference_candidates_are_bounded() {
+        assert!(
+            bounded_file_references(vec![
+                candidate("src/main.rs", "file"),
+                candidate("src/", "directory"),
+            ])
+            .is_some()
+        );
+        assert!(bounded_file_references(vec![candidate("", "file")]).is_none());
+        assert!(bounded_file_references(vec![candidate("a", "socket")]).is_none());
+        assert!(
+            bounded_file_references(
+                (0..51)
+                    .map(|index| candidate(&format!("f{index}"), "file"))
+                    .collect()
+            )
+            .is_none()
+        );
     }
 }

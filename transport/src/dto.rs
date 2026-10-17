@@ -419,6 +419,12 @@ pub struct QueueTextBlock {
     pub block_type: String,
     pub text: String,
 }
+/// One `@` file-reference completion candidate (`FileReferenceCandidate`).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct FileReferenceCandidate {
+    pub path: String,
+    pub kind: String,
+}
 /// One changed file in a turn summary (`WorkspaceChangedFile` via
 /// `packages/client/ui-deliverables/src/changes.ts:70-77`).
 #[derive(Clone, Debug, PartialEq, Eq)]
