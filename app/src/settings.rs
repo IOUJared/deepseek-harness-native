@@ -331,6 +331,10 @@ pub struct Settings {
     /// The reference reports a refused capture instead of saving it; native has no toast, so the
     /// message stays inline until the next arming or successful capture.
     pub(crate) capture_error: Option<String>,
+    /// A layout preference this modal changed that the App could not store. The controls live
+    /// here, so the footer carries the failure rather than the conversation's status line
+    /// behind the scrim; `None` means the last write landed.
+    pub(crate) preference_error: Option<String>,
     /// The permission default row's preset list is open.
     permission_open: bool,
     api_help_open: bool,
@@ -365,6 +369,7 @@ impl Default for Settings {
             reset_all_armed: false,
             capture_for: None,
             capture_error: None,
+            preference_error: None,
             permission_open: false,
             api_help_open: false,
             context_policy_open: false,
@@ -769,6 +774,9 @@ impl Settings {
             self.close();
             self.open = true;
             self.epoch = epoch;
+            // A new visit starts with no stale failure from the last one; the App clears this
+            // again the moment a write lands.
+            self.preference_error = None;
             if self.page == Page::Cloudflare {
                 self.cloudflare.enter(epoch);
             }
@@ -1171,6 +1179,12 @@ impl Settings {
         // The footer carries only live status; routine hints stay out of the way.
         let mut footer = column![].spacing(4);
         let mut has_footer = false;
+        // A preference this page changed and the App could not store: the row already shows
+        // its new value, so the footer is the only place that can say the write did not land.
+        if let Some(error) = &self.preference_error {
+            footer = footer.push(label(error.clone(), DANGER).size(11));
+            has_footer = true;
+        }
         if self.pending() {
             footer = footer
                 .push(label("API-key save submitted; closing does not undo it.", MUTED).size(11));

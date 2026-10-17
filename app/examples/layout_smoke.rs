@@ -176,6 +176,9 @@ struct Options {
     pending_approval: bool,
     /// Set the busy-state Enter preference (`queue` or `steer`).
     busy_enter: Option<String>,
+    /// Run the production preference write with no local home, so the settings footer's
+    /// unsaved-preference line is captured.
+    preference_unsaved: bool,
     /// Expand the queue dock's multi-item list for capture.
     queue_expanded: bool,
     /// Expand the first turn-trigger notice for capture.
@@ -314,6 +317,7 @@ fn options() -> Result<Options, &'static str> {
             "--subagent-expanded",
             "--pending-approval",
             "--busy-enter",
+            "--preference-unsaved",
             "--queue-expanded",
             "--trigger-expanded",
             "--turn-usage-expanded",
@@ -450,6 +454,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         busy_enter: values.remove("--busy-enter"),
+        preference_unsaved: match values.remove("--preference-unsaved") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
         queue_expanded: match values.remove("--queue-expanded") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
@@ -886,6 +894,11 @@ impl Fixture {
             && let Some(value) = ui::settings_busy_enter(raw)
         {
             app.set_busy_enter(value);
+        }
+        if options.preference_unsaved {
+            // The production chain: the store cannot open without a home, so the modal's own
+            // footer must say the pressed preference was not stored.
+            app.show_unsaved_preference();
         }
         if options.queue_expanded {
             app.expand_queue();

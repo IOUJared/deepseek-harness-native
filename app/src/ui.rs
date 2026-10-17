@@ -2004,14 +2004,20 @@ impl App {
     }
     /// Persist the layout preference. Reached only from an explicit gesture
     /// commit, never per frame, so the small synchronous write stays bounded.
-    fn save_layout_preference(&self) {
+    /// Returns why the value could not be stored; the caller reports it, because a row that
+    /// repaints as changed while nothing was written is a silent lie.
+    fn save_layout_preference(&self) -> Result<(), &'static str> {
         let Some(home) = self.native_home.clone() else {
-            return;
+            return Err("this run has no local home");
         };
         let Ok(mut store) = draft_store::Store::layout(home) else {
-            return;
+            return Err("the layout store could not be opened");
         };
-        let mut entries = store.load().unwrap_or_default();
+        // A failed read is not an empty document: saving over it would drop the preferences
+        // stored there, so the write is refused instead.
+        let Ok(mut entries) = store.load() else {
+            return Err("the stored preferences could not be read");
+        };
         // Each preference writes or clears its own reserved key, so clearing one
         // never disturbs the other.
         for (key, raw) in [
@@ -2049,7 +2055,27 @@ impl App {
                 }
             }
         }
-        let _ = store.save(&entries);
+        store
+            .save(&entries)
+            .map_err(|_| "the layout store refused the write")
+    }
+    /// Store the current layout preference and report the outcome where the user acted: the
+    /// Settings modal owns the busy-Enter and coding-view controls, so its footer carries the
+    /// failure; a width drag or a content-size change acts in the conversation, where the
+    /// status line is the reporting channel.
+    fn persist_preference(&mut self) {
+        match self.save_layout_preference() {
+            Ok(()) => self.settings.preference_error = None,
+            Err(reason) => {
+                let message =
+                    format!("Preference not saved ({reason}); it applies to this window only.");
+                if self.settings.is_open() {
+                    self.settings.preference_error = Some(message);
+                } else {
+                    self.status = message;
+                }
+            }
+        }
     }
     /// The bottom fade that dissolves scrolled content before the composer. It is
     /// an overlay rather than a sibling strip, so it costs no layout height and
@@ -3097,7 +3123,7 @@ impl App {
             Message::WidthDragEnd => {
                 if let Some(drag) = self.width_drag.take() {
                     if drag.moved {
-                        self.save_layout_preference();
+                        self.persist_preference();
                     } else {
                         // A press is not a gesture: put the wider preference back
                         // rather than persisting the clamped display width.
@@ -3122,7 +3148,7 @@ impl App {
                 let size = design::content_size(size);
                 if size != self.content_font_size {
                     self.content_font_size = size;
-                    self.save_layout_preference();
+                    self.persist_preference();
                 }
                 return Task::none();
             }
@@ -3233,7 +3259,7 @@ impl App {
                     crate::settings::Action::BusyEnter(value) => {
                         if self.busy_enter != *value {
                             self.busy_enter = *value;
-                            self.save_layout_preference();
+                            self.persist_preference();
                         }
                         return Task::none();
                     }
@@ -3311,7 +3337,7 @@ impl App {
                 if let Some(effect) = self.settings.handle(action, self.transport_epoch, enabled) {
                     if let crate::settings::Effect::CodingView(enabled) = effect {
                         self.coding_view = enabled;
-                        self.save_layout_preference();
+                        self.persist_preference();
                         return Task::none();
                     }
                     self.command(match effect {
@@ -3320,7 +3346,7 @@ impl App {
                         crate::settings::Effect::Codex(effect) => Command::Codex(effect),
                         crate::settings::Effect::CodingView(enabled) => {
                             self.coding_view = enabled;
-                            self.save_layout_preference();
+                            self.persist_preference();
                             return Task::none();
                         }
                         crate::settings::Effect::Plugins(effect) => match effect {
@@ -7303,6 +7329,17 @@ impl App {
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn set_busy_enter(&mut self, value: crate::settings::BusyEnter) {
         self.busy_enter = value;
+    }
+
+    /// Fixture-only: run the production preference write with no local home, so the settings
+    /// footer's unsaved-preference line is capturable. The press, the saver and the failure
+    /// message are the shipped ones; only the missing home is arranged.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn show_unsaved_preference(&mut self) {
+        self.native_home = None;
+        let _ = self.update(Message::Settings(crate::settings::Action::BusyEnter(
+            crate::settings::BusyEnter::Steer,
+        )));
     }
 
     /// Fixture-only: register one pending approval for the selected session, so the sidebar's
@@ -16904,6 +16941,70 @@ mod tests {
         // Reopening cannot present a destructive confirmation nobody agreed to.
         let _ = app.update(Message::Settings(crate::settings::Action::Open));
         assert!(!app.settings.reset_all_armed);
+    }
+    #[test]
+    fn a_preference_that_cannot_be_stored_is_reported_where_the_control_lives() {
+        use crate::settings::BusyEnter;
+        use std::os::unix::fs::DirBuilderExt;
+        let (mut app, _receiver) = app();
+        // A keyless or smoke run holds no native home, so the layout write cannot land. The
+        // row still shows the new value; the modal's footer must say it was not stored.
+        app.native_home = None;
+        let _ = app.update(Message::Settings(crate::settings::Action::Open));
+        let _ = app.update(Message::Settings(crate::settings::Action::BusyEnter(
+            BusyEnter::Steer,
+        )));
+        assert_eq!(app.busy_enter, BusyEnter::Steer);
+        let error = app
+            .settings
+            .preference_error
+            .as_deref()
+            .expect("the modal reports the unsaved preference");
+        assert!(error.contains("not saved"), "{error}");
+        assert!(error.contains("this window only"), "{error}");
+
+        // With a real home the same press stores the value and clears the report.
+        let home = std::env::temp_dir().join(format!("dsh-layout-pref-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&home)
+            .unwrap();
+        app.native_home = Some(home.clone());
+        let _ = app.update(Message::Settings(crate::settings::Action::BusyEnter(
+            BusyEnter::Queue,
+        )));
+        assert!(
+            app.settings.preference_error.is_none(),
+            "a stored preference clears the report"
+        );
+        let key = SessionId::new(draft_store::LAYOUT_BUSY_ENTER).unwrap();
+        let mut store = draft_store::Store::layout(home.clone()).unwrap();
+        assert!(
+            store.load().unwrap().get(&key).is_none(),
+            "the default removes its reserved key"
+        );
+        let _ = app.update(Message::Settings(crate::settings::Action::BusyEnter(
+            BusyEnter::Steer,
+        )));
+        assert_eq!(
+            store.load().unwrap().get(&key).map(String::as_str),
+            Some("steer"),
+            "the value actually landed in the layout namespace"
+        );
+        std::fs::remove_dir_all(&home).unwrap();
+    }
+    #[test]
+    fn a_conversation_preference_that_cannot_be_stored_reaches_the_status() {
+        let (mut app, _receiver) = app();
+        app.native_home = None;
+        let _ = app.update(Message::ContentSize(design::CONTENT_FONT_DEFAULT + 1.0));
+        assert_ne!(app.content_font_size, design::CONTENT_FONT_DEFAULT);
+        assert!(
+            app.status.contains("Preference not saved") && app.status.contains("this window only"),
+            "{}",
+            app.status
+        );
     }
     #[test]
     fn the_editors_row_actions_run_through_their_real_action_messages() {

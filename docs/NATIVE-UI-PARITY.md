@@ -6747,3 +6747,45 @@ mounts a real section (`packages/client/ui-agent-preset/src/client/index.ts:266-
 | JS runtime | **0** | **419 pass**, 0 fail |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+### Round 328 — a preference that was not stored says so
+
+**The second settings-audit finding: every layout-preference write failed silently.**
+`save_layout_preference` returns early on three paths — no native home, a `Store::layout` open
+failure, and a refused `save` — and callers dropped the result, so the busy-Enter row, the
+coding-view checkbox, a width drag and a content-size change all repainted as changed while nothing
+was written. Its `unwrap_or_default()` on `load()` had a second defect: a malformed stored document
+read as empty, and saving over it would have dropped the three preferences already there.
+
+The saver now returns the reason (`app/src/ui.rs`), refuses the write when the existing document
+cannot be read, and reports through one place chosen by where the user acted: the Settings footer
+owns the busy-Enter and coding-view controls, so its footer carries the failure; a width drag or a
+content-size change happens in the conversation, where the status line is visible. The message
+names the value's real reach — "it applies to this window only" — rather than pretending the write
+landed. `Settings::preference_error` is cleared by a successful write and by the next open.
+
+Two App tests press the real controls: `a_preference_that_cannot_be_stored_is_reported_where_the_control_lives`
+holds no home and asserts the footer message, then points the App at a mode-0700 temporary home,
+presses `Queue` and `Steer` and reads the layout namespace back to prove the value landed and the
+default removes its reserved key; `a_conversation_preference_that_cannot_be_stored_reaches_the_status`
+does the same through `Message::ContentSize`.
+
+**Capture.** `shots/147-settings-unsaved-preference.png` (DP-2 in
+`147-settings-unsaved-preference-dp2.png`, report `status: passed`) shows the General page with the
+danger-coloured footer line under the modal. The fixture flag `--preference-unsaved true` runs the
+production action and the production saver with no home; only the missing home is arranged.
+
+**Battery (round 328).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1221 passed**, 1 ignored |
+| app, default | **0** | **1214 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 86 + 7 |
+| core (`--lib`) | **0** | **115 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/147-settings-unsaved-preference.png`, `status: passed` |
+| tree | — | clean before the commit |
