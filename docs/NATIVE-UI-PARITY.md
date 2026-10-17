@@ -3249,3 +3249,21 @@ the five above rather than missing work.
    `ui-shortcuts/src/client/index.ts:42-52`). The **destination of `save`** is the one unread
    thing, and it is likely a host service rather than client state — which is the next read, and
    the last one before a binding store can be designed in this app.
+
+   **The rebinding contract is now legible end to end, and it is revision-checked.**
+   `Editor.tsx` shows every part a binding store must provide:
+   - the edit union — `ShortcutEdit` is `{ type: 'set', id, binding }` or `{ type: 'reset', id }`,
+     and **`set` with `binding: null` is the clear** (`:165-167`: "reset" and "clear" are separate
+     inline actions);
+   - a save that takes the **revision it reviewed** — `save(operation, reviewedRevision = revision)`
+     (`:48`) — and a **stale** result that re-arms the exact binding for a retry
+     (`:57`, `:69-71`, `:179` "retry-save"), so two editors cannot silently overwrite each other;
+   - a result whose `status === 'saved'` is the success case, with every other status reported by
+     `shortcutFailure(result, [...catalog, ...fixed], t, runtime)` (`:57`) — which means the
+     failure text needs both a **catalog** of commands and a **fixed** list of built-ins;
+   - `readonly` as a first-class state (`:165`), so a locked environment still shows its bindings.
+   That is the full shape the native store must have — edit union, revision, catalog, fixed list,
+   clear-versus-reset distinction and a retry path — and it is the answer to the "destination of
+   `save`" question: not client state at all, but a **revision-checked host-side save over a
+   command catalog**. Nothing about the store now needs to be guessed; the reading step the doc
+   prescribed is finished.
