@@ -6495,3 +6495,30 @@ cache entry. No UI, wire or capture changed in this round.
 | format debt | **0** | 0 files, 0 hunks |
 | clippy suite | **0** | core, transport and app passed |
 | tree | — | clean before the commit |
+### Round 321 — the second live pass finds no wire defect
+
+**The remaining non-model commands were driven against a fresh desktop-composed Host.**
+`promptAdmission` answered `unknown`; a queue remove/edit of a missing item returned the expected
+`session/queue-item-not-found`; goal mutations with a well-formed `ref` were refused with
+`gateway/internal` (`no current goal` rather than an argument error); an unreferenced attachment
+returned `ATTACHMENT_NOT_REFERENCED`; `terminal/list`/`shells`/`environment` matched the native
+DTOs; pin/unpin and archive/unarchive returned the exact id arrays; model selection echoed the
+committed selection plus the Host's default `reasoningEffort`; an idle cancel returned
+`accepted:true`; and `/plan` plus `/plan off` executed through the flat
+`{agentId,line,submittedAttachments}` shape with `{commandId,result}`. [Full table](NATIVE-LIVE-VERIFICATION.md).
+
+No request or reply diverged from the native transport, so this round is a coverage record rather
+than a fix. It does not claim a queued turn ran, a goal changed or a terminal session succeeded.
+
+**Battery (round 321).** Unchanged; no source or wire changed.
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1210 passed**, 1 ignored |
+| app, default | **0** | **1203 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 84 + 7 |
+| core (`--lib`) | **0** | **112 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| tree | — | clean before the commit |

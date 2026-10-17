@@ -1,8 +1,10 @@
 # Live Host verification
 
-One pass of the native `@` / schedule / feedback / workspace / picker paths against a **running
-Host**, not a fixture. It found three wire defects, all fixed in `c9dd30e`, and one composition
-limit that changes what the workspace picker can honestly claim.
+Two passes of the native `@` / schedule / feedback / workspace / picker and remaining non-model
+commands against a **running Host**, not a fixture. The first found three wire defects, all fixed in
+`c9dd30e`, and one composition limit that changes what the workspace picker can honestly claim; the
+second exercised the queue, goals, attachment, terminal, registry, model-selection, cancel and
+command paths and found no defects.
 
 ## What ran
 
@@ -60,6 +62,31 @@ limit that changes what the workspace picker can honestly claim.
 `fileReferences/list` caches one per-session index: files created after the first query are
 invisible until a tool result invalidates it or a new session is created. The observed empty
 answer was that cache, not the query semantics; a fresh session returned the file.
+
+## Second pass — the non-model commands
+
+A fresh isolated desktop-composed Host, one created session, and the exact native request bodies:
+
+| Call, exact body | Result |
+| --- | --- |
+| `session/promptAdmission` `{"request":{"sessionId","requestId"}}` | `{"state":"unknown"}` |
+| `session/updateQueue` remove a missing item | business `session/queue-item-not-found` |
+| `session/updateQueue` edit a missing item with one text block | the same business refusal |
+| `goals/get` | `{"ok":true}` with no value (no current goal) |
+| `goals/edit` / `pause` / `resume` / `clear` with `ref:{id,revision}` | `gateway/internal`, `no current goal` — the ref shape is accepted |
+| `session/attachment` with an unreferenced id | `session/attachment-invalid`, `ATTACHMENT_NOT_REFERENCED` |
+| `terminal/list` | `[]` |
+| `terminal/shells` | `zsh` and `bash` with `args:["-i"]` |
+| `terminal/environment` | `cwd`, `maxInputBytes:65536`, `maxCols:500`, `maxRows:200`, `scrollback:1000` |
+| `workspace/pinSession` then `unpinSession` | `{pinnedSessionIds:[id]}` then `[]` |
+| `workspace/archiveSession` then `unarchiveSession` | `{archivedSessionIds:[id]}` then `[]` |
+| `session/selectModel` `{sessionId,provider,model}` | `{selected:{provider,model,reasoningEffort:"high"}}` |
+| `session/cancel` on an idle session | `{accepted:true}` |
+| `commands/execute` flat `{agentId,line,submittedAttachments}` for `/plan` and `/plan off` | `{commandId,result:{kind:"success",text}}` |
+
+No reply diverged from the native DTOs. The optional `reasoningEffort` on the selection is the
+Host's committed default, and our type keeps it optional. These are shape and business-error
+observations, not a claim that a queued turn, goal mutation or terminal session succeeded.
 
 ## Findings
 
