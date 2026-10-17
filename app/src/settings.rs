@@ -1078,25 +1078,8 @@ impl Settings {
             // whose groups are in product order at `:179` and whose rows carry label plus keys).
             // The store is not yet writable from this surface, so no row shows a modified marker.
             // One source for both the strings and the keys: the store the resolver will read.
-            let catalog: Vec<(String, String, bool)> = vec![
-                ("fixed.navigation".to_owned(), "Navigation".to_owned(), true),
-                (
-                    "fixed.find".to_owned(),
-                    "Find in conversation".to_owned(),
-                    true,
-                ),
-                (
-                    "fixed.send".to_owned(),
-                    "Send non-empty text".to_owned(),
-                    true,
-                ),
-                ("fixed.newline".to_owned(), "New line".to_owned(), true),
-                (
-                    "fixed.close".to_owned(),
-                    "Close settings and panels".to_owned(),
-                    true,
-                ),
-            ];
+            // One source for the ids, labels and keys: the same catalog the resolver reads.
+            let catalog = crate::keybindings::native_catalog();
             // The reference's first group is `application` (`Reference.tsx:179`); its display
             // name is this app's own, since the group keys are internal to the reference.
             let mut rows = column![label("Application", MUTED).size(11)].spacing(4);

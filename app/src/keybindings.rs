@@ -300,6 +300,28 @@ pub fn is_trigger(key: &iced::keyboard::Key, modifiers: iced::keyboard::Modifier
     matches(&trigger, key, modifiers)
 }
 
+/// This app's own catalog: every command it binds, with the label its disclosure shows and
+/// `core: true` — the shapes the editor draws. It is derived from `native_fixed()` for the ids and
+/// defaults, so a binding cannot exist without a row and a row cannot exist without a binding.
+pub fn native_catalog() -> Vec<(String, String, bool)> {
+    let labels = [
+        ("fixed.navigation", "Navigation"),
+        ("fixed.find", "Find in conversation"),
+        ("fixed.send", "Send non-empty text"),
+        ("fixed.newline", "New line"),
+        ("fixed.close", "Close settings and panels"),
+    ];
+    native_fixed()
+        .into_iter()
+        .filter_map(|(id, _)| {
+            labels
+                .iter()
+                .find(|(known, _)| *known == id)
+                .map(|(_, label)| (id, (*label).to_owned(), true))
+        })
+        .collect()
+}
+
 /// Turn the Host's command catalog into editor rows — the list half of the reference's editor,
 /// whose rows come from `commands/list` rather than from the client. The descriptors this app
 /// already fetches carry a name and a title; **no binding**, because this app does not yet honour
@@ -651,6 +673,23 @@ mod tests {
         assert_eq!(display(&escape), "Escape");
         let up = binding_from(&Key::Named(Named::ArrowUp), Modifiers::empty()).unwrap();
         assert_eq!(display(&up), "ArrowUp");
+    }
+
+    #[test]
+    fn every_bound_command_has_a_catalog_row_and_every_row_a_binding() {
+        let fixed: Vec<String> = native_fixed().into_iter().map(|(id, _)| id).collect();
+        let catalog: Vec<String> = native_catalog().into_iter().map(|(id, _, _)| id).collect();
+        // The two lists are the same set, in the same order: no orphan binding, no orphan label.
+        assert_eq!(fixed, catalog);
+        // And the rows render with the semantics their bindings have.
+        let store = Store::new(native_fixed());
+        let rendered: Vec<String> = rows(&store, &native_catalog())
+            .into_iter()
+            .map(|row| format!("{} — {}", row.label, row.keys))
+            .collect();
+        assert!(rendered.contains(&"Send non-empty text — Enter / Ctrl+Enter".to_owned()));
+        assert!(rendered.contains(&"Close settings and panels — Escape".to_owned()));
+        assert!(rendered.iter().all(|line| !line.ends_with(" — ")));
     }
 
     #[test]

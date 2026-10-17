@@ -3726,3 +3726,14 @@ it now rests on a gate that was run whole.
    Correcting this matters because the old framing would have sent the next session after Host
    command invocation — a much larger feature this app does not need to reach parity with what the
    reference's editor actually does.
+
+   **One source for ids, labels and keys — and a test that forbids orphans.** `native_catalog()`
+   derives the app's catalog rows from `native_fixed()`, joining each binding with its label, so a
+   binding cannot exist without a row and a row cannot exist without a binding. The test asserts
+   **the two id lists are equal and in the same order**, that "Send non-empty text — Enter /
+   Ctrl+Enter" and "Close settings and panels — Escape" render, and that no row renders with an
+   empty key list. Settings now calls the same function instead of keeping its own five-line copy.
+   Verified: fixture **1133** exit 0 (nineteen keybinding tests), default **1126** exit 0,
+   format-debt 0. The settings edit needed found-line surgery rather than a text anchor — its block
+   had been reformatted since it was written — which is the fourth time that pattern applied and
+   the reason the first attempt aborted cleanly with the module side already saved.
