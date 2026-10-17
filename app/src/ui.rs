@@ -218,6 +218,8 @@ pub enum Message {
     AgentPresetSeat,
     /// Opens or dismisses the jobs panel.
     ToggleJobs,
+    /// The reference's `shortcuts.open` trigger (`primary + Slash`).
+    ShortcutsOpen,
     /// Stops one job, after the reference's two-click confirmation.
     KillJob(String),
     /// Expands or collapses one job's live output.
@@ -1146,7 +1148,13 @@ impl App {
                         // the panel opens, which is how this silently stopped
                         // working inside Settings. The handlers below hold live
                         // state and decide, and they say why when they refuse.
-                        .or_else(|| clipboard_field_shortcut(&key, modifiers)),
+                        .or_else(|| clipboard_field_shortcut(&key, modifiers))
+                        // `shortcuts.open` is `primary + Slash` in the reference; the decision is
+                        // tested in `keybindings::is_trigger` and this only routes it.
+                        .or_else(|| {
+                            crate::keybindings::is_trigger(&key, modifiers)
+                                .then_some(Message::ShortcutsOpen)
+                        }),
                     _ => None,
                 }),
             animation,
@@ -2899,6 +2907,13 @@ impl App {
                         preset: id,
                     });
                 }
+            }
+            Message::ShortcutsOpen => {
+                // The reference's `shortcuts.open` shows its own overlay; the equivalent here is
+                // the Settings modal with the Shortcuts disclosure already expanded, opened the
+                // same way the rail's Settings entry opens it (`Action::Open`).
+                self.settings.shortcuts_open = true;
+                return Task::done(Message::Settings(crate::settings::Action::Open));
             }
             Message::ToggleJobs => {
                 self.jobs_open = !self.jobs_open;

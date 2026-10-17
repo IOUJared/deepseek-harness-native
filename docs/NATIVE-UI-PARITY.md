@@ -3601,3 +3601,16 @@ the five above rather than missing work.
    Settings (a `Message` the settings entry raises) — and only then the same three-line route.
    That is the sixth structural edit this session to be reverted rather than committed, and the
    sixth to leave behind a one-line question instead of a defect.
+
+   **`Ctrl+/` opens the shortcuts surface, through the production path this time.** The handler sets
+   the disclosure open and returns `Task::done(Message::Settings(Action::Open))` — the very message
+   the rail's Settings entry raises (`ui.rs:5938`) — so the trigger and the button take one code
+   path, and no fixture-only setter is involved. The route itself is one additive `.or_else` at the
+   end of the existing key chain, so nothing that worked before can have changed order.
+   Verified on **both** configurations this time, which is the round-216 lesson applied: release
+   build exit 0, fixture **1131** exit 0, default **1124** exit 0, format-debt 0. The default suite
+   is the one that rejected the previous attempt, and it is green.
+   **Not verified, and a separate claim:** the physical press. The decision is tested (seventeen
+   keybinding tests, `Cmd+/` and four near misses), the routing compiles in both configurations, and
+   the key-order assertions in the fixture suite still hold — but "I pressed `Ctrl+/` and it
+   opened" needs a real keyboard, and is the user's to confirm.
