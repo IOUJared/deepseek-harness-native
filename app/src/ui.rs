@@ -1040,6 +1040,8 @@ pub struct App {
     width_handle_glow: bool,
     /// The transcript content size, defaulting to the web's own default.
     content_font_size: f32,
+    /// Show Trajectory, change diffs and the full coding surfaces (reference developer tools).
+    coding_view: bool,
     /// What Enter/Send do while the agent is running: queue the next turn (default) or steer
     /// the running one. Persisted in the layout namespace.
     busy_enter: crate::settings::BusyEnter,
@@ -1312,6 +1314,7 @@ impl App {
         };
         let chat_width_preference =
             stored(draft_store::LAYOUT_CONTENT_WIDTH).and_then(draft_store::parse_layout_width);
+        let coding_view = stored(draft_store::LAYOUT_CODING_VIEW).as_deref() != Some("false");
         let content_font_size = stored(draft_store::LAYOUT_CONTENT_SIZE)
             .and_then(draft_store::parse_layout_size)
             .map_or(design::CONTENT_FONT_DEFAULT, design::content_size);
@@ -1390,6 +1393,7 @@ impl App {
                 hover_all_activities: false,
                 width_handle_glow: false,
                 content_font_size,
+                coding_view,
                 busy_enter,
                 queue_expanded: false,
                 queue_edit: None,
@@ -2014,6 +2018,10 @@ impl App {
             (
                 draft_store::LAYOUT_BUSY_ENTER,
                 self.busy_enter.stored().map(str::to_owned),
+            ),
+            (
+                draft_store::LAYOUT_CODING_VIEW,
+                (!self.coding_view).then(|| "false".to_owned()),
             ),
         ] {
             let Ok(entry) = SessionId::new(key) else {
@@ -3288,10 +3296,20 @@ impl App {
                     self.command(Command::Account(effect));
                 }
                 if let Some(effect) = self.settings.handle(action, self.transport_epoch, enabled) {
+                    if let crate::settings::Effect::CodingView(enabled) = effect {
+                        self.coding_view = enabled;
+                        self.save_layout_preference();
+                        return Task::none();
+                    }
                     self.command(match effect {
                         crate::settings::Effect::Account(effect) => Command::Account(effect),
                         crate::settings::Effect::Cloudflare(effect) => Command::Cloudflare(effect),
                         crate::settings::Effect::Codex(effect) => Command::Codex(effect),
+                        crate::settings::Effect::CodingView(enabled) => {
+                            self.coding_view = enabled;
+                            self.save_layout_preference();
+                            return Task::none();
+                        }
                         crate::settings::Effect::Plugins(effect) => match effect {
                             crate::plugins::Effect::Read(ticket) => Command::PluginsRead(ticket),
                             crate::plugins::Effect::Save {
@@ -6830,6 +6848,7 @@ impl App {
             loading: self.catalog_read.pending(),
             failed: self.model_controls.catalog_is_failed(),
             busy_enter: self.busy_enter,
+            coding_view: self.coding_view,
         }
     }
     /// The content-size delta for the body tier, and for the secondary tier that
@@ -8047,10 +8066,13 @@ impl App {
                 )
                 .into()
         };
-        row![tab("Chat", !expanded), tab("Trajectory", expanded)]
+        let mut tabs = row![tab("Chat", !expanded)]
             .spacing(design::TAB_GAP)
-            .padding([0.0, design::HEADER_TABS_INSET])
-            .into()
+            .padding([0.0, design::HEADER_TABS_INSET]);
+        if self.coding_view {
+            tabs = tabs.push(tab("Trajectory", expanded));
+        }
+        tabs.into()
     }
     fn transcript_tabs_visible(&self) -> bool {
         self.selected.is_some()
@@ -9518,6 +9540,9 @@ impl App {
         &self,
         row: &DisplayRow,
     ) -> Option<(u64, &dsh_native_transport::dto::ChangesSummary)> {
+        if !self.coding_view {
+            return None;
+        }
         let turn = row.turn?;
         let seq = self.transcript.changes_seq(turn)?;
         match self.changes.get(&seq)? {
@@ -16860,6 +16885,20 @@ mod tests {
         assert_eq!(app.schedule_edit.as_ref().unwrap().time, "14:45:00");
         assert!(app.at_picker.is_none());
         assert!(app.schedule_edit.as_ref().unwrap().at.is_empty());
+    }
+    #[test]
+    fn the_coding_view_toggle_is_local_state() {
+        let (mut app, _receiver) = managed_app();
+        let _ = app.update(Message::Settings(crate::settings::Action::Open));
+        assert!(app.coding_view);
+        assert!(app.settings_route_facts().coding_view);
+        let _ = app.update(Message::Settings(crate::settings::Action::CodingView(
+            false,
+        )));
+        assert!(!app.coding_view);
+        assert!(!app.settings_route_facts().coding_view);
+        let _ = app.update(Message::Settings(crate::settings::Action::CodingView(true)));
+        assert!(app.coding_view);
     }
     #[test]
     fn the_todo_dock_reads_the_latest_write_and_toggles() {

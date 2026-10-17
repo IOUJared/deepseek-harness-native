@@ -138,6 +138,8 @@ pub struct RouteFacts {
     pub permission: Option<PermissionDefault>,
     /// The busy-state Enter preference (`settings.general.item` in the reference).
     pub busy_enter: BusyEnter,
+    /// The native "Show coding view" preference (reference developer tools).
+    pub coding_view: bool,
 }
 
 /// The General page's permission row: the deployment's new-session default, the revision a
@@ -252,6 +254,8 @@ pub enum Action {
     PermissionDefault(String),
     /// Sets the busy-state Enter preference; the App owns and persists it.
     BusyEnter(BusyEnter),
+    /// Sets the "Show coding view" preference; the App owns and persists it.
+    CodingView(bool),
     Account(account::Action),
     Cloudflare(cloudflare::Action),
     Plugins(crate::plugins::Action),
@@ -290,6 +294,8 @@ pub enum Effect {
     Cloudflare(cloudflare::Effect),
     Plugins(crate::plugins::Effect),
     Codex(crate::codex::Effect),
+    /// The coding-view toggle is local state, not a worker call.
+    CodingView(bool),
     Read(Ticket),
     Save {
         ticket: Ticket,
@@ -831,6 +837,9 @@ impl Settings {
                 .plugins
                 .set_preference("session-log-deepseek", "enabled", enabled, context)
                 .map(Effect::Plugins);
+        }
+        if let Action::CodingView(enabled) = action {
+            return Some(Effect::CodingView(enabled));
         }
         if let Action::ToggleInfo { ticket, info } = action {
             // Local help is available even read-only. Never touches drafts, reviews or workers.
@@ -1452,6 +1461,25 @@ impl Settings {
                 ]
                 .spacing(6),
             );
+        // The reference's General page offers "Show coding view" (developer tools); native
+        // persists the same preference locally instead of reading a Host config form.
+        body = body.push(
+            row![
+                column![
+                    label("Show coding view", TEXT).size(13),
+                    label(
+                        "Shows Trajectory, code diffs, and all Agent presets.",
+                        MUTED,
+                    )
+                    .size(11),
+                ]
+                .spacing(2)
+                .width(Length::Fill),
+                checkbox(route.coding_view).on_toggle(Action::CodingView),
+            ]
+            .spacing(12)
+            .align_y(iced::Alignment::Center),
+        );
         // The reference's `ui-settings-session-log` row is one labelled switch, not the plugin
         // namespace editor (`UploadRow.tsx:31-39`): title, description and the single boolean
         // the Host advertises. Nothing is drawn when the namespace or its field is absent.

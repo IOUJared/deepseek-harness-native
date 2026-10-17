@@ -592,6 +592,9 @@ pub fn format_layout_width(width: f32) -> Option<String> {
 pub const LAYOUT_CONTENT_SIZE: &str = "layout.contentFontSize";
 /// Reserved key for the busy-state Enter preference; absent means Queue.
 pub const LAYOUT_BUSY_ENTER: &str = "layout.busyEnter";
+
+/// The General page's "Show coding view" preference; absent means on.
+pub const LAYOUT_CODING_VIEW: &str = "layout.codingView";
 /// Parse a stored content size. The offered range belongs to `design::content_size`,
 /// which maps anything it does not offer back to the default, so this rejects only
 /// what is not a usable number at all.

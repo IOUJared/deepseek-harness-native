@@ -44,7 +44,8 @@ diffs**, the **`@` file menu** and a **desktop-open action** now work end to end
 the reference's **developer-tools gate and sidebar review tab**, then workspace open; the
 **date and clock pickers** now serve the one-shot and daily/weekly editors and are
 keyboard-navigable, **assistant replies carry Like/Dislike feedback with a note/category dialog**,
-and the composer shows the **expandable todo dock**. Cross-session pending
+and the composer shows the **expandable todo dock**; a local **Show coding view** preference gates
+the coding surfaces. Cross-session pending
 status is still unavailable from the present wires. The `@` menu is keyboard-navigable and lists
 sessions beside files.
 
@@ -6191,6 +6192,32 @@ states.
 | --- | --- | --- |
 | app, fixture | **0** | **1206 passed**, 1 ignored |
 | app, default | **0** | **1199 passed**, 1 ignored |
+| transport | **0** | 55 + 17 + 82 + 7 (unchanged this round) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+### Round 312 — the coding-view preference
+
+**Settings → General now carries the reference's “Show coding view” switch as a local native
+preference.** It is on by default, persisted under `layout.codingView` (absent means on), and while
+off it hides the **Trajectory** tab and the changed-files card/diff entry points; the reference's
+own gate is the Host's `configForms.developerTools.enabled`, which native cannot read without that
+plugin, so this is a deliberate local substitute. One test covers the toggle through the settings
+action, the app state and the route fact.
+
+**No capture.** The settings-General fixture's control inventory and preset-state checks do not know
+the new row (the same class of failure as the feedback dialog), so no shot is claimed; the toggle is
+unit-tested. The full agent-preset gating in the reference's description is not implemented — native
+has no equivalent full preset selector to hide.
+
+**Battery (round 312).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1207 passed**, 1 ignored |
+| app, default | **0** | **1200 passed**, 1 ignored |
 | transport | **0** | 55 + 17 + 82 + 7 (unchanged this round) |
 | core (`--lib`) | **0** | **112 passed** (unchanged) |
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
