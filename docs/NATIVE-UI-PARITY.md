@@ -3347,3 +3347,16 @@ the five above rather than missing work.
    modes both reported "all attempts failed". The next round should read the example's accepted
    `--mode` values and flags rather than guess them, exactly as the earlier fixture rejections
    demanded.
+
+   **The fixture question is answered, and it was a flag rather than a mode.** The settings
+   surface renders on **`--mode chat-transcript --settings true`** — the defaults that already
+   existed — and `shots/85-settings-general-dp2.png` shows it: the General page with its sidebar
+   (General, Models, Built-in plugins, Codex, Agent presets, Cloudflare), the theme line, and the
+   three disclosures. My round-200 note had guessed at `general` and `settings` *modes*, which the
+   example refuses; the mode was never the problem.
+   What the capture also shows is why the new rows are not in it: **the Shortcuts disclosure is
+   collapsed** (`▸ Shortcuts`), because the fixture does not yet set `shortcuts_open`. So the
+   previous round's "unverified" stands, and the step that closes it is a **fixture flag** — a
+   `--shortcuts` entry in the accepted list and one line applying it, the same two-edit shape as
+   `--jobs` and `--jobs-open` before it, and the same trap: an unregistered flag is refused rather
+   than ignored.
