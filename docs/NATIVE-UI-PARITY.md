@@ -2759,3 +2759,20 @@ Since the round-145 update, all local and unpushed, gates green at each commit:
    frame or under the banner — then either narrow the panel or move its anchor, and re-run until
    those three fields flip. Recording the numbers rather than the theory is the point; the theory
    would have sent the next attempt after the wrong fix.
+
+   **Measured, and the cause is not the panel's size but its side.** The report's rects give it
+   away:
+   - `native-header` at `{x: 260, y: 32, w: 780, h: 75}`
+   - `native-header-crumbs` at `{x: 280, y: 43, w: 405.7, h: 28}`
+   - `native-jobs-action` at `{x: 482, y: 43.9, w: 203.7, h: 26.2}`
+   - **`native-jobs-panel` at `{x: 425.7, y: 0.0, w: 260, h: 189.4}`**
+   The frame begins at **y = 32** (the fixture banner occupies 0–32), so the panel's `y = 0`
+   places it **above the header and behind the banner** — which is exactly the three failures:
+   a known control outside the frame, text not collected, paint visibility unqualified.
+   The panel is 260×189, a sensible size; the fault is that the anchored popup laid it *upward*
+   from an action that sits 44px from the top of the window. The same helper works for the preset
+   seat because the seat lives mid-screen in the hero, where there is room above.
+   So the fix is a **direction or an anchor**, not a narrower card: the panel must lay downward
+   from the header, either by asking `anchored_popup` for that placement if it supports one or by
+   attaching the panel to a container that has the window's height beneath it. That is the next
+   step, and it is now a two-line question rather than an open one.
