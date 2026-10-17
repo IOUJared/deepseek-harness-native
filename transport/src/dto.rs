@@ -400,6 +400,33 @@ pub struct SessionPromptRequest {
 pub struct Accepted {
     pub accepted: bool,
 }
+/// One pending queue mutation (`QueueAction` in `api/session-controller/src/types.ts:183-190`).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum QueueAction {
+    /// Replace the queued item's content with non-empty text-only blocks.
+    Edit { content: Vec<QueueTextBlock> },
+    /// Drop the queued item.
+    Remove,
+    /// Steer the queued item into the running turn.
+    Steer,
+}
+/// One text block in a queue edit; the Host accepts no other block type.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QueueTextBlock {
+    #[serde(rename = "type")]
+    pub block_type: String,
+    pub text: String,
+}
+/// One pending queue mutation for one Session item.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionUpdateQueueRequest {
+    pub session_id: SessionId,
+    pub item_id: String,
+    pub action: QueueAction,
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum SessionAddress {

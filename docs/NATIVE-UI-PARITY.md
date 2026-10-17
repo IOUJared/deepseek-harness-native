@@ -36,10 +36,10 @@ fixture's direct `set_settings_open`, not the press.
 work in the Rust app, implemented in Rust, not left as a documented Web-only difference. The reuse
 point is the Host's canonical `/api/<namespace>/<method>` dispatcher, so adding typed endpoints to
 `dsh-native-transport` is in-bounds; what is out of bounds is rebuilding or forking the Host runtime
-in Rust. Keep coding without asking for permission. Order: queue actions (edit/remove/steer), then
-session search, workspace open, goal/schedule mutations and the deliverables diff. Cross-session
-pending status is still unavailable from the present wires. The four user-only items and the Iced
-list are unchanged.
+in Rust. Keep coding without asking for permission. `session/updateQueue` is now landed in the
+transport; the next item is its worker/app/UI half in the queue dock, then session search, workspace
+open, goal/schedule mutations and the deliverables diff. Cross-session pending status is still
+unavailable from the present wires.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -5338,3 +5338,17 @@ icon is also absent (no icon set).
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+### Round 279 — the canonical queue mutation endpoint (transport half)
+
+**`session/updateQueue` is a typed method on the Rust transport.** The endpoint
+(`Endpoint::UpdateQueue`, `session/updateQueue`), DTOs (`SessionUpdateQueueRequest`, `QueueAction`
+edit/remove/steer, text-only `QueueTextBlock`) and receipt (`Accepted`) match
+`api/session-controller/src/types.ts:183-190,407-416`. Validation rejects an empty/oversized item id,
+control characters, an empty edit, non-text blocks, whitespace-only text and edits over 32 KiB
+before any RPC slot is used. Host refusals are named: `session/queue-item-not-found` →
+`QueueItemNotFound`; `session/attachment-invalid`/`gateway/bad-request` → `QueueEditRejected`.
+
+Three tests cover the canonical serialization, the edit rules and the item-id bounds; the transport
+gate is **41 + 17 + 82 + 7** (originally 38 + 17 + 82 + 7). No worker/UI caller exists yet, so this
+round claims the endpoint only; the dock stays read-only until the next item.

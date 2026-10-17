@@ -50,6 +50,11 @@ pub enum Error {
     TerminalControlUnavailable,
     /// `terminal/limit-reached`: the Session's retained-terminal quota is exhausted.
     TerminalLimitReached,
+    /// `session/queue-item-not-found`: the queued item is gone, usually because it started
+    /// sending or was removed elsewhere. The caller must not retry blindly.
+    QueueItemNotFound,
+    /// The Host refused the queue edit (non-text content, empty text or a bad request).
+    QueueEditRejected,
     InvalidFrame,
     Sequence,
     QueueFull,
@@ -86,6 +91,8 @@ impl Error {
             Self::TerminalUnavailable => "terminal-unavailable",
             Self::TerminalControlUnavailable => "terminal-control-unavailable",
             Self::TerminalLimitReached => "terminal-limit-reached",
+            Self::QueueItemNotFound => "queue-item-not-found",
+            Self::QueueEditRejected => "queue-edit-rejected",
             Self::InvalidFrame => "invalid-frame",
             Self::Sequence => "sequence",
             Self::QueueFull => "queue-full",

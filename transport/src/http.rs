@@ -193,6 +193,7 @@ enum Endpoint {
     TerminalClose,
     CommandsList,
     CommandsExecute,
+    UpdateQueue,
 }
 impl Endpoint {
     fn name(self) -> &'static str {
@@ -206,6 +207,7 @@ impl Endpoint {
             Self::RenameSession => "session/rename",
             Self::ForkSession => "session/fork",
             Self::Cancel => "session/cancel",
+            Self::UpdateQueue => "session/updateQueue",
             Self::Page => "session/page",
             Self::AccountState => "account/getState",
             Self::WorkspaceCreate => "workspace/create",
@@ -467,6 +469,13 @@ impl NativeClient {
                         (Endpoint::AgentPresetSelect, Some("agentPreset/locked")) => {
                             Error::RemoteCode("agentPreset/locked")
                         }
+                        (Endpoint::UpdateQueue, Some("session/queue-item-not-found")) => {
+                            Error::QueueItemNotFound
+                        }
+                        (
+                            Endpoint::UpdateQueue,
+                            Some("session/attachment-invalid") | Some("gateway/bad-request"),
+                        ) => Error::QueueEditRejected,
 
                         (Endpoint::TerminalCreate, Some("terminal/limit-reached")) => {
                             Error::TerminalLimitReached
@@ -646,6 +655,19 @@ impl NativeClient {
         Ok(value)
     }
     /// Reserved one-operation lane. The BFF preserves queued inbox input; ACK is not idle.
+    /// Mutate one pending queue item: edit its text, remove it, or steer it into the
+    /// running turn. The receipt is the only acknowledgment; a missing item is a named
+    /// refusal (`QueueItemNotFound`), never a reason to retry blind.
+    pub async fn session_update_queue(
+        &self,
+        request: SessionUpdateQueueRequest,
+    ) -> Result<Accepted> {
+        validate_update_queue(&request)?;
+        accepted(
+            self.invoke(Endpoint::UpdateQueue, request_args(request)?)
+                .await?,
+        )
+    }
     pub async fn session_cancel(&self, session_id: &SessionId) -> Result<Accepted> {
         accepted(
             self.invoke(
@@ -1078,6 +1100,33 @@ fn agent_preset_of(value: serde_json::Value) -> Result<String> {
         .ok_or(crate::Error::InvalidDto)
 }
 
+/// Validate one queue mutation before it can leave the native queue. The Host enforces the
+/// same rules (`api/session-controller/src/commands.ts:510-527`); rejecting here keeps a bad
+/// edit from consuming an RPC slot.
+fn validate_update_queue(request: &SessionUpdateQueueRequest) -> Result<()> {
+    if request.item_id.is_empty()
+        || request.item_id.len() > 512
+        || request.item_id.chars().any(char::is_control)
+    {
+        return Err(Error::InvalidDto);
+    }
+    if let QueueAction::Edit { content } = &request.action {
+        if content.is_empty() {
+            return Err(Error::InvalidDto);
+        }
+        let mut total = 0usize;
+        for block in content {
+            if block.block_type != "text" || block.text.trim().is_empty() {
+                return Err(Error::InvalidDto);
+            }
+            total = total
+                .checked_add(block.text.len())
+                .filter(|total| *total <= 32 * 1024)
+                .ok_or(Error::InvalidDto)?;
+        }
+    }
+    Ok(())
+}
 pub(crate) fn request_args(value: impl Serialize) -> Result<Value> {
     serde_json::to_value(value)
         .map(|request| json!({"request":request}))
@@ -1194,5 +1243,89 @@ mod job_kill_tests {
         assert!(job_kill_outcome(json!(null)).is_err());
         assert!(job_kill_outcome(json!({"outcome": "requested-please"})).is_err());
         assert!(job_kill_outcome(json!({"outcome": 7})).is_err());
+    }
+}
+
+#[cfg(test)]
+mod update_queue_tests {
+    use super::validate_update_queue;
+    use crate::dto::{QueueAction, QueueTextBlock, SessionId, SessionUpdateQueueRequest};
+    use serde_json::json;
+
+    fn request(item_id: &str, action: QueueAction) -> SessionUpdateQueueRequest {
+        SessionUpdateQueueRequest {
+            session_id: SessionId::new("PUBLIC-session").unwrap(),
+            item_id: item_id.into(),
+            action,
+        }
+    }
+
+    fn edit(text: &str) -> SessionUpdateQueueRequest {
+        request(
+            "PUBLIC-item",
+            QueueAction::Edit {
+                content: vec![QueueTextBlock {
+                    block_type: "text".into(),
+                    text: text.into(),
+                }],
+            },
+        )
+    }
+
+    #[test]
+    fn a_queue_edit_serializes_to_the_canonical_shape() {
+        assert_eq!(
+            serde_json::to_value(edit("PUBLIC edit")).unwrap(),
+            json!({
+                "sessionId":"PUBLIC-session",
+                "itemId":"PUBLIC-item",
+                "action":{"kind":"edit","content":[{"type":"text","text":"PUBLIC edit"}]}
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(request("PUBLIC-item", QueueAction::Remove)).unwrap()["action"],
+            json!({"kind":"remove"})
+        );
+        assert_eq!(
+            serde_json::to_value(request("PUBLIC-item", QueueAction::Steer)).unwrap()["action"],
+            json!({"kind":"steer"})
+        );
+    }
+
+    #[test]
+    fn edits_are_text_only_nonempty_and_bounded() {
+        assert!(validate_update_queue(&edit("PUBLIC edit")).is_ok());
+        assert!(validate_update_queue(&request("PUBLIC-item", QueueAction::Remove)).is_ok());
+        assert!(validate_update_queue(&request("PUBLIC-item", QueueAction::Steer)).is_ok());
+        let empty = request(
+            "PUBLIC-item",
+            QueueAction::Edit {
+                content: Vec::new(),
+            },
+        );
+        assert!(validate_update_queue(&empty).is_err());
+        let image = request(
+            "PUBLIC-item",
+            QueueAction::Edit {
+                content: vec![QueueTextBlock {
+                    block_type: "image".into(),
+                    text: "PUBLIC".into(),
+                }],
+            },
+        );
+        assert!(validate_update_queue(&image).is_err());
+        assert!(validate_update_queue(&edit("   \n\t")).is_err());
+        assert!(validate_update_queue(&edit(&"x".repeat(32 * 1024))).is_ok());
+        assert!(validate_update_queue(&edit(&"x".repeat(32 * 1024 + 1))).is_err());
+    }
+
+    #[test]
+    fn queue_item_ids_are_bounded_and_control_free() {
+        assert!(validate_update_queue(&edit("PUBLIC")).is_ok());
+        for bad in ["", "line\nbreak", &"x".repeat(513)] {
+            let mut request = edit("PUBLIC");
+            request.item_id = bad.into();
+            assert!(validate_update_queue(&request).is_err(), "{bad:?}");
+        }
     }
 }
