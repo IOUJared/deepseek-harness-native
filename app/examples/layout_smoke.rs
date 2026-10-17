@@ -200,6 +200,8 @@ struct Options {
     schedule_history: bool,
     /// Begin editing the first scheduled task.
     schedule_edit: bool,
+    /// Open the one-shot calendar in the schedule editor.
+    schedule_at: bool,
     /// Expand the seeded changed-file list.
     changes_expanded: bool,
     /// Show the seeded `@` file-reference menu.
@@ -320,6 +322,7 @@ fn options() -> Result<Options, &'static str> {
             "--schedule-delete",
             "--schedule-history",
             "--schedule-edit",
+            "--schedule-at",
             "--changes-expanded",
             "--reference-menu",
             "--goal-inactive",
@@ -486,6 +489,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         schedule_edit: match values.remove("--schedule-edit") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        schedule_at: match values.remove("--schedule-at") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -901,6 +908,9 @@ impl Fixture {
         }
         if options.schedule_edit {
             app.begin_schedule_edit();
+        }
+        if options.schedule_at {
+            app.open_at_picker();
         }
         if options.changes_expanded {
             app.expand_seeded_changes();

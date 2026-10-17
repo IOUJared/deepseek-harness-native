@@ -41,9 +41,9 @@ search, the goal bar (pause/resume/edit/clear), the per-turn usage detail and th
 page** (catalog + delete + delivery history + title/instruction/timing edit) and the goal's
 **disarmed activation**, the timing-kind selector, an **expandable changed-file list with per-file
 diffs**, the **`@` file menu** and a **desktop-open action** now work end to end; the next items are
-the reference's **developer-tools gate and sidebar review tab**, its **date/time picker popovers**,
-then workspace open. Cross-session pending status is still unavailable from the present wires. The
-`@` menu is keyboard-navigable and lists sessions beside files.
+the reference's **developer-tools gate and sidebar review tab**, then workspace open; the
+**one-shot date and clock pickers** now exist. Cross-session pending status is still unavailable from
+the present wires. The `@` menu is keyboard-navigable and lists sessions beside files.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -6002,6 +6002,41 @@ application picker are not built; native always shows the deliverables row.
 | app, fixture | **0** | **1200 passed**, 1 ignored |
 | app, default | **0** | **1193 passed**, 1 ignored |
 | transport | **0** | **54 + 17 + 82 + 7** |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+### Round 306 — one-shot date and clock pickers
+
+**The one-shot editor now has native date and clock popovers.** **Date…** opens a month calendar
+under the trigger (‹ › month navigation, Monday-first weekday headings, a selected-day highlight and
+day buttons); **Time…** opens hour (00–23) and minute (00–59) grids. Picking a day or minute writes
+the staged RFC 3339 instant, preserving the other part and any zone suffix; the popover closes and
+the text field shows the result. `shots/139-schedules-at.png` shows the October 2026 calendar under a
+staged `2026-10-17T09:00:00Z`; the report is `status: passed`.
+
+**A correction from this work.** The expected record rebuilt when editing began omitted the
+displayed `scheduledAt`, because the catalog flatten excludes named fields; the Host's
+compare-and-update decodes the expected record completely and would have refused such an edit.
+`ScheduleEdit` now reinserts `scheduledAt`, and a test pins it. This applies to the round-291–292
+update path, not just the pickers.
+
+Two tests cover the calendar/clock writes and the expected `scheduledAt`; the date helpers cover
+leap February and Monday-first weekdays.
+
+**Deliberate limits.** The pickers serve only the one-shot `at`/`after` kind; daily/weekly time and
+zone remain text fields and cron stays text. The calendar has no year jump or keyboard navigation,
+the clock has no seconds, and both work in UTC (the stored instant is not converted to a local
+calendar). Only the calendar state is captured; the clock shares the same anchored mechanics.
+
+**Battery (round 306).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1202 passed**, 1 ignored |
+| app, default | **0** | **1195 passed**, 1 ignored |
+| transport | **0** | 54 + 17 + 82 + 7 (unchanged this round) |
 | core (`--lib`) | **0** | **112 passed** (unchanged) |
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |

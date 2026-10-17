@@ -314,6 +314,20 @@ pub enum Message {
     ToggleChanges(u64),
     /// Opens one changed file's comparison.
     OpenChanged(u64, usize),
+    /// Opens the one-shot date calendar.
+    AtPickerDate,
+    /// Opens the one-shot clock.
+    AtPickerTime,
+    /// Closes the one-shot picker.
+    AtPickerClose,
+    /// Moves the calendar one month.
+    AtPickerMonth(i32),
+    /// Picks one calendar day.
+    AtPickerDay(u32),
+    /// Picks a clock hour.
+    AtPickerHour(u8),
+    /// Picks a clock minute.
+    AtPickerMinute(u8),
     /// Inserts one `@` file-reference candidate into the draft.
     ReferencePick(String, String),
     /// Opens one changed file on the Host desktop.
@@ -745,6 +759,78 @@ struct WidthDrag {
     origin_x: Option<f32>,
     moved: bool,
 }
+/// The open one-shot picker: a month calendar or a clock.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AtPickerView {
+    Date { year: i32, month: u32 },
+    Time,
+}
+
+/// UTC civil date from the system clock, for a picker with no stored date.
+fn civil_today() -> (i32, u32, u32) {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let days = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs() / 86_400)
+        .unwrap_or(0) as i64;
+    // Howard Hinnant's civil_from_days.
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let mut year = yoe as i32 + era as i32 * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    if month <= 2 {
+        year += 1;
+    }
+    (year, month, day as u32)
+}
+fn days_in_month(year: i32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 => 29,
+        _ => 28,
+    }
+}
+/// Weekday of the first day of a month, Monday = 0.
+fn first_weekday(year: i32, month: u32) -> u32 {
+    let y = if month <= 2 { year - 1 } else { year };
+    let m = if month <= 2 { month + 12 } else { month } as i32;
+    let k = y.rem_euclid(100);
+    let j = y.div_euclid(100);
+    let h = (1 + (13 * (m + 1)) / 5 + k + k / 4 + j / 4 + 5 * j).rem_euclid(7);
+    // Zeller: h = 0 Saturday .. 6 Friday; Monday-first index.
+    ((h + 5) % 7) as u32
+}
+fn at_date_part(at: &str) -> Option<&str> {
+    let date = at.trim().split_once('T')?.0;
+    let mut parts = date.split('-');
+    let year = parts.next()?.parse::<i32>().ok()?;
+    let month = parts.next()?.parse::<u32>().ok()?;
+    let day = parts.next()?.parse::<u32>().ok()?;
+    if parts.next().is_some()
+        || !(1..=12).contains(&month)
+        || !(1..=days_in_month(year, month)).contains(&day)
+    {
+        return None;
+    }
+    Some(date)
+}
+fn at_time_parts(at: &str) -> Option<(u8, u8)> {
+    let time = at.trim().split_once('T')?.1;
+    let mut parts = time.split(':');
+    let hour = parts.next()?.parse::<u8>().ok()?;
+    let minute = parts.next()?.parse::<u8>().ok()?;
+    if hour > 23 || minute > 59 {
+        return None;
+    }
+    Some((hour, minute))
+}
+
 /// One turn's changed-file summary read state.
 enum ChangesState {
     Loading,
@@ -962,6 +1048,8 @@ pub struct App {
     background_reads_disabled: bool,
     /// The inline schedule editor.
     schedule_edit: Option<ScheduleEdit>,
+    /// The open one-shot date or clock picker.
+    at_picker: Option<AtPickerView>,
     /// The selected goal's process-local activation: (session, goal id, revision, activation).
     goal_activation: Option<(
         SessionId,
@@ -1277,6 +1365,7 @@ impl App {
                 pending_diff: None,
                 background_reads_disabled: false,
                 schedule_edit: None,
+                at_picker: None,
                 goal_activation: None,
                 schedule_history: None,
                 schedule_history_page: None,
@@ -3440,6 +3529,11 @@ impl App {
                     object.insert("id".into(), serde_json::json!(item.id));
                     object.insert("title".into(), serde_json::json!(item.title));
                     object.insert("kind".into(), serde_json::json!(item.kind));
+                    // `scheduledAt` is a displayed catalog field, so the flattened map omits it;
+                    // the Host's compare-and-update expects the complete record.
+                    if let Some(scheduled) = &item.scheduled_at {
+                        object.insert("scheduledAt".into(), serde_json::json!(scheduled));
+                    }
                 }
                 let field = |name: &str| {
                     expected
@@ -3591,6 +3685,94 @@ impl App {
             }
             Message::ScheduleEditCancel if self.schedules_open => {
                 self.schedule_edit = None;
+            }
+            Message::AtPickerDate if self.schedule_edit.is_some() => {
+                let at = self
+                    .schedule_edit
+                    .as_ref()
+                    .map(|edit| edit.at.clone())
+                    .unwrap_or_default();
+                let (year, month) = at_date_part(&at)
+                    .and_then(|date| {
+                        let mut parts = date.split('-');
+                        Some((
+                            parts.next()?.parse::<i32>().ok()?,
+                            parts.next()?.parse::<u32>().ok()?,
+                        ))
+                    })
+                    .unwrap_or_else(|| {
+                        let (year, month, _) = civil_today();
+                        (year, month)
+                    });
+                self.at_picker = Some(AtPickerView::Date { year, month });
+            }
+            Message::AtPickerTime if self.schedule_edit.is_some() => {
+                self.at_picker = Some(AtPickerView::Time);
+            }
+            Message::AtPickerClose => self.at_picker = None,
+            Message::AtPickerMonth(step) if self.schedule_edit.is_some() => {
+                if let Some(AtPickerView::Date { year, month }) = self.at_picker {
+                    let months = year * 12 + month as i32 - 1 + step;
+                    let year = months.div_euclid(12);
+                    let month = months.rem_euclid(12) as u32 + 1;
+                    self.at_picker = Some(AtPickerView::Date { year, month });
+                }
+            }
+            Message::AtPickerDay(day) if self.schedule_edit.is_some() => {
+                if let Some(AtPickerView::Date { year, month }) = self.at_picker
+                    && (1..=days_in_month(year, month)).contains(&day)
+                    && let Some(edit) = &mut self.schedule_edit
+                {
+                    let time = edit
+                        .at
+                        .split_once('T')
+                        .map(|(_, time)| time.to_owned())
+                        .filter(|time| !time.is_empty())
+                        .unwrap_or_else(|| "09:00:00Z".into());
+                    edit.at = format!("{year:04}-{month:02}-{day:02}T{time}");
+                    self.at_picker = None;
+                }
+            }
+            Message::AtPickerHour(hour) if self.schedule_edit.is_some() => {
+                if let Some(edit) = &mut self.schedule_edit
+                    && let Some((_, minute)) = at_time_parts(&edit.at).or(Some((9, 0)))
+                {
+                    let date = at_date_part(&edit.at)
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| {
+                            let (year, month, day) = civil_today();
+                            format!("{year:04}-{month:02}-{day:02}")
+                        });
+                    let zone = edit
+                        .at
+                        .split_once('T')
+                        .and_then(|(_, time)| time.splitn(3, ':').nth(2))
+                        .map(|rest| rest.trim_start_matches(|c: char| c.is_ascii_digit()))
+                        .filter(|zone| !zone.is_empty())
+                        .unwrap_or("Z");
+                    edit.at = format!("{date}T{hour:02}:{minute:02}:00{zone}");
+                }
+            }
+            Message::AtPickerMinute(minute) if self.schedule_edit.is_some() => {
+                if let Some(edit) = &mut self.schedule_edit
+                    && let Some((hour, _)) = at_time_parts(&edit.at).or(Some((9, 0)))
+                {
+                    let date = at_date_part(&edit.at)
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| {
+                            let (year, month, day) = civil_today();
+                            format!("{year:04}-{month:02}-{day:02}")
+                        });
+                    let zone = edit
+                        .at
+                        .split_once('T')
+                        .and_then(|(_, time)| time.splitn(3, ':').nth(2))
+                        .map(|rest| rest.trim_start_matches(|c: char| c.is_ascii_digit()))
+                        .filter(|zone| !zone.is_empty())
+                        .unwrap_or("Z");
+                    edit.at = format!("{date}T{hour:02}:{minute:02}:00{zone}");
+                    self.at_picker = None;
+                }
             }
             Message::ScheduleEditSave if self.schedules_open => {
                 let Some(edit) = self.schedule_edit.clone() else {
@@ -6596,6 +6778,14 @@ impl App {
         );
     }
 
+    /// Fixture-only: open the one-shot calendar, which a real run opens after switching to At.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn open_at_picker(&mut self) {
+        self.begin_schedule_edit();
+        let _ = self.update(Message::ScheduleEditKind("at".into()));
+        let _ = self.update(Message::AtPickerDate);
+    }
+
     /// Fixture-only: begin editing the first scheduled task, which a real run starts by press.
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn begin_schedule_edit(&mut self) {
@@ -8890,6 +9080,139 @@ impl App {
             ChangesState::Ready(summary) if !summary.files.is_empty() => Some((seq, summary)),
             _ => None,
         }
+    }
+    /// The one-shot date trigger and its anchored month calendar.
+    fn at_date_control(&self, at: &str) -> Element<'_, Message> {
+        let anchor = button(label("Date…", MUTED).size(10))
+            .on_press(Message::AtPickerDate)
+            .style(design::ghost)
+            .padding([2, 6]);
+        let popup = matches!(self.at_picker, Some(AtPickerView::Date { .. }))
+            .then(|| self.at_date_panel(at));
+        anchored_popup::anchored_below(anchor.into(), popup, Message::AtPickerClose)
+    }
+    /// The one-shot clock trigger and its anchored hour/minute grid.
+    fn at_time_control(&self, at: &str) -> Element<'_, Message> {
+        let anchor = button(label("Time…", MUTED).size(10))
+            .on_press(Message::AtPickerTime)
+            .style(design::ghost)
+            .padding([2, 6]);
+        let popup =
+            matches!(self.at_picker, Some(AtPickerView::Time)).then(|| self.at_time_panel(at));
+        anchored_popup::anchored_below(anchor.into(), popup, Message::AtPickerClose)
+    }
+    fn at_date_panel(&self, at: &str) -> Element<'_, Message> {
+        let Some(AtPickerView::Date { year, month }) = self.at_picker else {
+            return Space::new().into();
+        };
+        let selected = at_date_part(at);
+        let first = first_weekday(year, month);
+        let days = days_in_month(year, month);
+        let mut weeks = column![].spacing(2);
+        let mut week = row![].spacing(2);
+        for _ in 0..first {
+            week = week.push(Space::new().width(24));
+        }
+        for day in 1..=days {
+            let date = format!("{year:04}-{month:02}-{day:02}");
+            let current = selected == Some(date.as_str());
+            week = week.push(
+                button(label(format!("{day}"), if current { ACCENT } else { MUTED }).size(9))
+                    .on_press(Message::AtPickerDay(day))
+                    .style(design::ghost)
+                    .padding([2, 3])
+                    .width(24),
+            );
+            if (first + day) % 7 == 0 {
+                weeks = weeks.push(week);
+                week = row![].spacing(2);
+            }
+        }
+        if (first + days) % 7 != 0 {
+            weeks = weeks.push(week);
+        }
+        let mut labels = row![].spacing(2);
+        for name in ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"] {
+            labels = labels.push(label(name, MUTED).size(8).width(24));
+        }
+        container(
+            column![
+                row![
+                    button(label("‹", MUTED).size(11))
+                        .on_press(Message::AtPickerMonth(-1))
+                        .style(design::ghost)
+                        .padding([1, 5]),
+                    label(format!("{year:04}-{month:02}"), TEXT).size(11),
+                    button(label("›", MUTED).size(11))
+                        .on_press(Message::AtPickerMonth(1))
+                        .style(design::ghost)
+                        .padding([1, 5]),
+                ]
+                .spacing(6)
+                .align_y(iced::Alignment::Center),
+                labels,
+                weeks,
+            ]
+            .spacing(4),
+        )
+        .padding(6)
+        .style(|_| design::card(SURFACE, design::RADIUS_SM))
+        .into()
+    }
+    fn at_time_panel(&self, at: &str) -> Element<'_, Message> {
+        let (hour, minute) = at_time_parts(at).unwrap_or((9, 0));
+        let mut hours = column![].spacing(2);
+        for start in (0..24).step_by(8) {
+            let mut line = row![].spacing(2);
+            for value in start..(start + 8).min(24) {
+                line = line.push(
+                    button(
+                        label(
+                            format!("{value:02}"),
+                            if value == hour { ACCENT } else { MUTED },
+                        )
+                        .size(9),
+                    )
+                    .on_press(Message::AtPickerHour(value))
+                    .style(design::ghost)
+                    .padding([2, 3])
+                    .width(24),
+                );
+            }
+            hours = hours.push(line);
+        }
+        let mut minutes = column![].spacing(2);
+        for start in (0..60).step_by(10) {
+            let mut line = row![].spacing(2);
+            for value in start..(start + 10).min(60) {
+                line = line.push(
+                    button(
+                        label(
+                            format!("{value:02}"),
+                            if value == minute { ACCENT } else { MUTED },
+                        )
+                        .size(9),
+                    )
+                    .on_press(Message::AtPickerMinute(value))
+                    .style(design::ghost)
+                    .padding([2, 3])
+                    .width(24),
+                );
+            }
+            minutes = minutes.push(line);
+        }
+        container(
+            column![
+                label(format!("Hours · {hour:02}"), MUTED).size(9),
+                hours,
+                label(format!("Minutes · {minute:02}"), MUTED).size(9),
+                minutes,
+            ]
+            .spacing(4),
+        )
+        .padding(6)
+        .style(|_| design::card(SURFACE, design::RADIUS_SM))
+        .into()
     }
     /// The one-line changed-files reading for a reply's turn, when its summary is ready.
     fn changes_line(&self, row: &DisplayRow) -> Option<String> {
@@ -12558,7 +12881,14 @@ impl App {
                                 "Instant (RFC 3339)",
                                 &edit.at,
                                 Message::ScheduleEditAt,
-                            ));
+                            ))
+                            .push(
+                                row![
+                                    self.at_date_control(&edit.at),
+                                    self.at_time_control(&edit.at),
+                                ]
+                                .spacing(4),
+                            );
                     }
                     _ => {}
                 }
@@ -15987,6 +16317,86 @@ mod tests {
             Some(serde_json::json!({"kind":"weekly","weekly":{
                 "time":"09:00:00","time_zone":"UTC","weekdays":[2,4]}}))
         );
+    }
+    #[test]
+    fn the_expected_record_keeps_the_displayed_scheduled_at() {
+        use dsh_native_transport::dto::ScheduleCatalogItem;
+        let (mut app, _receiver) = managed_app();
+        let session = app.selected.clone().unwrap();
+        app.schedules_open = true;
+        app.schedules = vec![ScheduleCatalogItem {
+            id: "PUBLIC-schedule".into(),
+            title: "PUBLIC task".into(),
+            kind: "daily".into(),
+            session_id: session.clone(),
+            status: "active".into(),
+            scheduled_at: Some("2026-10-17T09:00:00Z".into()),
+            last_delivery: None,
+            record: serde_json::json!({"prompt":"PUBLIC","time":"09:00:00","timeZone":"UTC"})
+                .as_object()
+                .unwrap()
+                .clone(),
+        }];
+        let _ = app.update(Message::ScheduleEdit(session, "PUBLIC-schedule".into()));
+        assert_eq!(
+            app.schedule_edit.as_ref().unwrap().expected["scheduledAt"],
+            "2026-10-17T09:00:00Z"
+        );
+    }
+    #[test]
+    fn the_calendar_and_clock_write_the_one_shot_instant() {
+        assert_eq!(days_in_month(2026, 2), 28);
+        assert_eq!(days_in_month(2024, 2), 29);
+        assert_eq!(first_weekday(1970, 1), 3);
+        assert_eq!(first_weekday(2026, 10), 3);
+        let (mut app, _receiver) = managed_app();
+        app.schedule_edit = Some(ScheduleEdit {
+            session: app.selected.clone().unwrap(),
+            expected: serde_json::json!({"kind":"at"}),
+            kind: "at".into(),
+            title: "PUBLIC".into(),
+            prompt: "PUBLIC".into(),
+            time: String::new(),
+            zone: String::new(),
+            weekdays: String::new(),
+            every: String::new(),
+            cron: String::new(),
+            at: "2026-10-17T09:30:00Z".into(),
+        });
+        let _ = app.update(Message::AtPickerDate);
+        assert_eq!(
+            app.at_picker,
+            Some(AtPickerView::Date {
+                year: 2026,
+                month: 10
+            })
+        );
+        let _ = app.update(Message::AtPickerMonth(1));
+        assert_eq!(
+            app.at_picker,
+            Some(AtPickerView::Date {
+                year: 2026,
+                month: 11
+            })
+        );
+        let _ = app.update(Message::AtPickerDay(5));
+        assert_eq!(
+            app.schedule_edit.as_ref().unwrap().at,
+            "2026-11-05T09:30:00Z"
+        );
+        assert!(app.at_picker.is_none());
+        let _ = app.update(Message::AtPickerTime);
+        let _ = app.update(Message::AtPickerHour(14));
+        assert_eq!(
+            app.schedule_edit.as_ref().unwrap().at,
+            "2026-11-05T14:30:00Z"
+        );
+        let _ = app.update(Message::AtPickerMinute(45));
+        assert_eq!(
+            app.schedule_edit.as_ref().unwrap().at,
+            "2026-11-05T14:45:00Z"
+        );
+        assert!(app.at_picker.is_none());
     }
     #[test]
     fn a_changed_file_can_be_opened_on_the_desktop() {
