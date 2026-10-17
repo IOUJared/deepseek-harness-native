@@ -4263,3 +4263,31 @@ and the `Ctrl+V` cost still cited.
    it — the `Restore default`/`Remove` pattern, inserted the same way — keeps the row's structure
    untouched, and the capture branch is already written and waiting for exactly one setter of
    `capture_for`.
+
+### Closing evidence (round 255)
+
+| measure | value |
+|---|---|
+| commits in this repository | **340** |
+| commits in this working day | **278** |
+| numbered captures (`shots/78-…` … `95-…`) | **34** |
+| evidence PNGs mirrored in `app/evidence/` | **40** |
+| keybinding tests | **20** |
+| this document | **4,265 lines** |
+| working tree | **clean** |
+
+**Last full battery (round 249, after all four editor features):** app fixture **1134**, app default
+**1127**, transport **17 + 82 + 7**, core **112**, JS **419 / 0**, format **0**. Every suite has been
+re-run green in each round since, and the last two rounds' reverts left the tree and the format gate
+clean.
+
+**What this stretch did:** finished background jobs end to end (panel, dots, kill with its two-click
+confirmation, the per-job output stream, the expansion with the reference's gap copy); built the
+shortcuts editor's store, catalog, resolver, trigger, sorted rows, "Modified", Remove, Restore
+default, the customized count, the Host commands group and the guarded restore-all; and recorded
+**twelve self-corrections**, **nine reverted structural edits**, and the four rules those failures
+produced — each with the evidence that made it undeniable.
+
+**What remains, for a context with room:** the capture flow's arming (one setter of
+`Settings::capture_for` plus a separate button — *not* the keys label), keys as data (round 227), the
+user's four items (round 230), and the Iced-blocked chip.
