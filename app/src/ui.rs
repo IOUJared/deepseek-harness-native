@@ -264,6 +264,8 @@ pub enum Message {
     ScheduleEditTitle(String),
     /// Updates the schedule instruction draft.
     ScheduleEditPrompt(String),
+    /// Switches the timing kind the editor drafts.
+    ScheduleEditKind(String),
     /// Updates the schedule time draft.
     ScheduleEditTime(String),
     /// Updates the schedule time-zone draft.
@@ -741,6 +743,8 @@ struct WidthDrag {
 struct ScheduleEdit {
     session: SessionId,
     expected: serde_json::Value,
+    /// The timing kind the drafts describe; may differ from the expected record's kind.
+    kind: String,
     title: String,
     prompt: String,
     time: String,
@@ -755,12 +759,7 @@ impl ScheduleEdit {
     /// The timing change for the expected record's own kind. Plain text fields stand in for the
     /// reference's pickers; the Host still validates the wall-clock/cron grammar and zone.
     fn timing_change(&self) -> Result<serde_json::Value, &'static str> {
-        let kind = self
-            .expected
-            .get("kind")
-            .and_then(serde_json::Value::as_str)
-            .ok_or("Schedule record has no kind")?;
-        match kind {
+        match self.kind.as_str() {
             "daily" => {
                 if self.time.trim().is_empty() || self.zone.trim().is_empty() {
                     return Err("Daily timing needs a time and a time zone");
@@ -3410,8 +3409,14 @@ impl App {
                     .and_then(serde_json::Value::as_u64)
                     .map(|seconds| seconds.to_string())
                     .unwrap_or_default();
+                let kind = expected
+                    .get("kind")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("")
+                    .to_owned();
                 let edit = ScheduleEdit {
                     session,
+                    kind,
                     prompt: field("prompt"),
                     time: field("time"),
                     zone: field("timeZone"),
@@ -3439,6 +3444,52 @@ impl App {
                     && value.len() <= 4096
                 {
                     edit.prompt = value;
+                }
+            }
+            Message::ScheduleEditKind(value) if self.schedules_open => {
+                let kinds = ["at", "every", "daily", "weekly", "cron"];
+                if !kinds.contains(&value.as_str()) {
+                    return Task::none();
+                }
+                if let Some(edit) = &mut self.schedule_edit {
+                    if edit.kind == value {
+                        return Task::none();
+                    }
+                    edit.kind = value;
+                    match edit.kind.as_str() {
+                        "daily" | "weekly" => {
+                            if edit.time.trim().is_empty() {
+                                edit.time = "09:00:00".into();
+                            }
+                            if edit.zone.trim().is_empty() {
+                                edit.zone = "UTC".into();
+                            }
+                        }
+                        "every" => {
+                            if edit.every.trim().is_empty() {
+                                edit.every = "3600".into();
+                            }
+                        }
+                        "cron" => {
+                            if edit.cron.trim().is_empty() {
+                                edit.cron = "0 9 * * *".into();
+                            }
+                            if edit.zone.trim().is_empty() {
+                                edit.zone = "UTC".into();
+                            }
+                        }
+                        "at" => {
+                            if edit.at.trim().is_empty() {
+                                edit.at = edit
+                                    .expected
+                                    .get("scheduledAt")
+                                    .and_then(serde_json::Value::as_str)
+                                    .unwrap_or("")
+                                    .to_owned();
+                            }
+                        }
+                        _ => {}
+                    }
                 }
             }
             Message::ScheduleEditTime(value) if self.schedules_open => {
@@ -11785,11 +11836,22 @@ impl App {
                 && edit.expected.get("id").and_then(serde_json::Value::as_str)
                     == Some(item.id.as_str())
             {
-                let kind = edit
-                    .expected
-                    .get("kind")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("");
+                let kind = edit.kind.as_str();
+                let mut kind_row = row![label("Timing kind", MUTED).size(10)].spacing(4);
+                for (id, name) in [
+                    ("at", "At"),
+                    ("every", "Every"),
+                    ("daily", "Daily"),
+                    ("weekly", "Weekly"),
+                    ("cron", "Cron"),
+                ] {
+                    kind_row = kind_row.push(
+                        button(label(name, if edit.kind == id { ACCENT } else { MUTED }).size(10))
+                            .on_press(Message::ScheduleEditKind(id.into()))
+                            .style(design::ghost)
+                            .padding([2, 6]),
+                    );
+                }
                 let mut fields = column![
                     label(short(&item.title, 80), TEXT).size(14),
                     text_input("Task name", &edit.title)
@@ -11804,6 +11866,7 @@ impl App {
                         .width(Length::Fill),
                 ]
                 .spacing(4);
+                fields = fields.push(kind_row);
                 let field =
                     |placeholder: &'static str, value: &str, message: fn(String) -> Message| {
                         text_input(placeholder, value)
@@ -15222,6 +15285,7 @@ mod tests {
         let edit = |kind: &str| ScheduleEdit {
             session: SessionId::new("PUBLIC-session").unwrap(),
             expected: serde_json::json!({"kind": kind}),
+            kind: kind.into(),
             title: "PUBLIC title".into(),
             prompt: "PUBLIC prompt".into(),
             time: "09:00:00".into(),
@@ -15263,6 +15327,46 @@ mod tests {
         invalid.zone.clear();
         assert!(invalid.timing_change().is_err());
         assert!(edit("future").timing_change().is_err());
+    }
+    #[test]
+    fn switching_the_timing_kind_sends_that_kinds_change() {
+        use dsh_native_transport::dto::ScheduleCatalogItem;
+        let (mut app, mut receiver) = managed_app();
+        let session = app.selected.clone().unwrap();
+        app.schedules_open = true;
+        app.schedules = vec![ScheduleCatalogItem {
+            id: "PUBLIC-schedule".into(),
+            title: "PUBLIC task".into(),
+            kind: "daily".into(),
+            session_id: session.clone(),
+            status: "active".into(),
+            scheduled_at: None,
+            last_delivery: None,
+            record: serde_json::json!({"prompt":"PUBLIC instruction",
+                "time":"09:00:00","timeZone":"UTC"})
+            .as_object()
+            .unwrap()
+            .clone(),
+        }];
+        let _ = app.update(Message::ScheduleEdit(session, "PUBLIC-schedule".into()));
+        let _ = app.update(Message::ScheduleEditKind("weekly".into()));
+        let edit = app.schedule_edit.as_ref().unwrap();
+        assert_eq!(edit.kind, "weekly");
+        assert_eq!(edit.time, "09:00:00");
+        assert_eq!(edit.zone, "UTC");
+        let _ = app.update(Message::ScheduleEditWeekdays("2,4".into()));
+        let _ = app.update(Message::ScheduleEditSave);
+        let mut change = None;
+        while let Ok(command) = receiver.try_recv() {
+            if let Command::ScheduleUpdate { change: sent, .. } = command {
+                change = sent;
+            }
+        }
+        assert_eq!(
+            change,
+            Some(serde_json::json!({"kind":"weekly","weekly":{
+                "time":"09:00:00","time_zone":"UTC","weekdays":[2,4]}}))
+        );
     }
     #[test]
     fn schedule_history_loads_older_pages_with_the_cursor() {

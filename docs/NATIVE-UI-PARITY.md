@@ -39,9 +39,9 @@ point is the Host's canonical `/api/<namespace>/<method>` dispatcher, so adding 
 in Rust. Keep coding without asking for permission. Queue edit/remove/steer, full-text content
 search, the goal bar (pause/resume/edit/clear), the per-turn usage detail and the **scheduled-tasks
 page** (catalog + delete + delivery history + title/instruction/timing edit) and the goal's
-**disarmed activation** now work end to end; the next items are the reference's **date/time pickers
-and timing-kind selector**, then workspace open and the deliverables diff. Cross-session pending
-status is still unavailable from the present wires.
+**disarmed activation** now work end to end, including a timing-kind selector; the next items are
+the reference's **date/time picker popovers**, then workspace open and the deliverables diff.
+Cross-session pending status is still unavailable from the present wires.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -5734,6 +5734,36 @@ does not display the saved instruction or timing.
 | app, fixture | **0** | **1193 passed**, 1 ignored |
 | app, default | **0** | **1186 passed**, 1 ignored |
 | transport | **0** | **49 + 17 + 82 + 7** |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+### Round 295 — the schedule timing-kind selector
+
+**The schedule editor can now switch the timing kind.** A row of **At / Every / Daily / Weekly /
+Cron** buttons marks the drafted kind; switching fills safe defaults for the new fields (a local
+time/zone for wall-clock kinds, `3600` for every, `0 9 * * *` for cron, the record's `scheduledAt`
+for a one-shot) while preserving typed values. Save builds the change for the drafted kind, so the
+timing kind can differ from the expected record's, as the Host's update contract allows.
+`shots/135-schedules-edit.png` shows the selector with Daily selected; the report is
+`status: passed`.
+
+One test switches a daily row to weekly, sets `2,4`, and asserts the sent change is
+`{kind:'weekly',weekly:{time,time_zone,weekdays:[2,4]}}`.
+
+**Deliberate difference.** The reference's DatePicker/ClockPicker popovers are still replaced by
+labelled text fields; switching kinds therefore asks for correct wall-clock/cron grammar rather
+than offering a calendar/clock control. The row still does not display the saved instruction or
+timing.
+
+**Battery (round 295).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1194 passed**, 1 ignored |
+| app, default | **0** | **1187 passed**, 1 ignored |
+| transport | **0** | 49 + 17 + 82 + 7 (unchanged this round) |
 | core (`--lib`) | **0** | **112 passed** (unchanged) |
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
