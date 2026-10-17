@@ -3438,3 +3438,16 @@ the five above rather than missing work.
    `git checkout` restored the module — eleven tests still pass — and the next attempt should
    **read the `Edit` enum's exact lines first**, then add the variant and the operation in one
    pass. That is one grep, and it is the only thing standing between the store and completeness.
+
+   **The store is complete: `reset_all` landed on the first attempt once the enum was read.**
+   `Edit::ResetAll` exists, `Store::reset_all(reviewed_revision)` restores **every** command to its
+   default under the same revision rule — a stale caller changes nothing and is handed the form to
+   retry — and the two single-command matches answer the new form explicitly rather than by
+   fallthrough. A test covers both halves the copy promises: a **cleared** binding and a
+   **replaced** one are both restored, and the stale path leaves the store untouched.
+   Verified: fixture **1126** exit 0 (twelve keybinding tests), default **1119** exit 0,
+   format-debt 0.
+   The contrast with round 206 is the whole lesson: the same edit failed when its anchor was
+   written from memory and succeeded when the enum's exact lines were read first — one grep,
+   one attempt, no correction. The store now carries every operation its surface's copy names:
+   set, clear, reset one, reset all, the conflict lookup and the modified count.

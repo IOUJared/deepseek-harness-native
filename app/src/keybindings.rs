@@ -42,6 +42,8 @@ pub enum Edit {
     Reset {
         id: String,
     },
+    /// Every command back to its default; the confirmation's subject.
+    ResetAll,
 }
 
 /// The store's answer. `Saved` carries the new revision; `Stale` re-arms the edit so the editor
@@ -106,6 +108,8 @@ impl Store {
         }
         let id = match &edit {
             Edit::Set { id, .. } | Edit::Reset { id } => id.clone(),
+            // The all-command form never reaches the single-command path.
+            Edit::ResetAll => return self.reset_all(reviewed_revision),
         };
         let Some(entry) = self.entries.get_mut(&id) else {
             return Outcome::Unknown { id };
@@ -113,6 +117,27 @@ impl Store {
         match edit {
             Edit::Set { binding, .. } => entry.binding = binding,
             Edit::Reset { .. } => entry.binding = entry.default.clone(),
+            Edit::ResetAll => unreachable!("handled before the catalog lookup"),
+        }
+        self.revision += 1;
+        Outcome::Saved {
+            revision: self.revision,
+        }
+    }
+
+    /// Restore **every** command to its default — the action behind "Restore all defaults" and
+    /// its confirmation, whose own copy promises that "all modified or removed shortcuts will be
+    /// restored" (`locales.ts:49-50`). It carries the same revision rule as a single edit: a stale
+    /// caller changes nothing and is handed the form to retry.
+    pub fn reset_all(&mut self, reviewed_revision: u64) -> Outcome {
+        if reviewed_revision != self.revision {
+            return Outcome::Stale {
+                revision: self.revision,
+                retry: Edit::ResetAll,
+            };
+        }
+        for entry in self.entries.values_mut() {
+            entry.binding = entry.default.clone();
         }
         self.revision += 1;
         Outcome::Saved {
@@ -526,6 +551,40 @@ mod tests {
         assert_eq!(display(&escape), "Escape");
         let up = binding_from(&Key::Named(Named::ArrowUp), Modifiers::empty()).unwrap();
         assert_eq!(display(&up), "ArrowUp");
+    }
+
+    #[test]
+    fn reset_all_restores_every_default_and_honours_the_reviewed_revision() {
+        let mut store = store();
+        store.apply(
+            Edit::Set {
+                id: "palette".to_owned(),
+                binding: None,
+            },
+            0,
+        );
+        store.apply(
+            Edit::Set {
+                id: "send".to_owned(),
+                binding: Some(binding("KeyJ")),
+            },
+            1,
+        );
+        assert_eq!(modified_count(&store), 2);
+        // A stale reset-all changes nothing and hands the caller the form to retry.
+        assert!(matches!(
+            store.reset_all(0),
+            Outcome::Stale {
+                revision: 2,
+                retry: Edit::ResetAll
+            }
+        ));
+        assert_eq!(modified_count(&store), 2);
+        // At the reviewed revision it restores both the cleared and the replaced binding.
+        assert_eq!(store.reset_all(2), Outcome::Saved { revision: 3 });
+        assert_eq!(modified_count(&store), 0);
+        assert_eq!(store.binding("palette"), Some(Some(&binding("Slash"))));
+        assert_eq!(store.binding("send"), Some(Some(&binding("Enter"))));
     }
 
     #[test]
