@@ -3737,3 +3737,17 @@ it now rests on a gate that was run whole.
    format-debt 0. The settings edit needed found-line surgery rather than a text anchor — its block
    had been reformatted since it was written — which is the fourth time that pattern applied and
    the reason the first attempt aborted cleanly with the module side already saved.
+
+   **The invocation layer closes the module's half of the last capability.** `Invoke` names what a
+   resolved binding should do in the module's own vocabulary — Navigation, Find, Send, Newline,
+   Close — and `invoke_for(id)` maps a catalog id to it, or `None` for anything this app does not
+   implement. The test asserts the two tables agree **exactly** (no catalog row without an action),
+   that a Host command and an empty id are both `None`, and then walks the whole path a press takes:
+   **key → binding → command → action**, from `Ctrl+F` to `Invoke::Find`. It also asserts that the
+   trigger (`Ctrl+/`) resolves to **no** catalog command, because the trigger is the reference's
+   `shortcuts.open` rather than one of this app's five — a distinction the test now enforces.
+   Verified: fixture **1134** exit 0 (twenty keybinding tests), default **1127** exit 0,
+   format-debt 0.
+   What remains is the app's half: mapping `Invoke` onto the message each hardcoded key already
+   sends, so the five paths run through the store. That is one `match`, and it is the only place
+   where "the store is consulted" becomes behaviour rather than data.

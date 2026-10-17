@@ -300,6 +300,31 @@ pub fn is_trigger(key: &iced::keyboard::Key, modifiers: iced::keyboard::Modifier
     matches(&trigger, key, modifiers)
 }
 
+/// What a resolved binding should do, in the module's own vocabulary: the app maps each to the
+/// message its hardcoded key already sends, so routing a key through the store does not duplicate
+/// the app's behaviour — it renames the path to it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Invoke {
+    Navigation,
+    Find,
+    Send,
+    Newline,
+    Close,
+}
+
+/// The action a command id stands for. `None` means the id is not one this app implements, which
+/// is the honest answer for a Host command it lists but cannot run from a key yet.
+pub fn invoke_for(id: &str) -> Option<Invoke> {
+    match id {
+        "fixed.navigation" => Some(Invoke::Navigation),
+        "fixed.find" => Some(Invoke::Find),
+        "fixed.send" => Some(Invoke::Send),
+        "fixed.newline" => Some(Invoke::Newline),
+        "fixed.close" => Some(Invoke::Close),
+        _ => None,
+    }
+}
+
 /// This app's own catalog: every command it binds, with the label its disclosure shows and
 /// `core: true` — the shapes the editor draws. It is derived from `native_fixed()` for the ids and
 /// defaults, so a binding cannot exist without a row and a row cannot exist without a binding.
@@ -673,6 +698,33 @@ mod tests {
         assert_eq!(display(&escape), "Escape");
         let up = binding_from(&Key::Named(Named::ArrowUp), Modifiers::empty()).unwrap();
         assert_eq!(display(&up), "ArrowUp");
+    }
+
+    #[test]
+    fn every_catalog_command_maps_to_an_invocation_and_unknown_ids_do_not() {
+        // The catalog and the invocation table agree exactly: no row without an action.
+        for (id, _, _) in native_catalog() {
+            assert!(invoke_for(&id).is_some(), "{id} has no invocation");
+        }
+        assert_eq!(invoke_for("fixed.send"), Some(Invoke::Send));
+        assert_eq!(invoke_for("fixed.newline"), Some(Invoke::Newline));
+        // A Host command, or anything else, is not an action this app can take.
+        assert_eq!(invoke_for("session.compact"), None);
+        assert_eq!(invoke_for(""), None);
+        // And the whole path a press takes: key → binding → command → action.
+        let store = Store::new(native_fixed());
+        let pressed = resolve(
+            &store,
+            &iced::keyboard::Key::Character("/".into()),
+            iced::keyboard::Modifiers::CTRL,
+        );
+        assert_eq!(pressed, None, "the trigger is not a catalog command");
+        let find = resolve(
+            &store,
+            &iced::keyboard::Key::Character("f".into()),
+            iced::keyboard::Modifiers::CTRL,
+        );
+        assert_eq!(find.and_then(invoke_for), Some(Invoke::Find));
     }
 
     #[test]
