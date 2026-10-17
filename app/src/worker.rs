@@ -94,6 +94,8 @@ pub enum Command {
         message_id: String,
         rating: String,
         if_version: Option<String>,
+        note: Option<String>,
+        category: Option<String>,
     },
     /// Remove one message's feedback.
     FeedbackDelete {
@@ -2517,8 +2519,8 @@ async fn run(
                         seq,
                         result:client.changes_summary(&session,seq).await.map_err(|error|format!("Changed files: {error}")),
                     },
-                    Command::FeedbackPut{session,message_id,rating,if_version}=>Event::FeedbackWritten{
-                        result:client.message_feedback_put(&session,&message_id,&rating,if_version.as_deref()).await.map_err(|error|format!("Feedback: {error}")),
+                    Command::FeedbackPut{session,message_id,rating,if_version,note,category}=>Event::FeedbackWritten{
+                        result:client.message_feedback_put(&session,&message_id,&rating,if_version.as_deref(),note.as_deref(),category.as_deref()).await.map_err(|error|format!("Feedback: {error}")),
                         session,
                         message_id,
                     },

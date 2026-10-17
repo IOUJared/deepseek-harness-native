@@ -43,7 +43,8 @@ page** (catalog + delete + delivery history + title/instruction/timing edit) and
 diffs**, the **`@` file menu** and a **desktop-open action** now work end to end; the next items are
 the reference's **developer-tools gate and sidebar review tab**, then workspace open; the
 **date and clock pickers** now serve the one-shot and daily/weekly editors and are
-keyboard-navigable, and **assistant replies carry Like/Dislike feedback**. Cross-session pending
+keyboard-navigable, and **assistant replies carry Like/Dislike feedback with a note/category
+dialog**. Cross-session pending
 status is still unavailable from the present wires. The `@` menu is keyboard-navigable and lists
 sessions beside files.
 
@@ -6118,6 +6119,42 @@ the log. Live writes remain unverified. This round first wired feedback loading 
 map from the log removed the extra read instead of editing those expectations.
 
 **Battery (round 309).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1205 passed**, 1 ignored |
+| app, default | **0** | **1198 passed**, 1 ignored |
+| transport | **0** | **55 + 17 + 82 + 7** |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+### Round 310 — the feedback dialog
+
+**A new rating now opens the reference's feedback dialog before writing.** Like/Dislike on a reply
+whose current rating differs opens a modal with the chosen judgment, the seven categories
+(`Task result`, `Instructions`, `Interaction`, `Stability`, `Cost`, `Security`, `Other`), an
+optional note and Submit/Cancel; the category toggles, the note is bounded at 4096 bytes, and Submit
+writes `messageFeedback/put` with `note`, `category` and the observed `ifVersion`. Clicking the
+already-recorded rating still retracts immediately. Cancel closes without a write. The transport
+now carries and bounds the optional note and category.
+
+The test covers the dialog opening, the category/note, the submitted put, the retract path, and
+conflict adoption.
+
+**No capture.** A `--feedback-dialog` fixture was built and captured once, but the report returned
+`passed: false` (`presetStatesMatch`/`expectedControlCountsMatch` reject the new modal's controls
+because the fixture's inventory and state predicates do not know this dialog). Rather than expand
+those checkss in this round the helper was removed; the dialog is unit-tested only, and this is
+recorded instead of shipping a failing capture. The composer is hidden while the dialog is open,
+as with the other modals.
+
+**Remainder.** The category list is hardcoded to the reference's vocabulary, there is no
+`/feedback` command entry, and no per-category failure copy beyond the status line; live writes
+remain unverified.
+
+**Battery (round 310).**
 
 | gate | status | result |
 | --- | --- | --- |

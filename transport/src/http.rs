@@ -869,9 +869,13 @@ impl NativeClient {
         message_id: &str,
         rating: &str,
         if_version: Option<&str>,
+        note: Option<&str>,
+        category: Option<&str>,
     ) -> Result<MessageFeedbackPutOutcome> {
         if !valid_feedback_target(message_id, if_version)
             || !matches!(rating, "positive" | "negative")
+            || note.is_some_and(|note| note.trim().is_empty() || note.len() > 4096)
+            || category.is_some_and(|category| category.is_empty() || category.len() > 64)
         {
             return Err(Error::InvalidDto);
         }
@@ -883,6 +887,8 @@ impl NativeClient {
                     "messageId": message_id,
                     "rating": rating,
                     "ifVersion": if_version,
+                    "note": note,
+                    "category": category,
                 }}),
             )
             .await?;

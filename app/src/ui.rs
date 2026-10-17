@@ -318,6 +318,14 @@ pub enum Message {
     FeedbackLike(String),
     /// Rates one assistant message negative.
     FeedbackDislike(String),
+    /// Chooses a feedback category in the open dialog.
+    FeedbackCategory(String),
+    /// Edits the feedback note.
+    FeedbackNote(String),
+    /// Submits the open feedback dialog.
+    FeedbackSubmit,
+    /// Cancels the open feedback dialog.
+    FeedbackCancel,
     /// Opens the one-shot date calendar.
     AtPickerDate,
     /// Opens the one-shot clock.
@@ -763,6 +771,14 @@ struct WidthDrag {
     origin_x: Option<f32>,
     moved: bool,
 }
+/// The feedback dialog for one message: the chosen rating, an optional category and note.
+struct FeedbackDraft {
+    message_id: String,
+    rating: String,
+    category: Option<String>,
+    note: String,
+}
+
 /// The open one-shot picker: a month calendar or a clock.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AtPickerView {
@@ -1051,6 +1067,8 @@ pub struct App {
     schedule_busy: Option<String>,
     /// Per-message feedback by assistant message id.
     feedback: std::collections::BTreeMap<String, dsh_native_transport::dto::MessageFeedbackItem>,
+    /// The open feedback dialog.
+    feedback_dialog: Option<FeedbackDraft>,
     /// `@` file-reference candidates for the active token.
     file_references: Vec<dsh_native_transport::dto::FileReferenceCandidate>,
     /// `@` session-reference candidates for the active token.
@@ -1381,6 +1399,7 @@ impl App {
                 schedule_delete: None,
                 schedule_busy: None,
                 feedback: Default::default(),
+                feedback_dialog: None,
                 file_references: Vec::new(),
                 session_references: Vec::new(),
                 reference_token: None,
@@ -3716,10 +3735,48 @@ impl App {
                 self.schedule_edit = None;
             }
             Message::FeedbackLike(message_id) => {
-                return self.write_feedback(message_id, "positive");
+                return self.feedback_press(message_id, "positive");
             }
             Message::FeedbackDislike(message_id) => {
-                return self.write_feedback(message_id, "negative");
+                return self.feedback_press(message_id, "negative");
+            }
+            Message::FeedbackCategory(category) => {
+                if let Some(draft) = &mut self.feedback_dialog {
+                    draft.category = if draft.category.as_deref() == Some(category.as_str()) {
+                        None
+                    } else {
+                        Some(category)
+                    };
+                }
+            }
+            Message::FeedbackNote(note) => {
+                if let Some(draft) = &mut self.feedback_dialog
+                    && note.len() <= 4096
+                {
+                    draft.note = note;
+                }
+            }
+            Message::FeedbackCancel => self.feedback_dialog = None,
+            Message::FeedbackSubmit => {
+                let Some(draft) = self.feedback_dialog.take() else {
+                    return Task::none();
+                };
+                let Some(session) = self.selected.clone() else {
+                    return Task::none();
+                };
+                let note = draft.note.trim().to_owned();
+                let if_version = self
+                    .feedback
+                    .get(&draft.message_id)
+                    .map(|item| item.version.clone());
+                self.command(worker::Command::FeedbackPut {
+                    session,
+                    message_id: draft.message_id,
+                    rating: draft.rating,
+                    if_version,
+                    note: (!note.is_empty()).then_some(note),
+                    category: draft.category,
+                });
             }
             Message::AtPickerDate if self.schedule_edit.is_some() => {
                 let at = self
@@ -7417,6 +7474,13 @@ impl App {
                 Message::Settings(crate::settings::Action::Close),
             );
         }
+        if self.feedback_dialog.is_some() {
+            return settings_overlay(
+                self.presentation_shell(false),
+                self.feedback_view(),
+                Message::FeedbackCancel,
+            );
+        }
         // The reference shows full access's risk confirmation as a modal over the
         // conversation (`PermissionSelect.tsx:198`), so native uses the same overlay the
         // settings and exporter dialogs use rather than a panel anchored to the chip.
@@ -9205,7 +9269,7 @@ impl App {
             && (!self.file_references.is_empty() || !self.session_references.is_empty())
     }
     /// Rate one message, or remove the rating when the same control is pressed again.
-    fn write_feedback(&mut self, message_id: String, rating: &'static str) -> Task<Message> {
+    fn feedback_press(&mut self, message_id: String, rating: &'static str) -> Task<Message> {
         let Some(session) = self.selected.clone() else {
             return Task::none();
         };
@@ -9218,15 +9282,86 @@ impl App {
                 });
             }
             current => {
-                self.command(worker::Command::FeedbackPut {
-                    session,
+                self.feedback_dialog = Some(FeedbackDraft {
                     message_id,
                     rating: rating.to_owned(),
-                    if_version: current.map(|item| item.version.clone()),
+                    category: current.and_then(|item| item.category.clone()),
+                    note: current
+                        .and_then(|item| item.note.clone())
+                        .unwrap_or_default(),
                 });
             }
         }
         Task::none()
+    }
+    /// The feedback dialog: rating, optional category and note, then Submit or Cancel.
+    fn feedback_view(&self) -> Element<'_, Message> {
+        let Some(draft) = &self.feedback_dialog else {
+            return Space::new().into();
+        };
+        let mut categories = column![].spacing(2);
+        let mut line = row![].spacing(2);
+        for (index, (id, name)) in [
+            ("task-result", "Task result"),
+            ("instruction-following", "Instructions"),
+            ("product-interaction", "Interaction"),
+            ("service-stability", "Stability"),
+            ("resource-cost", "Cost"),
+            ("security-privacy-permission", "Security"),
+            ("other", "Other"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let selected = draft.category.as_deref() == Some(id);
+            line = line.push(
+                button(label(name, if selected { ACCENT } else { MUTED }).size(10))
+                    .on_press(Message::FeedbackCategory(id.into()))
+                    .style(design::ghost)
+                    .padding([3, 6]),
+            );
+            if index % 3 == 2 {
+                categories = categories.push(line);
+                line = row![].spacing(2);
+            }
+        }
+        categories = categories.push(line);
+        container(
+            column![
+                label("Feedback", TEXT).size(16),
+                label(
+                    if draft.rating == "positive" {
+                        "Like this reply"
+                    } else {
+                        "Dislike this reply"
+                    },
+                    MUTED,
+                )
+                .size(11),
+                label("Category (optional)", MUTED).size(10),
+                categories,
+                text_input("Note (optional)", &draft.note)
+                    .on_input(Message::FeedbackNote)
+                    .size(12)
+                    .padding(4)
+                    .width(Length::Fill),
+                row![
+                    Space::new().width(Length::Fill),
+                    button(label("Cancel", TEXT).size(12))
+                        .on_press(Message::FeedbackCancel)
+                        .style(design::ghost),
+                    button(label("Submit", TEXT).size(12))
+                        .on_press(Message::FeedbackSubmit)
+                        .style(design::primary),
+                ]
+                .spacing(6),
+            ]
+            .spacing(8),
+        )
+        .padding(16)
+        .width(460)
+        .style(|_| design::card(SURFACE, design::RADIUS_SM))
+        .into()
     }
     /// Replace the feedback map from the log's log-only feedback events.
     fn refresh_feedback(&mut self) {
@@ -16643,14 +16778,26 @@ mod tests {
         use dsh_native_transport::dto::{MessageFeedbackItem, MessageFeedbackPutOutcome};
         let (mut app, mut receiver) = managed_app();
         let _ = app.update(Message::FeedbackLike("PUBLIC-message".into()));
+        assert!(app.feedback_dialog.is_some());
+        assert!(receiver.try_recv().is_err());
+        let _ = app.update(Message::FeedbackCategory("task-result".into()));
+        let _ = app.update(Message::FeedbackNote("PUBLIC note".into()));
+        let _ = app.update(Message::FeedbackSubmit);
+        assert!(app.feedback_dialog.is_none());
         let mut puts = 0;
         while let Ok(command) = receiver.try_recv() {
             if let Command::FeedbackPut {
-                rating, if_version, ..
+                rating,
+                if_version,
+                note,
+                category,
+                ..
             } = command
             {
                 assert_eq!(rating, "positive");
                 assert!(if_version.is_none());
+                assert_eq!(note.as_deref(), Some("PUBLIC note"));
+                assert_eq!(category.as_deref(), Some("task-result"));
                 puts += 1;
             }
         }
@@ -16677,6 +16824,8 @@ mod tests {
         }
         assert_eq!(deletes, 1);
         let _ = app.update(Message::FeedbackDislike("PUBLIC-message".into()));
+        assert!(app.feedback_dialog.is_some());
+        let _ = app.update(Message::FeedbackSubmit);
         let mut puts = 0;
         while let Ok(command) = receiver.try_recv() {
             if let Command::FeedbackPut {
