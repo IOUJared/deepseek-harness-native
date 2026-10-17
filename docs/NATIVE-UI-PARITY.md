@@ -3989,3 +3989,20 @@ Each is one line of work on this side once answered; none is blocked on further 
    changes.
    Recorded rather than assumed, because the difference between "the app has the data" and "the app
    has a projection of the data" is the difference between one edit and two.
+
+   **The Host section needs pairs, not the candidate type: `Candidate` is private to the UI module
+   tree.** I built the section taking `Option<&[crate::command_menu::Candidate]>` and the compiler
+   answered precisely: *"module `crate::ui::model_controls::request::command_menu` exists but is
+   inaccessible"*. So the slash menu's type cannot cross into `settings`, and my first design was
+   wrong in a way no amount of testing would have fixed — it is a **visibility** boundary, not a
+   logic error.
+   The design that avoids it: `Settings` holds the advertised commands as **plain pairs**
+   (`Vec<(String, String)>`, name and label), the App fills them when `CommandsListed` arrives —
+   the same moment it already projects them into candidates for the menu — and `general_view` reads
+   its **own** field rather than a parameter. No private type crosses the boundary, the section is
+   still `catalog_rows(&pairs)` mapped through `rows()`, and the unbound-row test still pins the
+   rendering.
+   `git checkout` restored both files; the tree is clean, format-debt is 0 and eighteen keybinding
+   tests pass. That is the **seventh structural edit reverted rather than committed**, and the
+   second whose cause the compiler named in one line — which is the argument for attempting a
+   private-type boundary once, cheaply, rather than designing around it from memory.
