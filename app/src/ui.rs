@@ -5116,6 +5116,12 @@ impl App {
     /// Fixture-only: seed background jobs, so the counted header action and its panel are
     /// capturable without a running Host.
     #[cfg(feature = "public-layout-fixture")]
+    /// Fixture-only: open the shortcuts disclosure, so its rows are capturable.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn set_shortcuts_open(&mut self, open: bool) {
+        self.settings.shortcuts_open = open;
+    }
+
     pub(crate) fn set_jobs(&mut self) {
         let row =
             |id: &str, kind: &str, label: &str, status: &str| dsh_native_transport::dto::JobView {

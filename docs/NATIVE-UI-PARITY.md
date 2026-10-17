@@ -3360,3 +3360,17 @@ the five above rather than missing work.
    `--shortcuts` entry in the accepted list and one line applying it, the same two-edit shape as
    `--jobs` and `--jobs-open` before it, and the same trap: an unregistered flag is refused rather
    than ignored.
+
+   **The shortcuts rows are verified, and the fixture's own observation is not.** A `--shortcuts`
+   flag now opens the disclosure in the fixture (an accepted-list entry, an options field, a parse
+   and one applying line, with the app field made crate-visible so the setter can reach it), and
+   `shots/86-shortcuts-rows-dp2.png` shows the result: `▼ Shortcuts` open, an **"Application"**
+   heading, and five rows with the label left and the keys right — `Ctrl+B`, `Ctrl+F`,
+   `Enter / Ctrl+Enter`, `Shift+Enter`, `Escape`. That is the reference's row shape
+   (`Reference.tsx`: group, then label plus keys), and it closes the previous round's "unverified".
+   **Stated plainly: the fixture's observation returned exit 1 on this run** even though it wrote
+   the frame above. The pixels are right and the check is not, which is the *opposite* of the jobs
+   panel's earlier failure (a correct check on a wrong frame), so the next step is to read which
+   observation field failed — most likely a known-id or metadata expectation that the new rows
+   change — rather than to adjust the drawing.
+   Verified: fixture **1124** exit 0, default **1117** exit 0, format-debt 0.

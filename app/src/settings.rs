@@ -246,7 +246,8 @@ pub struct Settings {
     page: Page,
     info_generation: u64,
     details_open: bool,
-    shortcuts_open: bool,
+    /// Crate-visible so the fixture can open it without a press.
+    pub(crate) shortcuts_open: bool,
     /// The permission default row's preset list is open.
     permission_open: bool,
     api_help_open: bool,
