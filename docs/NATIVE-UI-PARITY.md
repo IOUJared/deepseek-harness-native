@@ -3708,3 +3708,21 @@ code without reading their exact anchors were all reverted, and the two that suc
 came from *having* the anchors in front of them. A fresh context can do in one round what a spent
 one would do in five, with a revert in the middle. The document is the handoff, and every claim in
 it now rests on a gate that was run whole.
+
+   **A correction to my own handoff, found by reading the descriptor: the editor's catalog is the
+   *client's* registry, not the Host's.** `CommandDescriptor` carries only `definition_id?`, `name`
+   and `description` (`transport/src/dto.rs:133-138`) — **no keys and no defaults** — so the
+   reference's editor rows, which show a default binding per command, cannot be coming from
+   `commands/list`. They come from the client-side registry the surface is given as a prop:
+   `ShortcutsRow` and `ShortcutReference` both take `useCatalog`
+   (`ui-shortcuts/src/client/Reference.tsx:52`, `:71`), and the entries it returns carry ids,
+   labels, groups and **defaults**.
+   That makes the remaining capability **smaller than round 218 described it**, and changes its
+   subject: rebinding here is about **this app's own commands** — the five it already implements
+   plus any added later — not about invoking Host commands. `resolve` would feed the app's existing
+   handlers, and the store, resolver, trigger and catalog-row rendering already exist and are
+   tested; what is missing is a catalog entry per command (id, label, defaults) and one route from
+   the resolved id to the handler that already runs when the hardcoded key is pressed.
+   Correcting this matters because the old framing would have sent the next session after Host
+   command invocation — a much larger feature this app does not need to reach parity with what the
+   reference's editor actually does.
