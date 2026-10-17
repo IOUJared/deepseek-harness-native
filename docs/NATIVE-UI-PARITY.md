@@ -11,8 +11,8 @@ the customized count, the Host commands group, the guarded restore-all, capture-
 searchable list and its refused-capture states (`shots/87-…` through `102-…`); the General page's
 **session-log preference row** with its own read, write and saved/failed state (`shots/100-…`,
 `103-…`); the running turn's **two-press Escape stop**; the header's **subagent catalog count and
-dropdown** (`shots/104-…`, `105-…`); and **keys as data**, so the store's five commands drive the
-live chain instead of a hardcoded map.
+dropdown** (`shots/104-…`, `105-…`); the **one-shot child's read-only composer** (`shots/106-…`);
+and **keys as data**, so the store's five commands drive the live chain instead of a hardcoded map.
 
 **Read this before trusting the list above.** Round 257 found that the editor's per-row actions,
 the permission default row and eight Host-event handlers were **unreachable behind two catch-all
@@ -25,11 +25,12 @@ same shape in the `Ctrl+/` trigger: it opened the account page and the open path
 disclosure, so the editor was never shown; the trigger's "captured" evidence had gone through the
 fixture's direct `set_settings_open`, not the press.
 
-**Next, in one step:** the lineage's remaining half — nested branch expansion, per-child token
-totals and active durations, and the child-session sibling switcher. Those read the **parent's**
-and each child's projections, not only the selected session's, so the next slice starts with how the
-App obtains another session's `subagentCatalog`/`subagentTiming`/`tokenUsage` values before any
-view. The settings/rename editable menu is **toolkit-blocked**, recorded below, not a candidate.
+**Next, in one step:** group child sessions under their parent in the sidebar/workspace browser.
+The reference's workspace tree reads each parent summary's `subagentCatalog`
+(`ui-workspace/src/client/tree.ts:391`), and native's `SessionSummary` already carries
+`projections.values`, so this is a view/model slice over data the list page already returns — not
+the cross-session read the lineage's nested expansion needs. The settings/rename editable menu is
+**toolkit-blocked**, recorded below, not a candidate.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -4742,3 +4743,51 @@ Four tests were added: the projection parse/malformed cases, the absent-catalog 
 copy, and `the_header_lists_direct_children_and_opens_one` (two children, one running; the action
 builds; opening a row selects the child). The new `subagent-catalog` preset seeds the projection and
 both children, and `--subagent-menu` opens the dropdown for capture.
+
+### Round 264 — a one-shot child gets the reference's read-only composer
+
+**The child's own durable descriptor decides.** A catalog-addressed child session whose own log
+carries `subagent/descriptor` v3 with `mode: "one-shot"` no longer shows the input, Attach, model
+chip or Send/Stop controls. The composer is replaced by the reference's frame
+(`SubagentReadOnlyComposer.tsx:31-38`): **"One-shot subagent record"** and *"One-shot tasks do not
+accept follow-ups; review the full execution record here."* The descriptor is read from the
+selected transcript's retained records by `subagent_catalog::descriptor_mode`
+(`app/src/subagent_catalog.rs`), newest valid descriptor wins, and the `origin: subagent` check
+prevents a parent session with a stray descriptor from being locked. The frame matches the
+reference's box: a hairline `card` at `RADIUS_LG`, 13px line, the copy as one centred row, and
+`margin: 0 24px 20px` around it, so the rounded bottom border stays off the window edge.
+`shots/106-subagent-readonly.png` is the capture; the report is `status: passed`.
+
+**A fixture expectation had to split, not the drawing.** The fixture's metadata used one
+`composerExpected` flag for two different facts: the composer *pane* exists, and its *controls*
+exist. A read-only child has the pane and none of the controls. The metadata now carries
+`composerReplacedExpected`; `composerExpected` still matches `composer_visible` (true), while
+`stopExpected`, the send count and `modelControlsExpected` read the new flag. Without that split the
+fixture reported `expectedControlCountsMatch: false` on a correct frame — the same shape as the
+settings-modal expectation corrections earlier, and the pitfall the working method names: check the
+check's inputs before touching the picture.
+
+**Deliberate differences.** The reference also replaces the composer when the parent is unavailable
+("This subagent is read-only for now" / "The parent session is offline; reopen it to continue
+sending messages.") or when the mode is unknown ("Read the child session to determine whether it
+can be continued."). Native enforces the **one-shot** case, which its own log can prove. The other
+two reasons need the parent's live state or an unavailable child descriptor, which the App does not
+hold for a non-selected session; a continuable child keeps the normal composer until that state
+exists. The frame's body wraps to two lines at the 1040px fixture width; the reference has the same
+wrapping behaviour because the row has no `nowrap`.
+
+**Battery (round 264).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1160 passed**, 1 ignored |
+| app, default | **0** | **1153 passed**, 1 ignored |
+| transport | **0** | 38 + 17 + 82 + 7 (unchanged, no transport edit) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+Two tests were added: `the_descriptor_mode_is_the_newest_valid_child_descriptor` and
+`a_one_shot_child_replaces_the_composer_and_a_continuable_child_does_not`. The new
+`subagent-readonly` preset seeds a selected one-shot child with its descriptor and both messages.

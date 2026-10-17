@@ -23,6 +23,7 @@ pub const PRESETS: &[&str] = &[
     "no-session",
     "subagent-trail",
     "subagent-catalog",
+    "subagent-readonly",
     "hero-workspace-selected",
     "wide-welcome",
     "narrow-welcome",
@@ -207,6 +208,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "working-phase-6"
         | "subagent-trail"
         | "subagent-catalog"
+        | "subagent-readonly"
         | "hero-workspace-selected" => Some((Size::new(1040.0, 700.0), 1.0)),
         "working-narrow" => Some((Size::new(760.0, 560.0), 1.0)),
         "chat-submitted"
@@ -368,6 +370,21 @@ fn public_context_pressure_records(preset: &str) -> Option<Vec<Value>> {
 fn public_chat_records(preset: &str) -> Vec<Value> {
     if let Some(records) = public_context_pressure_records(preset) {
         return records;
+    }
+    if preset == "subagent-readonly" {
+        // A one-shot child: its own durable descriptor, the conversation record, and no
+        // follow-up composer (the reference replaces the whole composer).
+        return vec![
+            json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
+                "surfaceOp":"append","data":{"id":"PUBLIC-user","role":"user",
+                    "source":{"kind":"user"},"content":[{"type":"text","text":"PUBLIC one-shot task."}]}}}),
+            json!({"type":"event","event":{"type":"assistant/message","seq":1,"time":1001,
+                "surfaceOp":"append","data":{"turn":1,"step":1,
+                    "stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],
+                        "texts":["PUBLIC one-shot child answer."]}]}}}),
+            json!({"type":"event","event":{"type":"subagent/descriptor","seq":2,"time":1002,
+                "data":{"version":3,"provider":"PUBLIC-provider","mode":"one-shot"}}}),
+        ];
     }
     if preset == "subagent-catalog" {
         return vec![
@@ -787,6 +804,28 @@ pub fn build(
         app.selected = Some(child.session_id.clone());
         app.sessions.insert(child.session_id.clone(), child);
     }
+    if preset == "subagent-readonly" {
+        // The child is selected so the composer's read-only replacement is what the frame shows.
+        let parent: SessionSummary = serde_json::from_value(json!({
+            "agentAvailable":true, "sessionId":"PUBLIC-layout-parent", "updatedAt":950,
+            "running":false, "blank":false, "cwd":"/PUBLIC-layout-fixture/workspace",
+            "projections":{"kind":"cached","asOfSeq":-1,
+                "values":{"title":"PUBLIC parent conversation"}}
+        }))
+        .expect("fixed PUBLIC parent metadata");
+        app.sessions.insert(parent.session_id.clone(), parent);
+        let child: SessionSummary = serde_json::from_value(json!({
+            "agentAvailable":true, "sessionId":"PUBLIC-layout-child", "updatedAt":960,
+            "running":false, "blank":false,
+            "parentSessionId":"PUBLIC-layout-parent", "origin":"subagent",
+            "cwd":"/PUBLIC-layout-fixture/workspace",
+            "projections":{"kind":"cached","asOfSeq":-1,
+                "values":{"title":"PUBLIC one-shot child"}}
+        }))
+        .expect("fixed PUBLIC child metadata");
+        app.selected = Some(child.session_id.clone());
+        app.sessions.insert(child.session_id.clone(), child);
+    }
     if preset == "subagent-catalog" {
         // A root session with two direct children, one running: the header's count action and
         // its dropdown, with the reference's running dot and mode labels.
@@ -890,6 +929,7 @@ pub fn build(
             | "chat-search-narrow"
             | "work-panel"
             | "subagent-catalog"
+            | "subagent-readonly"
     ) || preset.starts_with("context-")
         || preset.starts_with("plan-mode")
         || preset == "plan-chip"
@@ -1751,6 +1791,9 @@ pub fn metadata(app: &App, preset: &str) -> Value {
         preset,
         "sidebar-options" | "sidebar-options-tiny" | "sidebar-trash-review"
     );
+    // A one-shot child still owns the composer pane, but the reference replaces the input
+    // and its controls with a read-only frame: the pane is expected, the controls are not.
+    let composer_replaced = preset == "subagent-readonly";
     let composer_expected = !settings_expected
         && !picker_expected
         && !sidebar_expected
@@ -1781,13 +1824,14 @@ pub fn metadata(app: &App, preset: &str) -> Value {
         "validPublicSnapshotApplied":app.smoke_evidence.snapshot_valid,
         "registryReady":app.management.registry.ready(),
         "composerExpected":composer_expected,
+        "composerReplacedExpected":composer_replaced,
         "composerStateMatchesPreset":app.composer_visible() == composer_expected,
         "settingsEntryExpected":!settings_expected && !picker_expected && !sidebar_expected,
-        "stopExpected":!settings_expected && !picker_expected && !sidebar_expected,
+        "stopExpected":!settings_expected && !picker_expected && !sidebar_expected && !composer_replaced,
         "sidebarOptionsExpected":sidebar_expected,
         "sidebarOrganizationSimulated":preset.starts_with("sidebar-"),
         "sidebarStoreIoExecuted":false,
-        "modelControlsExpected":composer_expected,
+        "modelControlsExpected":composer_expected && !composer_replaced,
         "reasoningControlExpected":app.model_controls.is_open() && (app.model_controls.section().is_none() || app.layout_size().width >= 720.0),
         "headerExpected":!settings_expected && !picker_expected && !sidebar_expected && !matches!(preset, "navigation" | "navigation-tiny"),
         "settingsStateMatchesPreset":app.settings.is_open() == settings_expected,

@@ -71,6 +71,27 @@ fn parse(row: &Value) -> Option<Entry> {
     })
 }
 
+/// The mode named by the newest valid `subagent/descriptor` v3 event in a child's own log.
+/// The descriptor is the child's durable fact (`projection.ts:61-90`), so this is how the
+/// read-only composer learns whether the child accepts follow-ups. A malformed descriptor is
+/// skipped; the newest valid one wins.
+pub fn descriptor_mode<'a>(events: impl Iterator<Item = (&'a str, &'a Value)>) -> Option<Mode> {
+    events
+        .filter(|(kind, _)| *kind == "subagent/descriptor")
+        .filter_map(|(_, data)| {
+            if data.get("version").and_then(Value::as_u64) != Some(3) {
+                return None;
+            }
+            match data.get("mode").and_then(Value::as_str)? {
+                "one-shot" => Some(Mode::OneShot),
+                "continuable" => Some(Mode::Continuable),
+                "unknown" => Some(Mode::Unknown),
+                _ => None,
+            }
+        })
+        .last()
+}
+
 /// The header action's copy, from the reference's `count.total.*`/`count.running.*` strings:
 /// the running count wins while anything runs, otherwise the total.
 pub fn count_label(total: usize, running: usize) -> String {
@@ -140,6 +161,22 @@ mod tests {
         assert!(entries(&BTreeMap::new()).is_empty());
         assert!(entries(&projections(json!({"not":"an array"}))).is_empty());
         assert!(entries(&projections(json!([]))).is_empty());
+    }
+
+    #[test]
+    fn the_descriptor_mode_is_the_newest_valid_child_descriptor() {
+        use serde_json::json;
+        let one = json!({"version":3,"provider":"PUBLIC","mode":"one-shot"});
+        let cont = json!({"version":3,"provider":"PUBLIC","mode":"continuable","label":"x"});
+        let bad = json!({"version":2,"provider":"PUBLIC","mode":"continuable","label":"x"});
+        let events = vec![
+            ("subagent/descriptor", &one),
+            ("user/message", &bad),
+            ("subagent/descriptor", &bad),
+            ("subagent/descriptor", &cont),
+        ];
+        assert_eq!(descriptor_mode(events.into_iter()), Some(Mode::Continuable));
+        assert_eq!(descriptor_mode(std::iter::empty()), None);
     }
 
     #[test]

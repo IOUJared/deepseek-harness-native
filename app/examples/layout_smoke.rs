@@ -506,7 +506,8 @@ impl LayoutObservation {
             .get("fixture-frame")
             .filter(|rs| rs.len() == 1)
             .and_then(|rs| rs.first());
-        let composer = metadata["composerExpected"].as_bool().unwrap_or(false);
+        let composer = metadata["composerExpected"].as_bool().unwrap_or(false)
+            && metadata["composerReplacedExpected"] != true;
         let frame_matches = frame.is_some_and(|r| {
             valid_rect(r)
                 && (r.width - requested.width).abs() <= 0.5

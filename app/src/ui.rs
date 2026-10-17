@@ -6426,6 +6426,33 @@ impl App {
         }
         subagent_catalog::entries(self.transcript.projections())
     }
+    /// Why the selected catalog-addressed child cannot accept input, or `None` when the normal
+    /// composer applies. Only the one-shot case is decided here: it is the child's own durable
+    /// descriptor, while the parent-offline and unknown cases need state native does not hold.
+    fn subagent_read_only_copy(&self) -> Option<(&'static str, &'static str)> {
+        let child = self
+            .selected
+            .as_ref()
+            .and_then(|id| self.sessions.get(id))
+            .is_some_and(|session| {
+                matches!(
+                    session.origin,
+                    Some(dsh_native_transport::dto::SubagentOrigin::Subagent)
+                )
+            });
+        if !child {
+            return None;
+        }
+        let mode = subagent_catalog::descriptor_mode(
+            self.transcript
+                .records()
+                .map(|event| (event.event_type.as_str(), &event.data)),
+        );
+        matches!(mode, Some(subagent_catalog::Mode::OneShot)).then_some((
+            "One-shot subagent record",
+            "One-shot tasks do not accept follow-ups; review the full execution record here.",
+        ))
+    }
     fn subagent_running(&self, id: &str) -> bool {
         SessionId::new(id)
             .ok()
@@ -7194,6 +7221,35 @@ impl App {
         }
     }
     fn composer(&self) -> Element<'_, Message> {
+        if let Some((title, body)) = self.subagent_read_only_copy() {
+            // The reference replaces the whole composer for a one-shot child
+            // (`SubagentReadOnlyComposer.tsx:31-38`): a centred frame, no input, no controls.
+            let frame = container(
+                row![label(title, TEXT).size(13), label(body, MUTED).size(13),]
+                    .spacing(8)
+                    .align_y(iced::Alignment::Center),
+            )
+            .width(Length::Fill)
+            .max_width(self.chat_cap() + design::COMPOSER_CARD_OVERHANG)
+            .align_y(iced::Alignment::Center)
+            .center_x(Length::Fill)
+            // 20px line box + 17px above/below = the reference's 54px minimum, with padding
+            // inside that box rather than added outside it (Iced adds container padding).
+            .padding([17, 16])
+            .style(|_| design::card(SURFACE, design::RADIUS_LG));
+            // The reference seats the frame with `margin: 0 24px 20px`; the bottom margin is
+            // what keeps its rounded border off the window edge.
+            return container(frame)
+                .width(Length::Fill)
+                .center_x(Length::Fill)
+                .padding(iced::Padding {
+                    top: 0.0,
+                    right: 24.0,
+                    bottom: 20.0,
+                    left: 24.0,
+                })
+                .into();
+        }
         let allowed = self.send_allowed() && self.composer_visible();
         let keyboard_allowed = allowed && !self.editor.text().trim().is_empty();
         // The menu claims navigation keys only while it is showing.
@@ -13040,6 +13096,43 @@ mod tests {
         let _ = app.update(Message::SubagentOpen("public-child-reviewer".into()));
         assert!(!app.subagent_menu, "opening a child closes the dropdown");
         assert_eq!(app.selected.as_ref(), Some(&child));
+    }
+    #[test]
+    fn a_one_shot_child_replaces_the_composer_and_a_continuable_child_does_not() {
+        let (mut app, _receiver) = managed_app();
+        let session = app.selected.clone().unwrap();
+        app.sessions.get_mut(&session).unwrap().origin =
+            Some(dsh_native_transport::dto::SubagentOrigin::Subagent);
+        let frame = |mode: &str| -> SessionFollowFrame {
+            serde_json::from_value(serde_json::json!({
+                "type":"snapshot","records":[
+                    {"type":"event","event":{"type":"user/message","seq":0,"time":1000,
+                        "surfaceOp":"append","data":{"id":"PUBLIC-user","role":"user",
+                            "source":{"kind":"user"},"content":[{"type":"text","text":"PUBLIC"}]}}},
+                    {"type":"event","event":{"type":"subagent/descriptor","seq":1,"time":1001,
+                        "data":{"version":3,"provider":"PUBLIC","mode":mode,
+                            "label":"PUBLIC child"}}}
+                ],"cursor":1,"hasMore":false,
+                "header":{"version":4,"id":"public-managed-session","createdAt":1000,"isSeeded":false},
+                "projections":{"asOfSeq":1,"values":{}},"assistantStream":{"revision":0}
+            }))
+            .unwrap()
+        };
+        for (mode, read_only) in [("one-shot", true), ("continuable", false)] {
+            app.transcript = crate::reducer::Transcript::new(app.generation);
+            let _ = app.update(Message::Worker(Event::Selected {
+                generation: app.generation,
+                frame: frame(mode),
+            }));
+            assert_eq!(
+                app.subagent_read_only_copy().is_some(),
+                read_only,
+                "{mode} child"
+            );
+        }
+        // A parent session with the same descriptor is not a catalog-addressed child.
+        app.sessions.get_mut(&session).unwrap().origin = None;
+        assert!(app.subagent_read_only_copy().is_none());
     }
     #[test]
     fn two_escape_presses_stop_a_running_turn_and_one_only_arms() {
