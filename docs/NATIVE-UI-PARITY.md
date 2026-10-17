@@ -4248,3 +4248,18 @@ the guarded restore-all — with the captures `shots/87-…` through `95-…`. I
 *keys as data* to **capturing a key on press**, because the editor now has rows worth rebinding and
 that is the smaller of the two remaining changes; *keys as data* follows it, with round 227's design
 and the `Ctrl+V` cost still cited.
+
+   **The capture flow's core *and* its arming were both written, and both reverted: the second edit
+   broke the row's delimiter structure.** The capture branch itself is sound and was the smaller
+   half: `Settings` gains `capture_for: Option<String>`, and `Message::KeyFallback` — the one place a
+   press arrives in the app as **data** — prefers a capture over routing, turning that press into
+   `apply(Edit::Set { id, binding: Some(binding_from(..)) })` and clearing the arming. That is the
+   reference's own model (`Editor.tsx:59-71`) and it is bounded to the armed row.
+   The arming edit was three parts of the now-familiar template, and the third broke the build:
+   turning the row's **keys label into a button** inside the `row![]` macro's argument list left an
+   unbalanced delimiter, and I could not find where before the round ended. `git checkout` restored
+   both files; format-debt is 0 and twenty keybinding tests pass.
+   **The next attempt should not reuse the keys label as the control.** A separate small button after
+   it — the `Restore default`/`Remove` pattern, inserted the same way — keeps the row's structure
+   untouched, and the capture branch is already written and waiting for exactly one setter of
+   `capture_for`.
