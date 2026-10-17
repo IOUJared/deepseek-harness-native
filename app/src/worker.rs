@@ -475,6 +475,11 @@ pub enum Event {
         generation: u64,
         error: String,
     },
+    /// A job panel stream failed; unlike a session-follow loss this must not gate sending.
+    JobsError {
+        generation: u64,
+        error: String,
+    },
     Inspection(Result<Inspection, String>),
     Fault(String),
     Stopped(Result<StopResult, String>),
@@ -1447,6 +1452,8 @@ fn mutates_host_state(command: &Command) -> bool {
         | Command::TerminalWrite(_)
         | Command::SelectModel { .. }
         | Command::Create { .. }
+        | Command::UpdateQueue(_)
+        | Command::JobKill { .. }
         | Command::OpenWorkspace(_) => true,
         Command::Account(effect) => matches!(
             effect,
@@ -1911,6 +1918,17 @@ fn selected_export_target(address: &SessionAddress) -> Option<SessionId> {
         SessionAddress::Subagent { .. } => None,
     }
 }
+/// The Session whose transcript an address displays: the child for a subagent. Followers that
+/// scope to the visible transcript (the jobs list) use this, never the export target, which is
+/// intentionally absent for a subagent.
+fn followed_session(address: &SessionAddress) -> &SessionId {
+    match address {
+        SessionAddress::Session { session_id } => session_id,
+        SessionAddress::Subagent {
+            child_session_id, ..
+        } => child_session_id,
+    }
+}
 fn admit_export(
     active: &mut Option<crate::exporter::Receipt>,
     receipt: &crate::exporter::Receipt,
@@ -2207,7 +2225,7 @@ async fn run(
                         Some(Ok(stream))=>job_output=Some(stream),
                         Some(Err(e))=>{
                             job_output=None;job_output_for=None;
-                            if !publish(&events,Event::FollowError{generation,error:format!("Job output: {e}")}){break Some("Native UI delivery queue overflow".into());}
+                            if !publish(&events,Event::JobsError{generation,error:format!("Job output: {e}")}){break Some("Native UI delivery queue overflow".into());}
                         }
                         None=>break None,
                     }
@@ -2223,16 +2241,17 @@ async fn run(
                     // session it was opened for, so it retires with the selection.
                     if let Some(stream)=jobs.as_mut(){stream.cancel().await;}jobs=None;if let Some(stream)=job_output.as_mut(){stream.cancel().await;}job_output=None;job_output_for=None;
                     let target=selected_export_target(&address);cancel_target=target.clone();
+                    // The jobs list scopes to the transcript on screen, which for a subagent is
+                    // its child session — not the export target, which is absent there.
+                    let job_session=followed_session(&address).as_str().to_owned();
                     match operation(&mut closing,&events,mux.as_ref().expect("live observation mux").session_follow(SessionFollowRequest{address,max_messages:Some(50),turn_window:None,assistant_stream:Some(true)})).await {
                         Some(Ok(stream))=>{
-                            // The jobs list belongs to the same session, so its id is captured
-                            // before the move; a failure here leaves the panel empty rather than
-                            // failing a follow that has already succeeded.
-                            let job_session=target.as_ref().map(|id|id.as_str()).unwrap_or_default().to_owned();
+                            // A failure here leaves the panel empty rather than failing a follow
+                            // that has already succeeded.
                             selected=Some(stream);selected_target=target;
                             match operation(&mut closing,&events,mux.as_ref().expect("live observation mux").jobs_list(&job_session)).await {
                                 Some(Ok(stream))=>jobs=Some(stream),
-                                Some(Err(e))=>if !publish(&events,Event::FollowError{generation,error:format!("Jobs list: {e}")}){break Some("Native UI delivery queue overflow".into());},
+                                Some(Err(e))=>if !publish(&events,Event::JobsError{generation,error:format!("Jobs list: {e}")}){break Some("Native UI delivery queue overflow".into());},
                                 None=>break None,
                             }
                         },
@@ -2626,9 +2645,9 @@ async fn run(
                 Some(Err(_))|None=>{drop_observations(&mut root,&mut workspaces,&mut selected,&mut terminal,&mut mux).await;observations_live=false;files.invalidate();selected_file_target=None;selected_target=None;for key in live_decisions.drain(..){decisions.cancel(&key.event_id);}if !publish(&events,Event::ObservationsLost){break Some("Native UI delivery queue overflow".into());}},
             },
             event=next_workspaces(&mut workspaces),if workspaces.is_some()=>match event {Some(Ok(event))=>if !publish(&events,Event::Workspace(event)){break Some("Native UI delivery queue overflow".into());},Some(Err(_))|None=>{drop_observations(&mut root,&mut workspaces,&mut selected,&mut terminal,&mut mux).await;observations_live=false;files.invalidate();selected_file_target=None;selected_target=None;for key in live_decisions.drain(..){decisions.cancel(&key.event_id);}if !publish(&events,Event::ObservationsLost){break Some("Native UI delivery queue overflow".into());}}},
-            event=next_selected(&mut selected)=>match event {Some(Ok(frame))=>{if let SessionFollowFrame::Snapshot{header,..}=&frame {selected_file_target=file_receiver(header,selected_target.as_ref());if selected_file_target.is_none(){files.invalidate();}}if !publish(&events,Event::Selected{generation,frame}){break Some("Native UI delivery queue overflow".into());}},Some(Err(e))=>{files.invalidate();selected_file_target=None;selected=None;selected_target=None;if !publish(&events,Event::FollowError{generation,error:format!("Session stream: {e}")}){break Some("Native UI delivery queue overflow".into());}},None=>{files.invalidate();selected_file_target=None;selected=None;selected_target=None;if !publish(&events,Event::FollowError{generation,error:"Session stream closed; reload session".into()}){break Some("Native UI delivery queue overflow".into());}}},
-            jobs_event=next_jobs(&mut jobs),if jobs.is_some()=>match jobs_event {Some(Ok(frame))=>{if !publish(&events,Event::JobsRows(frame.jobs)){break Some("Native UI delivery queue overflow".into());}},Some(Err(e))=>{jobs=None;if !publish(&events,Event::FollowError{generation,error:format!("Jobs list: {e}")}){break Some("Native UI delivery queue overflow".into());}},None=>{jobs=None;}},
-            job_event=next_job_output(&mut job_output),if job_output.is_some()=>match job_event {Some(Ok(frame))=>{let job=job_output_for.clone().unwrap_or_default();if !publish(&events,Event::JobsFollow{job,frame}){break Some("Native UI delivery queue overflow".into());}},Some(Err(e))=>{job_output=None;job_output_for=None;if !publish(&events,Event::FollowError{generation,error:format!("Job output: {e}")}){break Some("Native UI delivery queue overflow".into());}},None=>{job_output=None;job_output_for=None;}},
+            event=next_selected(&mut selected)=>match event {Some(Ok(frame))=>{if let SessionFollowFrame::Snapshot{header,..}=&frame {selected_file_target=file_receiver(header,selected_target.as_ref());if selected_file_target.is_none(){files.invalidate();}}if !publish(&events,Event::Selected{generation,frame}){break Some("Native UI delivery queue overflow".into());}},Some(Err(e))=>{files.invalidate();selected_file_target=None;selected=None;selected_target=None;jobs=None;job_output=None;job_output_for=None;if !publish(&events,Event::FollowError{generation,error:format!("Session stream: {e}")}){break Some("Native UI delivery queue overflow".into());}},None=>{files.invalidate();selected_file_target=None;selected=None;selected_target=None;jobs=None;job_output=None;job_output_for=None;if !publish(&events,Event::FollowError{generation,error:"Session stream closed; reload session".into()}){break Some("Native UI delivery queue overflow".into());}}},
+            jobs_event=next_jobs(&mut jobs),if jobs.is_some()=>match jobs_event {Some(Ok(frame))=>{if !publish(&events,Event::JobsRows(frame.jobs)){break Some("Native UI delivery queue overflow".into());}},Some(Err(e))=>{jobs=None;if !publish(&events,Event::JobsError{generation,error:format!("Jobs list: {e}")}){break Some("Native UI delivery queue overflow".into());}},None=>{jobs=None;}},
+            job_event=next_job_output(&mut job_output),if job_output.is_some()=>match job_event {Some(Ok(frame))=>{let job=job_output_for.clone().unwrap_or_default();if !publish(&events,Event::JobsFollow{job,frame}){break Some("Native UI delivery queue overflow".into());}},Some(Err(e))=>{job_output=None;job_output_for=None;if !publish(&events,Event::JobsError{generation,error:format!("Job output: {e}")}){break Some("Native UI delivery queue overflow".into());}},None=>{job_output=None;job_output_for=None;}},
             event=next_terminal(&mut terminal),if terminal.is_some()=>match event {Some(Ok(frame))=>{if let Some(ticket)=terminal_ticket.clone()&& !publish(&events,Event::TerminalFrame{ticket,frame}){break Some("Native UI delivery queue overflow".into());}},Some(Err(_))|None=>{let ticket=terminal_ticket.take();terminal=None;if let Some(ticket)=ticket&& !publish(&events,Event::TerminalFollowEnded{ticket,failure:Some(crate::terminal::ReadFailure::Unavailable)}){break Some("Native UI delivery queue overflow".into());}}},
             event=core_rx.recv()=>match event {Some(event)=>{if let PublicEvent::Codex(metadata)=&event {codex.observe(*metadata);}if let PublicEvent::CloudflareAuth(status)=&event {cloudflare.observe(status.clone());cloudflare_worker::dispatch_cancel(&mut cloudflare,&backend,&mut tasks);}let exited=matches!(&event,PublicEvent::Exited(_));if !publish(&events,Event::Core(event)){break Some("Native UI delivery queue overflow".into());}if exited {break Some("Owned Core exited".into());}},None=>break Some("Core event stream closed".into())},
             download=next_download(&mut export_download),if export_download.is_some()=>{
@@ -2757,6 +2776,48 @@ pub fn test_channels() -> (
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_subagent_transcript_follows_its_child_for_job_scope() {
+        let parent = SessionId::new("PUBLIC-parent").unwrap();
+        let child = SessionId::new("PUBLIC-child").unwrap();
+        let subagent = SessionAddress::Subagent {
+            parent_session_id: parent,
+            child_session_id: child.clone(),
+            mode: SubagentMode::Continuable,
+        };
+        // The jobs list scopes to the transcript on screen; the export target stays
+        // absent because a subagent grants no export/lineage authority.
+        assert_eq!(followed_session(&subagent), &child);
+        assert_eq!(selected_export_target(&subagent), None);
+        let session = SessionId::new("PUBLIC-session").unwrap();
+        assert_eq!(
+            followed_session(&SessionAddress::Session {
+                session_id: session.clone(),
+            }),
+            &session
+        );
+        assert_eq!(
+            selected_export_target(&SessionAddress::Session {
+                session_id: session
+            }),
+            Some(SessionId::new("PUBLIC-session").unwrap())
+        );
+    }
+    #[test]
+    fn queue_mutations_and_job_kills_join_the_mutation_fence() {
+        let session = SessionId::new("PUBLIC-session").unwrap();
+        assert!(mutates_host_state(&Command::UpdateQueue(
+            crate::queue_update::Submission {
+                session: session.clone(),
+                item_id: "PUBLIC-item".into(),
+                action: QueueAction::Remove,
+            }
+        )));
+        assert!(mutates_host_state(&Command::JobKill {
+            session,
+            job: "PUBLIC-job".into(),
+        }));
+    }
     /// A clean single-flight question: no lifecycle fence, no flight held and no
     /// extra gate, so a test adds exactly the one condition it pins.
     fn admission(smoke: bool, stopping: bool, operations: usize, flights: Flights) -> Admission {

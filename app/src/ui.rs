@@ -5255,15 +5255,21 @@ impl App {
                 line,
                 result,
             } => {
-                // Only this session's reply for the command still in flight may
-                // clear the pending state; anything else is stale or foreign.
-                let expected = self
+                // Only this session's reply for a command the App itself sent may clear
+                // the pending state; anything else is stale or foreign. The plan chip and
+                // the permission chip are the two senders, and both surface their outcome.
+                let plan_expected = self
                     .plan_control()
                     .mode
                     .map(plan_control::toggle_line)
                     .is_some_and(|expected| expected == line);
-                if self.selected.as_ref() == Some(&session_id) && expected {
-                    self.plan_toggle_pending = false;
+                let permission_expected = line.starts_with("/permission ");
+                if self.selected.as_ref() == Some(&session_id)
+                    && (plan_expected || permission_expected)
+                {
+                    if plan_expected {
+                        self.plan_toggle_pending = false;
+                    }
                     // The command's own outcome is reported, never interpreted: the
                     // mode the user sees still comes from the `plan` projection, so
                     // an accepted command that changed nothing reads as unchanged.
@@ -6016,6 +6022,11 @@ impl App {
                 self.files.invalidate();
                 self.files.invalidate();
                 self.follow_ready = false;
+                self.status = error;
+            }
+            Event::JobsError { generation, error } if generation == self.generation => {
+                // A job panel's own stream failed; the session follow that gates sending
+                // is still healthy, so only the status changes.
                 self.status = error;
             }
             Event::Inspection(result) if matches!(self.close, Close::Inspecting) => match result {
@@ -18516,6 +18527,59 @@ mod tests {
             "cordis".into()
         ))));
         assert!(app.agent_seat_error.is_none());
+    }
+    #[test]
+    fn a_permission_command_reply_reaches_the_status_and_a_foreign_line_is_ignored() {
+        use dsh_native_transport::dto::{CommandExecution, CommandId, CommandResult};
+        let (mut app, _receiver) = managed_app();
+        let selected = app.selected.clone().unwrap();
+        let executed = |result| CommandExecution {
+            command_id: CommandId::new("PUBLIC-command").unwrap(),
+            result,
+        };
+        let _ = app.update(Message::Worker(Event::CommandsExecuted {
+            session_id: selected.clone(),
+            line: "/permission full-access".into(),
+            result: Ok(Some(executed(CommandResult::Error {
+                text: "unknown preset".into(),
+            }))),
+        }));
+        assert!(
+            app.status.contains("unknown preset"),
+            "a refused permission switch must not be silent"
+        );
+        app.status.clear();
+        let _ = app.update(Message::Worker(Event::CommandsExecuted {
+            session_id: selected,
+            line: "/unrelated".into(),
+            result: Ok(Some(executed(CommandResult::Success {
+                text: Some("ignored".into()),
+            }))),
+        }));
+        assert!(
+            app.status.is_empty(),
+            "a foreign line leaves the status alone"
+        );
+    }
+    #[test]
+    fn a_job_stream_failure_does_not_disable_sending() {
+        let (mut app, _receiver) = managed_app();
+        app.follow_ready = true;
+        let generation = app.generation;
+        let _ = app.update(Message::Worker(Event::JobsError {
+            generation,
+            error: "Job output: closed".into(),
+        }));
+        assert!(app.follow_ready, "the session follow is still healthy");
+        assert!(app.status.contains("Job output"));
+        let _ = app.update(Message::Worker(Event::FollowError {
+            generation,
+            error: "Session stream closed".into(),
+        }));
+        assert!(
+            !app.follow_ready,
+            "a session-follow loss still gates sending"
+        );
     }
     #[test]
     fn a_host_command_advertisement_reaches_the_editor_too() {

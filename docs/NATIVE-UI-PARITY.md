@@ -2762,9 +2762,10 @@ Since the round-145 update, all local and unpushed, gates green at each commit:
    `ui-jobs/src/client/index.ts:36-42`). Verified with a seeded four-job fixture, two of them
    running or stopping: the grab reads **"2 background tasks running"**
    (`shots/78-jobs-header-action-dp2.png`).
-   The kill arm exists but **deliberately does nothing**, with a comment saying the reference's
-   `@Remote('kill')` is not wired here — the alternative would be another invented transport,
-   which is the mistake this document has already paid for once.
+   The kill arm existed but **deliberately did nothing** at this point, with a comment saying the
+   reference's `@Remote('kill')` was not wired here — the alternative would have been another
+   invented transport, which is the mistake this document has already paid for once. It was wired to
+   `job/kill` later; the jobs done-list records it.
    Verified: fixture **1114** exit 0, default **1107** exit 0, format-debt 0.
    Still to come for jobs: the panel itself behind the action (sections, clear, per-row dot,
    label, kind, status, duration), the two-click kill, and the follow stream that the expansion
@@ -2949,8 +2950,8 @@ layers from frame containment (correct on its own terms, and it makes the fixtur
 parent still refuses.
 
 **Deliberately absent:** the row's state **dot** (its form is unread), **Clear** (its semantics
-are unread), **duration** (no timestamps in the projection), and the **kill** arm is inert with a
-comment, because `@Remote('kill')` is not wired and inventing a path is not an option.
+are unread) and **duration** (no timestamps in the projection). The note that the **kill** arm was
+inert is historical: it now calls `job/kill` (the jobs done-list above records the change).
 
 **The exact next action for the panel capture:** a **downward** popup placement. The recipe is
 recorded and the first attempt is diagnosed: thread a `below` flag through **both** `Anchored`
@@ -6619,6 +6620,39 @@ same probe had returned `permission-settings: Protocol` before this fix.
 | --- | --- | --- |
 | app, fixture | **0** | **1211 passed**, 1 ignored |
 | app, default | **0** | **1204 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 86 + 7 |
+| core (`--lib`) | **0** | **115 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+### Round 325 — the worker audit closes five hops
+
+**A read-only audit of the App worker found five undocumented divergences between documented
+behavior and the live loop; all are fixed.**
+
+- A subagent transcript's jobs list was opened with an empty session id: the code reused the
+  export target, which is deliberately absent for a subagent. It now follows the displayed child
+  session (`followed_session`), while the export target stays absent.
+- Job-panel failures published `Event::FollowError`, which the App treats as session-follow loss —
+  clearing `follow_ready` and disabling Send. They now publish `Event::JobsError`, which only
+  updates the status; a session-follow loss still gates sending.
+- `UpdateQueue` and `JobKill` were absent from `mutates_host_state`, so queue edits/removals and
+  kills could start while observation was down or a submission was busy. Both join the fence.
+- A `/permission <preset>` reply was dropped: the handler recognized only the plan toggle line, so
+  an accepted or refused preset switch was silent. Both App-sent lines now surface their outcome;
+  a foreign line still leaves the status alone.
+- A session-follow failure or close cleared `selected` but left the jobs list and job-output
+  streams publishing. Both are now cleared with the selected stream.
+
+Two worker tests (child-session job scope, mutation fence) and two App tests (job-error scope,
+permission reply) pin the changes. The audit's stale prose about the kill arm is corrected above.
+
+**Battery (round 325).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1215 passed**, 1 ignored |
+| app, default | **0** | **1208 passed**, 1 ignored |
 | transport | **0** | 56 + 17 + 86 + 7 |
 | core (`--lib`) | **0** | **115 passed** |
 | JS runtime | **0** | **419 pass**, 0 fail |
