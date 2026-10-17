@@ -300,6 +300,18 @@ pub fn is_trigger(key: &iced::keyboard::Key, modifiers: iced::keyboard::Modifier
     matches(&trigger, key, modifiers)
 }
 
+/// Turn the Host's command catalog into editor rows — the list half of the reference's editor,
+/// whose rows come from `commands/list` rather than from the client. The descriptors this app
+/// already fetches carry a name and a title; **no binding**, because this app does not yet honour
+/// a Host command's default key, so a catalog row renders with empty keys rather than a borrowed
+/// one. `core` is false: only this app's own fixed rows are core.
+pub fn catalog_rows(commands: &[(String, String)]) -> Vec<(String, String, bool)> {
+    commands
+        .iter()
+        .map(|(id, label)| (id.clone(), label.clone(), false))
+        .collect()
+}
+
 /// This app's own fixed bindings, with the ids and keys its input handling already implements and
 /// its Settings row already prints (`Ctrl+B`, `Ctrl+F`, `Enter / Ctrl+Enter`, `Shift+Enter`,
 /// `Escape`). They are prefixed `fixed.` like the reference's own fixed rows, so an editor can
@@ -639,6 +651,30 @@ mod tests {
         assert_eq!(display(&escape), "Escape");
         let up = binding_from(&Key::Named(Named::ArrowUp), Modifiers::empty()).unwrap();
         assert_eq!(display(&up), "ArrowUp");
+    }
+
+    #[test]
+    fn a_host_command_row_has_no_keys_and_is_still_findable() {
+        // The editor will meet this case first: a Host command the app lists but does not yet
+        // bind. It must render — label only — and remain searchable by its own name.
+        let catalog = catalog_rows(&[("session.compact".to_owned(), "Compact context".to_owned())]);
+        assert_eq!(catalog.len(), 1);
+        assert!(!catalog[0].2, "a Host command is not a core action");
+        let store = Store::new([] as [(String, Vec<Binding>); 0]);
+        let rows = rows(&store, &catalog);
+        assert_eq!(rows[0].keys, "");
+        assert!(!rows[0].modified);
+        let index = search_index(&rows[0]);
+        assert!(index.contains(&"session.compact".to_owned()));
+        // With no binding, no press resolves to it.
+        assert_eq!(
+            resolve(
+                &store,
+                &iced::keyboard::Key::Character("k".into()),
+                iced::keyboard::Modifiers::CTRL
+            ),
+            None
+        );
     }
 
     #[test]

@@ -3662,3 +3662,17 @@ while the rest of the run looked complete. It only looked complete because I had
 instead of capturing the exit status. Re-run with `$?` captured it reports `exit=0`, `pass 419`,
 `fail 0`. **A gate whose status is read from its output text is not a gate** — the rule from
 round 115, still earning its keep two hundred rounds later.
+
+   **The catalog side of the editor is in code, including the case it will meet first.** `catalog_rows`
+   turns the Host's `(name, title)` descriptors into editor rows with `core: false`, and a test
+   covers the state the editor actually starts in: a **Host command with no binding** renders with
+   empty keys, is not marked modified, stays findable by its own name in the search index, and
+   resolves from no press. That is the honest rendering for a command this app lists but does not
+   yet honour, and it means the editor can display the Host's catalog **before** the binding
+   capability exists — without inventing a default key for a row and without hiding the row.
+   Verified: fixture **1132** exit 0 (eighteen keybinding tests), default **1125** exit 0,
+   format-debt 0.
+   Both halves of the editor's data are now code: this app's five fixed rows and the Host's catalog
+   rows. What separates them is exactly the capability round 218 named — honouring a catalog
+   command's binding — and the rendering for the unbound case is already correct, so that
+   capability can arrive without changing the surface.
