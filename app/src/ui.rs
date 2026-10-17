@@ -316,6 +316,8 @@ pub enum Message {
     OpenChanged(u64, usize),
     /// Inserts one `@` file-reference candidate into the draft.
     ReferencePick(String, String),
+    /// Opens one changed file on the Host desktop.
+    OpenChangedOnDesktop(u64, usize),
     /// A key press as **data** for the live chain, with the state at the moment it arrives: an
     /// armed capture consumes it, a focused field's links own it, or a stored binding invokes a
     /// command — so a rebound key replaces the hardcoded default instead of shadowing it.
@@ -3804,6 +3806,16 @@ impl App {
                     self.changes_expanded.insert(seq);
                 }
             }
+            Message::OpenChangedOnDesktop(seq, index) if self.layout_controls_enabled() => {
+                let Some(ChangesState::Ready(summary)) = self.changes.get(&seq) else {
+                    return Task::none();
+                };
+                let Some(file) = summary.files.get(index) else {
+                    return Task::none();
+                };
+                let path = file.path.clone();
+                self.command(worker::Command::OpenWorkspacePath { path });
+            }
             Message::OpenChanged(seq, index) if self.layout_controls_enabled() => {
                 match self.changes_diffs.get(&(seq, index)) {
                     Some(ChangesDiffState::Ready(diff)) => {
@@ -4951,6 +4963,13 @@ impl App {
                     Ok(items) => self.file_references = items,
                     Err(_) => self.file_references.clear(),
                 }
+            }
+            Event::WorkspacePathOpened { path, result } => {
+                self.status = match result {
+                    Ok(true) => format!("Opened {path} on the desktop"),
+                    Ok(false) => format!("The desktop did not confirm opening {path}"),
+                    Err(error) => error,
+                };
             }
             Event::SessionReferencesLoaded { query, result } => {
                 self.session_reference_pending = false;
@@ -8914,18 +8933,26 @@ impl App {
                     format!("+{} −{}", file.added, file.deleted)
                 };
                 card = card.push(
-                    button(
-                        row![
-                            label(short(&file.display, 70), MUTED)
-                                .size(10)
-                                .width(Length::Fill),
-                            label(counts, MUTED).size(10),
-                        ]
-                        .spacing(6),
-                    )
-                    .on_press(Message::OpenChanged(seq, index))
-                    .style(design::ghost)
-                    .padding([1, 2]),
+                    row![
+                        button(
+                            row![
+                                label(short(&file.display, 70), MUTED)
+                                    .size(10)
+                                    .width(Length::Fill),
+                                label(counts, MUTED).size(10),
+                            ]
+                            .spacing(6),
+                        )
+                        .on_press(Message::OpenChanged(seq, index))
+                        .style(design::ghost)
+                        .padding([1, 2])
+                        .width(Length::Fill),
+                        button(label("Open", MUTED).size(9))
+                            .on_press(Message::OpenChangedOnDesktop(seq, index))
+                            .style(design::ghost)
+                            .padding([1, 2]),
+                    ]
+                    .spacing(2),
                 );
             }
         }
@@ -15960,6 +15987,42 @@ mod tests {
             Some(serde_json::json!({"kind":"weekly","weekly":{
                 "time":"09:00:00","time_zone":"UTC","weekdays":[2,4]}}))
         );
+    }
+    #[test]
+    fn a_changed_file_can_be_opened_on_the_desktop() {
+        use dsh_native_transport::dto::{ChangedFile, ChangesSummary};
+        let (mut app, mut receiver) = managed_app();
+        app.changes.insert(
+            2,
+            ChangesState::Ready(ChangesSummary {
+                turn: 1,
+                total: 1,
+                added: 1,
+                deleted: 1,
+                files: vec![ChangedFile {
+                    path: "src/main.rs".into(),
+                    display: "src/main.rs".into(),
+                    added: 1,
+                    deleted: 1,
+                    binary: false,
+                    oversized: false,
+                }],
+            }),
+        );
+        let _ = app.update(Message::OpenChangedOnDesktop(2, 0));
+        let mut opened = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if let Command::OpenWorkspacePath { path } = command {
+                assert_eq!(path, "src/main.rs");
+                opened += 1;
+            }
+        }
+        assert_eq!(opened, 1);
+        let _ = app.update(Message::Worker(Event::WorkspacePathOpened {
+            path: "src/main.rs".into(),
+            result: Ok(true),
+        }));
+        assert!(app.status.contains("Opened src/main.rs"));
     }
     #[test]
     fn accepting_a_session_candidate_inserts_its_canonical_mention() {

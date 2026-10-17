@@ -206,6 +206,7 @@ enum Endpoint {
     ScheduleUpdate,
     FileReferences,
     SessionReferences,
+    OpenWorkspacePath,
 }
 impl Endpoint {
     fn name(self) -> &'static str {
@@ -232,6 +233,7 @@ impl Endpoint {
             Self::ScheduleUpdate => "schedule/update",
             Self::FileReferences => "fileReferences/list",
             Self::SessionReferences => "sessionReferenceResolver/candidates",
+            Self::OpenWorkspacePath => "session/openWorkspacePath",
             Self::Page => "session/page",
             Self::AccountState => "account/getState",
             Self::WorkspaceCreate => "workspace/create",
@@ -801,6 +803,24 @@ impl NativeClient {
             )
             .await?;
         bounded_file_references(items).ok_or(Error::InvalidDto)
+    }
+    /// Open one workspace path on the Host desktop through the canonical session method. The
+    /// caller must intend the side effect: this launches the desktop's handler.
+    pub async fn open_workspace_path(&self, path: &str) -> Result<bool> {
+        let path = path.trim();
+        if !valid_open_path(path) {
+            return Err(Error::InvalidDto);
+        }
+        let value: Value = self
+            .invoke(
+                Endpoint::OpenWorkspacePath,
+                json!({"request": {"path": path}}),
+            )
+            .await?;
+        match value.get("opened").and_then(Value::as_bool) {
+            Some(opened) => Ok(opened),
+            None => Err(Error::InvalidDto),
+        }
     }
     /// List `@` session-reference candidates for one session's query. Mentions are the canonical
     /// markdown form the Host expects in prompt text.
@@ -1641,6 +1661,9 @@ fn parse_changes_summary(value: Value) -> Option<ChangesSummary> {
         deleted,
     })
 }
+fn valid_open_path(path: &str) -> bool {
+    !path.is_empty() && path.len() <= 4096 && !path.chars().any(char::is_control)
+}
 fn bounded_session_references(
     items: Vec<SessionReferenceCandidate>,
 ) -> Option<Vec<SessionReferenceCandidate>> {
@@ -2299,5 +2322,18 @@ mod session_reference_tests {
             )
             .is_none()
         );
+    }
+}
+
+#[cfg(test)]
+mod open_path_tests {
+    use super::valid_open_path;
+
+    #[test]
+    fn open_paths_are_bounded_and_control_free() {
+        assert!(valid_open_path("src/main.rs"));
+        assert!(!valid_open_path(""));
+        assert!(!valid_open_path("src/\u{0007}.rs"));
+        assert!(!valid_open_path(&"a".repeat(4097)));
     }
 }

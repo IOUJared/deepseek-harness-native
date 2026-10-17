@@ -84,6 +84,10 @@ pub enum Command {
         session: dsh_native_transport::dto::SessionId,
         query: String,
     },
+    /// Open one workspace path on the Host desktop.
+    OpenWorkspacePath {
+        path: String,
+    },
     /// List `@` session-reference candidates.
     SessionReferences {
         session: dsh_native_transport::dto::SessionId,
@@ -246,6 +250,10 @@ pub enum Event {
     SessionReferencesLoaded {
         query: String,
         result: Result<Vec<dsh_native_transport::dto::SessionReferenceCandidate>, String>,
+    },
+    WorkspacePathOpened {
+        path: String,
+        result: Result<bool, String>,
     },
     SchedulesLoaded(Result<Vec<dsh_native_transport::dto::ScheduleCatalogItem>, String>),
     ScheduleDeleted {
@@ -905,6 +913,10 @@ fn rejected(command: Command) -> Event {
         },
         Command::SessionReferences { query, .. } => Event::SessionReferencesLoaded {
             query,
+            result: Err(error),
+        },
+        Command::OpenWorkspacePath { path } => Event::WorkspacePathOpened {
+            path,
             result: Err(error),
         },
         Command::ChangesDiff { seq, index, .. } => Event::ChangesDiffLoaded {
@@ -2463,6 +2475,10 @@ async fn run(
                     Command::ChangesSummary{session,seq}=>Event::ChangesLoaded{
                         seq,
                         result:client.changes_summary(&session,seq).await.map_err(|error|format!("Changed files: {error}")),
+                    },
+                    Command::OpenWorkspacePath{path}=>Event::WorkspacePathOpened{
+                        result:client.open_workspace_path(&path).await.map_err(|error|format!("Open path: {error}")),
+                        path,
                     },
                     Command::SessionReferences{session,query}=>Event::SessionReferencesLoaded{
                         result:client.session_reference_candidates(&session,&query).await.map_err(|error|format!("Session references: {error}")),

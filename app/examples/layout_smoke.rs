@@ -998,6 +998,7 @@ impl Fixture {
                 worker::Command::ChangesDiff { .. } => "ChangesDiff",
                 worker::Command::FileReferences { .. } => "FileReferences",
                 worker::Command::SessionReferences { .. } => "SessionReferences",
+                worker::Command::OpenWorkspacePath { .. } => "OpenWorkspacePath",
                 worker::Command::ScheduleDelete { .. } => "ScheduleDelete",
                 worker::Command::ScheduleHistory { .. } => "ScheduleHistory",
                 worker::Command::ScheduleUpdate { .. } => "ScheduleUpdate",

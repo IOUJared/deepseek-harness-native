@@ -40,10 +40,10 @@ in Rust. Keep coding without asking for permission. Queue edit/remove/steer, ful
 search, the goal bar (pause/resume/edit/clear), the per-turn usage detail and the **scheduled-tasks
 page** (catalog + delete + delivery history + title/instruction/timing edit) and the goal's
 **disarmed activation**, the timing-kind selector, an **expandable changed-file list with per-file
-diffs** and the **`@` file menu** now work end to end; the next items are the reference's
-**open/review action and developer-tools gate**, its **date/time picker popovers**, then workspace
-open. Cross-session pending status is still unavailable from the present wires. The `@` menu is
-keyboard-navigable and now lists sessions beside files.
+diffs**, the **`@` file menu** and a **desktop-open action** now work end to end; the next items are
+the reference's **developer-tools gate and sidebar review tab**, its **date/time picker popovers**,
+then workspace open. Cross-session pending status is still unavailable from the present wires. The
+`@` menu is keyboard-navigable and lists sessions beside files.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -5973,6 +5973,35 @@ remain unverified.
 | app, fixture | **0** | **1199 passed**, 1 ignored |
 | app, default | **0** | **1192 passed**, 1 ignored |
 | transport | **0** | **53 + 17 + 82 + 7** |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+### Round 305 — opening a changed file on the desktop
+
+**Each changed-file row now has an Open action.** The transport gained
+`open_workspace_path`, which invokes the canonical `session/openWorkspacePath` with the trimmed,
+bounded, control-free path and requires `{opened:true}`; the expanded deliverable row sends the
+summary's workspace-relative path and reports “Opened <path> on the desktop” (or the failure) in the
+status. The path row still opens the comparison; Open is a separate control so a click cannot mean
+two things. `shots/137-changes-files.png` shows **Open** beside both files; the report is
+`status: passed`.
+
+One transport test covers path bounds and control characters; one app test covers the command's
+path, the single dispatch and the success status.
+
+**Deliberate limits.** This launches the Host desktop's handler — a real side effect not exercised
+in tests or captures. The reference's developer-tools gate, sidebar review tab, `reveal` action and
+application picker are not built; native always shows the deliverables row.
+
+**Battery (round 305).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1200 passed**, 1 ignored |
+| app, default | **0** | **1193 passed**, 1 ignored |
+| transport | **0** | **54 + 17 + 82 + 7** |
 | core (`--lib`) | **0** | **112 passed** (unchanged) |
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
