@@ -5,14 +5,16 @@ Rust/Iced app. Every claim below was verified with a captured exit status, and e
 in `~/.local/share/dsh-macos-shell-reference/shots/` (mirrored, git-ignored, in `app/evidence/`).
 
 **Done, with captures:** permission select; agent-preset roster and selection; background jobs
-(transport → mux → worker → action → panel → dots → kill → output expansion); the shortcuts store,
-catalog, resolver, trigger and disclosure.
+(transport → mux → worker → action → panel → dots → kill → output expansion); and the shortcuts
+store, catalog, resolver, trigger and **editor's per-row actions** — sorted rows, "Modified",
+Remove, Restore default, the customized count, the Host commands group and the **guarded
+restore-all** (`shots/87-…` through `95-…`).
 
-**Next, in one step:** keys as **data** — a `Message::KeyPressed(key, modifiers)` routed by `update`
-through the chain with live state, so a stored binding can *replace* a hardcoded one. The cost of
-not doing it this way is in "Correct the claimed cost of inverting the key chain": a store-first
-subscription would swallow `Ctrl+V` and `Ctrl+C`. `catalog_rows` also has **tests but no caller** —
-see the final battery section.
+**Next, in one step:** **capturing a key on press** — arming a row, then recording the next press
+through `keybindings::binding_from` (already tested) and applying it through the revision-guarded
+store. After that, **keys as data** (round 227's design) so a stored binding can *replace* a
+hardcoded one; a store-first subscription would swallow `Ctrl+V` instead, which is why it is not
+done that way.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -4237,3 +4239,12 @@ the disclosure open, routed through the tested decision and the production open 
    that can fail.
    Verified: fixture **1134** exit 0, default **1127** exit 0, format-debt 0, direct capture
    `passed: true`.
+
+### Pointer block refresh (round 252)
+
+The block above now names what shipped **since** it was written: the editor's per-row actions —
+sorted rows, "Modified", Remove, Restore default, the customized count, the Host commands group and
+the guarded restore-all — with the captures `shots/87-…` through `95-…`. Its "next step" changed from
+*keys as data* to **capturing a key on press**, because the editor now has rows worth rebinding and
+that is the smaller of the two remaining changes; *keys as data* follows it, with round 227's design
+and the `Ctrl+V` cost still cited.
