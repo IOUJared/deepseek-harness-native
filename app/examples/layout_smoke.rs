@@ -176,6 +176,8 @@ struct Options {
     queue_expanded: bool,
     /// Expand the first turn-trigger notice for capture.
     trigger_expanded: bool,
+    /// Seed a background stop's unread marker on the notes row.
+    completion_unread: bool,
     /// Open the shortcuts disclosure, so its rows are captured.
     shortcuts: bool,
 }
@@ -280,6 +282,7 @@ fn options() -> Result<Options, &'static str> {
             "--busy-enter",
             "--queue-expanded",
             "--trigger-expanded",
+            "--completion-unread",
             "--agent-seat-error",
             "--settings",
             "--scrolled-away",
@@ -403,6 +406,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         trigger_expanded: match values.remove("--trigger-expanded") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        completion_unread: match values.remove("--completion-unread") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -776,6 +783,9 @@ impl Fixture {
         }
         if options.trigger_expanded {
             app.expand_trigger(0);
+        }
+        if options.completion_unread {
+            app.mark_completion_unread("PUBLIC-layout-notes");
         }
         if options.scrolled_away {
             app.set_scrolled_away(true);

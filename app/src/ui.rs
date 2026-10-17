@@ -727,6 +727,9 @@ pub struct App {
     queue_expanded: bool,
     /// Expanded turn-trigger notices, by record key.
     trigger_expanded: std::collections::BTreeSet<u64>,
+    /// Sessions that stopped outside the main view since they were last selected. The
+    /// reference's `completionUnread` (`ui-session/src/client/index.ts:487-490`).
+    completion_unread: std::collections::BTreeSet<SessionId>,
     workspace_path: String,
     workspace_controls: bool,
     filter: String,
@@ -990,6 +993,7 @@ impl App {
                 busy_enter,
                 queue_expanded: false,
                 trigger_expanded: Default::default(),
+                completion_unread: Default::default(),
                 workspace_path,
                 workspace_controls: false,
                 filter: String::new(),
@@ -2034,6 +2038,19 @@ impl App {
             }
         }
     }
+    /// Fold one Host running-status fact. A stop outside the main view becomes the
+    /// reference's completion-unread marker; a run or a selection clears it.
+    fn observe_session_running(&mut self, id: &SessionId, running: bool) {
+        let was_running = self.sessions.get(id).is_some_and(|session| session.running);
+        if let Some(session) = self.sessions.get_mut(id) {
+            session.running = running;
+        }
+        if running {
+            self.completion_unread.remove(id);
+        } else if was_running && self.selected.as_ref() != Some(id) {
+            self.completion_unread.insert(id.clone());
+        }
+    }
     fn choose(&mut self, session: SessionId) {
         self.capture_draft();
         self.files.invalidate();
@@ -2049,6 +2066,7 @@ impl App {
         self.mcp.dismiss();
         self.exporter.dismiss();
         self.selected = Some(session.clone());
+        self.completion_unread.remove(&session);
         self.generation += 1;
         self.transcript = Transcript::new(self.generation);
         self.chat_geometry = Default::default();
@@ -4893,9 +4911,9 @@ impl App {
                             .and_then(|v| v.as_str())
                             .and_then(|v| SessionId::new(v).ok()),
                         args.get(1).and_then(|v| v.as_bool()),
-                    ) && let Some(session) = self.sessions.get_mut(&id)
+                    ) && self.sessions.contains_key(&id)
                     {
-                        session.running = running;
+                        self.observe_session_running(&id, running);
                     }
                 }
                 "api-session/activity" => {
@@ -5432,6 +5450,15 @@ impl App {
             },
             0,
         );
+    }
+
+    /// Fixture-only: mark one session's background stop as unread, which a real run
+    /// reaches through `api-session/status`.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn mark_completion_unread(&mut self, id: &str) {
+        if let Ok(id) = SessionId::new(id) {
+            self.completion_unread.insert(id);
+        }
     }
 
     /// Fixture-only: expand one turn-trigger notice, which a real run expands by press.
@@ -8499,6 +8526,12 @@ impl App {
                     )
                     .size(11),
                 );
+            }
+            if !session.running
+                && pending.is_none()
+                && self.completion_unread.contains(&session.session_id)
+            {
+                identity = identity.push(label("Completed", MUTED).size(11));
             }
             let mut content = row![].spacing(8).align_y(iced::Alignment::Center);
             if session.running && self.running_status_live() {
@@ -13447,6 +13480,33 @@ mod tests {
             .bindings("native.find")
             .expect("the row keeps a binding");
         assert_eq!(crate::keybindings::display(&binding[0]), "Ctrl+G");
+    }
+    #[test]
+    fn a_background_stop_is_unread_until_its_session_is_selected() {
+        let (mut app, _receiver) = managed_app();
+        let other = SessionId::new("PUBLIC-background-stop").unwrap();
+        let mut summary = app
+            .sessions
+            .get(&app.selected.clone().unwrap())
+            .cloned()
+            .unwrap();
+        summary.session_id = other.clone();
+        summary.running = true;
+        summary.parent_session_id = None;
+        summary.origin = None;
+        app.sessions.insert(other.clone(), summary);
+        app.observe_session_running(&other, false);
+        assert!(app.completion_unread.contains(&other));
+        app.observe_session_running(&other, true);
+        assert!(!app.completion_unread.contains(&other));
+        app.observe_session_running(&other, false);
+        assert!(app.completion_unread.contains(&other));
+        app.choose(other.clone());
+        assert!(!app.completion_unread.contains(&other));
+        let selected = app.selected.clone().unwrap();
+        app.sessions.get_mut(&selected).unwrap().running = true;
+        app.observe_session_running(&selected, false);
+        assert!(!app.completion_unread.contains(&selected));
     }
     #[test]
     fn a_steer_preference_steers_a_send_while_the_session_runs() {
