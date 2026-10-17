@@ -2,9 +2,12 @@
 use crate::design;
 use crate::ui::{ACCENT, DANGER, MUTED, SURFACE, TEXT, label};
 use dsh_native_core::{OnboardingMetadata, SecretApiKey};
-use iced::widget::{button, column, container, row, scrollable, text_input};
+use iced::widget::{button, checkbox, column, container, row, scrollable, text_input};
 use iced::{Element, Length};
 const MAX_DRAFT: usize = 16_384;
+/// The reference's session-log row copy (`ui-settings-session-log/src/client/locales.ts`).
+const SESSION_LOG_TITLE: &str = "Upload Session Log when using the official model API";
+const SESSION_LOG_DESCRIPTION: &str = "Help improve DeepSeek models and products.";
 /// Why a draft cannot be a key at all, in the desktop shell's own words
 /// (`welcomeKeyInvalid`): it arrived wrapped in quotes, or copied as an
 /// environment assignment such as `DEEPSEEK_API_KEY=…`.
@@ -200,6 +203,8 @@ pub enum Action {
     CaptureShortcut(String),
     /// Filters the shortcuts list; local to the Open question's own surface.
     ShortcutsSearch(String),
+    /// Writes the one boolean the General page's session-log row shows.
+    SessionLog(bool),
     /// Persists one new-session permission default; the App gates it on the descriptor.
     PermissionDefault(String),
     Account(account::Action),
@@ -379,6 +384,16 @@ impl Settings {
         })
         .into()
     }
+    /// The one read the General page needs: the same plugin-settings family the panel uses,
+    /// admitted only while the modal is open on General. Returns the effect the App maps to
+    /// `Command::PluginsRead`, so there is no second wire path.
+    fn general_plugin_read(&mut self) -> Option<Effect> {
+        let context = self.plugin_context(true);
+        let ticket = self.plugins.read_ticket();
+        self.plugins
+            .handle(crate::plugins::Action::Refresh(ticket), context)
+            .map(Effect::Plugins)
+    }
     fn plugin_context(&self, enabled: bool) -> crate::plugins::Context {
         crate::plugins::Context {
             epoch: self.epoch,
@@ -511,6 +526,27 @@ impl Settings {
         result: Result<crate::plugins::Snapshot, crate::plugins::ReadFailure>,
     ) {
         self.plugins.loaded(ticket, result);
+    }
+    /// Fixture-only: admit a real read and then complete it locally, so a seeded snapshot
+    /// passes the same `reading` check a Host reply does. A direct `plugins_loaded` without
+    /// that admission is dropped, which is how an earlier fixture seed silently disappeared.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn seed_plugin_snapshot(&mut self, snapshot: crate::plugins::Snapshot) {
+        self.plugins.enter(self.epoch);
+        let context = crate::plugins::Context {
+            epoch: self.epoch,
+            visible: true,
+            enabled: true,
+        };
+        let ticket = self.plugins.read_ticket();
+        if self
+            .plugins
+            .handle(crate::plugins::Action::Refresh(ticket), context)
+            .is_some()
+        {
+            self.plugins
+                .loaded(self.plugins.read_ticket(), Ok(snapshot));
+        }
     }
     pub(crate) fn plugin_saved(
         &mut self,
@@ -674,7 +710,7 @@ impl Settings {
             if self.page == Page::Cloudflare {
                 self.cloudflare.enter(epoch);
             }
-            if matches!(self.page, Page::Plugins | Page::ApiLogin) {
+            if matches!(self.page, Page::Plugins | Page::ApiLogin | Page::General) {
                 self.plugins.enter(epoch);
             }
             if self.page == Page::Codex {
@@ -687,6 +723,12 @@ impl Settings {
                 && !self.codex.pending()
             {
                 return Some(self.read());
+            }
+            // The General page's session-log row is a config form like the plugin panel's
+            // namespaces, so opening on General reads the same family once. It does not read
+            // from a frame or a timer: the open is the user's action.
+            if enabled && self.page == Page::General {
+                return self.general_plugin_read();
             }
             return None;
         }
@@ -701,7 +743,7 @@ impl Settings {
                 if self.page == Page::Cloudflare {
                     self.cloudflare.leave();
                 }
-                if matches!(self.page, Page::Plugins | Page::ApiLogin) {
+                if matches!(self.page, Page::Plugins | Page::ApiLogin | Page::General) {
                     self.plugins.leave();
                 }
                 if self.page == Page::Codex {
@@ -714,11 +756,16 @@ impl Settings {
                 if self.page == Page::Codex {
                     self.codex.enter(epoch);
                 }
-                if matches!(self.page, Page::Plugins | Page::ApiLogin) {
+                if matches!(self.page, Page::Plugins | Page::ApiLogin | Page::General) {
                     self.plugins.enter(epoch);
                 }
+                // Selecting the page that renders the namespace is the user action that
+                // requests it; every other navigation still reads nothing.
+                if enabled && self.page == Page::General {
+                    return self.general_plugin_read();
+                }
             }
-            return None; // Navigation never reads, authenticates or writes.
+            return None;
         }
         if let Action::TogglePermissionDefault = action {
             self.permission_open = !self.permission_open;
@@ -728,6 +775,13 @@ impl Settings {
                 self.shortcuts_query = raw.clone();
             }
             return None;
+        }
+        if let Action::SessionLog(enabled) = action {
+            let context = self.plugin_context(true);
+            return self
+                .plugins
+                .set_preference("session-log-deepseek", "enabled", enabled, context)
+                .map(Effect::Plugins);
         }
         if let Action::ToggleInfo { ticket, info } = action {
             // Local help is available even read-only. Never touches drafts, reviews or workers.
@@ -1304,17 +1358,25 @@ impl Settings {
                 }
             }
         }
-        // The reference's `ui-settings-session-log` row: a single boolean in the
-        // `session-log-deepseek` namespace, rendered by the same namespace view the DeepSeek
-        // page uses, so no bridge, Core or worker work is involved
-        // (`ui-settings-session-log/src/client/index.ts:26-37`).
-        let context = self.plugin_context(true);
-        match self.plugins.view_namespace(context, "session-log-deepseek") {
-            Some(editor) => body = body.push(editor.map(Action::Plugins)),
-            // Nothing at all when the Host advertises no such namespace, rather than a label
-            // for a setting that does not exist -- the same rule the reference's preference
-            // rows follow when their host exposes nothing.
-            None => {}
+        // The reference's `ui-settings-session-log` row is one labelled switch, not the plugin
+        // namespace editor (`UploadRow.tsx:31-39`): title, description and the single boolean
+        // the Host advertises. Nothing is drawn when the namespace or its field is absent.
+        if let Some(preference) = self.plugins.preference("session-log-deepseek", "enabled") {
+            let writable = preference.writable && !self.plugins.pending();
+            body = body.push(
+                row![
+                    column![
+                        label(SESSION_LOG_TITLE, TEXT).size(13),
+                        label(SESSION_LOG_DESCRIPTION, MUTED).size(11),
+                    ]
+                    .spacing(2)
+                    .width(Length::Fill),
+                    checkbox(preference.value)
+                        .on_toggle_maybe(writable.then_some(Action::SessionLog)),
+                ]
+                .spacing(12)
+                .align_y(iced::Alignment::Center),
+            );
         }
         body = body.push(self.info_button(
             Info::ContextPolicy,

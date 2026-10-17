@@ -40,6 +40,40 @@ fn snapshot() -> Snapshot {
         },
     }
 }
+fn bool_snapshot() -> Snapshot {
+    Snapshot {
+        inventory: PluginInventorySnapshot {
+            management_available: false,
+            entries: Vec::new(),
+        },
+        settings: SettingsDescribeValue {
+            writable: true,
+            namespaces: vec![SettingsNamespaceView {
+                ns: "session-log-deepseek".into(),
+                revision: 4,
+                auto_generate: true,
+                unsupported_fields: 0,
+                secret_fields: 0,
+                fields: vec![SettingsField {
+                    path: vec!["enabled".into()],
+                    label: "Upload session logs".into(),
+                    kind: SettingsFieldKind::Bool,
+                    value: Some(SettingsScalar::Bool(true)),
+                    overridden: false,
+                }],
+            }],
+        },
+    }
+}
+fn bool_loaded() -> Controller {
+    let mut c = Controller::default();
+    c.enter(1);
+    let Some(Effect::Read(ticket)) = c.handle(Action::Refresh(c.read_ticket()), context()) else {
+        panic!("explicit refresh")
+    };
+    c.loaded(ticket, Ok(bool_snapshot()));
+    c
+}
 fn loaded() -> Controller {
     let mut c = Controller::default();
     c.enter(1);
@@ -89,6 +123,40 @@ fn submit(c: &mut Controller) -> WriteTicket {
     assert_eq!(value, SettingsScalar::String("PUBLIC_NEW".into()));
     assert!(c.draft.is_none());
     ticket
+}
+#[test]
+fn a_single_boolean_preference_reads_and_writes_through_the_same_draft_path() {
+    let mut c = bool_loaded();
+    assert_eq!(
+        c.preference("session-log-deepseek", "enabled"),
+        Some(Preference {
+            value: true,
+            writable: true
+        })
+    );
+    assert_eq!(c.preference("session-log-deepseek", "missing"), None);
+    assert_eq!(c.preference("missing", "enabled"), None);
+    let Some(Effect::Save {
+        ticket,
+        namespace,
+        field,
+        value,
+    }) = c.set_preference("session-log-deepseek", "enabled", false, context())
+    else {
+        panic!("a boolean preference writes through review/confirm")
+    };
+    assert_eq!(namespace.revision, 4);
+    assert_eq!(field.path, vec!["enabled".to_owned()]);
+    assert_eq!(value, SettingsScalar::Bool(false));
+    assert_eq!(ticket.namespace, 0);
+    // A write in flight is not a second writable state: the row disables until the ack.
+    assert_eq!(
+        c.preference("session-log-deepseek", "enabled"),
+        Some(Preference {
+            value: true,
+            writable: false
+        })
+    );
 }
 #[test]
 fn opening_ready_and_namespace_search_are_local_only() {

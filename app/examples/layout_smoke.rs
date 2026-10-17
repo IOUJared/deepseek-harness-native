@@ -156,6 +156,8 @@ struct Options {
     capture: bool,
     /// Prefill the shortcuts search, so its filtered and empty states are captured.
     shortcuts_search: Option<String>,
+    /// Seed the General page's session-log namespace, so its preference row is captured.
+    session_log: bool,
     /// Open the shortcuts disclosure, so its rows are captured.
     shortcuts: bool,
 }
@@ -251,6 +253,7 @@ fn options() -> Result<Options, &'static str> {
             "--reset-all",
             "--capture",
             "--shortcuts-search",
+            "--session-log",
             "--agent-seat-error",
             "--settings",
             "--scrolled-away",
@@ -344,6 +347,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         shortcuts_search: values.remove("--shortcuts-search"),
+        session_log: match values.remove("--session-log") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
         commands: match values.remove("--commands") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
@@ -678,6 +685,9 @@ impl Fixture {
         }
         if let Some(query) = &options.shortcuts_search {
             app.set_shortcuts_query(query);
+        }
+        if options.session_log {
+            app.seed_session_log();
         }
         if options.scrolled_away {
             app.set_scrolled_away(true);

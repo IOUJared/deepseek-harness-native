@@ -5225,11 +5225,17 @@ impl App {
     /// rows without a real Settings press.
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn set_settings_open(&mut self) {
-        let _ = self.update(Message::Settings(crate::settings::Action::Open));
+        // A fixture renders state; it dispatches no Host effects. The production open path is
+        // covered by App tests, and the disabled handles keep every capture at zero commands.
+        let _ = self
+            .settings
+            .handle(crate::settings::Action::Open, self.transport_epoch, false);
         // The modal opens on the account page; the General rows live behind this select.
-        let _ = self.update(Message::Settings(crate::settings::Action::SelectPage(
-            crate::settings::Page::General,
-        )));
+        let _ = self.settings.handle(
+            crate::settings::Action::SelectPage(crate::settings::Page::General),
+            self.transport_epoch,
+            false,
+        );
     }
     /// Fixture-only: hold the seat's refusal state open, which a real run reaches by picking a
     /// preset for a session that has already started.
@@ -5261,6 +5267,40 @@ impl App {
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn set_shortcuts_query(&mut self, query: &str) {
         self.settings.shortcuts_query = query.to_owned();
+    }
+
+    /// Fixture-only: stand in for the General page's session-log namespace reply, through the
+    /// same admitted read a Host reply passes. The value is the one boolean the row edits.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn seed_session_log(&mut self) {
+        use dsh_native_transport::plugin::{
+            PluginInventorySnapshot, SettingsDescribeValue, SettingsField, SettingsFieldKind,
+            SettingsNamespaceView, SettingsScalar,
+        };
+        self.settings
+            .seed_plugin_snapshot(crate::plugins::Snapshot {
+                inventory: PluginInventorySnapshot {
+                    entries: Vec::new(),
+                    management_available: false,
+                },
+                settings: SettingsDescribeValue {
+                    writable: true,
+                    namespaces: vec![SettingsNamespaceView {
+                        ns: "session-log-deepseek".into(),
+                        revision: 4,
+                        auto_generate: true,
+                        unsupported_fields: 0,
+                        secret_fields: 0,
+                        fields: vec![SettingsField {
+                            path: vec!["enabled".into()],
+                            label: "Upload session logs".into(),
+                            kind: SettingsFieldKind::Bool,
+                            value: Some(SettingsScalar::Bool(true)),
+                            overridden: false,
+                        }],
+                    }],
+                },
+            });
     }
 
     /// Fixture-only: arm the restore-all confirmation, so its copy is capturable.
@@ -13302,7 +13342,28 @@ mod tests {
         assert!(receiver.try_recv().is_err());
     }
     #[test]
-    fn plugins_actual_ui_routes_only_explicit_visible_ready_refresh() {
+    fn general_reads_its_namespace_only_while_open_and_enabled() {
+        use crate::settings::{Action, Page};
+        let (mut app, mut receiver) = app();
+        let _ = app.update(Message::Settings(Action::Open));
+        let _ = app.update(Message::Settings(Action::SelectPage(Page::General)));
+        assert!(
+            receiver.try_recv().is_err(),
+            "a stopped app requests no namespace read"
+        );
+        let _ = app.receive(Event::Ready("0.2.1-alpha.1".into()));
+        assert!(matches!(receiver.try_recv(), Ok(Command::Catalog(_))));
+        let _ = app.update(Message::Settings(Action::Close));
+        let _ = app.update(Message::Settings(Action::Open));
+        let Command::PluginsRead(read) = receiver.try_recv().expect("General reads its namespace")
+        else {
+            panic!("wrong command")
+        };
+        assert_eq!(read.epoch, worker::TRANSPORT_EPOCH);
+        assert!(receiver.try_recv().is_err(), "one read per open, no retry");
+    }
+    #[test]
+    fn plugins_and_general_read_only_from_their_own_visible_section() {
         use crate::settings::{Action, Page};
         let (mut app, mut receiver) = app();
         let _ = app.update(Message::Settings(Action::Open));
@@ -13329,6 +13390,12 @@ mod tests {
             result: Err(crate::plugins::ReadFailure::Unavailable),
         });
         let _ = app.update(Message::Settings(Action::SelectPage(Page::General)));
+        let Command::PluginsRead(general) =
+            receiver.try_recv().expect("General reads its namespace")
+        else {
+            panic!("wrong command")
+        };
+        assert_eq!(general.epoch, worker::TRANSPORT_EPOCH);
         let _ = app.update(Message::Settings(Action::Plugins(
             crate::plugins::Action::Refresh(ticket),
         )));

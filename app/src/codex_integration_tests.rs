@@ -59,10 +59,10 @@ fn visibility_actual_epoch_and_smoke_independently_block_codex_dispatch() {
         s.handle(Action::Codex(CodexAction::CheckStatus(ticket)), 2, true)
             .is_none()
     );
-    assert!(
-        s.handle(Action::SelectPage(Page::General), 1, true)
-            .is_none()
-    );
+    assert!(matches!(
+        s.handle(Action::SelectPage(Page::General), 1, true),
+        Some(Effect::Plugins(_))
+    ));
     assert!(
         s.handle(Action::Codex(CodexAction::CheckStatus(ticket)), 1, true)
             .is_none()

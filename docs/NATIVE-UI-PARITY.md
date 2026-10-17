@@ -8,7 +8,8 @@ in `~/.local/share/dsh-macos-shell-reference/shots/` (mirrored, git-ignored, in 
 (transport → mux → worker → action → panel → dots → kill → output expansion); the shortcuts
 **editor** — store, catalog, resolver, trigger, sorted rows, "Modified", Remove, Restore default,
 the customized count, the Host commands group, the guarded restore-all, capture-a-key and its
-searchable list (`shots/87-…` through `99-…`); and **keys as data**, so the store's five commands
+searchable list (`shots/87-…` through `99-…`); the General page's **session-log preference row**
+with its own read and write (`shots/100-…`); and **keys as data**, so the store's five commands
 drive the live chain instead of a hardcoded map.
 
 **Read this before trusting the list above.** Round 257 found that the editor's per-row actions,
@@ -22,11 +23,10 @@ same shape in the `Ctrl+/` trigger: it opened the account page and the open path
 disclosure, so the editor was never shown; the trigger's "captured" evidence had gone through the
 fixture's direct `set_settings_open`, not the press.
 
-**Next, in one step:** the General page's session-log row has no read path — `plugin_context`
-admits `Page::General` (`settings.rs:372-384`), but `plugins.enter` is called only for
-Plugins/ApiLogin (`settings.rs:694-708`), so the row renders from a snapshot only after another
-page has fetched one. Give the General page its own ticket over the same namespace family, then
-continue the remaining Open items in order.
+**Next, in one step:** the capture path still accepts a binding another command already holds;
+the reference refuses it with "Already used by …" and also names an unsupported key. The store
+already has `conflict` (`keybindings.rs`, with a test), so this is the editor's one remaining
+behavioural gap before the feature-sized Open items.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -4496,3 +4496,65 @@ The three added tests are `search_matches_the_label_the_keys_both_joinings_and_t
 `the_shortcuts_search_is_local_bounded_and_clears`, and the trigger test. The search state, the
 filtered list and the empty state are captured; the **focus operation is issued and compiled, not
 visually verified** — the fixture opens the disclosure directly, so no frame shows the caret.
+
+### Round 259 — the General page's session-log row, and a fixture seed that had never landed
+
+**The row is now the reference's row, not the plugin namespace editor.** `ui-settings-session-log`
+registers one labelled switch: "Upload Session Log when using the official model API", the
+description "Help improve DeepSeek models and products.", and a boolean at the namespace's
+`enabled` field (`UploadRow.tsx:31-39`, `upload-preference.ts:7,30-35`). Native previously rendered
+the generic `view_namespace`, which drew the namespace heading, a raw value line, an **"Edit
+field"** flow and the controller's routine "Loaded live primitive settings…" notice — exactly the
+metadata the user's settings preference excludes. The General page now draws the reference's title,
+description and one checkbox (`settings.rs:1361-1380`), sized by the same row helpers as the rest of
+the page; the namespace is resolved through `plugins::Controller::preference`
+(`plugins.rs:223-251`), and the write goes through the controller's own draft → Bool → Review →
+Confirm path (`plugins.rs:253-300`), so there is no second write model. The row is absent when the
+namespace or the safe boolean is absent, and disabled while unwritable, unreadable or a write is in
+flight, matching the reference's own rule.
+
+**The read path is General's own, and only General's.** `Settings::handle` now enters the plugin
+state for General on open and on page selection, and returns the same `PluginsRead` effect the
+plugin panel uses (`settings.rs:713-733`, `:735-767` and `general_plugin_read` (`:390-396`)). The four settings
+tests that asserted "navigation never reads" now assert the narrower, true rule: every category
+switch is local except General, whose single namespace is the one request
+(`category_navigation_is_local_and_clears_hidden_secret_edits`,
+`settings_navigation_has_no_requests_and_warning_footer_survives_categories`, the Codex visibility
+test and the uncertain-receipt test). The fixture does not take that path: its settings presets open
+with effects disabled, so every preset still queues **zero commands** — the production open path is
+covered by App tests, not by a fixture that cannot answer a Host read.
+
+**A fixture seed that had never landed is fixed, and it explains a source-only claim.**
+`layout_fixture` seeded `llm-deepseek` by calling `plugins_loaded(ticket, …)` without ever starting
+a read; `Controller::loaded` requires `reading == Some(ticket)` (`plugins.rs:563-568`), so the
+snapshot was dropped and the DeepSeek page's live rows could not have appeared in any frame. The
+seed now goes through `seed_plugin_snapshot` (`settings.rs:534-549`), which admits a real read and
+then completes it locally. `shots/101-settings-models-live-namespace.png` is the first frame that
+shows the `llm-deepseek` namespace with `baseURL = https://api.deepseek.com/anthropic`; it exits 0
+with `capturedCommandCount: 0`. The same helper seeds the session-log namespace for
+`shots/100-settings-session-log.png`.
+
+**Deliberate differences.** The reference's control is a pill-shaped `Switch`; Iced has no switch
+primitive and the `canvas` family is unavailable, so native draws a checkbox. The reference also
+raises a shell toast on save/failure (`UploadToast`); native has no toast overlay, so the row's
+disabled/busy state is the only feedback and the save outcome remains in the plugin notice. Both are
+recorded here rather than approximated.
+
+**Battery (round 259).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1149 passed**, 1 ignored |
+| app, default | **0** | **1142 passed**, 1 ignored |
+| transport | **0** | 38 + 17 + 82 + 7 (unchanged, no transport edit) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+The two added tests are `a_single_boolean_preference_reads_and_writes_through_the_same_draft_path`
+and `general_reads_its_namespace_only_while_open_and_enabled`. Captures 100 and 101 both report
+`status: passed`, `capturedCommandCount: 0`, `layoutObservation.passed: true`; the settings scope's
+`allTextCollected: false`/`paintVisibilityQualified: false` pair is unchanged. The row's **write**
+is unit-tested at the controller boundary but no live Host run has acknowledged a session-log
+write; that remains the feature's live qualification gap.

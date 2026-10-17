@@ -1149,7 +1149,14 @@ pub fn build(
                     .is_none()
             );
             app.settings.close();
-            drop(app.update(Message::Settings(Action::Open)));
+            // The fixture renders state, it does not dispatch effects. The production open path
+            // is covered by App tests; this disabled handle keeps every preset at zero commands
+            // while still exercising the reducer's page selection.
+            assert!(
+                app.settings
+                    .handle(Action::Open, app.transport_epoch, false)
+                    .is_none()
+            );
             let page = if preset.starts_with("settings-cloudflare")
                 || preset.starts_with("settings-general-cloudflare")
             {
@@ -1165,7 +1172,11 @@ pub fn build(
             } else {
                 Page::General
             };
-            drop(app.update(Message::Settings(Action::SelectPage(page))));
+            assert!(
+                app.settings
+                    .handle(Action::SelectPage(page), app.transport_epoch, false)
+                    .is_none()
+            );
             if preset == "settings-models" {
                 // Exercise a real read request and supply its reply locally, so
                 // the Models page renders its ready state without a Host.
@@ -1214,30 +1225,26 @@ pub fn build(
                     value: Some(SettingsScalar::String(value.into())),
                     overridden: false,
                 };
-                let ticket = app.settings.plugin_read_ticket();
-                app.settings.plugins_loaded(
-                    ticket,
-                    Ok(crate::plugins::Snapshot {
-                        inventory: PluginInventorySnapshot {
-                            entries: Vec::new(),
-                            management_available: false,
-                        },
-                        settings: SettingsDescribeValue {
-                            writable: true,
-                            namespaces: vec![SettingsNamespaceView {
-                                ns: "llm-deepseek".into(),
-                                revision: 3,
-                                auto_generate: true,
-                                unsupported_fields: 1,
-                                secret_fields: 0,
-                                fields: vec![
-                                    field("baseURL", "https://api.deepseek.com/anthropic"),
-                                    field("reasoningEffort", "high"),
-                                ],
-                            }],
-                        },
-                    }),
-                );
+                app.settings.seed_plugin_snapshot(crate::plugins::Snapshot {
+                    inventory: PluginInventorySnapshot {
+                        entries: Vec::new(),
+                        management_available: false,
+                    },
+                    settings: SettingsDescribeValue {
+                        writable: true,
+                        namespaces: vec![SettingsNamespaceView {
+                            ns: "llm-deepseek".into(),
+                            revision: 3,
+                            auto_generate: true,
+                            unsupported_fields: 1,
+                            secret_fields: 0,
+                            fields: vec![
+                                field("baseURL", "https://api.deepseek.com/anthropic"),
+                                field("reasoningEffort", "high"),
+                            ],
+                        }],
+                    },
+                });
             }
             if preset.starts_with("settings-codex") || preset.starts_with("settings-general-usage")
             {
@@ -1290,11 +1297,27 @@ pub fn build(
             {
                 cloudflare::seed(&mut app, preset);
                 if preset.starts_with("settings-general-cloudflare") {
-                    drop(app.update(Message::Settings(Action::SelectPage(Page::General))));
+                    assert!(
+                        app.settings
+                            .handle(
+                                Action::SelectPage(Page::General),
+                                app.transport_epoch,
+                                false
+                            )
+                            .is_none()
+                    );
                 }
             }
             if preset.starts_with("settings-general-usage") {
-                drop(app.update(Message::Settings(Action::SelectPage(Page::General))));
+                assert!(
+                    app.settings
+                        .handle(
+                            Action::SelectPage(Page::General),
+                            app.transport_epoch,
+                            false
+                        )
+                        .is_none()
+                );
             }
             assert!(app.settings.is_open());
         }

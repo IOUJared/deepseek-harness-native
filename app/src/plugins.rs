@@ -51,6 +51,13 @@ pub struct Snapshot {
     pub inventory: PluginInventorySnapshot,
     pub settings: SettingsDescribeValue,
 }
+/// One boolean preference a single-purpose settings row renders: its current value and whether
+/// this surface may write it. The row does not need the namespace view or its draft machinery.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Preference {
+    pub value: bool,
+    pub writable: bool,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReadFailure {
     Unavailable,
@@ -209,6 +216,90 @@ impl Controller {
     }
     pub fn pending(&self) -> bool {
         self.pending.is_some()
+    }
+    /// Read one boolean preference from the loaded snapshot, without opening a draft. `None`
+    /// when the namespace, the field or a safe boolean value is absent, so a row can hide
+    /// instead of inventing a setting the Host did not advertise.
+    pub fn preference(&self, ns: &str, path: &str) -> Option<Preference> {
+        let snapshot = self.snapshot.as_ref()?;
+        let namespace = snapshot
+            .settings
+            .namespaces
+            .iter()
+            .find(|row| row.ns == ns)?;
+        let field = namespace
+            .fields
+            .iter()
+            .find(|field| field.path.len() == 1 && field.path[0] == path)?;
+        if !safe_field(field) || !matches!(field.kind, SettingsFieldKind::Bool) {
+            return None;
+        }
+        let SettingsScalar::Bool(value) = field.value.as_ref()? else {
+            return None;
+        };
+        Some(Preference {
+            value: *value,
+            writable: self.open
+                && self.fresh
+                && self.reading.is_none()
+                && !self.pending()
+                && snapshot.settings.writable
+                && namespace.auto_generate,
+        })
+    }
+    /// Write one boolean preference through the same draft, review and confirm path a plugin
+    /// field takes, so the General row has no private write. The sequence is synchronous
+    /// because every step is local; only `Confirm` returns the effect the App sends.
+    pub fn set_preference(
+        &mut self,
+        ns: &str,
+        path: &str,
+        value: bool,
+        context: Context,
+    ) -> Option<Effect> {
+        if !self.allowed(context) {
+            return None;
+        }
+        let namespace = self
+            .snapshot
+            .as_ref()?
+            .settings
+            .namespaces
+            .iter()
+            .position(|row| row.ns == ns)?;
+        let field = self
+            .snapshot
+            .as_ref()?
+            .settings
+            .namespaces
+            .get(namespace)?
+            .fields
+            .iter()
+            .position(|field| field.path.len() == 1 && field.path[0] == path)?;
+        let ticket = self.read_ticket();
+        self.handle(
+            Action::SelectNamespace {
+                ticket,
+                index: namespace,
+            },
+            context,
+        );
+        // Selecting a namespace advances the serial, so Begin must carry the ticket the
+        // selection left behind, not the one read before it.
+        let ticket = self.read_ticket();
+        self.handle(Action::Begin { ticket, field }, context);
+        let draft = self.draft_ticket()?;
+        self.handle(
+            Action::Bool {
+                ticket: draft,
+                value,
+            },
+            context,
+        );
+        let draft = self.draft_ticket()?;
+        self.handle(Action::Review(draft), context);
+        let draft = self.draft_ticket()?;
+        self.handle(Action::Confirm(draft), context)
     }
     pub fn enter(&mut self, epoch: u64) {
         self.leave();

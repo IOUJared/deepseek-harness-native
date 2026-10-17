@@ -156,7 +156,12 @@ fn uncertain_receipt_survives_navigation_refresh_failures_reopen_and_ready_epoch
     let receipt = submitted(&mut settings);
     settings.saved(receipt, SaveResult::Indeterminate);
     for page in [Page::General, Page::Plugins, Page::Codex, Page::ApiLogin] {
-        assert!(settings.handle(Action::SelectPage(page), 1, true).is_none());
+        let effect = settings.handle(Action::SelectPage(page), 1, true);
+        if page == Page::General {
+            assert!(matches!(effect, Some(Effect::Plugins(_))));
+        } else {
+            assert!(effect.is_none());
+        }
         assert_eq!(settings.uncertain_save, Some(receipt));
     }
     let Some(Effect::Read(ticket)) = settings.handle(Action::Refresh(settings.ticket()), 1, true)

@@ -245,7 +245,14 @@ fn category_navigation_is_local_and_clears_hidden_secret_edits() {
     edit(&mut state, "PUBLIC_UNSAVED");
     let stale = state.input_ticket();
     for page in [Page::General, Page::Codex, Page::Plugins, Page::ApiLogin] {
-        assert!(state.handle(Action::SelectPage(page), 1, true).is_none());
+        let effect = state.handle(Action::SelectPage(page), 1, true);
+        // Only General renders a Host namespace, so only General asks for one; the other
+        // categories stay purely local.
+        if page == Page::General {
+            assert!(matches!(effect, Some(Effect::Plugins(_))));
+        } else {
+            assert!(effect.is_none());
+        }
         assert_eq!(state.page, page);
         assert!(state.edit.as_str().is_empty());
     }

@@ -242,11 +242,13 @@ fn settings_navigation_has_no_requests_and_warning_footer_survives_categories() 
     settings.cloudflare_completed(pending, Outcome::Unknown);
     let warning = settings.cloudflare.footer();
     for page in Page::ALL {
-        assert!(
-            settings
-                .handle(SettingsAction::SelectPage(page), 1, true)
-                .is_none()
-        );
+        let effect = settings.handle(SettingsAction::SelectPage(page), 1, true);
+        if page == Page::General {
+            // General's own namespace read is the one request a category switch may make.
+            assert!(matches!(effect, Some(crate::settings::Effect::Plugins(_))));
+        } else {
+            assert!(effect.is_none());
+        }
         assert_eq!(settings.cloudflare.footer(), warning);
         let _: Element<'_, SettingsAction> =
             settings.view_sized(false, 600.0, 420.0, &crate::settings::RouteFacts::default());
