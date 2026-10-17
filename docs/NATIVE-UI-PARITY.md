@@ -4023,3 +4023,14 @@ Each is one line of work on this side once answered; none is blocked on further 
    **Not captured:** the section itself, because every fixture run has no Host and therefore no
    advertised commands — the `!self.commands.is_empty()` guard hides it. A fixture setter seeding
    two pairs plus one accepted flag is what turns this into a capture, and that is the next step.
+
+   **The Host section is captured, and the audit's last function is no longer dead.**
+   `shots/90-shortcuts-host-commands.png` shows the disclosure with **two groups**: "Application" and
+   its five fixed rows with their keys, then **"Commands"** with `session.compact` and `session.fork`
+   — **labels only, no keys**, which is exactly the unbound-row rendering the test pins. The fixture
+   seeds the pairs through `seed_commands()` and a `--commands` flag applies it, following the same
+   four-edit shape as `--jobs` and `--customised`; the direct run reports `passed: true` with exit 0.
+   Verified: fixture **1134** exit 0, default **1127** exit 0, format-debt 0.
+   So `catalog_rows` has a caller, a typed input and a capture. What remains on the audit's list is
+   the **ten copy constants** and the `search_index`/`reset_all` group, all of which need the
+   editor's per-row actions and confirmation — the surface those strings were quoted for.

@@ -148,6 +148,8 @@ struct Options {
     settings: bool,
     /// Customise one shortcut, so the disclosure's count line is captured.
     customised: bool,
+    /// Seed the Host's advertised commands, so the disclosure's second group is captured.
+    commands: bool,
     /// Open the shortcuts disclosure, so its rows are captured.
     shortcuts: bool,
 }
@@ -239,6 +241,7 @@ fn options() -> Result<Options, &'static str> {
             "--jobs",
             "--shortcuts",
             "--customised",
+            "--commands",
             "--agent-seat-error",
             "--settings",
             "--scrolled-away",
@@ -320,6 +323,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         width_handle_glow: match values.remove("--width-handle-glow") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        commands: match values.remove("--commands") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -641,6 +648,9 @@ impl Fixture {
             // One binding cleared through the store's own edit path, so the count line reads a
             // real modified count rather than a fixture-injected number.
             app.customise_one_shortcut();
+        }
+        if options.commands {
+            app.seed_commands();
         }
         if options.scrolled_away {
             app.set_scrolled_away(true);

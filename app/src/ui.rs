@@ -5182,6 +5182,15 @@ impl App {
         self.settings.shortcuts_open = open;
     }
 
+    /// Fixture-only: seed the Host's advertised commands as the pairs the disclosure reads.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn seed_commands(&mut self) {
+        self.settings.commands = vec![
+            ("session.compact".to_owned(), "session.compact".to_owned()),
+            ("session.fork".to_owned(), "session.fork".to_owned()),
+        ];
+    }
+
     pub(crate) fn set_jobs(&mut self) {
         let row =
             |id: &str, kind: &str, label: &str, status: &str| dsh_native_transport::dto::JobView {
