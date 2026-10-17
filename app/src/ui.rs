@@ -228,6 +228,8 @@ pub enum Message {
     SubagentOpen(String),
     /// Expands or collapses one catalog row's own children.
     ToggleSubagentBranch(String),
+    /// Expands or collapses the queue dock's multi-item list.
+    ToggleQueue,
     /// A key press as **data** for the live chain, with the state at the moment it arrives: an
     /// armed capture consumes it, a focused field's links own it, or a stored binding invokes a
     /// command — so a rebound key replaces the hardcoded default instead of shadowing it.
@@ -719,6 +721,8 @@ pub struct App {
     /// What Enter/Send do while the agent is running: queue the next turn (default) or steer
     /// the running one. Persisted in the layout namespace.
     busy_enter: crate::settings::BusyEnter,
+    /// The queue dock's multi-item list is open.
+    queue_expanded: bool,
     workspace_path: String,
     workspace_controls: bool,
     filter: String,
@@ -980,6 +984,7 @@ impl App {
                 width_handle_glow: false,
                 content_font_size,
                 busy_enter,
+                queue_expanded: false,
                 workspace_path,
                 workspace_controls: false,
                 filter: String::new(),
@@ -3067,6 +3072,9 @@ impl App {
                 if !open {
                     self.subagent_expanded.clear();
                 }
+            }
+            Message::ToggleQueue if self.layout_controls_enabled() => {
+                self.queue_expanded = !self.queue_expanded;
             }
             Message::ToggleSubagentBranch(id) if self.layout_controls_enabled() => {
                 if !self.subagent_expanded.remove(&id) {
@@ -5416,6 +5424,12 @@ impl App {
         );
     }
 
+    /// Fixture-only: open the queue dock's multi-item list, which a real run expands by press.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn expand_queue(&mut self) {
+        self.queue_expanded = true;
+    }
+
     /// Fixture-only: set the busy-state Enter preference, which a real run changes in Settings.
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn set_busy_enter(&mut self, value: crate::settings::BusyEnter) {
@@ -7385,6 +7399,55 @@ impl App {
             pending: self.plan_toggle_pending,
         }
     }
+    /// The read-only queue strip above the composer, built from the same inbox splices the
+    /// transcript retains. One item renders directly; several collapse under a count header,
+    /// as the reference's dock does.
+    fn queue_dock(&self) -> Option<Element<'_, Message>> {
+        let items = self.transcript.queued();
+        if items.is_empty() {
+            return None;
+        }
+        let mut list = column![].spacing(4);
+        if items.len() > 1 {
+            list = list.push(
+                button(
+                    row![
+                        label(format!("{} queued messages", items.len()), MUTED).size(11),
+                        Space::new().width(Length::Fill),
+                        label(if self.queue_expanded { "▾" } else { "▸" }, MUTED).size(11),
+                    ]
+                    .align_y(iced::Alignment::Center),
+                )
+                .on_press(Message::ToggleQueue)
+                .style(design::ghost)
+                .padding([3, 6])
+                .width(Length::Fill),
+            );
+        }
+        if items.len() == 1 || self.queue_expanded {
+            for item in &items {
+                list = list.push(
+                    row![
+                        label("Queue", MUTED).size(10),
+                        label(short(&item.preview, 160), TEXT)
+                            .size(12)
+                            .width(Length::Fill),
+                    ]
+                    .spacing(6)
+                    .align_y(iced::Alignment::Center),
+                );
+            }
+        }
+        Some(
+            container(list)
+                .id("native-queue-dock")
+                .width(Length::Fill)
+                .padding([6, 8])
+                .style(|_| design::card(SURFACE, 10.0))
+                .into(),
+        )
+    }
+
     fn composer(&self) -> Element<'_, Message> {
         if let Some((title, body)) = self.subagent_read_only_copy() {
             // The reference replaces the whole composer for a one-shot child
@@ -7813,6 +7876,9 @@ impl App {
             .push(Space::new().width(Length::Fill))
             .push(label(hint, MUTED).size(10));
         let mut shell = column![];
+        if let Some(dock) = self.queue_dock() {
+            shell = shell.push(dock);
+        }
         // The completion menu sits directly above the card, so it reads as an
         // extension of the composer rather than a floating panel.
         if let Some(menu) = self.completion() {

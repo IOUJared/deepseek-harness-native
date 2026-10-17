@@ -28,6 +28,8 @@ mod management;
 mod mcp;
 #[path = "../src/plugins.rs"]
 mod plugins;
+#[path = "../src/queue_dock.rs"]
+mod queue_dock;
 #[path = "../src/reducer.rs"]
 mod reducer;
 #[path = "../src/rename.rs"]
@@ -170,6 +172,8 @@ struct Options {
     pending_approval: bool,
     /// Set the busy-state Enter preference (`queue` or `steer`).
     busy_enter: Option<String>,
+    /// Expand the queue dock's multi-item list for capture.
+    queue_expanded: bool,
     /// Open the shortcuts disclosure, so its rows are captured.
     shortcuts: bool,
 }
@@ -272,6 +276,7 @@ fn options() -> Result<Options, &'static str> {
             "--subagent-expanded",
             "--pending-approval",
             "--busy-enter",
+            "--queue-expanded",
             "--agent-seat-error",
             "--settings",
             "--scrolled-away",
@@ -390,6 +395,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         busy_enter: values.remove("--busy-enter"),
+        queue_expanded: match values.remove("--queue-expanded") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
         commands: match values.remove("--commands") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
@@ -754,6 +763,9 @@ impl Fixture {
             && let Some(value) = ui::settings_busy_enter(raw)
         {
             app.set_busy_enter(value);
+        }
+        if options.queue_expanded {
+            app.expand_queue();
         }
         if options.scrolled_away {
             app.set_scrolled_away(true);

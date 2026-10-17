@@ -131,6 +131,23 @@ impl Transcript {
         &self.rows
     }
     /// The projections that describe this retained window.
+    /// The next-turn queue as the composer's dock draws it, rebuilt from the retained inbox
+    /// splices. Read-only; the reducer keeps the same records for the chat rows.
+    pub fn queued(&self) -> Vec<crate::queue_dock::Item> {
+        if let Some(rows) = self
+            .projections
+            .get("inbox")
+            .and_then(|inbox| inbox.get("next-turn"))
+            .and_then(serde_json::Value::as_array)
+        {
+            return crate::queue_dock::from_rows(rows);
+        }
+        crate::queue_dock::from_events(
+            self.records
+                .values()
+                .filter(|event| event.event_type == "agent/inbox/spliced"),
+        )
+    }
     pub fn projections(&self) -> &BTreeMap<String, serde_json::Value> {
         &self.projections
     }

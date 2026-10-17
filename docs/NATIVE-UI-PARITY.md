@@ -15,8 +15,9 @@ dropdown** (`shots/104-…`, `105-…`); the **one-shot child's read-only compos
 the sidebar's **subagent rows and running-child count** (`shots/107-…`); the child header's
 **sibling switcher** (`shots/108-…`, `109-…`) with **nested catalog branches and row metrics**
 (`shots/110-…`, `111-…`); the selected row's **pending-interaction status** (`shots/112-…`); the
-**busy-state Enter preference** with text steering (`shots/113-…`, `114-…`); and **keys as data**, so
-the store's five commands drive the live chain instead of a hardcoded map.
+**busy-state Enter preference** with text steering (`shots/113-…`, `114-…`) and a read-only
+**queue dock** (`shots/115-…`, `116-…`); and **keys as data**, so the store's five commands drive the
+live chain instead of a hardcoded map.
 
 **Read this before trusting the list above.** Round 257 found that the editor's per-row actions,
 the permission default row and eight Host-event handlers were **unreachable behind two catch-all
@@ -29,13 +30,12 @@ same shape in the `Ctrl+/` trigger: it opened the account page and the open path
 disclosure, so the editor was never shown; the trigger's "captured" evidence had gone through the
 fixture's direct `set_settings_open`, not the press.
 
-**Next, in one step:** the **queue dock** — the reference's list of messages queued for the next
-turn, with its count header, previews and per-item edit/remove/steer actions
-(`ui-conversation/src/client/queue/QueueDock.tsx`). Native already admits a Queue prompt while the
-agent runs, but shows no dock and holds no queue item model. Size the Host's queue-mutation methods
-before drawing the dock; a read-only count is a smaller first slice. The two larger audit findings —
-queue-item mutation and `@` mentions — are sized below. The settings/rename editable menu is
-**toolkit-blocked**, recorded below, not a candidate.
+**Next, in one step:** the queue dock's **per-item actions** — edit/save/cancel, remove, and steer
+one row (`QueueDock.tsx:230-360`, `updateQueue`). The dock now draws the reference's rows from the
+`inbox` projection (fallback: retained splices); first size the Host's queue-mutation method, since
+native has no queue command yet and must not invent one. The other open audit finding, `@` mentions,
+is sized below. The settings/rename editable menu is **toolkit-blocked**, recorded below, not a
+candidate.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -5050,3 +5050,44 @@ verified either way and are not claimed.
 Two tests were added: `the_busy_enter_preference_has_two_values_and_only_steer_is_stored` and
 `a_steer_preference_steers_a_send_while_the_session_runs` (both modes observed on the queued
 `Command::Prompt`). The fixture flag `--busy-enter queue|steer` drives both captures.
+
+### Round 271 — the read-only queue dock
+
+**The composer now shows the messages queued for the next turn.** `queue_dock::from_rows` reads the
+selected session's `inbox.next-turn` projection — the reference's own source
+(`QueueDock.tsx:110-112`) — and falls back to the retained `agent/inbox/spliced` records when the
+list carries no projection. One row renders directly; several collapse under a **"N queued
+messages"** header that expands through `Message::ToggleQueue`, each row showing a `Queue` lead and
+a flattened preview (text joined, non-text blocks bracketed, 200 characters, 16 rows maximum, all
+matching the reference's bounds). The strip sits directly above the composer card.
+`shots/115-queue-dock.png` is the collapsed two-row header and
+`shots/116-queue-dock-expanded.png` the expanded previews (**"PUBLIC queued question about the
+running turn."** and **"PUBLIC second queued note · café · 世界"**); both reports are
+`status: passed`.
+
+The `working-queue` preset seeds the projection on a running session, so no splice is needed for the
+frame; a unit test covers the fallback path.
+
+**Deliberate differences and the remainder.** The dock is **read-only**: there is no per-item edit,
+remove or steer control, and no "Sending…" row for an unadmitted submission, because native has no
+queue-mutation command and this round does not invent one. The header uses `▸`/`▾`, and the row lead
+is the word `Queue` instead of the reference's drawn queue glyph (no icon set). The projection's
+`next-turn` rows are the source; a session whose Host omits `inbox` still gets the dock from its
+splices.
+
+**Battery (round 271).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1174 passed**, 1 ignored |
+| app, default | **0** | **1167 passed**, 1 ignored |
+| transport | **0** | 38 + 17 + 82 + 7 (unchanged, no transport edit) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+Five tests were added in `app/src/queue_dock.rs`: splice order/removal, preview flattening, preview
+and list bounds, malformed splices, and the projection row list. The physical captures were taken on
+DP-2 (the session's `/tmp` capture helper had been cleared, so it was rebuilt in this round; the
+saved frames are the app's own buffer and the DP-2 window grab).

@@ -55,6 +55,7 @@ pub const PRESETS: &[&str] = &[
     "model-metadata",
     "model-metadata-expanded",
     "working-conversation",
+    "working-queue",
     "working-phase-6",
     "working-narrow",
     "chat-submitted",
@@ -206,6 +207,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "model-metadata"
         | "model-metadata-expanded"
         | "working-conversation"
+        | "working-queue"
         | "working-phase-6"
         | "subagent-trail"
         | "subagent-catalog"
@@ -1023,7 +1025,7 @@ pub fn build(
             }
         }).collect()
     } else if preset == "conversation" || preset.starts_with("working-") {
-        vec![
+        let records = vec![
             json!({"type":"event", "event":{"type":"user/message", "seq":0, "time":1000,
                 "data":{"role":"user", "id":"PUBLIC-user-message", "source":{"kind":"user"},
                     "content":[{"type":"text", "text":"PUBLIC layout note · café · 世界\nCompare the real conversation bubbles and composer without sending a prompt."}]},
@@ -1033,7 +1035,8 @@ pub fn build(
                     "stream":[{"type":"text-chunks", "time0":1001, "index":0, "dt":[],
                         "texts":["PUBLIC synthetic assistant text. This durable snapshot is local metadata, not a model response or a business acknowledgement."]}]},
                 "surfaceOp":"append"}}),
-        ]
+        ];
+        records
     } else {
         vec![]
     };
@@ -1053,6 +1056,12 @@ pub fn build(
         "plan-mode" => json!({"plan":{"active":true,"pending":false}}),
         "plan-mode-applying" => json!({"plan":{"active":true,"pending":true}}),
         "plan-mode-leaving" => json!({"plan":{"active":false,"pending":true}}),
+        "working-queue" => json!({"inbox":{"next-turn":[
+            {"id":"PUBLIC-queued-one","source":{"kind":"user"},
+                "content":[{"type":"text","text":"PUBLIC queued question about the running turn."}]},
+            {"id":"PUBLIC-queued-two","source":{"kind":"user"},
+                "content":[{"type":"text","text":"PUBLIC second queued note · café · 世界"}]}
+        ]}}),
         _ => json!({}),
     };
     let snapshot: SessionFollowFrame = serde_json::from_value(json!({
