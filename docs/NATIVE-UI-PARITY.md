@@ -9,9 +9,9 @@ in `~/.local/share/dsh-macos-shell-reference/shots/` (mirrored, git-ignored, in 
 **editor** — store, catalog, resolver, trigger, sorted rows, "Modified", Remove, Restore default,
 the customized count, the Host commands group, the guarded restore-all, capture-a-key, its
 searchable list and its refused-capture states (`shots/87-…` through `102-…`); the General page's
-**session-log preference row** with its own read and write (`shots/100-…`); the running turn's
-**two-press Escape stop**; and **keys as data**, so the store's five commands drive the live chain
-instead of a hardcoded map.
+**session-log preference row** with its own read, write and saved/failed state (`shots/100-…`,
+`103-…`); the running turn's **two-press Escape stop**; and **keys as data**, so the store's five
+commands drive the live chain instead of a hardcoded map.
 
 **Read this before trusting the list above.** Round 257 found that the editor's per-row actions,
 the permission default row and eight Host-event handlers were **unreachable behind two catch-all
@@ -24,11 +24,12 @@ same shape in the `Ctrl+/` trigger: it opened the account page and the open path
 disclosure, so the editor was never shown; the trigger's "captured" evidence had gone through the
 fixture's direct `set_settings_open`, not the press.
 
-**Next, in one step:** the editable Undo/Redo/Cut/Copy/Paste/Select-all menu is installed on the
-composer only; the reference installs it on every editable field, and native's settings and rename
-inputs have no such menu (the gap is recorded at "the same menu is not yet offered on the settings
-and rename text inputs"). That is the next field-sized surface, ahead of the feature-sized Open
-items.
+**Next, in one step:** the subagent header lineage tree — the reference's catalog of child
+sessions with running/inactive dots, token totals, durations and branch expansion
+(`ui-subagent/src/client/SubagentHeaderLineage.tsx`). Native shows a crumb trail only. Size the
+projection first: the reference reads `subagentCatalog` entries with `activity`, and native's
+`AgentPresetRow` does not carry that field, so this is a Core projection addition before any view.
+The settings/rename editable menu is **toolkit-blocked**, recorded below, not a candidate.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -675,6 +676,13 @@ cell, so new findings go at the end of the file as plain paragraphs.
   new dependency family; and composing two sheets from `pin`/`Stack` was tried and
   fails, because a widget's fill occludes rather than strokes. The DejaVu glyphs
   (`❐`, `✎`) stand.
+- **Editable menu on settings/rename inputs — toolkit-blocked.** The composer's menu works
+  because native owns its `text_editor::Content` and can read selection, history and edit flags.
+  A `text_input` owns its buffer internally: iced 0.14 exposes `on_input`/`on_submit` but no
+  selection, undo history, caret, or cut/copy enablement, so Undo, Redo, Cut, Select all and the
+  enabled states cannot be implemented there without a custom widget. The app's existing clipboard
+  bridge is also scoped to Cloudflare's fields, not a general editable-field model. This is the
+  same class as the missing `canvas` family, not an unattempted layout change.
 - **Small radius — decided, not overlooked.** The web's `--dsw-radius-sm` is 8px
   against native's `RADIUS_SM` 9. It is part of native's documented radius ladder
   and is shared by every small-radius surface, so moving it is a cross-surface
@@ -1541,7 +1549,10 @@ cell, so new findings go at the end of the file as plain paragraphs.
   (native's other menus anchor to their trigger), Paste and Select all are always
   enabled because Iced exposes no edit flags for them, the caret lands where
   `Content::with_text` puts it after an Undo (Iced has no text-plus-caret restore), and
-  the same menu is not yet offered on the settings and rename text inputs.
+  the same menu is **not offered on the settings and rename text inputs**: Iced's `text_input`
+  exposes no selection, edit flags, or text/caret mutation operation, which the menu's seven
+  entries need, and native's clipboard path for fields is Cloudflare-specific. Recorded as
+  toolkit-blocked rather than half-built.
 - **Markdown tables — landed, capture-verified.** A GitHub table used to fail the whole
   parse: `Tag::Table` fell through `Builder::start`'s catch-all, `parse` returned
   `Failure::Unsupported`, and the entire assistant reply degraded to raw plain text —
@@ -4644,3 +4655,44 @@ timing and key routing, and the visible outcome is the existing Stop path.
 Three tests pin it: `two_escape_presses_stop_a_running_turn_and_one_only_arms`,
 `an_expired_first_escape_does_not_stop_and_starts_over`, and
 `escape_outside_the_conversation_surface_still_dismisses`.
+
+### Round 262 — the session-log row says whether its write landed
+
+**The General page's one writing row now reports its outcome.** The reference raises a shell toast
+on this preference's save or failure (`UploadToast`, `locales.ts`: "Preference saved" / "Could not
+save preference"); native has no toast overlay, and removing the generic namespace view in round
+259 also removed the plugin notice that had been the only feedback. The row now shows one line
+beneath it, and only after a write settles: "Saving preference…" while the write is in flight,
+"Preference saved" in the foam colour on confirmation, "Could not save preference" in the danger
+colour on any refusal, conflict, or uncertain receipt. The decision comes from
+`plugins::Controller::last_save_succeeded` (`plugins.rs:223-231`), which maps the controller's own
+write notices and returns `None` for a load, so the routine "Loaded live primitive settings" line
+does not come back. Nothing is shown before the first write.
+
+`shots/103-settings-session-log-saved.png` is the captured saved state: the reference's title and
+description, the switch now off after a real controller write, and **"Preference saved"** beneath.
+The fixture flag `--session-log-saved` seeds the namespace, performs the write through
+`Settings::handle(Action::SessionLog(false))`, and completes it with the controller's own confirmed
+namespace at revision 5 — the proof is the row state, not an injected string. The report is
+`status: passed`, `capturedCommandCount: 0`.
+
+**Deliberate difference.** The reference's toast is transient and shell-wide; native's line is
+inline and persists until the next read or write. The copy is the reference's, and a failed write
+cannot be silent.
+
+**Battery (round 262).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1154 passed**, 1 ignored |
+| app, default | **0** | **1147 passed**, 1 ignored |
+| transport | **0** | 38 + 17 + 82 + 7 (unchanged, no transport edit) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+The preference test now also pins `None` while pending, `Some(true)` after a confirmed write and
+`Some(false)` after a refusal, and that the confirmed value updates the row's preference. The test
+count is unchanged because the cases extend the existing preference test; capture 103 is the new
+evidence.

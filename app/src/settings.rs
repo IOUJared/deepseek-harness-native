@@ -8,6 +8,8 @@ const MAX_DRAFT: usize = 16_384;
 /// The reference's session-log row copy (`ui-settings-session-log/src/client/locales.ts`).
 const SESSION_LOG_TITLE: &str = "Upload Session Log when using the official model API";
 const SESSION_LOG_DESCRIPTION: &str = "Help improve DeepSeek models and products.";
+const SESSION_LOG_SAVED: &str = "Preference saved";
+const SESSION_LOG_FAILED: &str = "Could not save preference";
 /// Why a draft cannot be a key at all, in the desktop shell's own words
 /// (`welcomeKeyInvalid`): it arrived wrapped in quotes, or copied as an
 /// environment assignment such as `DEEPSEEK_API_KEY=…`.
@@ -1370,7 +1372,7 @@ impl Settings {
         // the Host advertises. Nothing is drawn when the namespace or its field is absent.
         if let Some(preference) = self.plugins.preference("session-log-deepseek", "enabled") {
             let writable = preference.writable && !self.plugins.pending();
-            body = body.push(
+            let mut section = column![
                 row![
                     column![
                         label(SESSION_LOG_TITLE, TEXT).size(13),
@@ -1383,7 +1385,26 @@ impl Settings {
                 ]
                 .spacing(12)
                 .align_y(iced::Alignment::Center),
-            );
+            ]
+            .spacing(4);
+            // The reference shows the save outcome as a shell toast. Native has no overlay, so
+            // the one row that writes here states it in place, and only after a write settles.
+            if self.plugins.pending() {
+                section = section.push(label("Saving preference…", MUTED).size(11));
+            } else if let Some(saved) = self.plugins.last_save_succeeded() {
+                section = section.push(
+                    label(
+                        if saved {
+                            SESSION_LOG_SAVED
+                        } else {
+                            SESSION_LOG_FAILED
+                        },
+                        if saved { design::FOAM } else { DANGER },
+                    )
+                    .size(11),
+                );
+            }
+            body = body.push(section);
         }
         body = body.push(self.info_button(
             Info::ContextPolicy,

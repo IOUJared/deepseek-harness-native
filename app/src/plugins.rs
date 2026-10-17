@@ -217,6 +217,18 @@ impl Controller {
     pub fn pending(&self) -> bool {
         self.pending.is_some()
     }
+    /// The last write's outcome, for a single-purpose row that has no toast overlay:
+    /// `Some(true)` confirmed, `Some(false)` refused/conflicted/uncertain, `None` when no write
+    /// has settled or the notice belongs to a load.
+    pub fn last_save_succeeded(&self) -> Option<bool> {
+        match self.notice {
+            Notice::Confirmed => Some(true),
+            Notice::Refused | Notice::Conflict | Notice::Indeterminate | Notice::NotSent => {
+                Some(false)
+            }
+            _ => None,
+        }
+    }
     /// Read one boolean preference from the loaded snapshot, without opening a draft. `None`
     /// when the namespace, the field or a safe boolean value is absent, so a row can hide
     /// instead of inventing a setting the Host did not advertise.

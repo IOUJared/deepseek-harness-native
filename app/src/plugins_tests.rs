@@ -40,6 +40,22 @@ fn snapshot() -> Snapshot {
         },
     }
 }
+fn bool_namespace(value: bool, revision: u64) -> SettingsNamespaceView {
+    SettingsNamespaceView {
+        ns: "session-log-deepseek".into(),
+        revision,
+        auto_generate: true,
+        unsupported_fields: 0,
+        secret_fields: 0,
+        fields: vec![SettingsField {
+            path: vec!["enabled".into()],
+            label: "Upload session logs".into(),
+            kind: SettingsFieldKind::Bool,
+            value: Some(SettingsScalar::Bool(value)),
+            overridden: false,
+        }],
+    }
+}
 fn bool_snapshot() -> Snapshot {
     Snapshot {
         inventory: PluginInventorySnapshot {
@@ -48,20 +64,7 @@ fn bool_snapshot() -> Snapshot {
         },
         settings: SettingsDescribeValue {
             writable: true,
-            namespaces: vec![SettingsNamespaceView {
-                ns: "session-log-deepseek".into(),
-                revision: 4,
-                auto_generate: true,
-                unsupported_fields: 0,
-                secret_fields: 0,
-                fields: vec![SettingsField {
-                    path: vec!["enabled".into()],
-                    label: "Upload session logs".into(),
-                    kind: SettingsFieldKind::Bool,
-                    value: Some(SettingsScalar::Bool(true)),
-                    overridden: false,
-                }],
-            }],
+            namespaces: vec![bool_namespace(true, 4)],
         },
     }
 }
@@ -157,6 +160,24 @@ fn a_single_boolean_preference_reads_and_writes_through_the_same_draft_path() {
             writable: false
         })
     );
+    assert_eq!(c.last_save_succeeded(), None, "pending is not an outcome");
+    c.saved(ticket, SaveOutcome::Confirmed(bool_namespace(false, 5)));
+    assert_eq!(c.last_save_succeeded(), Some(true));
+    assert_eq!(
+        c.preference("session-log-deepseek", "enabled"),
+        Some(Preference {
+            value: false,
+            writable: true
+        })
+    );
+    let mut refused = bool_loaded();
+    let Some(Effect::Save { ticket, .. }) =
+        refused.set_preference("session-log-deepseek", "enabled", false, context())
+    else {
+        panic!("a second boolean write")
+    };
+    refused.saved(ticket, SaveOutcome::Refused);
+    assert_eq!(refused.last_save_succeeded(), Some(false));
 }
 #[test]
 fn opening_ready_and_namespace_search_are_local_only() {

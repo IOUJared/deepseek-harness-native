@@ -160,6 +160,8 @@ struct Options {
     shortcuts_search: Option<String>,
     /// Seed the General page's session-log namespace, so its preference row is captured.
     session_log: bool,
+    /// Complete one session-log write, so the reference's saved state is captured.
+    session_log_saved: bool,
     /// Open the shortcuts disclosure, so its rows are captured.
     shortcuts: bool,
 }
@@ -257,6 +259,7 @@ fn options() -> Result<Options, &'static str> {
             "--capture-conflict",
             "--shortcuts-search",
             "--session-log",
+            "--session-log-saved",
             "--agent-seat-error",
             "--settings",
             "--scrolled-away",
@@ -355,6 +358,10 @@ fn options() -> Result<Options, &'static str> {
         },
         shortcuts_search: values.remove("--shortcuts-search"),
         session_log: match values.remove("--session-log") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        session_log_saved: match values.remove("--session-log-saved") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -704,6 +711,9 @@ impl Fixture {
         }
         if options.session_log {
             app.seed_session_log();
+        }
+        if options.session_log_saved {
+            app.seed_session_log_saved();
         }
         if options.scrolled_away {
             app.set_scrolled_away(true);

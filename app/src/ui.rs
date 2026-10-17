@@ -5365,34 +5365,28 @@ impl App {
     /// same admitted read a Host reply passes. The value is the one boolean the row edits.
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn seed_session_log(&mut self) {
-        use dsh_native_transport::plugin::{
-            PluginInventorySnapshot, SettingsDescribeValue, SettingsField, SettingsFieldKind,
-            SettingsNamespaceView, SettingsScalar,
-        };
         self.settings
-            .seed_plugin_snapshot(crate::plugins::Snapshot {
-                inventory: PluginInventorySnapshot {
-                    entries: Vec::new(),
-                    management_available: false,
-                },
-                settings: SettingsDescribeValue {
-                    writable: true,
-                    namespaces: vec![SettingsNamespaceView {
-                        ns: "session-log-deepseek".into(),
-                        revision: 4,
-                        auto_generate: true,
-                        unsupported_fields: 0,
-                        secret_fields: 0,
-                        fields: vec![SettingsField {
-                            path: vec!["enabled".into()],
-                            label: "Upload session logs".into(),
-                            kind: SettingsFieldKind::Bool,
-                            value: Some(SettingsScalar::Bool(true)),
-                            overridden: false,
-                        }],
-                    }],
-                },
-            });
+            .seed_plugin_snapshot(Self::session_log_snapshot(true, 4));
+    }
+
+    /// Fixture-only: seed the namespace and complete one real write, so the reference's
+    /// "Preference saved" state is capturable.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn seed_session_log_saved(&mut self) {
+        self.seed_session_log();
+        let Some(crate::settings::Effect::Plugins(crate::plugins::Effect::Save { ticket, .. })) =
+            self.settings.handle(
+                crate::settings::Action::SessionLog(false),
+                self.transport_epoch,
+                true,
+            )
+        else {
+            return;
+        };
+        self.settings.plugin_saved(
+            ticket,
+            crate::plugins::SaveOutcome::Confirmed(Self::session_log_namespace(false, 5)),
+        );
     }
 
     /// Fixture-only: arm the restore-all confirmation, so its copy is capturable.
@@ -5406,6 +5400,45 @@ impl App {
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn arm_shortcut_capture(&mut self) {
         self.settings.capture_for = Some("native.find".to_owned());
+    }
+
+    /// Fixture-only: the one namespace the General page's session-log row renders.
+    #[cfg(feature = "public-layout-fixture")]
+    fn session_log_snapshot(enabled: bool, revision: u64) -> crate::plugins::Snapshot {
+        crate::plugins::Snapshot {
+            inventory: dsh_native_transport::plugin::PluginInventorySnapshot {
+                entries: Vec::new(),
+                management_available: false,
+            },
+            settings: dsh_native_transport::plugin::SettingsDescribeValue {
+                writable: true,
+                namespaces: vec![Self::session_log_namespace(enabled, revision)],
+            },
+        }
+    }
+    /// Fixture-only: the namespace view a confirmed write returns at the next revision.
+    #[cfg(feature = "public-layout-fixture")]
+    fn session_log_namespace(
+        enabled: bool,
+        revision: u64,
+    ) -> dsh_native_transport::plugin::SettingsNamespaceView {
+        use dsh_native_transport::plugin::{
+            SettingsField, SettingsFieldKind, SettingsNamespaceView, SettingsScalar,
+        };
+        SettingsNamespaceView {
+            ns: "session-log-deepseek".into(),
+            revision,
+            auto_generate: true,
+            unsupported_fields: 0,
+            secret_fields: 0,
+            fields: vec![SettingsField {
+                path: vec!["enabled".into()],
+                label: "Upload session logs".into(),
+                kind: SettingsFieldKind::Bool,
+                value: Some(SettingsScalar::Bool(enabled)),
+                overridden: false,
+            }],
+        }
     }
 
     /// Fixture-only: seed the Host's advertised commands as the pairs the disclosure reads.
