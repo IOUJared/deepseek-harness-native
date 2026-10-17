@@ -1157,3 +1157,22 @@ pub enum MessageFeedbackPutOutcome {
     TargetMissing,
     Refused(String),
 }
+
+/// One directory row in the Host's in-app browse listing (`DirectoryEntry`).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DirectoryEntry {
+    pub name: String,
+    pub path: String,
+    #[serde(default)]
+    pub hidden: bool,
+}
+/// One directory level plus its ancestry (`DirectoryListing`).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectoryListing {
+    pub path: String,
+    pub home: String,
+    pub crumbs: Vec<DirectoryEntry>,
+    pub entries: Vec<DirectoryEntry>,
+    pub truncated: bool,
+}

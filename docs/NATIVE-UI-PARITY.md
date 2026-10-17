@@ -45,7 +45,7 @@ the reference's **developer-tools gate and sidebar review tab**, then workspace 
 **date and clock pickers** now serve the one-shot and daily/weekly editors and are
 keyboard-navigable, **assistant replies carry Like/Dislike feedback with a note/category dialog**,
 and the composer shows the **expandable todo dock**; a local **Show coding view** preference gates
-the coding surfaces, and the workspace sheet can **browse** for a directory through the Host. Cross-session pending
+the coding surfaces, and the workspace sheet can **browse** for a directory through the Host **or an in-app folder list**. Cross-session pending
 status is still unavailable from the present wires. The `@` menu is keyboard-navigable and lists
 sessions beside files.
 
@@ -6246,6 +6246,36 @@ create-directory flow; the reference's browse capability is therefore only partl
 | app, fixture | **0** | **1208 passed**, 1 ignored |
 | app, default | **0** | **1201 passed**, 1 ignored |
 | transport | **0** | 55 + 17 + 82 + 7 (unchanged this round) |
+| core (`--lib`) | **0** | **112 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+### Round 314 — the in-app folder browser
+
+**The workspace sheet gained the Host's in-app directory listing beside the native chooser.** A
+**Folders** action calls `directoryPicker/list` for the typed path (or the Host home when empty);
+the panel shows the listed path, **Use this folder** (fills the path field without committing),
+**▴ Up** when an ancestor exists, up to 12 child directories (each navigates the listing), a
+truncation note, and **Hide folders**. The Open workspace commit sits below the listing so the
+browser is reachable first. `shots/143-workspace-folders.png` shows the path row, Browse…, Folders,
+the listed path and Use this folder; at this sheet height the child rows and commit sit below the
+fold and require scrolling, which is stated rather than hidden.
+
+The transport parses and bounds the listing (path/home/crumb/entry lengths, ≤256 crumbs, ≤4096
+entries), and tests cover a valid listing and two malformed ones; an app test covers the read
+dispatch, the listing state and Use this folder.
+
+**Remainder.** The picker lists directories only, so there is no file browse; `createDirectory` is
+not exposed. The sheet's fixed 110px workspace area means a long listing scrolls under the fold.
+
+**Battery (round 314).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1209 passed**, 1 ignored |
+| app, default | **0** | **1202 passed**, 1 ignored |
+| transport | **0** | **56 + 17 + 82 + 7** |
 | core (`--lib`) | **0** | **112 passed** |
 | JS runtime | **0** | **419 pass**, 0 fail |
 | format debt | **0** | 0 files, 0 hunks |

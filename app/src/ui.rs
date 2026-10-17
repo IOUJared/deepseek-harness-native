@@ -318,6 +318,10 @@ pub enum Message {
     ToggleTodoDock,
     /// Opens the Host's native directory chooser.
     PickDirectory,
+    /// Lists one directory level in the in-app folder browser.
+    BrowseWorkspace(Option<String>),
+    /// Uses the browsed directory as the workspace path.
+    UseBrowsedDirectory,
     /// Rates one assistant message positive.
     FeedbackLike(String),
     /// Rates one assistant message negative.
@@ -1073,6 +1077,8 @@ pub struct App {
     schedule_busy: Option<String>,
     /// Whether the composer's todo dock is expanded.
     todo_dock_open: bool,
+    /// The in-app folder browser's current listing.
+    directory_listing: Option<dsh_native_transport::dto::DirectoryListing>,
     /// Per-message feedback by assistant message id.
     feedback: std::collections::BTreeMap<String, dsh_native_transport::dto::MessageFeedbackItem>,
     /// The open feedback dialog.
@@ -1409,6 +1415,7 @@ impl App {
                 schedule_delete: None,
                 schedule_busy: None,
                 todo_dock_open: false,
+                directory_listing: None,
                 feedback: Default::default(),
                 feedback_dialog: None,
                 file_references: Vec::new(),
@@ -3763,6 +3770,14 @@ impl App {
             Message::PickDirectory => {
                 self.command(worker::Command::PickDirectory);
             }
+            Message::BrowseWorkspace(path) => {
+                self.command(worker::Command::ListDirectory { path });
+            }
+            Message::UseBrowsedDirectory => {
+                if let Some(listing) = &self.directory_listing {
+                    self.workspace_path = listing.path.clone();
+                }
+            }
             Message::FeedbackLike(message_id) => {
                 return self.feedback_press(message_id, "positive");
             }
@@ -5303,6 +5318,13 @@ impl App {
                 Ok(Some(path)) => self.workspace_path = path,
                 Ok(None) => {}
                 Err(error) => self.status = error,
+            },
+            Event::DirectoryListed(result) => match result {
+                Ok(listing) => self.directory_listing = Some(listing),
+                Err(error) => {
+                    self.directory_listing = None;
+                    self.status = error;
+                }
             },
             Event::FeedbackWritten {
                 session,
@@ -7043,6 +7065,27 @@ impl App {
                 ],
             }),
         );
+    }
+
+    /// Fixture-only: seed the in-app folder listing, which a real run reads from the Host.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn seed_directory_listing(&mut self) {
+        let entry = |name: &str| dsh_native_transport::dto::DirectoryEntry {
+            name: name.into(),
+            path: format!("/PUBLIC-layout-fixture/workspace/{name}"),
+            hidden: false,
+        };
+        self.directory_listing = Some(dsh_native_transport::dto::DirectoryListing {
+            path: "/PUBLIC-layout-fixture/workspace".into(),
+            home: "/home/PUBLIC".into(),
+            crumbs: vec![dsh_native_transport::dto::DirectoryEntry {
+                name: "PUBLIC-layout-fixture".into(),
+                path: "/PUBLIC-layout-fixture".into(),
+                hidden: false,
+            }],
+            entries: vec![entry("src"), entry("docs"), entry("scripts")],
+            truncated: false,
+        });
     }
 
     /// Fixture-only: expand the todo dock, which a real run starts by press.
@@ -11498,7 +11541,7 @@ impl App {
                 .width(Length::Fill),
             );
         }
-        column![
+        let mut panel = column![
             scrollable(list)
                 .direction(design::scrollbar())
                 .style(design::scrollable_style)
@@ -11515,9 +11558,64 @@ impl App {
                     .on_press(Message::PickDirectory)
                     .style(design::ghost)
                     .padding([4, 6]),
+                button(label("Folders", MUTED).size(10))
+                    .on_press(Message::BrowseWorkspace(
+                        (!self.workspace_path.is_empty()).then(|| self.workspace_path.clone()),
+                    ))
+                    .style(design::ghost)
+                    .padding([4, 6]),
             ]
             .spacing(6)
             .align_y(iced::Alignment::Center),
+        ]
+        .spacing(5);
+        if let Some(listing) = &self.directory_listing {
+            let mut folders = column![
+                row![
+                    label(short(&listing.path, 48), MUTED).size(10),
+                    Space::new().width(Length::Fill),
+                    button(label("Use this folder", TEXT).size(10))
+                        .on_press(Message::UseBrowsedDirectory)
+                        .style(design::ghost)
+                        .padding([2, 6]),
+                ]
+                .spacing(4),
+            ]
+            .spacing(2);
+            if listing.crumbs.len() > 1 {
+                let up = listing.crumbs[listing.crumbs.len() - 2].path.clone();
+                folders = folders.push(
+                    button(label("▴ Up", MUTED).size(10))
+                        .on_press(Message::BrowseWorkspace(Some(up)))
+                        .style(design::ghost)
+                        .padding([1, 4])
+                        .width(Length::Fill),
+                );
+            }
+            for entry in listing.entries.iter().take(12) {
+                folders = folders.push(
+                    button(label(format!("▸ {}", short(&entry.name, 40)), MUTED).size(10))
+                        .on_press(Message::BrowseWorkspace(Some(entry.path.clone())))
+                        .style(design::ghost)
+                        .padding([1, 4])
+                        .width(Length::Fill),
+                );
+            }
+            if listing.truncated {
+                folders = folders.push(label("More folders are not shown.", MUTED).size(9));
+            }
+            panel = panel.push(
+                column![
+                    folders,
+                    button(label("Hide folders", MUTED).size(9))
+                        .on_press(Message::BrowseWorkspace(None))
+                        .style(design::ghost)
+                        .padding([1, 4]),
+                ]
+                .spacing(2),
+            );
+        }
+        panel = panel.push(
             button(
                 label(
                     if self.workspace_pending {
@@ -11525,18 +11623,17 @@ impl App {
                     } else {
                         "Open workspace"
                     },
-                    TEXT
+                    TEXT,
                 )
-                .size(12)
+                .size(12),
             )
             .on_press_maybe(
-                (self.ready && !self.workspace_pending).then_some(Message::OpenWorkspace)
+                (self.ready && !self.workspace_pending).then_some(Message::OpenWorkspace),
             )
             .style(design::ghost)
-            .width(Length::Fill)
-        ]
-        .spacing(5)
-        .into()
+            .width(Length::Fill),
+        );
+        panel.into()
     }
     fn navigation_sheet(&self) -> Element<'_, Message> {
         // Fixed toolbar: scrolling history must never scroll away Stop or Done.
@@ -16906,6 +17003,46 @@ mod tests {
         assert_eq!(app.schedule_edit.as_ref().unwrap().time, "14:45:00");
         assert!(app.at_picker.is_none());
         assert!(app.schedule_edit.as_ref().unwrap().at.is_empty());
+    }
+    #[test]
+    fn the_folder_browser_lists_and_uses_a_directory() {
+        use dsh_native_transport::dto::{DirectoryEntry, DirectoryListing};
+        let (mut app, mut receiver) = managed_app();
+        let _ = app.update(Message::BrowseWorkspace(Some("/PUBLIC".into())));
+        let mut reads = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if let Command::ListDirectory { path } = command {
+                assert_eq!(path.as_deref(), Some("/PUBLIC"));
+                reads += 1;
+            }
+        }
+        assert_eq!(reads, 1);
+        let entry = |name: &str| DirectoryEntry {
+            name: name.into(),
+            path: format!("/PUBLIC/{name}"),
+            hidden: false,
+        };
+        let _ = app.update(Message::Worker(Event::DirectoryListed(Ok(
+            DirectoryListing {
+                path: "/PUBLIC".into(),
+                home: "/home/PUBLIC".into(),
+                crumbs: vec![DirectoryEntry {
+                    name: "root".into(),
+                    path: "/".into(),
+                    hidden: false,
+                }],
+                entries: vec![entry("src"), entry("docs")],
+                truncated: false,
+            },
+        ))));
+        assert_eq!(
+            app.directory_listing
+                .as_ref()
+                .map(|listing| listing.entries.len()),
+            Some(2)
+        );
+        let _ = app.update(Message::UseBrowsedDirectory);
+        assert_eq!(app.workspace_path, "/PUBLIC");
     }
     #[test]
     fn the_directory_picker_fills_the_workspace_path() {

@@ -211,6 +211,7 @@ enum Endpoint {
     FeedbackPut,
     FeedbackDelete,
     PickDirectory,
+    ListDirectory,
 }
 impl Endpoint {
     fn name(self) -> &'static str {
@@ -242,6 +243,7 @@ impl Endpoint {
             Self::FeedbackPut => "messageFeedback/put",
             Self::FeedbackDelete => "messageFeedback/delete",
             Self::PickDirectory => "directoryPicker/pick",
+            Self::ListDirectory => "directoryPicker/list",
             Self::Page => "session/page",
             Self::AccountState => "account/getState",
             Self::WorkspaceCreate => "workspace/create",
@@ -859,6 +861,18 @@ impl NativeClient {
             Value::String(path) if !path.is_empty() && path.len() <= 4096 => Ok(Some(path)),
             _ => Err(Error::InvalidDto),
         }
+    }
+    /// List one directory level for the in-app folder browser. `None` lists the Host home.
+    pub async fn list_directory(&self, path: Option<&str>) -> Result<DirectoryListing> {
+        if path.is_some_and(|path| {
+            path.is_empty() || path.len() > 4096 || path.chars().any(char::is_control)
+        }) {
+            return Err(Error::InvalidDto);
+        }
+        let value: Value = self
+            .invoke(Endpoint::ListDirectory, json!({"path": path}))
+            .await?;
+        bounded_directory_listing(value).ok_or(Error::InvalidDto)
     }
     /// Read the current per-message feedback for one session.
     pub async fn message_feedback_list(
@@ -2536,6 +2550,61 @@ mod feedback_tests {
                 "ok":false,"error":{"code":"note-blank"}
             })),
             MessageFeedbackPutOutcome::Refused("note-blank".into())
+        );
+    }
+}
+
+fn bounded_directory_listing(value: Value) -> Option<DirectoryListing> {
+    let listing: DirectoryListing = serde_json::from_value(value).ok()?;
+    let valid = |entry: &DirectoryEntry| {
+        !entry.name.is_empty()
+            && entry.name.len() <= 512
+            && !entry.path.is_empty()
+            && entry.path.len() <= 4096
+            && !entry.path.chars().any(char::is_control)
+    };
+    if listing.path.is_empty()
+        || listing.path.len() > 4096
+        || listing.home.is_empty()
+        || listing.home.len() > 4096
+        || listing.crumbs.len() > 256
+        || !listing.crumbs.iter().all(valid)
+        || listing.entries.len() > 4096
+        || !listing.entries.iter().all(valid)
+    {
+        return None;
+    }
+    Some(listing)
+}
+
+#[cfg(test)]
+mod directory_listing_tests {
+    use super::bounded_directory_listing;
+
+    fn entry(name: &str) -> serde_json::Value {
+        serde_json::json!({"name":name,"path":format!("/{name}"),"hidden":false})
+    }
+
+    #[test]
+    fn directory_listings_are_bounded() {
+        let listing = bounded_directory_listing(serde_json::json!({
+            "path":"/","home":"/home/PUBLIC",
+            "crumbs":[entry("root")],"entries":[entry("src"),entry("docs")],
+            "truncated":false
+        }))
+        .unwrap();
+        assert_eq!(listing.entries.len(), 2);
+        assert!(
+            bounded_directory_listing(serde_json::json!({
+                "path":"/","home":"/home/PUBLIC","crumbs":[],"entries":[{}],"truncated":false
+            }))
+            .is_none()
+        );
+        assert!(
+            bounded_directory_listing(serde_json::json!({
+                "path":"","home":"/home/PUBLIC","crumbs":[],"entries":[],"truncated":false
+            }))
+            .is_none()
         );
     }
 }

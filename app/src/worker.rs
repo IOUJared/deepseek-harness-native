@@ -90,6 +90,10 @@ pub enum Command {
     },
     /// Open the Host's native directory chooser.
     PickDirectory,
+    /// List one directory level for the in-app browser.
+    ListDirectory {
+        path: Option<String>,
+    },
     /// Write one rating, or remove it when the user clicks the active one.
     FeedbackPut {
         session: dsh_native_transport::dto::SessionId,
@@ -273,6 +277,7 @@ pub enum Event {
         result: Result<bool, String>,
     },
     DirectoryPicked(Result<Option<String>, String>),
+    DirectoryListed(Result<dsh_native_transport::dto::DirectoryListing, String>),
     FeedbackWritten {
         session: dsh_native_transport::dto::SessionId,
         message_id: String,
@@ -944,6 +949,7 @@ fn rejected(command: Command) -> Event {
             result: Err(error),
         },
         Command::PickDirectory => Event::DirectoryPicked(Err(error)),
+        Command::ListDirectory { .. } => Event::DirectoryListed(Err(error)),
         Command::FeedbackPut {
             session,
             message_id,
@@ -2523,6 +2529,7 @@ async fn run(
                         seq,
                         result:client.changes_summary(&session,seq).await.map_err(|error|format!("Changed files: {error}")),
                     },
+                    Command::ListDirectory{path}=>Event::DirectoryListed(client.list_directory(path.as_deref()).await.map_err(|error|format!("Directory listing: {error}"))),
                     Command::PickDirectory=>Event::DirectoryPicked(client.pick_directory().await.map_err(|error|format!("Directory picker: {error}"))),
                     Command::FeedbackPut{session,message_id,rating,if_version,note,category}=>Event::FeedbackWritten{
                         result:client.message_feedback_put(&session,&message_id,&rating,if_version.as_deref(),note.as_deref(),category.as_deref()).await.map_err(|error|format!("Feedback: {error}")),

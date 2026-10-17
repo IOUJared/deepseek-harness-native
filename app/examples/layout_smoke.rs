@@ -208,6 +208,8 @@ struct Options {
     reference_menu: bool,
     /// Expand the composer's todo dock.
     todo_dock: bool,
+    /// Seed the in-app folder listing.
+    workspace_folders: bool,
     /// Mark the goal's activation disarmed.
     goal_inactive: bool,
     /// Open the shortcuts disclosure, so its rows are captured.
@@ -328,6 +330,7 @@ fn options() -> Result<Options, &'static str> {
             "--changes-expanded",
             "--reference-menu",
             "--todo-dock",
+            "--workspace-folders",
             "--goal-inactive",
             "--agent-seat-error",
             "--settings",
@@ -508,6 +511,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         todo_dock: match values.remove("--todo-dock") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        workspace_folders: match values.remove("--workspace-folders") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -928,6 +935,9 @@ impl Fixture {
         if options.todo_dock {
             app.expand_todo_dock();
         }
+        if options.workspace_folders {
+            app.seed_directory_listing();
+        }
         if options.goal_inactive {
             app.disarmed_goal_activation();
         }
@@ -1021,6 +1031,7 @@ impl Fixture {
                 worker::Command::OpenWorkspacePath { .. } => "OpenWorkspacePath",
                 worker::Command::FeedbackPut { .. } => "FeedbackPut",
                 worker::Command::PickDirectory => "PickDirectory",
+                worker::Command::ListDirectory { .. } => "ListDirectory",
                 worker::Command::FeedbackDelete { .. } => "FeedbackDelete",
                 worker::Command::ScheduleDelete { .. } => "ScheduleDelete",
                 worker::Command::ScheduleHistory { .. } => "ScheduleHistory",
