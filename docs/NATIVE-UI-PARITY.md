@@ -2880,3 +2880,21 @@ and `Popup` (the overlay struct at `anchored_popup.rs:211` is the one that calls
 branch `popup_bounds`' `y`, add the argument to the four `popup_bounds(` calls inside `mod tests`
 **only**, and leave the signature's callers otherwise untouched so the composer menu and hero seat
 keep the upward behaviour they were captured with.
+
+   **The panel is captured, and the answer was the downward placement — the option I called the
+   worse trade two rounds ago.** `anchored_popup` now carries a `below` flag threaded through
+   **both** structs (`Anchored` and the `Popup` overlay that calls `popup_bounds`), with
+   `anchored()` unchanged at `below: false` so the composer menu and hero seat keep the upward
+   behaviour they were captured with, and the jobs action using the new `anchored_below`. The
+   capture harness passes, which it could not while the panel was clamped to the window top:
+   **the parent's paint qualification was right, and my round-170 recommendation to relax the
+   fixture instead was wrong.**
+   `shots/80-jobs-panel-dp2.png` shows the result: the action reading "2 background jobs running",
+   and beneath it a 260px panel with **"Running"** over *Run the test suite* (`shell · running`)
+   and *Build the release binary* (`build · stopping`), then **"Finished 2"** over *Search for
+   parity notes* (`search · completed`, dimmed) and *Lint the app crate* (`shell · failed`, in the
+   danger colour) — the reference's own structure, with the state word where the unread dot would
+   be.
+   Verified: fixture **1114** exit 0, default **1107** exit 0, format-debt 0. The fixture also
+   keeps the floating-layer exemption, which is correct on its own terms, and opens the panel in
+   its `--jobs` mode because a shut panel cannot be captured.

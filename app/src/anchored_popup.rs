@@ -15,6 +15,21 @@ pub fn anchored<'a>(
         anchor,
         popup,
         dismiss,
+        below: false,
+    })
+}
+
+/// The same control with its popup laid **below** the anchor.
+pub fn anchored_below<'a>(
+    anchor: Element<'a, Message>,
+    popup: Option<Element<'a, Message>>,
+    dismiss: Message,
+) -> Element<'a, Message> {
+    Element::new(Anchored {
+        anchor,
+        popup,
+        dismiss,
+        below: true,
     })
 }
 
@@ -22,6 +37,8 @@ struct Anchored<'a> {
     anchor: Element<'a, Message>,
     popup: Option<Element<'a, Message>>,
     dismiss: Message,
+    /// Lay the popup below the anchor instead of above it: a header anchor has no room above.
+    below: bool,
 }
 
 impl Widget<Message, Theme, Renderer> for Anchored<'_> {
@@ -160,6 +177,7 @@ impl Widget<Message, Theme, Renderer> for Anchored<'_> {
                 anchor: layout.bounds() + translation,
                 viewport: *viewport,
                 dismiss: self.dismiss.clone(),
+                below: self.below,
             })))
         } else {
             self.anchor.as_widget_mut().overlay(
@@ -179,6 +197,7 @@ struct Popup<'a, 'b> {
     anchor: Rectangle,
     viewport: Rectangle,
     dismiss: Message,
+    below: bool,
 }
 
 impl overlay::Overlay<Message, Theme, Renderer> for Popup<'_, '_> {
@@ -190,7 +209,7 @@ impl overlay::Overlay<Message, Theme, Renderer> for Popup<'_, '_> {
             renderer,
             &layout::Limits::new(Size::ZERO, self.viewport.size()),
         );
-        let placed = popup_bounds(self.anchor, child.size(), self.viewport);
+        let placed = popup_bounds(self.anchor, child.size(), self.viewport, self.below);
         // Full-window bounds make the transparent area intercept background input.
         layout::Node::with_children(bounds, vec![child.move_to(placed.position())])
     }
@@ -295,7 +314,7 @@ impl overlay::Overlay<Message, Theme, Renderer> for Popup<'_, '_> {
     }
 }
 
-fn popup_bounds(anchor: Rectangle, requested: Size, viewport: Rectangle) -> Rectangle {
+fn popup_bounds(anchor: Rectangle, requested: Size, viewport: Rectangle, below: bool) -> Rectangle {
     let size = Size::new(
         requested.width.min(viewport.width),
         requested.height.min(viewport.height),
@@ -303,8 +322,13 @@ fn popup_bounds(anchor: Rectangle, requested: Size, viewport: Rectangle) -> Rect
     Rectangle {
         x: (anchor.x + anchor.width - size.width)
             .clamp(viewport.x, viewport.x + viewport.width - size.width),
-        y: (anchor.y - size.height - 8.0)
-            .clamp(viewport.y, viewport.y + viewport.height - size.height),
+        y: if below {
+            (anchor.y + anchor.height + 8.0)
+                .clamp(viewport.y, viewport.y + viewport.height - size.height)
+        } else {
+            (anchor.y - size.height - 8.0)
+                .clamp(viewport.y, viewport.y + viewport.height - size.height)
+        },
         width: size.width,
         height: size.height,
     }
@@ -354,7 +378,8 @@ mod tests {
             popup_bounds(
                 rect(620.0, 600.0, 140.0, 32.0),
                 Size::new(320.0, 200.0),
-                rect(0.0, 0.0, 900.0, 700.0)
+                rect(0.0, 0.0, 900.0, 700.0),
+                false,
             ),
             rect(440.0, 392.0, 320.0, 200.0),
         );
@@ -366,7 +391,8 @@ mod tests {
             popup_bounds(
                 rect(8.0, 180.0, 60.0, 32.0),
                 Size::new(320.0, 200.0),
-                rect(0.0, 0.0, 240.0, 220.0)
+                rect(0.0, 0.0, 240.0, 220.0),
+                false,
             ),
             rect(0.0, 0.0, 240.0, 200.0),
         );
@@ -374,7 +400,8 @@ mod tests {
             popup_bounds(
                 rect(900.0, 800.0, 100.0, 30.0),
                 Size::new(200.0, 120.0),
-                rect(0.0, 0.0, 240.0, 220.0)
+                rect(0.0, 0.0, 240.0, 220.0),
+                false,
             ),
             rect(40.0, 100.0, 200.0, 120.0),
         );
@@ -387,7 +414,8 @@ mod tests {
                 popup_bounds(
                     rect(10.0, 10.0, 80.0, 32.0),
                     Size::new(320.0, 260.0),
-                    Rectangle::with_size(size)
+                    Rectangle::with_size(size),
+                    false,
                 ),
                 Rectangle::with_size(size),
             );
@@ -400,7 +428,8 @@ mod tests {
             popup_bounds(
                 rect(140.0, 380.0, 80.0, 32.0),
                 Size::new(260.0, 180.0),
-                rect(80.0, 90.0, 600.0, 500.0)
+                rect(80.0, 90.0, 600.0, 500.0),
+                false,
             ),
             rect(80.0, 192.0, 260.0, 180.0),
         );

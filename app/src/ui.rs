@@ -5074,6 +5074,9 @@ impl App {
                 owner: None,
                 status: status.to_owned(),
             };
+        // The panel is opened in the fixture: the closed action state has its own capture, and
+        // the panel cannot be captured while it is shut.
+        self.jobs_open = true;
         self.jobs = vec![
             row("shell-1", "shell", "Run the test suite", "running"),
             row("build-2", "build", "Build the release binary", "stopping"),
@@ -7405,7 +7408,7 @@ impl App {
             // (`locales.ts:56-69`); a row's state dot is not drawn because `StateDot`'s form is
             // unread, and the status word is the part the copy names.
             crumbs = crumbs.push(
-                container(anchored_popup::anchored(
+                container(anchored_popup::anchored_below(
                     action.into(),
                     self.jobs_open.then(|| self.jobs_panel_view()),
                     Message::ToggleJobs,
