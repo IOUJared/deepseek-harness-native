@@ -2917,6 +2917,21 @@ impl App {
                 }
             }
             Message::KeyFallback(key, modifiers) => {
+                // A capture wins over routing: the press *becomes* a binding rather than invoking
+                // anything, bounded to the armed row (`Editor.tsx:59-71`).
+                if let Some(id) = self.settings.capture_for.clone() {
+                    if let Some(binding) = crate::keybindings::binding_from(&key, modifiers) {
+                        let _ = self.settings.keybindings.apply(
+                            crate::keybindings::Edit::Set {
+                                id,
+                                binding: Some(binding),
+                            },
+                            self.settings.keybindings.revision(),
+                        );
+                        self.settings.capture_for = None;
+                    }
+                    return Task::none();
+                }
                 // Only keys the hardcoded map does not claim reach here, so nothing that worked
                 // before can change. The store decides, and a command this app cannot act on is
                 // ignored rather than approximated.
@@ -3036,6 +3051,9 @@ impl App {
                 if result.is_ok() {
                     self.command(Command::PermissionSettingsRead);
                 }
+            }
+            Message::Settings(crate::settings::Action::CaptureShortcut(id)) => {
+                self.settings.capture_for = Some(id);
             }
             Message::Settings(crate::settings::Action::ResetAllDefaults) => {
                 self.settings.reset_all_armed = true;

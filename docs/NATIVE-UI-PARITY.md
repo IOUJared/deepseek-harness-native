@@ -4291,3 +4291,18 @@ produced — each with the evidence that made it undeniable.
 **What remains, for a context with room:** the capture flow's arming (one setter of
 `Settings::capture_for` plus a separate button — *not* the keys label), keys as data (round 227), the
 user's four items (round 230), and the Iced-blocked chip.
+
+   **The capture flow is wired end to end, and the reference's editor is now complete in behaviour.**
+   `Settings::capture_for: Option<String>`; `Action::CaptureShortcut(String)`; a **"Capture"** control
+   after every Remove/Restore pair, inserted by locating the Remove buttons (the proven method, and
+   **not** by reusing the keys label, which broke the row's delimiters two rounds ago); and the App
+   arm that sets the field. The capture itself lives where a press already arrives as data —
+   `Message::KeyFallback` — and **wins over routing** while armed: the next press becomes
+   `apply(Edit::Set { id, binding: Some(binding_from(key, modifiers)) })` and the arming clears. A
+   press with no capturable code leaves the arming in place, so an ignored key does not disarm it.
+   That is the reference's model (`Editor.tsx:59-71`) and it is the **one moment a key changes meaning
+   while a surface is open** — bounded to the armed row, and it disarms itself.
+   Verified: fixture **1134** exit 0, default **1127** exit 0, format-debt 0, direct capture
+   `passed: true` (`shots/96-shortcuts-capture.png`, with the Capture controls in place).
+   **Not captured:** a capture *in progress* (armed), which needs a fixture flag like the others; the
+   branch is compiled and its pure half (`binding_from`) is tested with nine cases.

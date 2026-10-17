@@ -196,6 +196,8 @@ pub enum Action {
     ResetAllDefaults,
     /// Performs the armed restore-all, or cancels it when unarmed.
     ConfirmResetAll(bool),
+    /// Arms one command so its next key press becomes its binding.
+    CaptureShortcut(String),
     /// Persists one new-session permission default; the App gates it on the descriptor.
     PermissionDefault(String),
     Account(account::Action),
@@ -264,6 +266,8 @@ pub struct Settings {
     pub(crate) commands: Vec<(String, String)>,
     /// Armed by the first press of "Restore all defaults"; the reference asks before destroying.
     pub(crate) reset_all_armed: bool,
+    /// The command whose next press becomes its binding (`Editor.tsx:59-71`); `None` routes normally.
+    pub(crate) capture_for: Option<String>,
     /// The permission default row's preset list is open.
     permission_open: bool,
     api_help_open: bool,
@@ -295,6 +299,7 @@ impl Default for Settings {
             keybindings: crate::keybindings::Store::new(crate::keybindings::native_fixed()),
             commands: Vec::new(),
             reset_all_armed: false,
+            capture_for: None,
             permission_open: false,
             api_help_open: false,
             context_policy_open: false,
@@ -1121,6 +1126,10 @@ impl Settings {
                             .on_press(Action::ClearShortcut(entry.id.clone()))
                             .style(design::ghost)
                             .padding([0, 4]),
+                        button(label("Capture", MUTED).size(11))
+                            .on_press(Action::CaptureShortcut(entry.id.clone()))
+                            .style(design::ghost)
+                            .padding([0, 4]),
                         label(entry.keys, MUTED).size(11),
                     ]
                     .spacing(8)
@@ -1184,6 +1193,10 @@ impl Settings {
                                 .padding([0, 4]),
                             button(label(crate::keybindings::COPY_CLEAR, MUTED).size(11))
                                 .on_press(Action::ClearShortcut(entry.id.clone()))
+                                .style(design::ghost)
+                                .padding([0, 4]),
+                            button(label("Capture", MUTED).size(11))
+                                .on_press(Action::CaptureShortcut(entry.id.clone()))
                                 .style(design::ghost)
                                 .padding([0, 4]),
                             label(entry.keys, MUTED).size(11),
