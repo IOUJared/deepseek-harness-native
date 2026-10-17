@@ -3854,3 +3854,29 @@ letting the editor "display the Host's catalog", and that is not yet true: the d
 shows only this app's five. It is dead-but-tested code, which is better than dead-and-untested and
 still not what the document said. Either the disclosure gains the Host section, or the paragraph in
 round 220 should be read as the *capability* it enables rather than a shipped surface.
+
+### The four asks, as exact steps (round 230)
+
+Everything this document lists as buildable is built and verified to its honest ceiling. The four
+remaining items are **not** wait-and-see observations — each is a concrete action, and each answer
+unblocks a specific piece of measured work.
+
+1. **The reference screenshot.** Save the 1980×1319 DeepSeek Harness capture to
+   `/home/jared/Documents/deepseek-harness/default-workspace/reference.png` (expected sha256
+   `b8e164f5…`, the value this document has cited since round 1). **What it establishes:** the
+   first-line offsets, the bubble-side gaps and the tool-row rhythm that are currently *inferred*
+   from CSS rather than measured. Without it, chat geometry stays source-derived.
+2. **The 520×600 window floor.** Open the native window and **drag its bottom-right corner** as
+   small as it will go; report the final width × height. **What it establishes:** whether the
+   documented minimum is enforced by the window manager path a user actually takes — programmatic
+   resizes below the minimum are blocked in this environment, which is why a real drag is the only
+   test.
+3. **The close-timing run.** With the app open and idle, close the window and time how long the
+   process takes to exit (shell: `time` a fresh launch and close). **What it establishes:** whether
+   the native `StopPolicy` budgets (3 s / 1 s / 1 s) match the DMG shell's behaviour (10 s / 5 s /
+   5 s) in practice, rather than only in configuration.
+4. **The image fetch policy.** A decision, not a measurement: **should the native app fetch remote
+   images in chat** (avatars, attachments, previews — yes/no)? **What it establishes:** whether the
+   conversation renderer gains an image path at all, and under what privacy expectation.
+
+Each is one line of work on this side once answered; none is blocked on further reading.
