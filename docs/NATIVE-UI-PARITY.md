@@ -3676,3 +3676,35 @@ round 115, still earning its keep two hundred rounds later.
    rows. What separates them is exactly the capability round 218 named — honouring a catalog
    command's binding — and the rendering for the unbound case is already correct, so that
    capability can arrive without changing the surface.
+
+### Where this stops, and what it would take to continue (round 221)
+
+**Verified state:** 307 commits in this repository, 245 of them in this working day; tree clean; the
+full battery green at round 219 (app fixture 1131, app default 1124, transport 17+82+7, core 112,
+JS 419/0, format 0); eighteen keybinding tests; this document at 3,678 lines.
+
+**Complete end to end, with captures:** the permission select (chip, Host menu, `/permission`
+line, guarded full-access confirmation, default row); the agent-preset roster and selection (label,
+hero seat, seat list, staged pick, locked announcement); background jobs (transport, mux, worker,
+counted action, panel, row dots, two-click kill, opening stream, output expansion with the
+reference's gap copy); the shortcuts store, its surface and its trigger.
+
+**One capability remains, and it is not a screen:** honouring a **Host catalog command's** binding,
+so a rebound key runs something. The data side is ready — `catalog_rows` renders the Host's
+commands, a row with no binding is tested, and the store, resolver and trigger are tested. Doing it
+touches input handling the user asked to preserve, and it is the kind of change this stretch
+reverted six times when attempted without its anchors read; it deserves a fresh context and the
+read-first method, not a tired one.
+
+**Four items need the user:** the reference screenshot at
+`/home/jared/Documents/deepseek-harness/default-workspace/reference.png` (first-line offsets and
+bubble gaps stay inferred until it exists); a real window-edge drag for the 520×600 floor; one live
+close-timing run for the shell's 10/5/5 s budgets; and the image fetch policy.
+
+**One is Iced-blocked:** inline-code chips have no span backgrounds in `rich_text`.
+
+**Why stop here rather than start that capability:** the last six attempts to edit input or widget
+code without reading their exact anchors were all reverted, and the two that succeeded after a read
+came from *having* the anchors in front of them. A fresh context can do in one round what a spent
+one would do in five, with a revert in the middle. The document is the handoff, and every claim in
+it now rests on a gate that was run whole.
