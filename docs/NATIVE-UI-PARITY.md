@@ -3210,3 +3210,29 @@ vocabulary.**
    on care: an `output` frame carries no job id, the dispatch task has no mux or publisher, and
    the list stream's open call is the template for `operation`'s three arguments and the
    `mux.as_ref().expect(…)` unwrap. Every failure was reverted, and the loop now stands.
+
+### Item 12 status (round 193) — supersedes the round-172 block
+
+Everything that block listed as "built, not captured" or "deliberately absent" except the three
+items below is now **built and capture-verified**:
+
+- the **panel** (`shots/80-…`, after the downward-anchor fix and the widget's `below` option);
+- the **row dots** (`shots/81-…`: `◐` accent running, `●` gold stopping, muted completed, danger
+  failed);
+- the **kill** (`shots/82-…` controls, `shots/83-…` the armed confirmation) — transport
+  (`job/kill`, `JobKillRequest`/`JobKillOutcome`), worker, two-click rule and refusal line;
+- the **output expansion** (`shots/84-…`: the chevron, the buffer, and the reference's
+  "… earlier output dropped …" gap copy) — `JobChunk` projected, the event carrying its job id,
+  and the per-job follow stream opened inside the loop's command arm.
+
+Still deliberate, with reasons unchanged:
+
+1. the row's **state dot shape** for `running` uses `◐` where the reference animates a 14px
+   spinner a static fixture cannot show;
+2. **Clear** is not rendered — what it clears is unread;
+3. **duration** is not rendered — the projection carries no timestamps;
+4. the output buffer is **not a code font** — this app has one UI font;
+5. the kill control's **visible glyph** is a plain `✕` — the reference names it through a label.
+
+The feature is complete at every layer the reference defines, and the remaining differences are
+the five above rather than missing work.
