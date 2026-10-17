@@ -3160,3 +3160,19 @@ vocabulary.**
    select arm publishing `Event::JobsFollow { job, frame }` through a `next_job_output` helper
    mirroring `next_jobs`, including its `pending()` when the stream is absent. No discovery step
    remains, only the loop edit that must be made with the file open.
+
+   **The follow stream's open was attempted and reverted, and the attempt located the real
+   obstacle.** I placed the open in the same spawn as the kill — `Command::JobKill`'s neighbour —
+   and three compile errors said why that cannot work: that arm lives inside
+   `tasks.spawn(async move { match command { … } })`, an **async block** with no `break`, no
+   `publish(&events, …)` and no `mux` (the mux there is an `Option`). Those three things exist
+   only in the **follow loop**, where the list stream's own open sits.
+   So the open is not a placement question but a **signalling** one: the panel's expand press
+   reaches the worker as a command, and the loop is driven by streams, so something has to carry
+   "open job X's output" from the command task into the loop. The list stream never needed that
+   because its open happens *inside* the loop, in the arm that already has the mux and the
+   publisher.
+   `git checkout` restored both files; the crate checks clean and format-debt is 0. The next
+   attempt must find how commands reach the loop — the honest next read — rather than assume the
+   command task can open a stream. That is the whole remaining task for jobs, and it is now
+   narrowed from "four steps" to one question.
