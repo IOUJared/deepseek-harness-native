@@ -40,21 +40,30 @@ const settingsService = ctx => {
     ? value
     : undefined;
 };
-/** The permission view is the one whose value carries the default preset, so the bridge
- *  never has to guess a namespace name the deployment is free to choose. */
-const permissionView = async settings => {
+/** The reference client addresses the permission namespace by name
+ *  (`PERMISSION_SETTINGS_NS = 'permission'`). The Host's settings service `describe()`
+ *  answers an array of namespace views and carries writability on the service, not the
+ *  view (the BFF wraps both). A fresh Host's permission value can be empty because
+ *  `defaultPreset` is volatile, so the effective catalog default fills the displayed value. */
+const permissionView = async (settings, presets) => {
   const views = await settings.describe();
   if (!Array.isArray(views)) return undefined;
-  for (const view of views) {
-    if (!object(view) || !object(view.value) || !validPermissionName(view.ns)) continue;
-    const revision = Number.isSafeInteger(view.revision) && view.revision >= 0 ? view.revision : undefined;
-    if (revision === undefined) continue;
-    const preset = view.value.defaultPreset;
-    if (preset !== undefined && !validPermissionName(preset)) continue;
-    if (preset === undefined) continue;
-    return { ns: view.ns, revision, writable: view.writable === true, defaultPreset: preset };
+  const view = views.find(entry => object(entry) && entry.ns === 'permission');
+  if (!object(view) || !object(view.value)) return undefined;
+  const revision = Number.isSafeInteger(view.revision) && view.revision >= 0 ? view.revision : undefined;
+  if (revision === undefined) return undefined;
+  const stored = view.value.defaultPreset;
+  if (stored !== undefined && !validPermissionName(stored)) return undefined;
+  let defaultPreset = stored;
+  if (defaultPreset === undefined) {
+    try {
+      defaultPreset = boundedPermissionCatalog(await presets.catalog())?.defaultPreset;
+    } catch {
+      // The catalog fallback is display-only; an unavailable catalog leaves the view missing.
+    }
   }
-  return undefined;
+  if (!validPermissionName(defaultPreset)) return undefined;
+  return { ns: view.ns, revision, writable: settings.writable === true, defaultPreset };
 };
 const unavailable = () => failure('unavailable', 'permission presets are unavailable');
 /** One bridge per Core process; `ctx.get` resolves the Host's own service. */
@@ -94,9 +103,10 @@ export const createPermissionBridge = ({ ctx }) => {
         }
         case 'permission-settings': {
           const settings = settingsService(ctx);
-          if (settings === undefined) return unavailable();
+          const presets = service();
+          if (settings === undefined || presets === undefined) return unavailable();
           try {
-            const view = await permissionView(settings);
+            const view = await permissionView(settings, presets);
             if (view === undefined) return failure('unavailable', 'permission settings are unavailable');
             return {
               ok: true,
@@ -115,9 +125,10 @@ export const createPermissionBridge = ({ ctx }) => {
             return failure('invalid', 'permission default needs a bounded preset');
           }
           const settings = settingsService(ctx);
-          if (settings === undefined) return unavailable();
+          const presets = service();
+          if (settings === undefined || presets === undefined) return unavailable();
           try {
-            const view = await permissionView(settings);
+            const view = await permissionView(settings, presets);
             if (view === undefined) return failure('unavailable', 'permission settings are unavailable');
             if (view.writable !== true) return failure('invalid', 'permission settings are not writable');
             if (!Number.isSafeInteger(command.expectedRevision) || command.expectedRevision < 0) {

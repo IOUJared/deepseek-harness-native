@@ -138,6 +138,24 @@ delete/rename/insertBefore/insertSessionBefore, `directoryPicker/createDirectory
 `speech/*`, `dynamicCordisRunner/*`, `pluginManager/*`, account sign-in/watch/credentials,
 `command-feedback`, and the export container tail.
 
+## Third pass — the Core supervisor path
+
+A temporary Core example started `Backend::start` against the pinned runtime with an isolated home
+and requested the permission/preset families through the supervisor (not the BFF). Observed:
+
+```
+permission-catalog: ok options=3 default=workspace-write
+permission-settings: ok current=workspace-write revision=0 writable=true
+agent-presets: ok presets=4
+permission-default-set: ok
+stop graceful=true exited=true containmentUnknown=false
+```
+
+The same probe first returned `permission-settings: Protocol` twice: once because the Core's
+`matches_reply` gate had no arm for the family (round 323), then because the bridge assumed the
+BFF's wrapper shape and a stored `defaultPreset` instead of the service's array, its `writable`
+property and the catalog fallback (round 324). The probe was deleted after the run.
+
 ## Still unverified
 
 - A schedule with a real record: creation happens through the agent's schedule tool, so catalog

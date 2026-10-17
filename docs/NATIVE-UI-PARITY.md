@@ -30,7 +30,10 @@ earlier "wired and captured" claims for those controls are corrected below. The 
 Core and rendering halves were real; the missing hop was into App state. Round 258 then found the
 same shape in the `Ctrl+/` trigger: it opened the account page and the open path reset the
 disclosure, so the editor was never shown; the trigger's "captured" evidence had gone through the
-fixture's direct `set_settings_open`, not the press.
+fixture's direct `set_settings_open`, not the press. Round 323 then found the reverse hop: five
+permission/preset reply families were decoded by the Core but absent from its `matches_reply` gate,
+so every reply became `Error::Protocol`; the captured surfaces had injected the events directly.
+The gate is fixed and covered end to end.
 
 **Scope note (user decision, 2026-10-17).** **Native Rust first:** every web UI capability should
 work in the Rust app, implemented in Rust, not left as a documented Web-only difference. The reuse
@@ -6577,6 +6580,40 @@ close-timing step must use an external timer around the process exit and the App
 not a Core log that does not exist.
 
 **Battery (round 323).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1211 passed**, 1 ignored |
+| app, default | **0** | **1204 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 86 + 7 |
+| core (`--lib`) | **0** | **115 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+### Round 324 — the permission bridge reads the real describe shape
+
+**The Core gate fix exposed a second layer: the bridge was reading the BFF's wrapper shape, not
+the Host service's.** `ctx.get('settings').describe()` answers an **array** of namespace views and
+carries writability on the service (`settings.writable`); only the BFF wraps those into
+`{writable, hasDocument, namespaces}`. The bridge also required a stored `defaultPreset`, but a
+fresh Host's `permission` value is empty because the field is volatile.
+
+It now finds `ns === 'permission'` like the reference client, reads the service's writable flag, and
+falls back to the catalog's effective default when the value is empty. The JS tests use the real
+array/service shape, and a temporary Core probe against the real fork returned:
+
+```
+permission-catalog: ok options=3 default=workspace-write
+permission-settings: ok current=workspace-write revision=0 writable=true
+agent-presets: ok presets=4
+permission-default-set: ok
+stop graceful=true exited=true containmentUnknown=false
+```
+
+The probe drove `Backend::start` with the pinned runtime and an isolated home, then was deleted. The
+same probe had returned `permission-settings: Protocol` before this fix.
+
+**Battery (round 324).**
 
 | gate | status | result |
 | --- | --- | --- |

@@ -91,55 +91,69 @@ test('a missing, malformed or failing service is unavailable rather than fatal',
   assert.equal((await throwing.handle(undefined)).ok, false);
 });
 
-test('the settings read projects the permission view and never guesses a namespace', async () => {
+test('the settings read addresses the permission namespace and falls back to the catalog default', async () => {
   const calls = [];
-  const bridge = createPermissionBridge({
+  const presets = { catalog: async () => catalog(), set: async () => {} };
+  const bridgeWithSettings = (describe, writable = true) => createPermissionBridge({
     ctx: {
-      get: name => (name === 'settings'
-        ? {
-          describe: async () => {
-            calls.push('describe');
-            return [
-              { ns: 'other', revision: 4, value: { unrelated: true }, writable: true },
-              { ns: 'public-fake-ns', revision: 7, value: { defaultPreset: 'workspace-write' }, writable: true, secret: 'PUBLIC_FAKE_SECRET' },
-            ];
-          },
-          mutate: async () => {},
-        }
-        : undefined),
+      get: name => (name === 'permissionPresets'
+        ? presets
+        : name === 'settings' ? { writable, describe, mutate: async () => {} } : undefined),
     },
   });
+  const bridge = bridgeWithSettings(async () => {
+    calls.push('describe');
+    return [
+      { ns: 'other', revision: 4, value: { unrelated: true } },
+      { ns: 'permission', revision: 7, value: {}, secret: 'PUBLIC_FAKE_SECRET' },
+    ];
+  });
   const result = await bridge.handle({ type: 'permission-settings' });
+  // A fresh Host's permission value is empty because defaultPreset is volatile; the
+  // reference client falls back to the catalog's effective default. Writability is the
+  // settings service's, not a per-namespace field.
   assert.deepEqual(result, { ok: true, settings: { currentValue: 'workspace-write', revision: 7, writable: true } });
   assert.ok(!JSON.stringify(result).includes('PUBLIC_FAKE_SECRET'));
   assert.deepEqual(calls, ['describe']);
-  // No matching view, a malformed revision, or a bad preset all mean unavailable/invalid
-  // rather than a guess.
-  const empty = createPermissionBridge({ ctx: { get: () => ({ describe: async () => [], mutate: async () => {} }) } });
+  // A stored value wins over the catalog fallback, and a read-only service stays read-only.
+  assert.deepEqual(
+    await bridgeWithSettings(async () => [
+      { ns: 'permission', revision: 8, value: { defaultPreset: 'read-only' } },
+    ], false).handle({ type: 'permission-settings' }),
+    { ok: true, settings: { currentValue: 'read-only', revision: 8, writable: false } },
+  );
+  // No permission namespace, a malformed revision, or a bad stored preset means
+  // unavailable/invalid rather than a guess.
+  const empty = createPermissionBridge({ ctx: { get: () => ({ writable: true, describe: async () => [], mutate: async () => {} }) } });
   assert.equal((await empty.handle({ type: 'permission-settings' })).ok, false);
-  const badRevision = createPermissionBridge({ ctx: { get: () => ({ describe: async () => [{ ns: 'n', revision: 'x', value: { defaultPreset: 'a' } }], mutate: async () => {} }) } });
+  const badRevision = bridgeWithSettings(async () => [{ ns: 'permission', revision: 'x', value: {} }]);
   assert.equal((await badRevision.handle({ type: 'permission-settings' })).ok, false);
-  const badPreset = createPermissionBridge({ ctx: { get: () => ({ describe: async () => [{ ns: 'n', revision: 1, value: { defaultPreset: 'bad\u0000preset' } }], mutate: async () => {} }) } });
+  const badPreset = bridgeWithSettings(async () => [{ ns: 'permission', revision: 1, value: { defaultPreset: 'bad\u0000preset' } }]);
   assert.equal((await badPreset.handle({ type: 'permission-settings' })).ok, false);
 });
 
 test('a default write carries one set at the descriptor revision, and refusals stay bounded', async () => {
   const written = [];
-  const service = writable => ({
-    describe: async () => [{ ns: 'permission-ns', revision: 9, value: { defaultPreset: 'workspace-write' }, writable }],
+  const presets = { catalog: async () => catalog(), set: async () => {} };
+  const module = writable => ({
+    writable,
+    describe: async () => [{ ns: 'permission', revision: 9, value: { defaultPreset: 'workspace-write' } }],
     mutate: async (ns, ops, expected) => {
       written.push([ns, ops, expected]);
       if (ops[0].value === 'refused') throw new Error('PUBLIC_FAKE_SECRET refusal');
     },
   });
-  const bridge = createPermissionBridge({ ctx: { get: () => service(true) } });
+  const bridgeWith = settings => createPermissionBridge({
+    ctx: { get: name => (name === 'permissionPresets' ? presets : name === 'settings' ? settings : undefined) },
+  });
+  const bridge = bridgeWith(module(true));
   assert.deepEqual(await bridge.handle({ type: 'permission-default-set', name: 'full-access', expectedRevision: 9 }), { ok: true });
-  assert.deepEqual(written, [['permission-ns', [{ op: 'set', path: ['defaultPreset'], value: 'full-access' }], 9]]);
+  assert.deepEqual(written, [['permission', [{ op: 'set', path: ['defaultPreset'], value: 'full-access' }], 9]]);
   const refused = await bridge.handle({ type: 'permission-default-set', name: 'refused', expectedRevision: 9 });
   assert.deepEqual(refused, { ok: false, error: { code: 'invalid', message: 'permission default was refused' } });
   assert.ok(!JSON.stringify(refused).includes('PUBLIC_FAKE_SECRET'));
   // A read-only deployment, a missing revision and an unbounded name never reach the Host.
-  const readOnly = createPermissionBridge({ ctx: { get: () => service(false) } });
+  const readOnly = bridgeWith(module(false));
   assert.equal((await readOnly.handle({ type: 'permission-default-set', name: 'full-access', expectedRevision: 9 })).ok, false);
   assert.equal((await bridge.handle({ type: 'permission-default-set', name: 'full-access' })).ok, false);
   assert.equal((await bridge.handle({ type: 'permission-default-set', name: '', expectedRevision: 9 })).ok, false);
