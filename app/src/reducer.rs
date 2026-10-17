@@ -134,6 +134,10 @@ impl Transcript {
         &self.rows
     }
     /// The projections that describe this retained window.
+    /// One assistant record's compact turn usage, if its usage carries a positive count.
+    pub fn turn_usage(&self, key: u64) -> Option<String> {
+        crate::ui::chat_usage::turn_usage(self.records.get(&key)?)
+    }
     /// The whole-log decode speed from the retained assistant records.
     pub fn decode_speed(&self) -> Option<String> {
         crate::ui::chat_usage::decode_speed(self.records.values())

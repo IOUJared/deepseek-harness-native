@@ -424,6 +424,34 @@ pub fn decode_speed<'a>(records: impl Iterator<Item = &'a SessionWireEvent>) -> 
     })
 }
 
+/// One completed turn's compact usage label, from the assistant message's own `usage`
+/// (`message.turnUsage.count` in the reference). Prefers the Host's `totalTokens`, then the
+/// four disjoint buckets, then the output alone; a turn with no positive count yields nothing.
+pub fn turn_usage(event: &SessionWireEvent) -> Option<String> {
+    if event.event_type != "assistant/message" {
+        return None;
+    }
+    let usage = event.data.get("usage")?.as_object()?;
+    let reported = field(usage, "totalTokens").ok().flatten();
+    let summed = || {
+        let uncached = field(usage, "uncachedInputTokens").ok().flatten()?;
+        let output = field(usage, "outputTokens").ok().flatten()?;
+        let cached = field(usage, "cacheReadTokens").ok().flatten()?;
+        let written = field(usage, "cacheWriteTokens").ok().flatten()?;
+        sum(&[uncached, cached, written, output])
+    };
+    let total = reported
+        .or_else(summed)
+        .or_else(|| field(usage, "outputTokens").ok().flatten())?;
+    if total == 0 || total > MAX_COUNT {
+        return None;
+    }
+    Some(format!(
+        "{} tok",
+        crate::ui::subagent_catalog::format_tokens(total)
+    ))
+}
+
 pub fn state<'a>(
     projections: &BTreeMap<String, Value>,
     projection_current: bool,
@@ -768,6 +796,36 @@ mod tests {
         let slow = vec![step(0, 0, 2000, 5)];
         assert_eq!(decode_speed(slow.iter()).as_deref(), Some("2.5 tok/s"));
         assert_eq!(decode_speed([].iter()), None);
+    }
+
+    #[test]
+    fn a_turn_usage_prefers_total_then_buckets_then_output() {
+        let turn = |usage: Value| SessionWireEvent {
+            event_type: "assistant/message".into(),
+            seq: 0,
+            time: 1,
+            data: json!({"usage": usage}),
+            ignorable: None,
+            source_event_seqs: None,
+            surface_op: None,
+        };
+        assert_eq!(
+            turn_usage(&turn(json!({"totalTokens":12345}))).as_deref(),
+            Some("12.3K tok")
+        );
+        assert_eq!(
+            turn_usage(&turn(json!({"uncachedInputTokens":1,"cacheReadTokens":2,
+                "cacheWriteTokens":3,"outputTokens":4})))
+            .as_deref(),
+            Some("10 tok")
+        );
+        assert_eq!(
+            turn_usage(&turn(json!({"outputTokens":345}))).as_deref(),
+            Some("345 tok")
+        );
+        assert_eq!(turn_usage(&turn(json!({"outputTokens":0}))), None);
+        assert_eq!(turn_usage(&turn(json!({"totalTokens":-1}))), None);
+        assert_eq!(turn_usage(&turn(json!({}))), None);
     }
 
     #[test]

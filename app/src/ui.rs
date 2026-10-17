@@ -9678,6 +9678,12 @@ impl App {
                                 .padding([ACTION_PAD, ACTION_PAD]),
                         );
                     }
+                    // The reference's per-turn usage action (`TurnUsagePanel.tsx`): a compact
+                    // "Usage N tok" label on the completed assistant row. Native draws the
+                    // reading only; the reference's click-open accounting dialog is not built.
+                    if !human && let Some(usage) = self.transcript.turn_usage(record.key) {
+                        footer = footer.push(label(format!("Usage {usage}"), MUTED).size(10));
+                    }
                     if assistant || excerpt(&record.text) != record.text {
                         footer = footer.push(
                             button(

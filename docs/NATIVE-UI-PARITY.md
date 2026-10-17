@@ -32,14 +32,14 @@ same shape in the `Ctrl+/` trigger: it opened the account page and the open path
 disclosure, so the editor was never shown; the trigger's "captured" evidence had gone through the
 fixture's direct `set_settings_open`, not the press.
 
-**Next, one step that is now unblocked:** add the canonical `session/updateQueue` endpoint to the
-existing BFF transport (`Endpoint::UpdateQueue`, typed `{sessionId,itemId,action}` request,
-`{accepted:true}` value), then the queue dock's edit/save/cancel, remove and steer controls with
-their pending/failed states. The earlier claim that this needed a second Remote protocol was wrong:
-the Host's `/api/<namespace>/<method>` dispatcher serves it, and native already posts that envelope.
-After queue actions, the same transport style opens `session/search`, workspace open, goal and
-schedule mutations, and the deliverables diff. Cross-session pending status remains unavailable
-(the status event carries only `running`), and the Iced/user-only lists are unchanged.
+**Scope note (user decision, 2026-10-17).** **Native Rust first:** every web UI capability should
+work in the Rust app, implemented in Rust, not left as a documented Web-only difference. The reuse
+point is the Host's canonical `/api/<namespace>/<method>` dispatcher, so adding typed endpoints to
+`dsh-native-transport` is in-bounds; what is out of bounds is rebuilding or forking the Host runtime
+in Rust. Keep coding without asking for permission. Order: queue actions (edit/remove/steer), then
+session search, workspace open, goal/schedule mutations and the deliverables diff. Cross-session
+pending status is still unavailable from the present wires. The four user-only items and the Iced
+list are unchanged.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -5309,3 +5309,32 @@ approximated:
 
 **Not claimed:** live Host arrival of the `tokenUsage`/`inbox` projections used by the recent
 rounds; they are seeded in the fixtures. This is recorded with each item, not promoted to parity.
+
+### Round 278 — the per-turn usage label
+
+**A completed assistant row now carries the reference's per-turn usage reading.** `chat_usage::turn_usage`
+reads that message's own `usage`: the Host's `totalTokens` when present, otherwise the four disjoint
+buckets, otherwise the output count, and renders the reference's `{n} tok` form — "Usage 345 tok" in
+`shots/122-turn-usage.png` (report `status: passed`). A zero or malformed count yields nothing, so a
+turn with no usage keeps its plain footer.
+
+One test covers the precedence (total, buckets, output), zero and negative counts. The fixture's
+`token-usage` assistant step already carried `usage.outputTokens: 345`, so the same frame shows the
+whole-log line (`12.3K tok · Cache hit 50% · 173 tok/s`) and the per-turn label together.
+
+**Deliberate difference.** Native draws the reading as a label, not the reference's clickable pill
+with the accounting dialog (provider/model, input/cache-read/cache-write/output/reasoning rows).
+The dialog is still open; the label is the visible clone, not the whole feature. The reference's
+icon is also absent (no icon set).
+
+**Battery (round 278).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1181 passed**, 1 ignored |
+| app, default | **0** | **1174 passed**, 1 ignored |
+| transport | **0** | 38 + 17 + 82 + 7 (unchanged this round) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
