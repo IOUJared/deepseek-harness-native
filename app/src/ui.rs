@@ -942,6 +942,8 @@ pub struct App {
     reference_token: Option<(String, bool)>,
     /// A reference read is in flight for the active query.
     reference_pending: bool,
+    /// The highlighted `@` menu row.
+    reference_selected: usize,
     /// Changed-file summaries by announcing seq.
     changes: std::collections::BTreeMap<u64, ChangesState>,
     /// Expanded changed-file lists by announcing seq.
@@ -1260,6 +1262,7 @@ impl App {
                 file_references: Vec::new(),
                 reference_token: None,
                 reference_pending: false,
+                reference_selected: 0,
                 changes: Default::default(),
                 changes_expanded: Default::default(),
                 changes_diffs: Default::default(),
@@ -3909,9 +3912,21 @@ impl App {
             }
             // The menu consumes these keys only while it is open, so nothing
             // about ordinary composing changes when no command line is typed.
+            Message::CommandMenuMove(delta) if self.reference_menu_open() => {
+                let len = self.file_references.len();
+                let next = self.reference_selected as i64 + i64::from(delta);
+                self.reference_selected = next.clamp(0, len as i64 - 1) as usize;
+            }
             Message::CommandMenuMove(delta) if self.completion().is_some() => {
                 let len = self.completion().map_or(0, |menu| menu.matches.len());
                 self.command_selected = command_menu::advance(self.command_selected, len, delta);
+            }
+            Message::CommandMenuAccept if self.reference_menu_open() => {
+                let Some(candidate) = self.file_references.get(self.reference_selected).cloned()
+                else {
+                    return Task::none();
+                };
+                return self.update(Message::ReferencePick(candidate.path, candidate.kind));
             }
             Message::CommandMenuAccept if self.completion().is_some() => {
                 if let Some(candidate) = self
@@ -3925,6 +3940,12 @@ impl App {
             // click can never complete a command the user did not point at.
             Message::CommandMenuPick(name) if self.completion().is_some() => {
                 return self.accept_command(&name);
+            }
+            Message::CommandMenuDismiss if self.reference_menu_open() => {
+                self.file_references.clear();
+                self.reference_token = None;
+                self.reference_pending = false;
+                return Self::focus_composer();
             }
             Message::CommandMenuDismiss if self.completion().is_some() => {
                 // Dismissal is not a draft edit: clear the menu by leaving the
@@ -3969,6 +3990,9 @@ impl App {
             Message::ComposerFocus => return Self::focus_composer(),
             // A command line that still has a menu open consumes Enter as
             // "accept", so the first Enter never sends a half-typed command.
+            Message::KeyboardSend if self.reference_menu_open() => {
+                return self.update(Message::CommandMenuAccept);
+            }
             Message::KeyboardSend
                 if self.completion().is_some() && !self.editor.text().trim().ends_with(' ') =>
             {
@@ -8692,6 +8716,7 @@ impl App {
             return;
         }
         self.reference_token = Some((query.clone(), quoted));
+        self.reference_selected = 0;
         self.file_references.clear();
         if !self.reference_pending {
             self.request_references(query);
@@ -8706,6 +8731,10 @@ impl App {
         };
         self.reference_pending = true;
         self.command(worker::Command::FileReferences { session, query });
+    }
+    /// Whether the `@` menu is showing rows and may claim navigation keys.
+    fn reference_menu_open(&self) -> bool {
+        self.reference_token.is_some() && !self.file_references.is_empty()
     }
     /// Ask for every new `workspace/changes` summary, bounded to 64 outstanding reads.
     fn request_changes(&mut self) {
@@ -9223,7 +9252,7 @@ impl App {
         let allowed = self.send_allowed() && self.composer_visible();
         let keyboard_allowed = allowed && !self.editor.text().trim().is_empty();
         // The menu claims navigation keys only while it is showing.
-        let menu_open = self.completion().is_some();
+        let menu_open = self.completion().is_some() || self.reference_menu_open();
         // The reference's placeholder is state-owned: the empty-state hero asks
         // for a build, the docked bar offers the default line
         // (`locales.ts:20, 396-399`). Native's blocked session-less state keeps
@@ -9691,8 +9720,9 @@ impl App {
         }
         if self.reference_token.is_some() && !self.file_references.is_empty() {
             let mut rows = column![].spacing(1);
-            for candidate in self.file_references.iter().take(12) {
+            for (index, candidate) in self.file_references.iter().take(12).enumerate() {
                 let directory = candidate.kind == "directory";
+                let selected = index == self.reference_selected;
                 let row = container(
                     row![
                         label(if directory { "▸" } else { "·" }, MUTED).size(10),
@@ -9705,7 +9735,14 @@ impl App {
                     .align_y(iced::Alignment::Center),
                 )
                 .padding([3, 7])
-                .width(Length::Fill);
+                .width(Length::Fill)
+                .style(move |_| {
+                    if selected {
+                        design::card(OVERLAY, design::RADIUS_SM)
+                    } else {
+                        container::Style::default()
+                    }
+                });
                 rows = rows.push(Element::new(FocusKeeper {
                     content: row.into(),
                     on_press: Message::ReferencePick(
@@ -15817,6 +15854,38 @@ mod tests {
             Some(serde_json::json!({"kind":"weekly","weekly":{
                 "time":"09:00:00","time_zone":"UTC","weekdays":[2,4]}}))
         );
+    }
+    #[test]
+    fn the_reference_menu_moves_accepts_and_dismisses_from_the_keyboard() {
+        use dsh_native_transport::dto::FileReferenceCandidate;
+        let (mut app, _receiver) = managed_app();
+        app.editor = text_editor::Content::with_text("@src");
+        app.reference_token = Some(("src".into(), false));
+        app.file_references = vec![
+            FileReferenceCandidate {
+                path: "src/main.rs".into(),
+                kind: "file".into(),
+            },
+            FileReferenceCandidate {
+                path: "src/lib.rs".into(),
+                kind: "file".into(),
+            },
+        ];
+        let _ = app.update(Message::CommandMenuMove(1));
+        assert_eq!(app.reference_selected, 1);
+        let _ = app.update(Message::CommandMenuAccept);
+        assert_eq!(app.editor.text(), "@src/lib.rs ");
+        assert!(app.file_references.is_empty());
+        app.editor = text_editor::Content::with_text("@src");
+        app.reference_token = Some(("src".into(), false));
+        app.file_references = vec![FileReferenceCandidate {
+            path: "src/main.rs".into(),
+            kind: "file".into(),
+        }];
+        let _ = app.update(Message::CommandMenuDismiss);
+        assert!(app.file_references.is_empty());
+        assert!(app.reference_token.is_none());
+        assert_eq!(app.editor.text(), "@src");
     }
     #[test]
     fn an_at_token_is_detected_and_picks_a_reference() {

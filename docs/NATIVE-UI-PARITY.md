@@ -42,7 +42,8 @@ page** (catalog + delete + delivery history + title/instruction/timing edit) and
 **disarmed activation**, the timing-kind selector, an **expandable changed-file list with per-file
 diffs** and the **`@` file menu** now work end to end; the next items are the reference's
 **open/review action and developer-tools gate**, its **date/time picker popovers**, then workspace
-open. Cross-session pending status is still unavailable from the present wires.
+open. Cross-session pending status is still unavailable from the present wires. The `@` menu is now
+keyboard-navigable.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -5894,6 +5895,33 @@ beyond the initial token. Live reads are unverified; the fixture bypasses them.
 | app, fixture | **0** | **1196 passed**, 1 ignored |
 | app, default | **0** | **1189 passed**, 1 ignored |
 | transport | **0** | **52 + 17 + 82 + 7** |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+### Round 302 — keyboard navigation for the `@` menu
+
+**The `@` menu now claims the same keys as the slash menu while it is showing.** Arrow Down/Up
+move the highlighted row (clamped to the list), Tab and Enter accept it, and Escape dismisses the
+menu while keeping the typed token in the draft. The existing completion binding is reused, so the
+`@` menu opens and closes with the editor's normal focus and the caret stays in the field; the
+highlighted row is drawn with the same overlay as the command menu.
+`shots/138-reference-menu.png` now shows the first row selected; the report is `status: passed`.
+
+One test covers the moved highlight, acceptance inserting the second candidate's mention, and Escape
+clearing the menu without editing the draft.
+
+**Remainder.** The menu still lists files only (no session candidates), recognizes the token only at
+the end of the draft and has no directory drill-down. Live reads remain unverified.
+
+**Battery (round 302).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1197 passed**, 1 ignored |
+| app, default | **0** | **1190 passed**, 1 ignored |
+| transport | **0** | 52 + 17 + 82 + 7 (unchanged this round) |
 | core (`--lib`) | **0** | **112 passed** (unchanged) |
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
