@@ -133,6 +133,18 @@ const server = http.createServer(async (request, response) => {
       };
       break;
     }
+    case 'directoryPicker/pick': {
+      // The chooser takes no arguments and replies with one absolute path or null
+      // on cancel; every other shape is a malformed reply, not a cancel.
+      if (!isDeepStrictEqual(args, {})) { response.writeHead(400); response.end(); return; }
+      value = '/PUBLIC/picked';
+      if (mode === 'picker-cancel') value = null;
+      if (mode === 'picker-missing') value = {};
+      if (mode === 'picker-empty') value = '';
+      if (mode === 'picker-number') value = 7;
+      if (mode === 'picker-oversize') value = `/${'x'.repeat(4096)}`;
+      break;
+    }
     case 'messageFeedback/put': {
       // Absent note/category are omitted keys, never explicit nulls: the Host's
       // boundary schema refuses null for either optional string.

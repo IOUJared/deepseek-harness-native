@@ -652,6 +652,44 @@ async fn optional_absent_fields_are_omitted_from_the_live_wire() {
 }
 
 #[tokio::test]
+async fn picker_reply_is_one_qualified_path_or_a_cancel() {
+    // The chooser takes no arguments. A path selects, null cancels, and every
+    // other shape — missing value, blank, non-string, oversize — is a malformed
+    // reply that must not be mistaken for a cancel.
+    let mut fixture = NodeHostFixture::start("normal").await;
+    let client = fixture.connect(Limits::default()).await.unwrap();
+    assert_eq!(
+        client.pick_directory().await.unwrap(),
+        Some("/PUBLIC/picked".into())
+    );
+    client.close().await;
+    fixture.stop().await;
+
+    let mut fixture = NodeHostFixture::start("picker-cancel").await;
+    let client = fixture.connect(Limits::default()).await.unwrap();
+    assert_eq!(client.pick_directory().await.unwrap(), None);
+    client.close().await;
+    fixture.stop().await;
+
+    for mode in [
+        "picker-missing",
+        "picker-empty",
+        "picker-number",
+        "picker-oversize",
+    ] {
+        let mut fixture = NodeHostFixture::start(mode).await;
+        let client = fixture.connect(Limits::default()).await.unwrap();
+        assert_eq!(
+            client.pick_directory().await,
+            Err(Error::InvalidDto),
+            "{mode}"
+        );
+        client.close().await;
+        fixture.stop().await;
+    }
+}
+
+#[tokio::test]
 async fn fork_at_seq_carries_exactly_the_requested_inclusive_boundary() {
     let mut fixture = NodeHostFixture::start("fork-at").await;
     let client = fixture.connect(Limits::default()).await.unwrap();

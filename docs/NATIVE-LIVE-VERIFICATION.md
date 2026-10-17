@@ -85,8 +85,9 @@ answer was that cache, not the query semantics; a fresh session returned the fil
   rows, title/instruction edits against `expected`, a timing change and history records need a live
   model turn.
 - Feedback put against a real assistant message (needs the same turn).
-- `directoryPicker/pick` success/cancel under a native composition (needs a Host that serves it and
-  a GUI interaction).
+- `directoryPicker/pick` success/cancel under a native composition (the path/null/malformed reply
+  shapes are fake-wire tested; a live chooser still needs a Host that serves it and a GUI
+  interaction).
 - Desktop-open success (`session/openWorkspacePath` on an existing file launches the desktop
   handler; only the failure path was safe to run).
 - OAuth and any charged model execution. Those remain separate claims.
@@ -100,7 +101,7 @@ Measured with `python3 -B scripts/verify-native.py --suite test` and the format-
 | --- | --- |
 | app, default | **1203 passed**, 1 ignored |
 | app, `public-layout-fixture` | **1210 passed**, 1 ignored |
-| transport | 56 + 17 + **83** + 7 |
+| transport | 56 + 17 + **84** + 7 |
 | core (`--lib`, through the suite) | **112 passed** |
 | JS runtime | **419 pass**, 0 fail |
 | format debt | 0 files, 0 hunks |

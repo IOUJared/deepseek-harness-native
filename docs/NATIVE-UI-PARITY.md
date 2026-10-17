@@ -6441,3 +6441,25 @@ behavior changed in this round, so there is no new capture.
 | scroll example | **0** | **1214 passed**, 1 ignored |
 | tree | — | clean before the commit |
 
+### Round 319 — the chooser reply is pinned
+
+**The picker's reply contract now has a fake-wire test.** `directoryPicker/pick` takes no
+arguments and answers one absolute path, or `null` on cancel. The transport already validated that
+inline, but nothing exercised it; the fixture now returns each shape and the test drives the real
+client: a path selects, `null` cancels, and a missing value, blank string, number or oversized
+string is refused as a malformed reply rather than mistaken for a cancel. Transport grows from
+**83** to **84** tests. The live pick on a browse-composed Host stays unavailable by design; this
+pins the native-composition contract the app falls back from.
+
+**Battery (round 319).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1210 passed**, 1 ignored |
+| app, default | **0** | **1203 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + **84** + 7 |
+| core (`--lib`) | **0** | **112 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+

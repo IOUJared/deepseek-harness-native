@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- [Chooser reply validation](<docs/NATIVE-LIVE-VERIFICATION.md>): `directoryPicker/pick` now has a fake-wire test. It takes no arguments and answers one absolute path or `null` on cancel; missing, blank, non-string and oversized replies are refused as malformed rather than treated as a cancel. The native chooser remains unreachable on the app's browse-composed Host; this pins the contract the fallback falls back from.
+
 - [Scroll fixture repair](<docs/NATIVE-APP-SCROLL-INTEGRATION.md>): the `scroll_app_smoke` example had drifted from the App's module set (`crash_log`, `goal_ui`, `keybindings`, `queue_dock`, `queue_update` missing), so the suite's scroll gate failed with 82 compile errors before running anything. Its includes now mirror the shared App modules; the example compiles and runs 1214 passed / 1 ignored. Only `wayland-drops` remains red, on a missing offline crate cache entry rather than source.
 
 - [Workspace picker fallback](<docs/NATIVE-LIVE-VERIFICATION.md>): **Browse…** now learns which directory-picker capability the Host composed. Core clears `DISPLAY`, so the app's own Host serves the browse picker and `directoryPicker/pick` answers unavailable; the first failed pick states the error and opens the in-app folder list for the typed path (or the Host home), a successful listing also marks browse, and later presses go straight to the list with no repeated chooser call. A successful pick or cancel keeps the native path. App-tested; the sheet's drawing is unchanged.
