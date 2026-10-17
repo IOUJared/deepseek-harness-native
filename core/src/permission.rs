@@ -184,6 +184,36 @@ mod tests {
     }
 
     #[test]
+    fn each_permission_reply_matches_only_its_command() {
+        use crate::{PublicReply, protocol::matches_reply};
+
+        let catalog_reply = PublicReply::PermissionCatalog(catalog(&catalog_value()).unwrap());
+        let settings_reply = PublicReply::PermissionSettings(
+            settings(&json!({
+                "settings": {"currentValue": "ask", "revision": 1, "writable": true},
+            }))
+            .unwrap(),
+        );
+        assert!(matches_reply("permission-catalog", &catalog_reply));
+        assert!(matches_reply("permission-set", &PublicReply::PermissionSet));
+        assert!(matches_reply("permission-settings", &settings_reply));
+        assert!(matches_reply(
+            "permission-default-set",
+            &PublicReply::PermissionDefaultSet
+        ));
+        // A decoded reply for another command is refused, not accepted by family.
+        assert!(!matches_reply("permission-set", &catalog_reply));
+        assert!(!matches_reply(
+            "permission-catalog",
+            &PublicReply::PermissionSet
+        ));
+        assert!(!matches_reply(
+            "permission-settings",
+            &PublicReply::PermissionDefaultSet
+        ));
+    }
+
+    #[test]
     fn malformed_catalogs_fail_closed() {
         assert!(catalog(&json!({})).is_err());
         assert!(catalog(&json!({"catalog": {}})).is_err());

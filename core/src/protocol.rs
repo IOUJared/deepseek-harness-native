@@ -629,6 +629,11 @@ pub(crate) fn matches_reply(name: &str, reply: &PublicReply) -> bool {
             "codex-runtime-read" | "codex-runtime-save",
             PublicReply::CodexRuntime(_)
         ) | ("codex-callback", PublicReply::CodexCallbackAccepted(_))
+            | ("permission-catalog", PublicReply::PermissionCatalog(_))
+            | ("permission-set", PublicReply::PermissionSet)
+            | ("permission-settings", PublicReply::PermissionSettings(_))
+            | ("permission-default-set", PublicReply::PermissionDefaultSet)
+            | ("agent-presets", PublicReply::AgentPresets(_))
             | ("inspect", PublicReply::Inspection(_))
             | ("open-workspace", PublicReply::WorkspaceAdded)
             | ("onboarding-read", PublicReply::Onboarding(_))

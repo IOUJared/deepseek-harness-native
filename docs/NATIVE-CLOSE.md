@@ -25,9 +25,11 @@ directly user-visible: the worst case moves from 5 s to 20 s before a forced kil
 Settling it needs one fact this repository cannot produce: how long a real Host actually
 takes to acknowledge a graceful stop mid-turn. The step is a live run — start the app
 against the real backend, begin a turn, close the window, and time from the close request
-to the shutdown acknowledgement (the Core already logs the phase and the outcome). Until
-that number exists, the native budget stays as it is rather than being changed on the
-reference's figures alone.
+to the process exit with an external timer. **The Core does not log phases**: it reports
+only `PublicEvent::Exited` (and the App's one outcome line), so a phase-by-phase breakdown
+needs an external observation around the process, not a Core log. Until that number
+exists, the native budget stays as it is rather than being changed on the reference's
+figures alone.
 
 ## Shutdown repairs
 

@@ -6556,3 +6556,34 @@ coverage and its explicit not-inspected list are recorded in
 | JS runtime | **0** | **419 pass**, 0 fail |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+### Round 323 — the Core reply gate accepts permissions and presets
+
+**A read-only Core audit found that five decoded reply families were rejected by the Core's own
+gate.** `protocol::public_result` decodes `permission-catalog`, `permission-set`,
+`permission-settings`, `permission-default-set` and `agent-presets`, but `protocol::matches_reply`
+had no arms for them, so `process.rs` replaced every reply with `Error::Protocol`. Against a real
+Host the permission chip's catalog, the agent-preset roster/seat, the new-session permission
+descriptor and its CAS save all failed — and the App acted only on `Ok`, so they failed silently.
+The captured permission and preset surfaces passed because App tests inject the events directly,
+bypassing the Core gate.
+
+The gate now matches each reply only to its own command (a crossed family is still refused). Two
+unit tests cover the five pairs, and one end-to-end Core test drives a fake supervisor answering
+all five and asserts `Backend::request` returns `Ok`; removing the new arms makes that test fail
+(checked by reverting them temporarily). Core grew from **112** to **115** tests.
+
+The same audit corrected `docs/NATIVE-CLOSE.md`: the Core does not log shutdown phases, so the
+close-timing step must use an external timer around the process exit and the App's outcome line,
+not a Core log that does not exist.
+
+**Battery (round 323).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1211 passed**, 1 ignored |
+| app, default | **0** | **1204 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 86 + 7 |
+| core (`--lib`) | **0** | **115 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |

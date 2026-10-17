@@ -149,4 +149,15 @@ mod tests {
         assert!(!valid_id("bad\u{0}id"));
         assert!(!valid_id("bad\u{2028}id"));
     }
+
+    #[test]
+    fn the_roster_reply_matches_only_agent_presets() {
+        use crate::{PublicReply, protocol::matches_reply};
+
+        let roster_reply = PublicReply::AgentPresets(roster(&reply()).unwrap());
+        assert!(matches_reply("agent-presets", &roster_reply));
+        // A different family's reply, and a different command for this reply, are refused.
+        assert!(!matches_reply("permission-set", &roster_reply));
+        assert!(!matches_reply("agent-presets", &PublicReply::PermissionSet));
+    }
 }

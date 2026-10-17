@@ -133,6 +133,11 @@ process.stdin.on('data', chunk => {
    const value=c.type==='onboarding-read' ? {loggedIn:false,hasApiKey:false,writable:true,tokenValue:'PUBLIC_FAKE_SECRET'}
     : c.type==='cancel-generation' ? {cancelled:true,tokenValue:'PUBLIC_FAKE_SECRET'}
     : c.type==='account-unsubscribe' ? {subscribed:false,tokenValue:'PUBLIC_FAKE_SECRET'}
+    : c.type==='permission-catalog' ? {catalog:{options:[{value:'read-only',name:'Read only'}],defaultOptions:[],defaultPreset:'read-only'},tokenValue:'PUBLIC_FAKE_SECRET'}
+    : c.type==='permission-settings' ? {settings:{currentValue:'read-only',revision:1,writable:true},tokenValue:'PUBLIC_FAKE_SECRET'}
+    : c.type==='permission-set' ? {ok:true}
+    : c.type==='permission-default-set' ? {ok:true}
+    : c.type==='agent-presets' ? {roster:{presets:[{id:'standard',isDefault:true}]},tokenValue:'PUBLIC_FAKE_SECRET'}
     : {status:'credential-stored',attempt:{phase:'waiting-browser',id:'attempt-1',authorizeUrl:'https://platform.example/dsh/authorize?state=attempt-1'},token:'PUBLIC_FAKE_SECRET'};
    send({type:'native-result',requestId:c.requestId,command:c.type,value});
   }
@@ -214,6 +219,56 @@ fn stages_both_helpers_and_explicit_isolated_environment() {
     assert!(process::identity(root.pid).is_none());
     assert!(backend.with_private_endpoint(|_, _| ()).is_none());
     assert!(backend.with_private_account_session(|_, _, _| ()).is_none());
+}
+
+#[test]
+fn permission_and_preset_replies_survive_the_core_reply_gate() {
+    let fixture = Fixture::new();
+    let (backend, _) = fixture.spawn(NORMAL);
+    backend.wait_ready().unwrap();
+    assert!(matches!(
+        backend
+            .request(Command::PermissionCatalog, Duration::from_secs(1))
+            .unwrap(),
+        PublicReply::PermissionCatalog(_)
+    ));
+    assert!(matches!(
+        backend
+            .request(Command::PermissionSettings, Duration::from_secs(1))
+            .unwrap(),
+        PublicReply::PermissionSettings(_)
+    ));
+    assert!(matches!(
+        backend
+            .request(Command::AgentPresets, Duration::from_secs(1))
+            .unwrap(),
+        PublicReply::AgentPresets(_)
+    ));
+    assert_eq!(
+        backend
+            .request(
+                Command::PermissionSet {
+                    session: "session-1".into(),
+                    name: "read-only".into(),
+                },
+                Duration::from_secs(1),
+            )
+            .unwrap(),
+        PublicReply::PermissionSet
+    );
+    assert_eq!(
+        backend
+            .request(
+                Command::PermissionDefaultSet {
+                    name: "read-only".into(),
+                    expected_revision: 1,
+                },
+                Duration::from_secs(1),
+            )
+            .unwrap(),
+        PublicReply::PermissionDefaultSet
+    );
+    assert!(backend.stop().unwrap().graceful);
 }
 
 #[test]
