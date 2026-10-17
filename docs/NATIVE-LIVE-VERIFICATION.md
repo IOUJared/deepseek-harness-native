@@ -172,17 +172,17 @@ property and the catalog fallback (round 324). The probe was deleted after the r
 ## Gates after the fixes
 
 Measured with `python3 -B scripts/verify-native.py --suite test` and the format-debt script on
-2026-10-17 after `c9dd30e`:
+2026-10-17, after the wire, Core, bridge and worker repairs:
 
 | gate | result |
 | --- | --- |
-| app, default | **1204 passed**, 1 ignored |
-| app, `public-layout-fixture` | **1211 passed**, 1 ignored |
+| app, default | **1208 passed**, 1 ignored |
+| app, `public-layout-fixture` | **1215 passed**, 1 ignored |
 | transport | 56 + 17 + **86** + 7 |
-| core (`--lib`, through the suite) | **112 passed** |
+| core (`--lib`, through the suite) | **115 passed** |
 | JS runtime | **419 pass**, 0 fail |
 | format debt | 0 files, 0 hunks |
-| release `layout_smoke` build | warning-free |
+| release fixture build | warning-free |
 | DP-2 capture | `shots/145-live-wire-navigation.png`, `status: passed` |
 
 The suite's `scroll_app_smoke` extra was repaired after this pass: its module list had drifted from
