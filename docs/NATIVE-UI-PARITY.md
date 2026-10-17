@@ -4107,3 +4107,18 @@ own frames: `shots/87-…` (rows), `shots/89-…` (the count line with a cleared
    immediately before editing it, in the same call, and do not run `cargo fmt` between two scripts
    that must agree on the text.** Both halves of that are mechanical, and both are why this round
    ends with a clean tree instead of a wrong button.
+
+   **The per-row Remove was reverted again, and this attempt found a trap worth more than the button.**
+   The found-tail method worked: the action went in, the button went in **inside** the row (located
+   by the last `label(entry.keys, …)`, not remembered), and the crate **built** — which looked like
+   success until I asked what the button *does*. It does nothing: `Settings::update`'s `match action`
+   has a **wildcard arm**, so a new `Action` variant is **silently absorbed** and inert. The compile
+   is green, the button is live-looking, and nothing happens.
+   That is the same failure the `/agent` line and the inert kill arm were: **a control that appears
+   to work and does not.** I would rather delete the button than ship it, so the file was reverted —
+   the design stays settled and the wire is still `Action::ClearShortcut` → `apply(Edit::Set { None },
+   revision)` → the count line and empty keys by construction.
+   **The next attempt needs one read first, not an edit:** the actual arm for a *sibling* action with
+   data (`PermissionDefault`) — my grep found only its `on_press`, not its handler, so the handler
+   lives somewhere I have not looked. Finding it is the whole difference between an inert button and
+   a working one, and the wildcard is why the compiler will not say so.
