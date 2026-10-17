@@ -419,6 +419,26 @@ pub struct QueueTextBlock {
     pub block_type: String,
     pub text: String,
 }
+/// One changed file in a turn summary (`WorkspaceChangedFile` via
+/// `packages/client/ui-deliverables/src/changes.ts:70-77`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChangedFile {
+    pub path: String,
+    pub display: String,
+    pub added: u64,
+    pub deleted: u64,
+    pub binary: bool,
+    pub oversized: bool,
+}
+/// One turn's changed-file summary (`ChangesSummary`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChangesSummary {
+    pub turn: u64,
+    pub files: Vec<ChangedFile>,
+    pub total: u64,
+    pub added: u64,
+    pub deleted: u64,
+}
 /// One Host schedule catalog row (`ScheduleCatalogEntry` in
 /// `packages/schedule/schedule/src/types.ts:213-220`). Only the display fields are modeled; the
 /// timing payload varies by kind and is ignored here.

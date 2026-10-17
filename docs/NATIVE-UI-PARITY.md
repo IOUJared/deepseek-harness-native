@@ -5768,3 +5768,16 @@ timing.
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+### Round 296 — changed-file summary (transport half)
+
+**The turn's changed-file summary is now a Rust transport read.** `changes_summary` GETs the
+authenticated `/api/changes.summary?sessionId&seq` route the deliverables card uses and parses the
+bounded summary (`turn`, `total`, `added`, `deleted`, up to 4096 files with path/display/counts and
+binary/oversized flags). Malformed paths, counts, turns or file lists are refused rather than
+partially displayed. The client gained a small authenticated `get_json` helper for this route; it
+uses the same cookie/Origin and response-size guards as the POST calls. One test covers a valid
+summary and four malformed shapes; the transport gate is **50 + 17 + 82 + 7**.
+
+No changed-files card exists in Chat yet; that is the next item. The diff route and the open action
+are not built.

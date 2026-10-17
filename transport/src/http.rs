@@ -777,6 +777,40 @@ impl NativeClient {
         .await
     }
     /// The Host's whole schedule catalog, bounded to 4096 rows and validated for display.
+    /// One turn's changed-file summary from the authenticated GET route the deliverables card
+    /// reads (`/api/changes.summary?sessionId&seq`). A 404 is an absent summary, not a transport
+    /// failure: the caller shows no card.
+    pub async fn changes_summary(
+        &self,
+        session_id: &SessionId,
+        seq: u64,
+    ) -> Result<ChangesSummary> {
+        let value = self
+            .get_json(
+                "api/changes.summary",
+                &[
+                    ("sessionId", session_id.as_str()),
+                    ("seq", &seq.to_string()),
+                ],
+            )
+            .await?;
+        parse_changes_summary(value).ok_or(Error::InvalidDto)
+    }
+    async fn get_json(&self, path: &str, query: &[(&str, &str)]) -> Result<Value> {
+        let auth = self.inner.authority()?;
+        let mut url = auth.origin.join(path).map_err(|_| Error::InvalidLaunch)?;
+        url.query_pairs_mut().extend_pairs(query.iter().copied());
+        let response = self
+            .inner
+            .http
+            .get(url)
+            .header(ORIGIN, auth.origin.origin().ascii_serialization())
+            .header(COOKIE, auth.cookie)
+            .send()
+            .await
+            .map_err(map_network)?;
+        read_response(response, self.inner.limits).await
+    }
     pub async fn schedule_catalog(&self) -> Result<Vec<ScheduleCatalogItem>> {
         let items: Vec<ScheduleCatalogItem> =
             self.invoke(Endpoint::ScheduleCatalog, json!({})).await?;
@@ -1495,6 +1529,51 @@ fn schedule_delete_outcome(value: &Value) -> Option<ScheduleDeleteOutcome> {
             .map(|_| ScheduleDeleteOutcome::Refused),
     }
 }
+fn parse_changes_summary(value: Value) -> Option<ChangesSummary> {
+    let object = value.as_object()?;
+    let number = |name: &str| object.get(name).and_then(Value::as_u64);
+    let turn = number("turn")?;
+    if turn == 0 {
+        return None;
+    }
+    let total = number("total")?;
+    let added = number("added")?;
+    let deleted = number("deleted")?;
+    let files = object
+        .get("files")?
+        .as_array()?
+        .iter()
+        .map(|file| {
+            let file = file.as_object()?;
+            let path = file.get("path")?.as_str()?;
+            let display = file.get("display")?.as_str()?;
+            if path.is_empty() || path.len() > 4096 || display.is_empty() || display.len() > 4096 {
+                return None;
+            }
+            Some(ChangedFile {
+                path: path.to_owned(),
+                display: display.to_owned(),
+                added: file.get("added")?.as_u64()?,
+                deleted: file.get("deleted")?.as_u64()?,
+                binary: file.get("binary").and_then(Value::as_bool).unwrap_or(false),
+                oversized: file
+                    .get("oversized")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    if files.len() > 4096 {
+        return None;
+    }
+    Some(ChangesSummary {
+        turn,
+        files,
+        total,
+        added,
+        deleted,
+    })
+}
 fn validate_goal_ref(reference: &GoalRef) -> Result<()> {
     if reference.id.is_empty() || reference.id.len() > 256 || reference.revision == 0 {
         return Err(Error::InvalidDto);
@@ -1920,5 +1999,36 @@ mod schedule_tests {
                 .map(|stamp| stamp.delivered_at.as_str()),
             Some("2026-10-16T09:00:01Z")
         );
+    }
+}
+
+#[cfg(test)]
+mod changes_tests {
+    use super::parse_changes_summary;
+    use serde_json::json;
+
+    #[test]
+    fn a_changes_summary_parses_files_and_refuses_malformed_records() {
+        let summary = parse_changes_summary(json!({
+            "turn": 2, "total": 2, "added": 9, "deleted": 3,
+            "files": [
+                {"path":"src/a.rs","display":"src/a.rs","added":7,"deleted":1},
+                {"path":"src/b.rs","display":"src/b.rs","added":2,"deleted":2,
+                 "binary":true}
+            ]
+        }))
+        .unwrap();
+        assert_eq!(summary.turn, 2);
+        assert_eq!(summary.files.len(), 2);
+        assert!(summary.files[1].binary);
+        for bad in [
+            json!({}),
+            json!({"turn":0,"total":0,"added":0,"deleted":0,"files":[]}),
+            json!({"turn":1,"total":1,"added":0,"deleted":0,
+                "files":[{"path":"","display":"x","added":0,"deleted":0}]}),
+            json!({"turn":1,"total":1,"added":-1,"deleted":0,"files":[]}),
+        ] {
+            assert_eq!(parse_changes_summary(bad), None);
+        }
     }
 }
