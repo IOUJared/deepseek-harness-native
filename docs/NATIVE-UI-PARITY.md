@@ -5635,3 +5635,15 @@ durable projection still carries `phase` only, and the activation arrives on its
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+### Round 291 — schedule title/instruction update (transport half)
+
+**`schedule/update` is a typed Rust transport call.** The catalog item now keeps the record fields it
+does not display (`prompt`, the timing payload) in a flattened `record` map, so an edit can send the
+complete `expected` record the Host compares. `schedule_update` validates the expected id/kind, a
+trimmed non-empty title (≤120) or prompt (≤4096) — at least one — and parses the union into
+`Updated { title, prompt }`, `Missing` (`updated:false`) or `Refused` (a non-mutating error value).
+A malformed reply is refused. Two tests cover the update union and the flattened record; the
+transport gate is **48 + 17 + 82 + 7**.
+
+No edit control exists in the page yet; that is the next item.

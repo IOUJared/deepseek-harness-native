@@ -203,6 +203,7 @@ enum Endpoint {
     ScheduleCatalog,
     ScheduleDelete,
     ScheduleHistory,
+    ScheduleUpdate,
 }
 impl Endpoint {
     fn name(self) -> &'static str {
@@ -226,6 +227,7 @@ impl Endpoint {
             Self::ScheduleCatalog => "schedule/catalog",
             Self::ScheduleDelete => "schedule/delete",
             Self::ScheduleHistory => "schedule/history",
+            Self::ScheduleUpdate => "schedule/update",
             Self::Page => "session/page",
             Self::AccountState => "account/getState",
             Self::WorkspaceCreate => "workspace/create",
@@ -807,6 +809,50 @@ impl NativeClient {
             .await?;
         schedule_delete_outcome(&value).ok_or(Error::InvalidDto)
     }
+    /// Compare-and-update one task's title and/or prompt. `expected` is the complete record
+    /// observed when editing began (the catalog item's reconstructed record), so the Host can
+    /// refuse a concurrent change instead of overwriting it.
+    pub async fn schedule_update(
+        &self,
+        session_id: &SessionId,
+        expected: &Value,
+        title: Option<&str>,
+        prompt: Option<&str>,
+    ) -> Result<ScheduleUpdateOutcome> {
+        let Some(object) = expected.as_object() else {
+            return Err(Error::InvalidDto);
+        };
+        let Some(id) = object.get("id").and_then(Value::as_str) else {
+            return Err(Error::InvalidDto);
+        };
+        if id.is_empty() || id.len() > 256 || object.get("kind").and_then(Value::as_str).is_none() {
+            return Err(Error::InvalidDto);
+        }
+        let title = title.map(str::trim).filter(|value| !value.is_empty());
+        let prompt = prompt.map(str::trim).filter(|value| !value.is_empty());
+        if title.is_none() && prompt.is_none() {
+            return Err(Error::InvalidDto);
+        }
+        if title.is_some_and(|value| value.len() > 120)
+            || prompt.is_some_and(|value| value.len() > 4096)
+        {
+            return Err(Error::InvalidDto);
+        }
+        let mut request = serde_json::Map::new();
+        request.insert("sessionId".into(), json!(session_id.as_str()));
+        request.insert("id".into(), json!(id));
+        request.insert("expected".into(), expected.clone());
+        if let Some(title) = title {
+            request.insert("title".into(), json!(title));
+        }
+        if let Some(prompt) = prompt {
+            request.insert("prompt".into(), json!(prompt));
+        }
+        let value: Value = self
+            .invoke(Endpoint::ScheduleUpdate, json!({"request": request}))
+            .await?;
+        schedule_update_outcome(&value).ok_or(Error::InvalidDto)
+    }
     /// One bounded delivery-history page for a task in its original session binding.
     pub async fn schedule_history(
         &self,
@@ -1328,6 +1374,36 @@ fn schedule_history_outcome(value: &Value, limit: u64) -> Option<ScheduleHistory
         .and_then(Value::as_str)
         .map(|_| ScheduleHistoryOutcome::Missing)
 }
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateWire {
+    #[serde(default)]
+    updated: Option<bool>,
+    #[serde(default)]
+    record: Option<UpdateRecordWire>,
+    #[serde(default)]
+    code: Option<String>,
+}
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateRecordWire {
+    title: String,
+    prompt: String,
+}
+fn schedule_update_outcome(value: &Value) -> Option<ScheduleUpdateOutcome> {
+    let wire: UpdateWire = serde_json::from_value(value.clone()).ok()?;
+    match wire.updated {
+        Some(true) => {
+            let record = wire.record?;
+            Some(ScheduleUpdateOutcome::Updated {
+                title: record.title,
+                prompt: record.prompt,
+            })
+        }
+        Some(false) => Some(ScheduleUpdateOutcome::Missing),
+        None => wire.code.map(|_| ScheduleUpdateOutcome::Refused),
+    }
+}
 /// The delete union (`types.ts:345-350`): `{deleted:true}`, `{deleted:false,code}`, or a
 /// non-mutating refusal carrying a code/message. Anything else is refused.
 fn schedule_delete_outcome(value: &Value) -> Option<ScheduleDeleteOutcome> {
@@ -1654,6 +1730,37 @@ mod schedule_tests {
     }
 
     #[test]
+    fn a_schedule_update_parses_committed_missing_or_refused() {
+        use super::schedule_update_outcome;
+        use crate::dto::ScheduleUpdateOutcome;
+        assert_eq!(
+            schedule_update_outcome(&serde_json::json!({
+                "id":"PUBLIC","updated":true,
+                "record":{"id":"PUBLIC","title":"PUBLIC new","prompt":"PUBLIC prompt"}
+            })),
+            Some(ScheduleUpdateOutcome::Updated {
+                title: "PUBLIC new".into(),
+                prompt: "PUBLIC prompt".into(),
+            })
+        );
+        assert_eq!(
+            schedule_update_outcome(&serde_json::json!({
+                "id":"PUBLIC","updated":false,"code":"schedule_conflict"
+            })),
+            Some(ScheduleUpdateOutcome::Missing)
+        );
+        assert_eq!(
+            schedule_update_outcome(&serde_json::json!({
+                "code":"invalid_rule","message":"PUBLIC"
+            })),
+            Some(ScheduleUpdateOutcome::Refused)
+        );
+        for bad in [serde_json::json!({}), serde_json::json!({"updated":true})] {
+            assert_eq!(schedule_update_outcome(&bad), None, "{bad}");
+        }
+    }
+
+    #[test]
     fn a_history_page_parses_or_reports_a_missing_task() {
         use super::schedule_history_outcome;
         use crate::dto::ScheduleHistoryOutcome;
@@ -1702,6 +1809,7 @@ mod schedule_tests {
         }))
         .unwrap();
         assert_eq!(item.id, "PUBLIC-task");
+        assert_eq!(item.record["prompt"], "PUBLIC prompt");
         assert_eq!(item.session_id.as_str(), "PUBLIC-session");
         assert_eq!(
             item.last_delivery

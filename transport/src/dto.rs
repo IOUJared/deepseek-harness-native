@@ -434,6 +434,17 @@ pub struct ScheduleCatalogItem {
     pub scheduled_at: Option<String>,
     #[serde(default)]
     pub last_delivery: Option<ScheduleDeliveryStamp>,
+    /// The remaining record fields (`prompt`, the timing payload), kept verbatim so an
+    /// edit can send the exact `expected` record the Host compares.
+    #[serde(flatten)]
+    pub record: serde_json::Map<String, Value>,
+}
+/// The compare-and-update outcome: committed title/prompt, a non-mutating miss, or a refusal.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ScheduleUpdateOutcome {
+    Updated { title: String, prompt: String },
+    Missing,
+    Refused,
 }
 /// One retained delivery acknowledgement, without its message identity.
 #[derive(Clone, Debug, Serialize, Deserialize)]
