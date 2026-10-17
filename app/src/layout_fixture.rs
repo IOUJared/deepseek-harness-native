@@ -22,6 +22,7 @@ mod usage_preferences;
 pub const PRESETS: &[&str] = &[
     "no-session",
     "subagent-trail",
+    "subagent-catalog",
     "hero-workspace-selected",
     "wide-welcome",
     "narrow-welcome",
@@ -205,6 +206,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "working-conversation"
         | "working-phase-6"
         | "subagent-trail"
+        | "subagent-catalog"
         | "hero-workspace-selected" => Some((Size::new(1040.0, 700.0), 1.0)),
         "working-narrow" => Some((Size::new(760.0, 560.0), 1.0)),
         "chat-submitted"
@@ -366,6 +368,19 @@ fn public_context_pressure_records(preset: &str) -> Option<Vec<Value>> {
 fn public_chat_records(preset: &str) -> Vec<Value> {
     if let Some(records) = public_context_pressure_records(preset) {
         return records;
+    }
+    if preset == "subagent-catalog" {
+        return vec![
+            json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
+                "data":{"id":"PUBLIC-user","role":"user","source":{"kind":"user"},
+                    "content":[{"type":"text","text":"PUBLIC parent with two subagents."}]},
+                "surfaceOp":"append"}}),
+            json!({"type":"event","event":{"type":"assistant/message","seq":1,"time":1001,
+                "data":{"turn":1,"step":1,
+                    "stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],
+                        "texts":["PUBLIC synthetic parent answer."]}]},
+                "surfaceOp":"append"}}),
+        ];
     }
     if preset == "work-panel" {
         // Synthetic read-only work records: 15 goals and 12 schedules plus the
@@ -772,6 +787,34 @@ pub fn build(
         app.selected = Some(child.session_id.clone());
         app.sessions.insert(child.session_id.clone(), child);
     }
+    if preset == "subagent-catalog" {
+        // A root session with two direct children, one running: the header's count action and
+        // its dropdown, with the reference's running dot and mode labels.
+        let parent: SessionSummary = serde_json::from_value(json!({
+            "agentAvailable":true, "sessionId":"PUBLIC-layout-parent", "updatedAt":950,
+            "running":false, "blank":false, "cwd":"/PUBLIC-layout-fixture/workspace",
+            "projections":{"kind":"cached","asOfSeq":-1,
+                "values":{"title":"PUBLIC parent with subagents"}}
+        }))
+        .expect("fixed PUBLIC parent metadata");
+        app.selected = Some(parent.session_id.clone());
+        app.sessions.insert(parent.session_id.clone(), parent);
+        for (id, title, running) in [
+            ("PUBLIC-child-reviewer", "PUBLIC reviewer", true),
+            ("PUBLIC-child-scout", "PUBLIC scout", false),
+        ] {
+            let child: SessionSummary = serde_json::from_value(json!({
+                "agentAvailable":true, "sessionId":id, "updatedAt":960,
+                "running":running, "blank":false,
+                "parentSessionId":"PUBLIC-layout-parent", "origin":"subagent",
+                "cwd":"/PUBLIC-layout-fixture/workspace",
+                "projections":{"kind":"cached","asOfSeq":-1,
+                    "values":{"title":title}}
+            }))
+            .expect("fixed PUBLIC child metadata");
+            app.sessions.insert(child.session_id.clone(), child);
+        }
+    }
     if preset == "navigation-tiny" {
         // Fixed PUBLIC synthetic history makes the real session-list scrolling meaningful.
         for index in 0..12 {
@@ -846,6 +889,7 @@ pub fn build(
             | "chat-edited"
             | "chat-search-narrow"
             | "work-panel"
+            | "subagent-catalog"
     ) || preset.starts_with("context-")
         || preset.starts_with("plan-mode")
         || preset == "plan-chip"
@@ -890,6 +934,10 @@ pub fn build(
         "context-pressure-risk" => json!({"contextPressure":{"pressureTokens":131072,
             "projectedTokens":131072,"contextWindow":128000}}),
         "agent-preset" => json!({"agentPreset":{"id":"implementer","name":"Implementer"}}),
+        "subagent-catalog" => json!({"subagentCatalog":[
+            {"id":"PUBLIC-child-reviewer","createdAt":1000,"mode":"continuable","label":"PUBLIC reviewer"},
+            {"id":"PUBLIC-child-scout","createdAt":1001,"mode":"one-shot","label":"PUBLIC scout"}
+        ]}),
         "plan-mode" => json!({"plan":{"active":true,"pending":false}}),
         "plan-mode-applying" => json!({"plan":{"active":true,"pending":true}}),
         "plan-mode-leaving" => json!({"plan":{"active":false,"pending":true}}),

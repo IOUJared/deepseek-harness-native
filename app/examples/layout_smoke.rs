@@ -162,6 +162,8 @@ struct Options {
     session_log: bool,
     /// Complete one session-log write, so the reference's saved state is captured.
     session_log_saved: bool,
+    /// Open the header's subagent catalog dropdown, so its rows are captured.
+    subagent_menu: bool,
     /// Open the shortcuts disclosure, so its rows are captured.
     shortcuts: bool,
 }
@@ -260,6 +262,7 @@ fn options() -> Result<Options, &'static str> {
             "--shortcuts-search",
             "--session-log",
             "--session-log-saved",
+            "--subagent-menu",
             "--agent-seat-error",
             "--settings",
             "--scrolled-away",
@@ -362,6 +365,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         session_log_saved: match values.remove("--session-log-saved") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        subagent_menu: match values.remove("--subagent-menu") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -714,6 +721,9 @@ impl Fixture {
         }
         if options.session_log_saved {
             app.seed_session_log_saved();
+        }
+        if options.subagent_menu {
+            app.set_subagent_menu(true);
         }
         if options.scrolled_away {
             app.set_scrolled_away(true);

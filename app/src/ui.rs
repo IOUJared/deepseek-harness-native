@@ -142,6 +142,8 @@ mod sidebar_ui;
 #[cfg(test)]
 #[path = "sidebar_ui_tests.rs"]
 mod sidebar_ui_tests;
+#[path = "subagent_catalog.rs"]
+mod subagent_catalog;
 #[cfg(test)]
 #[path = "terminal_ui_tests.rs"]
 mod terminal_ui_tests;
@@ -220,6 +222,10 @@ pub enum Message {
     ToggleJobs,
     /// The reference's `shortcuts.open` trigger (`primary + Slash`).
     ShortcutsOpen,
+    /// Opens or closes the header's subagent catalog dropdown.
+    ToggleSubagentMenu(bool),
+    /// Opens one child session from that catalog.
+    SubagentOpen(String),
     /// A key press as **data** for the live chain, with the state at the moment it arrives: an
     /// armed capture consumes it, a focused field's links own it, or a stored binding invokes a
     /// command — so a rebound key replaces the hardcoded default instead of shadowing it.
@@ -719,6 +725,8 @@ pub struct App {
     /// The shell's editable context menu, and the editor-owned history its Undo and
     /// Redo entries drive (`apps/desktop/src/main.ts:1018`).
     editor_menu: bool,
+    /// The header's subagent catalog dropdown is open.
+    subagent_menu: bool,
     /// The permission chip's menu, opened by its own press.
     permission_menu: bool,
     /// The preset awaiting the reference's risk confirmation, and whether its
@@ -970,6 +978,7 @@ impl App {
                 follow_ready: false,
                 editor: text_editor::Content::new(),
                 editor_menu: false,
+                subagent_menu: false,
                 permission_menu: false,
                 permission_confirm: None,
                 permission_acknowledged: false,
@@ -2647,6 +2656,9 @@ impl App {
             Message::ToggleRecords if self.layout_controls_enabled() => {
                 self.records_expanded = !self.records_expanded;
             }
+            Message::DismissPanel if self.subagent_menu => {
+                self.subagent_menu = false;
+            }
             Message::DismissPanel if self.layout_controls_enabled() && self.conversation_menu => {
                 self.conversation_menu = false;
             }
@@ -3026,6 +3038,16 @@ impl App {
                     return Task::none();
                 }
                 self.send_permission_preset(&preset);
+            }
+            Message::ToggleSubagentMenu(open) if self.layout_controls_enabled() => {
+                self.subagent_menu = open;
+            }
+            Message::SubagentOpen(id) if self.layout_controls_enabled() => {
+                self.subagent_menu = false;
+                if let Ok(id) = SessionId::new(&id) {
+                    return self.update(Message::Select(id));
+                }
+                return Task::none();
             }
             Message::EditorMenu(open) if self.composer_visible() => {
                 self.editor_menu = open;
@@ -5348,6 +5370,13 @@ impl App {
         );
     }
 
+    /// Fixture-only: open the header's subagent catalog dropdown, which a real run opens by
+    /// pressing the count action.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn set_subagent_menu(&mut self, open: bool) {
+        self.subagent_menu = open;
+    }
+
     /// Fixture-only: open the shortcuts disclosure, so its rows are capturable.
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn set_shortcuts_open(&mut self, open: bool) {
@@ -6384,6 +6413,97 @@ impl App {
         .height(Length::Fill)
         .into()
     }
+    /// The direct children the Host's `subagentCatalog` projection publishes for the selected
+    /// session. Empty for a child session or an unready catalog, which hides the header action.
+    fn subagent_entries(&self) -> Vec<subagent_catalog::Entry> {
+        let root = self
+            .selected
+            .as_ref()
+            .and_then(|id| self.sessions.get(id))
+            .is_some_and(|session| session.parent_session_id.is_none());
+        if !root {
+            return Vec::new();
+        }
+        subagent_catalog::entries(self.transcript.projections())
+    }
+    fn subagent_running(&self, id: &str) -> bool {
+        SessionId::new(id)
+            .ok()
+            .and_then(|id| self.sessions.get(&id))
+            .is_some_and(|session| session.running)
+    }
+    /// The reference's activity dot: foam while running, the hairline colour otherwise.
+    fn subagent_dot(running: bool) -> Element<'static, Message> {
+        container(Space::new().width(6).height(6))
+            .style(move |_| container::Style {
+                background: Some(if running { design::FOAM } else { design::LINE }.into()),
+                border: iced::Border {
+                    radius: 3.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .into()
+    }
+    fn subagent_menu_view(&self, entries: &[subagent_catalog::Entry]) -> Element<'_, Message> {
+        let mut list = column![label("Subagent sessions", MUTED).size(11)].spacing(4);
+        for entry in entries {
+            let running = self.subagent_running(&entry.id);
+            list = list.push(
+                button(
+                    row![
+                        Self::subagent_dot(running),
+                        label(entry.label.clone(), TEXT)
+                            .size(12)
+                            .width(Length::Fill),
+                        label(subagent_catalog::mode_label(entry.mode), MUTED).size(11),
+                    ]
+                    .spacing(8)
+                    .align_y(iced::Alignment::Center),
+                )
+                .on_press(Message::SubagentOpen(entry.id.clone()))
+                .style(design::ghost)
+                .padding([5, 8])
+                .width(Length::Fill),
+            );
+        }
+        container(list)
+            .id("native-subagent-menu")
+            .width(240)
+            .padding(8)
+            .style(|_| design::card(SURFACE, 10.0))
+            .into()
+    }
+    /// The header count action, visible only on a root session whose catalog has rows. Its
+    /// dropdown lists direct children; nested catalogs belong to the child session that owns
+    /// them, which native has not opened yet.
+    fn subagent_action(&self) -> Option<Element<'_, Message>> {
+        let entries = self.subagent_entries();
+        if entries.is_empty() {
+            return None;
+        }
+        let running = entries
+            .iter()
+            .filter(|entry| self.subagent_running(&entry.id))
+            .count();
+        let mut content = row![].spacing(5).align_y(iced::Alignment::Center);
+        if running > 0 {
+            content = content.push(Self::subagent_dot(true));
+        }
+        content = content
+            .push(label(subagent_catalog::count_label(entries.len(), running), MUTED).size(12));
+        let trigger = button(content)
+            .on_press(Message::ToggleSubagentMenu(!self.subagent_menu))
+            .style(design::ghost)
+            .padding([5, 8])
+            .into();
+        Some(anchored_popup::anchored_below(
+            trigger,
+            self.subagent_menu
+                .then(|| self.subagent_menu_view(&entries)),
+            Message::ToggleSubagentMenu(false),
+        ))
+    }
     fn header(&self) -> Element<'_, Message> {
         let heading = self
             .selected
@@ -6414,6 +6534,9 @@ impl App {
             .spacing(6)
             .height(design::HEADER_TITLE_ROW)
             .align_y(iced::Alignment::Center);
+        if let Some(subagents) = self.subagent_action() {
+            actions = actions.push(subagents);
+        }
         if self.panel_stop_visible() {
             actions = actions.push(self.stop_button());
         }
@@ -12853,6 +12976,70 @@ mod tests {
             .bindings("native.find")
             .expect("the row keeps a binding");
         assert_eq!(crate::keybindings::display(&binding[0]), "Ctrl+G");
+    }
+    #[test]
+    fn the_header_lists_direct_children_and_opens_one() {
+        let (mut app, _receiver) = managed_app();
+        let session = app.selected.clone().unwrap();
+        let child = SessionId::new("public-child-reviewer").unwrap();
+        let idle = SessionId::new("public-child-scout").unwrap();
+        for (id, running, title) in [
+            (child.clone(), true, "PUBLIC reviewer"),
+            (idle.clone(), false, "PUBLIC scout"),
+        ] {
+            app.sessions.insert(
+                id.clone(),
+                SessionSummary {
+                    agent_available: true,
+                    session_id: id,
+                    updated_at: 0,
+                    running,
+                    blank: false,
+                    parent_session_id: Some(session.clone()),
+                    origin: Some(dsh_native_transport::dto::SubagentOrigin::Subagent),
+                    cwd: None,
+                    projections: Some(
+                        serde_json::from_value(serde_json::json!({
+                            "kind":"cached","asOfSeq":-1,"values":{"title":title}
+                        }))
+                        .unwrap(),
+                    ),
+                },
+            );
+        }
+        // The manual session above never went through `choose`, so bind the transcript to the
+        // generation the frame will carry.
+        app.transcript = crate::reducer::Transcript::new(app.generation);
+        let frame: SessionFollowFrame = serde_json::from_value(serde_json::json!({
+            "type":"snapshot","records":[
+                {"type":"event","event":{"type":"user/message","seq":0,"time":1000,
+                    "surfaceOp":"append","data":{"id":"PUBLIC-user","role":"user",
+                        "source":{"kind":"user"},"content":[{"type":"text","text":"PUBLIC"}]}}}
+            ],"cursor":0,"hasMore":false,
+            "header":{"version":4,"id":"public-managed-session","createdAt":1000,"isSeeded":false},
+            "projections":{"asOfSeq":0,"values":{"subagentCatalog":[
+                {"id":"public-child-reviewer","createdAt":1000,"mode":"continuable","label":"PUBLIC reviewer"},
+                {"id":"public-child-scout","createdAt":1001,"mode":"one-shot","label":"PUBLIC scout"}
+            ]}},"assistantStream":{"revision":0}
+        }))
+        .unwrap();
+        let _ = app.update(Message::Worker(Event::Selected {
+            generation: app.generation,
+            frame,
+        }));
+        let entries = app.subagent_entries();
+        assert_eq!(entries.len(), 2);
+        assert!(app.subagent_running("public-child-reviewer"));
+        assert!(!app.subagent_running("public-child-scout"));
+        assert!(
+            app.subagent_action().is_some(),
+            "a root catalog shows its action"
+        );
+        let _ = app.update(Message::ToggleSubagentMenu(true));
+        assert!(app.subagent_menu);
+        let _ = app.update(Message::SubagentOpen("public-child-reviewer".into()));
+        assert!(!app.subagent_menu, "opening a child closes the dropdown");
+        assert_eq!(app.selected.as_ref(), Some(&child));
     }
     #[test]
     fn two_escape_presses_stop_a_running_turn_and_one_only_arms() {

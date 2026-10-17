@@ -10,8 +10,9 @@ in `~/.local/share/dsh-macos-shell-reference/shots/` (mirrored, git-ignored, in 
 the customized count, the Host commands group, the guarded restore-all, capture-a-key, its
 searchable list and its refused-capture states (`shots/87-…` through `102-…`); the General page's
 **session-log preference row** with its own read, write and saved/failed state (`shots/100-…`,
-`103-…`); the running turn's **two-press Escape stop**; and **keys as data**, so the store's five
-commands drive the live chain instead of a hardcoded map.
+`103-…`); the running turn's **two-press Escape stop**; the header's **subagent catalog count and
+dropdown** (`shots/104-…`, `105-…`); and **keys as data**, so the store's five commands drive the
+live chain instead of a hardcoded map.
 
 **Read this before trusting the list above.** Round 257 found that the editor's per-row actions,
 the permission default row and eight Host-event handlers were **unreachable behind two catch-all
@@ -24,12 +25,11 @@ same shape in the `Ctrl+/` trigger: it opened the account page and the open path
 disclosure, so the editor was never shown; the trigger's "captured" evidence had gone through the
 fixture's direct `set_settings_open`, not the press.
 
-**Next, in one step:** the subagent header lineage tree — the reference's catalog of child
-sessions with running/inactive dots, token totals, durations and branch expansion
-(`ui-subagent/src/client/SubagentHeaderLineage.tsx`). Native shows a crumb trail only. Size the
-projection first: the reference reads `subagentCatalog` entries with `activity`, and native's
-`AgentPresetRow` does not carry that field, so this is a Core projection addition before any view.
-The settings/rename editable menu is **toolkit-blocked**, recorded below, not a candidate.
+**Next, in one step:** the lineage's remaining half — nested branch expansion, per-child token
+totals and active durations, and the child-session sibling switcher. Those read the **parent's**
+and each child's projections, not only the selected session's, so the next slice starts with how the
+App obtains another session's `subagentCatalog`/`subagentTiming`/`tokenUsage` values before any
+view. The settings/rename editable menu is **toolkit-blocked**, recorded below, not a candidate.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -4696,3 +4696,49 @@ The preference test now also pins `None` while pending, `Some(true)` after a con
 `Some(false)` after a refusal, and that the confirmed value updates the row's preference. The test
 count is unchanged because the cases extend the existing preference test; capture 103 is the new
 evidence.
+
+### Round 263 — the header's subagent catalog count and dropdown
+
+**A root session with direct children now shows the reference's count action.** The Host's
+`subagentCatalog` projection (`packages/subagent/subagent/src/catalog.ts:96-150`) arrives inside the
+session snapshot's `projections.values`, which native already retains; no new Core or transport
+field was needed, correcting round 2's sizing note. `subagent_catalog::entries`
+(`app/src/subagent_catalog.rs`) parses `{ id, createdAt, mode, label? }` rows with the same
+bounding as every other list (64 rows, 128-byte ids, 256-byte labels), drops malformed rows, falls
+back from a missing label to the id, and treats a missing or mistyped catalog as empty so the action
+hides rather than lying.
+
+The header action is shown only on a **root** selected session with at least one row. It draws the
+reference's running dot when any child runs and its count copy — "N subagent", "N subagents",
+"N subagent running", "N subagents running" (`locales.ts` `count.*`). The dropdown is the app's
+`anchored_below` popup, right-aligned under the action: a "Subagent sessions" list of direct
+children, each with the same activity dot, its label, and the reference's mode label
+(`one-shot`/`continuable`/`unknown mode`). Clicking a row closes the dropdown and selects that
+child; Escape and an outside press dismiss it through the popup's own path.
+`shots/104-subagent-catalog.png` is the closed action, `shots/105-subagent-catalog-open.png` the
+open list with one running and one inactive child; both reports are `status: passed`.
+
+**Deliberate differences, stated rather than implied.** The reference's tree also expands nested
+branches, reports per-child token totals and active durations, offers an "open in sidebar" action,
+and shows a sibling switcher on a child session. Native's first slice draws **direct children only**
+and no metrics: expanding a child or switching among siblings needs that child's/parent's
+projections, which the App does not fetch for a non-selected session. The visible "Subagent
+sessions" heading is native's label for the reference's `tree.aria`; the reference's heading is
+screen-reader-only.
+
+**Battery (round 263).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1158 passed**, 1 ignored |
+| app, default | **0** | **1151 passed**, 1 ignored |
+| transport | **0** | 38 + 17 + 82 + 7 (unchanged, no transport edit) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+Four tests were added: the projection parse/malformed cases, the absent-catalog case, the count/mode
+copy, and `the_header_lists_direct_children_and_opens_one` (two children, one running; the action
+builds; opening a row selects the child). The new `subagent-catalog` preset seeds the projection and
+both children, and `--subagent-menu` opens the dropdown for capture.

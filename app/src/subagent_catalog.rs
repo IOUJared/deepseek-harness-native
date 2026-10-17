@@ -1,0 +1,155 @@
+//! The parent session's direct-child catalog, read from the Host's `subagentCatalog`
+//! projection (`packages/subagent/subagent/src/catalog.ts:96-150`).
+//!
+//! The projection view is an array of `{ id, createdAt, mode, label? }`; `activity` is not a
+//! projection field — the reference derives it from the live session summaries
+//! (`SubagentHeaderLineage.tsx:459-465`). This module reads only the projection; the App
+//! supplies the running state from its own session table.
+
+use std::collections::BTreeMap;
+
+use serde_json::Value;
+
+/// The projection key the Host publishes under `projections.values`.
+pub const KEY: &str = "subagentCatalog";
+/// Bound the list like every other native surface; the Host owns the order.
+pub const MAX_ENTRIES: usize = 64;
+const MAX_ID: usize = 128;
+const MAX_LABEL: usize = 256;
+
+/// A child's continuation mode, exactly as the projection's view spells it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    OneShot,
+    Continuable,
+    Unknown,
+}
+
+/// One direct child: its session id, the label the parent published, and its creation time.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Entry {
+    pub id: String,
+    pub label: String,
+    pub mode: Mode,
+    pub created_at: u64,
+}
+
+/// Parse the catalog projection. A missing or malformed value yields no rows rather than an
+/// error: the header simply does not appear, which is the reference's rule for an unready
+/// catalog (`SubagentHeaderLineage.tsx:601-606`).
+pub fn entries(projections: &BTreeMap<String, Value>) -> Vec<Entry> {
+    let Some(Value::Array(rows)) = projections.get(KEY) else {
+        return Vec::new();
+    };
+    rows.iter().take(MAX_ENTRIES).filter_map(parse).collect()
+}
+
+fn parse(row: &Value) -> Option<Entry> {
+    let id = row.get("id")?.as_str()?.trim();
+    if id.is_empty() || id.len() > MAX_ID {
+        return None;
+    }
+    let label = row
+        .get("label")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|label| !label.is_empty() && label.len() <= MAX_LABEL)
+        .unwrap_or(id)
+        .to_owned();
+    let mode = match row.get("mode").and_then(Value::as_str)? {
+        "one-shot" => Mode::OneShot,
+        "continuable" => Mode::Continuable,
+        "unknown" => Mode::Unknown,
+        _ => return None,
+    };
+    let created_at = row.get("createdAt")?.as_u64()?;
+    Some(Entry {
+        id: id.to_owned(),
+        label,
+        mode,
+        created_at,
+    })
+}
+
+/// The header action's copy, from the reference's `count.total.*`/`count.running.*` strings:
+/// the running count wins while anything runs, otherwise the total.
+pub fn count_label(total: usize, running: usize) -> String {
+    let (count, suffix) = if running > 0 {
+        (running, " running")
+    } else {
+        (total, "")
+    };
+    format!(
+        "{count} subagent{}{suffix}",
+        if count == 1 { "" } else { "s" }
+    )
+}
+
+/// The reference's mode labels (`locales.ts` `mode.*`).
+pub fn mode_label(mode: Mode) -> &'static str {
+    match mode {
+        Mode::OneShot => "one-shot",
+        Mode::Continuable => "continuable",
+        Mode::Unknown => "unknown mode",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn projections(value: Value) -> BTreeMap<String, Value> {
+        BTreeMap::from([(KEY.to_owned(), value)])
+    }
+
+    #[test]
+    fn the_catalog_reads_ids_labels_modes_and_times_and_drops_malformed_rows() {
+        let rows = entries(&projections(json!([
+            {"id":"PUBLIC-child","createdAt":1000,"mode":"continuable","label":"PUBLIC reviewer"},
+            {"id":"PUBLIC-oneshot","createdAt":1001,"mode":"one-shot"},
+            {"id":"PUBLIC-unknown","createdAt":1002,"mode":"unknown","label":"PUBLIC scout"},
+            {"id":"","createdAt":1,"mode":"one-shot"},
+            {"id":"PUBLIC-bad-mode","createdAt":1,"mode":"sideways"},
+            {"id":"PUBLIC-bad-time","createdAt":-1,"mode":"one-shot"},
+            {"id":"PUBLIC-extra","createdAt":1,"mode":"one-shot","label":"x","extra":true},
+        ])));
+        let ids: Vec<_> = rows.iter().map(|row| row.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [
+                "PUBLIC-child",
+                "PUBLIC-oneshot",
+                "PUBLIC-unknown",
+                "PUBLIC-extra"
+            ]
+        );
+        assert_eq!(rows[0].label, "PUBLIC reviewer");
+        assert_eq!(
+            rows[1].label, "PUBLIC-oneshot",
+            "a missing label falls back to the id"
+        );
+        assert_eq!(rows[0].mode, Mode::Continuable);
+        assert_eq!(rows[1].mode, Mode::OneShot);
+        assert_eq!(rows[2].mode, Mode::Unknown);
+        assert_eq!(rows[0].created_at, 1000);
+    }
+
+    #[test]
+    fn a_missing_or_wrong_typed_catalog_is_empty_not_an_error() {
+        assert!(entries(&BTreeMap::new()).is_empty());
+        assert!(entries(&projections(json!({"not":"an array"}))).is_empty());
+        assert!(entries(&projections(json!([]))).is_empty());
+    }
+
+    #[test]
+    fn the_header_copy_matches_the_reference_plurals_and_modes() {
+        assert_eq!(count_label(1, 0), "1 subagent");
+        assert_eq!(count_label(3, 0), "3 subagents");
+        assert_eq!(count_label(3, 1), "1 subagent running");
+        assert_eq!(count_label(3, 2), "2 subagents running");
+        assert_eq!(mode_label(Mode::OneShot), "one-shot");
+        assert_eq!(mode_label(Mode::Continuable), "continuable");
+        assert_eq!(mode_label(Mode::Unknown), "unknown mode");
+    }
+}
