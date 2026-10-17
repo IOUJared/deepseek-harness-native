@@ -38,9 +38,9 @@ point is the Host's canonical `/api/<namespace>/<method>` dispatcher, so adding 
 `dsh-native-transport` is in-bounds; what is out of bounds is rebuilding or forking the Host runtime
 in Rust. Keep coding without asking for permission. Queue edit/remove/steer, full-text content
 search, the goal bar (pause/resume/edit/clear), the per-turn usage detail and the **scheduled-tasks
-page** (catalog + delete) now work end to end; the next items are schedule timing edit/history and
-the timing pickers, then workspace open and the deliverables diff. Cross-session pending status is
-still unavailable from the present wires.
+page** (catalog + delete + delivery history) now work end to end; the next items are schedule
+timing edits and the date/time pickers, then workspace open and the deliverables diff.
+Cross-session pending status is still unavailable from the present wires.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -5582,3 +5582,31 @@ rather than truncated. One test covers the page, the miss, the over-limit refusa
 object; the transport gate is **47 + 17 + 82 + 7**.
 
 No history control exists in the schedules page yet; that is the next item.
+
+### Round 289 — schedule delivery history in the page
+
+**Each scheduled task now opens its retained delivery history.** The History control fetches
+`schedule/history` (limit 20) for the row's session binding and shows the newest records as
+`scheduledAt → deliveredAt` with the saved prompt when present, plus the unavailable/pruned notes
+and the Host's retention line. Loading, missing-task, empty and failure states are bounded; closing
+the block clears both the page and the request state. `shots/133-schedules-history.png` shows two
+deliveries, the pruned note and the retention line; the report is `status: passed`.
+
+One app test covers the single read admission (id and limit), the loaded page and closing.
+
+**Deliberate limits.** Only the first page is fetched: the `before` cursor exists in the transport
+but no "load older" control is drawn. Timing edits (the reference's DatePicker/ClockPicker), per-
+session schedule marks/hover cards, schedule turn cards and the right-sidebar task tab remain
+unbuilt.
+
+**Battery (round 289).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1189 passed**, 1 ignored |
+| app, default | **0** | **1182 passed**, 1 ignored |
+| transport | **0** | **47 + 17 + 82 + 7** |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |

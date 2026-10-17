@@ -81,6 +81,12 @@ pub enum Command {
         session: dsh_native_transport::dto::SessionId,
         id: String,
     },
+    /// Read one delivery-history page for a schedule.
+    ScheduleHistory {
+        session: dsh_native_transport::dto::SessionId,
+        id: String,
+        limit: u64,
+    },
     /// One goal mutation for a session.
     Goal {
         session: dsh_native_transport::dto::SessionId,
@@ -199,6 +205,11 @@ pub enum Event {
         session: dsh_native_transport::dto::SessionId,
         id: String,
         result: Result<dsh_native_transport::dto::ScheduleDeleteOutcome, String>,
+    },
+    ScheduleHistoryLoaded {
+        session: dsh_native_transport::dto::SessionId,
+        id: String,
+        result: Result<dsh_native_transport::dto::ScheduleHistoryOutcome, String>,
     },
     /// The complete set of background jobs the session can see. Each list frame replaces
     /// the set wholesale (`api/job-controller/src/types.ts:19-27`).
@@ -834,6 +845,11 @@ fn rejected(command: Command) -> Event {
         Command::JobKill { .. } => Event::JobKilled(Err(error)),
         Command::ScheduleCatalog => Event::SchedulesLoaded(Err(error)),
         Command::ScheduleDelete { session, id } => Event::ScheduleDeleted {
+            session,
+            id,
+            result: Err(error),
+        },
+        Command::ScheduleHistory { session, id, .. } => Event::ScheduleHistoryLoaded {
             session,
             id,
             result: Err(error),
@@ -2374,6 +2390,10 @@ async fn run(
                     Command::ScheduleDelete{session,id}=>{
                         let result=client.schedule_delete(&session,&id).await.map_err(|error|format!("Schedule delete: {error}"));
                         Event::ScheduleDeleted{session,id,result}
+                    },
+                    Command::ScheduleHistory{session,id,limit}=>{
+                        let result=client.schedule_history(&session,&id,limit,None).await.map_err(|error|format!("Schedule history: {error}"));
+                        Event::ScheduleHistoryLoaded{session,id,result}
                     },
                     Command::Goal{session,operation}=>{
                         use crate::goal_ui::Operation;
