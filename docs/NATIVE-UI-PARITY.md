@@ -2987,3 +2987,27 @@ keep the upward behaviour they were captured with.
    `agentId`) has pointed away from the transport's actual shape; the working call site wins, and
    it is in this repository rather than a generated artifact.
    Verified: transport exit 0, fixture **1114** exit 0, default **1107** exit 0, format-debt 0.
+
+   **Audit: every wire name now in the tree has an evidence line, so the invented-string class is
+   closed for the current work.**
+   - `job/list`, `job/follow` — the generated host descriptor (`typert.host.js:103-155`), cited in
+     the mux arms;
+   - `job/kill` — the same descriptor, known for the kill work not yet built;
+   - `agentPresets/select` — the same convention, from the registry's descriptor
+     (`typert.host.js:77-118`);
+   - the scoped body — `sessionId` in the wrapped request, taken from this repository's **working**
+     `commands/list` call (`http.rs:551-558`) rather than from the descriptor's vocabulary;
+   - the jobs request bodies — `request_args`, whose own definition wraps them
+     (`http.rs:1036-1040`);
+   - the stream opening tags `rows` and `opened` — the frames' own `type` fields
+     (`job-controller/src/types.ts:24-27`, `:72-80`), which the mux's sequence check enforces;
+   - `JobView`'s fields — the reference's `view.ts:65-81`;
+   - the permission pick's command line — `live.command` at
+     `ui-permission-presets/src/client/index.ts:126`;
+   - the session-log namespace and its write — `ui-settings-session-log/src/client/index.ts:26-32`
+     and `transport/src/plugin.rs:547`.
+   Five invented strings were found and fixed this session — the `/agent` line, the English copy
+   taken from the Chinese dictionary, `jobs/list`, `jobs/follow` and the select body — and the
+   rule they produced is now applied before writing rather than after: **a wire name is read from
+   the artifact that defines it, and a working call in this repository outranks a generated
+   descriptor's vocabulary.**
