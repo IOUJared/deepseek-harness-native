@@ -9588,6 +9588,87 @@ impl App {
             false,
         );
     }
+    /// The durable workflow card: name, run status and phase-grouped members.
+    fn workflow_card<'a>(&'a self, run: &crate::reducer::WorkflowRun) -> Element<'a, Message> {
+        let status: (String, _) = match run.stop.as_deref() {
+            Some("completed") => ("completed".to_owned(), ACCENT),
+            Some("cancelled") => ("cancelled".to_owned(), MUTED),
+            Some("error") => ("failed".to_owned(), DANGER),
+            Some(other) => (other.to_owned(), MUTED),
+            None => ("running".to_owned(), TEXT),
+        };
+        let mut card = column![
+            row![
+                label("Workflow", MUTED).size(10),
+                label(run.name.clone(), TEXT).size(14),
+                Space::new().width(Length::Fill),
+                label(status.0.clone(), status.1).size(10),
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center),
+        ]
+        .spacing(4);
+        let mut phases: std::collections::BTreeMap<String, Vec<&crate::reducer::WorkflowMember>> =
+            Default::default();
+        for member in &run.members {
+            phases
+                .entry(member.phase.clone().unwrap_or_else(|| "General".into()))
+                .or_default()
+                .push(member);
+        }
+        for (phase, members) in phases {
+            card = card.push(label(format!("Phase · {phase}"), MUTED).size(10));
+            for member in members {
+                let (glyph, ink) = match member.outcome.as_deref() {
+                    Some("completed") => ("✓", ACCENT),
+                    Some("failed") => ("✗", DANGER),
+                    Some("cancelled") => ("○", MUTED),
+                    Some(_) => ("·", MUTED),
+                    None => ("●", TEXT),
+                };
+                let row = row![
+                    label(glyph, ink).size(10),
+                    label(member.label.clone(), MUTED)
+                        .size(11)
+                        .width(Length::Fill),
+                ]
+                .spacing(6)
+                .padding([1, 0]);
+                if let Some(child) = member
+                    .child_id
+                    .as_ref()
+                    .and_then(|id| SessionId::new(id).ok())
+                    .filter(|id| self.sessions.contains_key(id))
+                {
+                    card = card.push(
+                        button(row)
+                            .on_press(Message::Select(child))
+                            .style(design::ghost)
+                            .padding([1, 2])
+                            .width(Length::Fill),
+                    );
+                } else {
+                    card = card.push(row.width(Length::Fill));
+                }
+            }
+        }
+        card.into()
+    }
+    /// The workflow card's reserved height: header, phase labels and member rows.
+    fn workflow_height(&self, key: u64) -> f32 {
+        let line = design::content_secondary(self.content_font_size).max(12.0) + 4.0;
+        let runs = self.transcript.workflow_runs();
+        let Some(run) = runs.get(&key) else {
+            return line;
+        };
+        let phases: std::collections::BTreeSet<_> = run
+            .members
+            .iter()
+            .map(|member| member.phase.as_deref().unwrap_or("General"))
+            .collect();
+        // Header, phase labels and members, plus the card's padding/spacing.
+        line * (1 + phases.len() + run.members.len() + 2) as f32
+    }
     /// The ready changed-file summary for a reply's turn.
     fn changes_for(
         &self,
@@ -11959,6 +12040,15 @@ impl App {
         self.activity_expanded.contains(&row.key) && !activity_body_source(row).is_empty()
     }
     fn row_geometry(&self, row: &DisplayRow, lane: f32) -> chat_geometry::Geometry {
+        if row.kind == "tool-workflow/run-start" {
+            let width = (lane - 8.0).clamp(37.0, design::MAX_CHAT);
+            let height = self.workflow_height(row.key);
+            return chat_geometry::Geometry {
+                width,
+                body_height: height,
+                height,
+            };
+        }
         if let Some(reply) = self.reply_parts(row.key) {
             // Formatted assistant replies share the content column, never wider
             // than the web's 920 cap (the lane never exceeds it).
@@ -12465,6 +12555,17 @@ impl App {
                 }
                 container(notice)
                     .padding([8, 14])
+                    .width(geometries[index].width)
+                    .style(|_| panel(BASE))
+                    .into()
+            } else if record.kind == "tool-workflow/run-start" {
+                let run = self.transcript.workflow_runs().get(&record.key).cloned();
+                let card = match run {
+                    Some(run) => self.workflow_card(&run),
+                    None => label("Workflow", MUTED).into(),
+                };
+                container(card)
+                    .padding([10, 14])
                     .width(geometries[index].width)
                     .style(|_| panel(BASE))
                     .into()

@@ -115,6 +115,7 @@ pub const PRESETS: &[&str] = &[
     "schedules",
     "changes-card",
     "feedback",
+    "workflow-run",
     "context-pressure",
     "context-pressure-risk",
     "context-management",
@@ -270,6 +271,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "schedules"
         | "changes-card"
         | "feedback"
+        | "workflow-run"
         | "context-pressure"
         | "context-pressure-risk"
         | "context-management"
@@ -1049,6 +1051,22 @@ pub fn build(
                         "cacheReadTokens":6000,"cacheWriteTokens":0,"totalTokens":7345},
                     "stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],
                         "texts":["PUBLIC synthetic answer; the token reading is a projection, not billing."]}]}}}),
+        ]
+    } else if preset == "workflow-run" {
+        vec![
+            json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
+                "surfaceOp":"append","data":{"role":"user","id":"PUBLIC-workflow-prompt",
+                    "source":{"kind":"user"},"content":[{"type":"text","text":"PUBLIC prompt that starts a workflow."}]}}}),
+            json!({"type":"event","event":{"type":"tool-workflow/run-start","seq":1,"time":1001,
+                "data":{"runId":"PUBLIC-run","name":"PUBLIC review workflow"}}}),
+            json!({"type":"event","event":{"type":"tool-workflow/agent-start","seq":2,"time":1002,
+                "data":{"runId":"PUBLIC-run","seq":1,"label":"PUBLIC research","phase":"research","childId":"PUBLIC-child-one"}}}),
+            json!({"type":"event","event":{"type":"tool-workflow/agent-end","seq":3,"time":1003,
+                "data":{"runId":"PUBLIC-run","seq":1,"outcome":"completed"}}}),
+            json!({"type":"event","event":{"type":"tool-workflow/agent-start","seq":4,"time":1004,
+                "data":{"runId":"PUBLIC-run","seq":2,"label":"PUBLIC write","phase":"write","childId":"PUBLIC-child-two"}}}),
+            json!({"type":"event","event":{"type":"tool-workflow/run-end","seq":5,"time":1005,
+                "data":{"runId":"PUBLIC-run","stopReason":"completed"}}}),
         ]
     } else if preset == "feedback" {
         vec![
@@ -2054,7 +2072,7 @@ pub fn metadata(app: &App, preset: &str) -> Value {
         "reasoningStateMatchesPreset":app.chosen_model.as_ref().is_some_and(|m| !m.efforts.is_empty()) == reasoning_expected,
         "durablePublicRecordCount":app.transcript.rows().len(),
         "durablePublicSnapshotCursor":app.transcript.opening_cursor(),
-        "conversationSnapshotSimulated":matches!(preset, "conversation" | "inbox-canceled" | "changes-card" | "feedback") || preset.starts_with("tool-activity"),
+        "conversationSnapshotSimulated":matches!(preset, "conversation" | "inbox-canceled" | "changes-card" | "feedback" | "workflow-run") || preset.starts_with("tool-activity"),
         "displayedPublicRecordCount":app.transcript.display_rows(app.records_expanded).count(),
         "canceledInboxHeadingExpected":preset == "inbox-canceled",
         "publicToolSnapshotSimulated":preset.starts_with("tool-activity"),

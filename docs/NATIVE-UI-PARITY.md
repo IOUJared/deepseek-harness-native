@@ -6311,3 +6311,33 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 workspace; live Host reads/writes (schedule, feedback, workspace open, @ references, directory
 listings) are unit-tested parsers and fixture states, not a live run. The user-dependent items at the
 top of this document stand.
+
+### Round 315 — the workflow-run chat card
+
+**Durable workflow events now draw the reference's workflow node in Chat.** The transcript folds
+`tool-workflow/run-start`, `agent-start`, `agent-end` and `run-end` by `runId` into one run keyed by
+the start seq (name, stop reason, members with phase/child/outcome); the start event becomes a
+chat-visible row and the card draws the workflow name, run status (`completed`/`cancelled`/`failed`/
+`running`), phase labels and member rows with ✓/✗/○/● markers. A member whose child session is in
+the roster is a control that opens that child; otherwise it is a plain row. The card's fixed row
+height reserves its header, phases, members and padding — the first capture clipped the members and
+was retaken. `shots/144-workflow-run.png` shows the completed run with a finished research member and
+a still-running write member; the report is `status: passed`.
+
+One reducer test covers the fold (run/member/outcome/phase) and the chat-visible start row.
+
+**Deliberate limits.** A run with no stop reason always reads **running** — the reference marks it
+interrupted when its turn/step is closed, which the native fold does not track. Member status other
+than the four known outcomes is drawn with a neutral marker.
+
+**Battery (round 315).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1210 passed**, 1 ignored |
+| app, default | **0** | **1203 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 82 + 7 (unchanged this round) |
+| core (`--lib`) | **0** | **112 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |

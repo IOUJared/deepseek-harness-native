@@ -37,6 +37,23 @@ pub struct FileCard {
 pub fn reference_summary_text(labels: &[String]) -> String {
     format!("Referenced session · {}", labels.join(", "))
 }
+/// One member of a durable workflow run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkflowMember {
+    pub seq: u64,
+    pub label: String,
+    pub phase: Option<String>,
+    pub child_id: Option<String>,
+    pub outcome: Option<String>,
+}
+/// One durable workflow run folded from `tool-workflow/*` events.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkflowRun {
+    pub start_seq: u64,
+    pub name: String,
+    pub stop: Option<String>,
+    pub members: Vec<WorkflowMember>,
+}
 #[derive(Clone)]
 pub struct DisplayRow {
     pub key: u64,
@@ -145,6 +162,62 @@ impl Transcript {
     /// One assistant record's accounting rows, when its usage carries any bucket.
     pub fn turn_usage_detail(&self, key: u64) -> Option<crate::ui::chat_usage::TurnUsageDetail> {
         crate::ui::chat_usage::turn_usage_detail(self.records.get(&key)?)
+    }
+    /// Fold the durable workflow events into one record per run, keyed by start seq.
+    pub fn workflow_runs(&self) -> std::collections::BTreeMap<u64, WorkflowRun> {
+        let mut runs: std::collections::BTreeMap<String, WorkflowRun> = Default::default();
+        let mut events: Vec<_> = self.records.values().collect();
+        events.sort_by_key(|event| event.seq);
+        for event in events {
+            let run_id = event.data["runId"].as_str().unwrap_or("");
+            if run_id.is_empty() {
+                continue;
+            }
+            match event.event_type.as_str() {
+                "tool-workflow/run-start" => {
+                    runs.insert(
+                        run_id.to_owned(),
+                        WorkflowRun {
+                            start_seq: event.seq,
+                            name: bounded(event.data["name"].as_str().unwrap_or("Workflow"), 120),
+                            stop: None,
+                            members: Vec::new(),
+                        },
+                    );
+                }
+                "tool-workflow/agent-start" => {
+                    let Some(run) = runs.get_mut(run_id) else {
+                        continue;
+                    };
+                    let Some(label) = event.data["label"].as_str() else {
+                        continue;
+                    };
+                    run.members.push(WorkflowMember {
+                        seq: event.data["seq"].as_u64().unwrap_or(0),
+                        label: bounded(label, 120),
+                        phase: event.data["phase"].as_str().map(|phase| bounded(phase, 80)),
+                        child_id: event.data["childId"].as_str().map(str::to_owned),
+                        outcome: None,
+                    });
+                }
+                "tool-workflow/agent-end" => {
+                    let Some(run) = runs.get_mut(run_id) else {
+                        continue;
+                    };
+                    let seq = event.data["seq"].as_u64().unwrap_or(0);
+                    if let Some(member) = run.members.iter_mut().find(|member| member.seq == seq) {
+                        member.outcome = event.data["outcome"].as_str().map(str::to_owned);
+                    }
+                }
+                "tool-workflow/run-end" => {
+                    if let Some(run) = runs.get_mut(run_id) {
+                        run.stop = event.data["stopReason"].as_str().map(str::to_owned);
+                    }
+                }
+                _ => {}
+            }
+        }
+        runs.into_values().map(|run| (run.start_seq, run)).collect()
     }
     /// Current feedback values derived from the log's log-only feedback events.
     pub fn feedback_state(&self) -> std::collections::BTreeMap<String, serde_json::Value> {
@@ -778,6 +851,7 @@ impl Transcript {
                     "assistant/attempt" => "Interrupted assistant attempt",
                     "tool/result" => "Tool result",
                     "tool/call" => "Tool call",
+                    "tool-workflow/run-start" => "Workflow",
                     "system/message" => "System",
                     "developer/message" => "Developer",
                     // Context management is log-only bookkeeping: named for
@@ -797,7 +871,9 @@ impl Transcript {
                 kind: bounded(kind, 128),
                 // A recognized trigger is clean conversation content, drawn as a notice;
                 // every other non-human inject stays in Trajectory only.
-                chat: trigger.is_some() || presentation::chat_visible(kind, role),
+                chat: trigger.is_some()
+                    || kind == "tool-workflow/run-start"
+                    || presentation::chat_visible(kind, role),
                 text: bounded(&text, MAX_DISPLAY_BYTES),
                 files,
                 references: Vec::new(),
@@ -1504,6 +1580,36 @@ mod tests {
         s.apply(1,frame(json!({"type":"assistant-stream","frame":{"type":"end","revision":18,"attemptId":"active-attempt","index":4,"outcome":{"kind":"abandoned"}}}))).unwrap();
         assert!(s.partial().is_none());
         assert_eq!(s.rows.len(), 7);
+    }
+    #[test]
+    fn workflow_events_fold_into_one_chat_row() {
+        let mut s = Transcript::new(1);
+        let records = vec![
+            json!({"type":"event","event":{"type":"tool-workflow/run-start","seq":0,"time":1,
+                "data":{"runId":"r1","name":"PUBLIC workflow"}}}),
+            json!({"type":"event","event":{"type":"tool-workflow/agent-start","seq":1,"time":2,
+                "data":{"runId":"r1","seq":1,"label":"PUBLIC research","phase":"research",
+                    "childId":"PUBLIC-child"}}}),
+            json!({"type":"event","event":{"type":"tool-workflow/agent-end","seq":2,"time":3,
+                "data":{"runId":"r1","seq":1,"outcome":"completed"}}}),
+            json!({"type":"event","event":{"type":"tool-workflow/run-end","seq":3,"time":4,
+                "data":{"runId":"r1","stopReason":"completed"}}}),
+        ];
+        s.apply(1, snapshot(records, 4)).unwrap();
+        let runs = s.workflow_runs();
+        let run = runs.get(&0).expect("run keyed by start seq");
+        assert_eq!(run.name, "PUBLIC workflow");
+        assert_eq!(run.stop.as_deref(), Some("completed"));
+        assert_eq!(run.members.len(), 1);
+        assert_eq!(run.members[0].outcome.as_deref(), Some("completed"));
+        assert_eq!(run.members[0].phase.as_deref(), Some("research"));
+        assert!(
+            s.rows()
+                .iter()
+                .any(|row| row.kind == "tool-workflow/run-start"
+                    && row.chat
+                    && row.text.contains("PUBLIC workflow"))
+        );
     }
     #[test]
     fn actual_blank_session_policy_metadata_is_read_only_and_sendable() {
