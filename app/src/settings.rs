@@ -192,6 +192,10 @@ pub enum Action {
     ClearShortcut(String),
     /// Restores one shortcut's default — the reference's "Restore default" (`locales.ts:47`).
     ResetShortcut(String),
+    /// Arms the "Restore all defaults" confirmation; the second press performs it.
+    ResetAllDefaults,
+    /// Performs the armed restore-all, or cancels it when unarmed.
+    ConfirmResetAll(bool),
     /// Persists one new-session permission default; the App gates it on the descriptor.
     PermissionDefault(String),
     Account(account::Action),
@@ -258,6 +262,8 @@ pub struct Settings {
     /// The Host's advertised commands as plain name/label pairs: the candidates the slash menu
     /// uses are private to the UI module tree, so the disclosure takes pairs instead.
     pub(crate) commands: Vec<(String, String)>,
+    /// Armed by the first press of "Restore all defaults"; the reference asks before destroying.
+    pub(crate) reset_all_armed: bool,
     /// The permission default row's preset list is open.
     permission_open: bool,
     api_help_open: bool,
@@ -288,6 +294,7 @@ impl Default for Settings {
             shortcuts_open: false,
             keybindings: crate::keybindings::Store::new(crate::keybindings::native_fixed()),
             commands: Vec::new(),
+            reset_all_armed: false,
             permission_open: false,
             api_help_open: false,
             context_policy_open: false,
@@ -1118,6 +1125,34 @@ impl Settings {
                     ]
                     .spacing(8)
                     .align_y(iced::Alignment::Center),
+                );
+            }
+            if self.reset_all_armed {
+                // Armed: the reference's own question, with cancel beside it (`locales.ts:48-52`).
+                rows = rows
+                    .push(label(crate::keybindings::COPY_RESET_TITLE, TEXT).size(12))
+                    .push(label(crate::keybindings::COPY_RESET_DESCRIPTION, MUTED).size(11))
+                    .push(
+                        row![
+                            button(label(crate::keybindings::COPY_CANCEL, MUTED).size(11))
+                                .on_press(Action::ConfirmResetAll(false))
+                                .style(design::ghost)
+                                .padding([0, 4]),
+                            button(
+                                label(crate::keybindings::COPY_RESET_ALL, design::DANGER).size(11)
+                            )
+                            .on_press(Action::ConfirmResetAll(true))
+                            .style(design::ghost)
+                            .padding([0, 4]),
+                        ]
+                        .spacing(8),
+                    );
+            } else {
+                rows = rows.push(
+                    button(label(crate::keybindings::COPY_RESET_ALL, MUTED).size(11))
+                        .on_press(Action::ResetAllDefaults)
+                        .style(design::ghost)
+                        .padding([0, 4]),
                 );
             }
             let customised = crate::keybindings::modified_count(&self.keybindings);

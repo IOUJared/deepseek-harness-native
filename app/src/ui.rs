@@ -3037,6 +3037,18 @@ impl App {
                     self.command(Command::PermissionSettingsRead);
                 }
             }
+            Message::Settings(crate::settings::Action::ResetAllDefaults) => {
+                self.settings.reset_all_armed = true;
+            }
+            Message::Settings(crate::settings::Action::ConfirmResetAll(confirmed)) => {
+                self.settings.reset_all_armed = false;
+                if confirmed {
+                    let _ = self
+                        .settings
+                        .keybindings
+                        .reset_all(self.settings.keybindings.revision());
+                }
+            }
             Message::Settings(crate::settings::Action::ResetShortcut(id)) => {
                 // Restores the default list this command was seeded with; same synchronous path.
                 let _ = self.settings.keybindings.apply(

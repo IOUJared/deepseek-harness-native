@@ -4202,3 +4202,19 @@ the disclosure open, routed through the tested decision and the production open 
    **not** half-built here;
 3. **keys as data**, so a stored binding can *replace* a hardcoded one — settled at round 227, cost
    measured, and the only piece that touches input handling the user asked to preserve.
+
+   **Restore all defaults is built with its guard, and the guard is the reference's own question.**
+   Unarmed, the disclosure shows one button — **"Restore all defaults"** (`COPY_RESET_ALL`) — and
+   pressing it only **arms** the action. Armed, it shows the reference's title and description
+   verbatim (`COPY_RESET_TITLE`, `COPY_RESET_DESCRIPTION`) with **"Cancel"** (`COPY_CANCEL`) beside a
+   **"Restore all defaults"** in the danger colour (`COPY_RESET_FAILED` remains unused until a save
+   can fail, which a local store cannot). Confirming calls `reset_all(revision)` — the
+   revision-guarded operation from round 207 — so a stale editor changes nothing.
+   That is the **destructive action built the way the user's own rule requires**: the confirmation
+   is visible, it names what will change ("all modified or removed shortcuts will be restored"), and
+   the cancel is a first-class control rather than a dismissal.
+   Verified: fixture **1134** exit 0, default **1127** exit 0, format-debt 0, direct capture
+   `passed: true` (`shots/94-shortcuts-reset-all.png`, unarmed).
+   **Not captured:** the armed state. Seeing it needs a fixture that arms the flag — a one-line
+   setter and a flag, the same shape as `--commands` — and that is the next step, since the armed
+   branch is the one whose copy a reader should see.
