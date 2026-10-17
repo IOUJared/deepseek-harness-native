@@ -2647,3 +2647,18 @@ Since the round-145 update, all local and unpushed, gates green at each commit:
    open**, not scripted. Everything they need is recorded: the arm's exact current text, the
    `selected_target` local, the terminal stream's retirement comment, the `next_selected` helper
    to mirror, and the two events the app already applies.
+
+   **The jobs stream now opens with its session, and the atomic replace is what made it land.**
+   The exchange that ended last round taught the fix: the outer match's three arms all sit on
+   **one line** (`worker.rs:1954`), which is why deleting "seven lines" took the `None` arm with
+   it. This round replaced that single line with a formatted block — one `replace`, no insertion
+   and no deletion — so the arms survived and the jobs open sits **inside** the
+   `Some(Ok(stream))` arm where it belongs: the session id is captured before the move, the
+   follow is installed as before, and `mux.jobs_list(&job_session)` opens the list stream with a
+   failure that leaves the panel empty rather than failing a follow that already succeeded.
+   Two details settled by the compiler rather than by guessing: `SessionId` does expose
+   `as_str()`, and the borrow order has to capture the id before `selected_target` takes the
+   target. Verified: fixture **1114** exit 0, default **1107** exit 0, format-debt 0.
+   What remains is one group: `next_jobs` beside `next_selected` and the select arm at `:2261`
+   that publishes `Event::JobsRows`/`Event::JobsFollow` — both already applied by the app.
+   Until then the stream is opened and unread, which is a warning rather than a pretence.

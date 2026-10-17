@@ -1951,7 +1951,19 @@ async fn run(
                     if let Some(stream)=jobs.as_mut(){stream.cancel().await;}jobs=None;
                     let target=selected_export_target(&address);cancel_target=target.clone();
                     match operation(&mut closing,&events,mux.as_ref().expect("live observation mux").session_follow(SessionFollowRequest{address,max_messages:Some(50),turn_window:None,assistant_stream:Some(true)})).await {
-                        Some(Ok(stream))=>{selected=Some(stream);selected_target=target;},Some(Err(e))=>if !publish(&events,Event::FollowError{generation,error:format!("Session follow: {e}")}){break Some("Native UI delivery queue overflow".into());},None=>break None,
+                        Some(Ok(stream))=>{
+                            // The jobs list belongs to the same session, so its id is captured
+                            // before the move; a failure here leaves the panel empty rather than
+                            // failing a follow that has already succeeded.
+                            let job_session=target.as_ref().map(|id|id.as_str()).unwrap_or_default().to_owned();
+                            selected=Some(stream);selected_target=target;
+                            match operation(&mut closing,&events,mux.as_ref().expect("live observation mux").jobs_list(&job_session)).await {
+                                Some(Ok(stream))=>jobs=Some(stream),
+                                Some(Err(e))=>if !publish(&events,Event::FollowError{generation,error:format!("Jobs list: {e}")}){break Some("Native UI delivery queue overflow".into());},
+                                None=>break None,
+                            }
+                        },
+                        Some(Err(e))=>if !publish(&events,Event::FollowError{generation,error:format!("Session follow: {e}")}){break Some("Native UI delivery queue overflow".into());},None=>break None,
                     }
                     continue;
                 }
