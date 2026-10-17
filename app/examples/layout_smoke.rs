@@ -146,6 +146,8 @@ struct Options {
     jobs: bool,
     /// Open the settings modal, so its General page is captured.
     settings: bool,
+    /// Customise one shortcut, so the disclosure's count line is captured.
+    customised: bool,
     /// Open the shortcuts disclosure, so its rows are captured.
     shortcuts: bool,
 }
@@ -236,6 +238,7 @@ fn options() -> Result<Options, &'static str> {
             "--agent-seat-error",
             "--jobs",
             "--shortcuts",
+            "--customised",
             "--agent-seat-error",
             "--settings",
             "--scrolled-away",
@@ -317,6 +320,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         width_handle_glow: match values.remove("--width-handle-glow") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        customised: match values.remove("--customised") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -629,6 +636,11 @@ impl Fixture {
             // The disclosure is opened through the app's own action, so the fixture exercises the
             // same path a press does rather than poking private state.
             app.set_shortcuts_open(true);
+        }
+        if options.customised {
+            // One binding cleared through the store's own edit path, so the count line reads a
+            // real modified count rather than a fixture-injected number.
+            app.customise_one_shortcut();
         }
         if options.scrolled_away {
             app.set_scrolled_away(true);

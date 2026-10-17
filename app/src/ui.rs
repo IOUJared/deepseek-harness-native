@@ -5153,6 +5153,19 @@ impl App {
     #[cfg(feature = "public-layout-fixture")]
     /// Fixture-only: open the shortcuts disclosure, so its rows are capturable.
     #[cfg(feature = "public-layout-fixture")]
+    /// Fixture-only: clear one binding through the store, so the count line is visible.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn customise_one_shortcut(&mut self) {
+        // A *clear*, not a reset: `Reset` restores the default, which is not a modification.
+        let _ = self.settings.keybindings.apply(
+            crate::keybindings::Edit::Set {
+                id: "fixed.find".to_owned(),
+                binding: None,
+            },
+            0,
+        );
+    }
+
     pub(crate) fn set_shortcuts_open(&mut self, open: bool) {
         self.settings.shortcuts_open = open;
     }

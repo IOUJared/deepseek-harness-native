@@ -3913,3 +3913,20 @@ Each is one line of work on this side once answered; none is blocked on further 
    rule has been followed even where a mechanical check said otherwise, which is a reminder that a
    heuristic's false positives say more about the heuristic than about the data — the same lesson as
    the fixture's mode mismatch and the anchor misses, on a different axis.
+
+   **The row order was mine, not the reference's — and the disclosure now sorts the way the
+   reference does.** The first capture with the store-driven rows showed `Close settings and panels`
+   first, then `Find…`, `Navigation`, `New line`, `Send…`: **alphabetical by id**, because
+   `rows()` sorts `(group, core-first, id)` — which is precisely what `Reference.tsx:67` specifies
+   ("core actions in product order, then other commands by id within each group"). So the *sorted*
+   order is correct and the round-202 hardcoded order (navigation, find, send, newline, close) was
+   the deviation. Recorded because a reader comparing captures would otherwise see a regression.
+   **The "customized" count line is wired** — `modified_count` and `COPY_MODIFIED_COUNT`, the two
+   dead-but-tested items from the audit, now render when the count is above zero — and a
+   `--customised` fixture flag clears one binding **through the store's own `apply`**, so the number
+   is real rather than injected. My first helper used `Edit::Reset`, which restores the default and
+   is **not** a modification; it now uses `Edit::Set { binding: None }`, which is.
+   **Not verified:** the capture with the count visible. After the reset→clear fix the harness
+   reported "all attempts failed" and I could not diagnose it before this round ended — so the sort
+   order is captured (`shots/` shows the sorted rows) and the count line is compiled but unproven,
+   which is the same honest state the panel was in two rounds before it was finally captured.

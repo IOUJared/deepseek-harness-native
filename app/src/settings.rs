@@ -1093,6 +1093,18 @@ impl Settings {
                     .align_y(iced::Alignment::Center),
                 );
             }
+            let customised = crate::keybindings::modified_count(&self.keybindings);
+            if customised > 0 {
+                // The reference's own count line (`locales.ts:48`): "{count} customized".
+                rows = rows.push(
+                    label(
+                        crate::keybindings::COPY_MODIFIED_COUNT
+                            .replace("{count}", &customised.to_string()),
+                        MUTED,
+                    )
+                    .size(11),
+                );
+            }
             body = body.push(rows);
         }
         // Why the harness is configured this way, from the harness-design study;
