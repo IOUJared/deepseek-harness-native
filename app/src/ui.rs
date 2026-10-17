@@ -268,6 +268,8 @@ pub enum Message {
     ScheduleEditSave,
     /// Cancels the inline schedule edit.
     ScheduleEditCancel,
+    /// Loads the next delivery-history page.
+    ScheduleHistoryOlder,
     /// Closes the open delivery history.
     ScheduleHistoryClose,
     /// Cancels the armed task delete.
@@ -830,6 +832,8 @@ pub struct App {
     schedule_history_page: Option<dsh_native_transport::dto::ScheduleHistory>,
     schedule_history_loading: bool,
     schedule_history_error: Option<String>,
+    /// The cursor of the load-older request in flight; `None` for a first/refresh page.
+    schedule_history_before: Option<String>,
     /// The inline goal editor: the exact revision and the draft objective.
     goal_edit: Option<(dsh_native_transport::dto::GoalRef, String)>,
     /// The goal revision whose clear waits for a second press.
@@ -1125,6 +1129,7 @@ impl App {
                 schedule_history_page: None,
                 schedule_history_loading: false,
                 schedule_history_error: None,
+                schedule_history_before: None,
                 goal_edit: None,
                 goal_clear: None,
                 goal_busy: false,
@@ -3331,10 +3336,32 @@ impl App {
                 self.schedule_history_page = None;
                 self.schedule_history_loading = true;
                 self.schedule_history_error = None;
+                self.schedule_history_before = None;
                 self.command(worker::Command::ScheduleHistory {
                     session,
                     id,
                     limit: 20,
+                    before: None,
+                });
+            }
+            Message::ScheduleHistoryOlder if self.schedules_open => {
+                let Some((session, id)) = self.schedule_history.clone() else {
+                    return Task::none();
+                };
+                let Some(before) = self
+                    .schedule_history_page
+                    .as_ref()
+                    .and_then(|page| page.next_before.clone())
+                else {
+                    return Task::none();
+                };
+                self.schedule_history_loading = true;
+                self.schedule_history_before = Some(before.clone());
+                self.command(worker::Command::ScheduleHistory {
+                    session,
+                    id,
+                    limit: 20,
+                    before: Some(before),
                 });
             }
             Message::ScheduleHistoryClose if self.schedules_open => {
@@ -3342,6 +3369,7 @@ impl App {
                 self.schedule_history_page = None;
                 self.schedule_history_loading = false;
                 self.schedule_history_error = None;
+                self.schedule_history_before = None;
             }
             Message::ScheduleDeleteConfirm if self.schedules_open => {
                 let Some((session, id)) = self.schedule_delete.take() else {
@@ -4555,7 +4583,26 @@ impl App {
                     self.schedule_history_loading = false;
                     match result {
                         Ok(dsh_native_transport::dto::ScheduleHistoryOutcome::History(page)) => {
-                            self.schedule_history_page = Some(page);
+                            if let Some(previous) = self.schedule_history_page.as_mut()
+                                && self.schedule_history_before.is_some()
+                            {
+                                for record in page.records {
+                                    if !previous
+                                        .records
+                                        .iter()
+                                        .any(|old| old.message_id == record.message_id)
+                                    {
+                                        previous.records.push(record);
+                                    }
+                                }
+                                previous.next_before = page.next_before;
+                                previous.earlier_records_unavailable =
+                                    page.earlier_records_unavailable;
+                                previous.earlier_records_pruned = page.earlier_records_pruned;
+                            } else {
+                                self.schedule_history_page = Some(page);
+                            }
+                            self.schedule_history_before = None;
                             self.schedule_history_error = None;
                         }
                         Ok(dsh_native_transport::dto::ScheduleHistoryOutcome::Missing) => {
@@ -6065,7 +6112,7 @@ impl App {
                 earlier_records_pruned: true,
                 retention_days: 30,
                 retention_records: 100,
-                next_before: None,
+                next_before: Some("PUBLIC-delivery-2".into()),
             });
         }
     }
@@ -11692,6 +11739,27 @@ impl App {
                         )
                         .size(10),
                     );
+                    if page.next_before.is_some() {
+                        row = row.push(
+                            button(
+                                label(
+                                    if self.schedule_history_loading {
+                                        "Loading…"
+                                    } else {
+                                        "Load older"
+                                    },
+                                    MUTED,
+                                )
+                                .size(10),
+                            )
+                            .on_press_maybe(
+                                (!self.schedule_history_loading)
+                                    .then_some(Message::ScheduleHistoryOlder),
+                            )
+                            .style(design::ghost)
+                            .padding([2, 6]),
+                        );
+                    }
                 } else if self.schedule_history_loading {
                     row = row.push(label("Loading history…", MUTED).size(10));
                 }
@@ -14884,6 +14952,77 @@ mod tests {
         }));
         assert!(app.schedules.is_empty());
         assert!(app.schedule_busy.is_none());
+    }
+    #[test]
+    fn schedule_history_loads_older_pages_with_the_cursor() {
+        use dsh_native_transport::dto::{
+            ScheduleCatalogItem, ScheduleDeliveryRecord, ScheduleHistory, ScheduleHistoryOutcome,
+        };
+        let (mut app, mut receiver) = managed_app();
+        let session = app.selected.clone().unwrap();
+        app.schedules_open = true;
+        app.schedules = vec![ScheduleCatalogItem {
+            id: "PUBLIC-schedule".into(),
+            title: "PUBLIC task".into(),
+            kind: "daily".into(),
+            session_id: session.clone(),
+            status: "active".into(),
+            scheduled_at: None,
+            last_delivery: None,
+            record: serde_json::Map::new(),
+        }];
+        let _ = app.update(Message::ScheduleHistory(
+            session.clone(),
+            "PUBLIC-schedule".into(),
+        ));
+        while receiver.try_recv().is_ok() {}
+        let record = |id: &str| ScheduleDeliveryRecord {
+            scheduled_at: "2026-10-16T09:00:00Z".into(),
+            delivered_at: "2026-10-16T09:00:01Z".into(),
+            message_id: id.into(),
+            prompt: None,
+        };
+        let page = ScheduleHistory {
+            id: "PUBLIC-schedule".into(),
+            records: vec![record("PUBLIC-1")],
+            earlier_records_unavailable: false,
+            earlier_records_pruned: false,
+            retention_days: 30,
+            retention_records: 100,
+            next_before: Some("PUBLIC-1".into()),
+        };
+        let _ = app.update(Message::Worker(Event::ScheduleHistoryLoaded {
+            session: session.clone(),
+            id: "PUBLIC-schedule".into(),
+            result: Ok(ScheduleHistoryOutcome::History(page)),
+        }));
+        let _ = app.update(Message::ScheduleHistoryOlder);
+        let mut older = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if let Command::ScheduleHistory { before, .. } = command {
+                assert_eq!(before.as_deref(), Some("PUBLIC-1"));
+                older += 1;
+            }
+        }
+        assert_eq!(older, 1);
+        let page = ScheduleHistory {
+            id: "PUBLIC-schedule".into(),
+            records: vec![record("PUBLIC-2")],
+            earlier_records_unavailable: true,
+            earlier_records_pruned: false,
+            retention_days: 30,
+            retention_records: 100,
+            next_before: None,
+        };
+        let _ = app.update(Message::Worker(Event::ScheduleHistoryLoaded {
+            session,
+            id: "PUBLIC-schedule".into(),
+            result: Ok(ScheduleHistoryOutcome::History(page)),
+        }));
+        let page = app.schedule_history_page.as_ref().unwrap();
+        assert_eq!(page.records.len(), 2);
+        assert!(page.earlier_records_unavailable);
+        assert!(page.next_before.is_none());
     }
     #[test]
     fn schedule_edit_opens_with_the_record_and_updates_the_title() {

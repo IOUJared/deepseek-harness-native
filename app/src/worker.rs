@@ -86,6 +86,7 @@ pub enum Command {
         session: dsh_native_transport::dto::SessionId,
         id: String,
         limit: u64,
+        before: Option<String>,
     },
     /// Compare-and-update one schedule's title and/or prompt.
     ScheduleUpdate {
@@ -2413,8 +2414,8 @@ async fn run(
                         let result=client.schedule_update(&session,&expected,title.as_deref(),prompt.as_deref()).await.map_err(|error|format!("Schedule update: {error}"));
                         Event::ScheduleUpdated{session,id,result}
                     },
-                    Command::ScheduleHistory{session,id,limit}=>{
-                        let result=client.schedule_history(&session,&id,limit,None).await.map_err(|error|format!("Schedule history: {error}"));
+                    Command::ScheduleHistory{session,id,limit,before}=>{
+                        let result=client.schedule_history(&session,&id,limit,before.as_deref()).await.map_err(|error|format!("Schedule history: {error}"));
                         Event::ScheduleHistoryLoaded{session,id,result}
                     },
                     Command::Goal{session,operation}=>{

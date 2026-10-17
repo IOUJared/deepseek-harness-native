@@ -5678,3 +5678,31 @@ exist yet. Actions remain text controls.
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+### Round 293 — delivery-history pagination
+
+**The delivery-history block now follows the `nextBefore` cursor.** When the page reports older
+records, a **Load older** control fetches the next page with that cursor, appends its records while
+dropping duplicate message ids, adopts the new cursor/flags, and keeps the block open. Loading marks
+the button "Loading…"; a failure leaves the existing records and shows the red error. The first
+page and every refresh still replace the block. `shots/133-schedules-history.png` now shows the
+**Load older** control under the retention line; the report is `status: passed`.
+
+One test covers the cursor dispatch (`before` equals `nextBefore`), the appended second page, the
+updated unavailable flag and the exhausted cursor.
+
+**Remainder.** Schedule **timing** edits and the reference's DatePicker/ClockPicker/timing-kind
+selector remain the only scheduled-task gap; the page still lacks per-session marks/hover cards and
+the right-sidebar task tab.
+
+**Battery (round 293).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1192 passed**, 1 ignored |
+| app, default | **0** | **1185 passed**, 1 ignored |
+| transport | **0** | 48 + 17 + 82 + 7 (unchanged this round) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
