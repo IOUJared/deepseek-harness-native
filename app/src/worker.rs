@@ -67,6 +67,11 @@ pub enum Command {
         preset: String,
     },
     /// Ask the Host to stop one background job.
+    /// Open one job's live output stream; the panel sends this when a row expands.
+    JobOutput {
+        session: dsh_native_transport::dto::SessionId,
+        job: String,
+    },
     JobKill {
         session: dsh_native_transport::dto::SessionId,
         job: String,
@@ -561,6 +566,14 @@ async fn next_jobs(
     }
 }
 
+async fn next_job_output(
+    stream: &mut Option<NativeStream<dsh_native_transport::dto::JobFollowFrame>>,
+) -> Option<dsh_native_transport::Result<dsh_native_transport::dto::JobFollowFrame>> {
+    match stream {
+        Some(stream) => stream.next().await,
+        None => std::future::pending().await,
+    }
+}
 async fn next_terminal(
     stream: &mut Option<NativeStream<dsh_native_transport::terminal::TerminalFrame>>,
 ) -> Option<dsh_native_transport::Result<dsh_native_transport::terminal::TerminalFrame>> {
@@ -780,6 +793,7 @@ fn rejected(command: Command) -> Event {
         Command::AgentPresetsRead => Event::AgentPresets(Err(error)),
         Command::AgentPresetSelect { .. } => Event::AgentPresetSelected(Err(error)),
         Command::JobKill { .. } => Event::JobKilled(Err(error)),
+        Command::JobOutput { .. } => Event::Fault("Invalid native command state".into()),
         Command::PermissionDefaultSet { .. } => Event::PermissionDefaultSet(Err(error)),
         Command::Account(effect) => {
             let ticket = effect.ticket();
@@ -1914,6 +1928,10 @@ async fn run(
     // The selected session's background jobs; the list stream is whole-set replacement and
     // the follow stream updates one job at a time.
     let mut jobs: Option<NativeStream<dsh_native_transport::dto::JobListFrame>> = None;
+    // The per-job output stream: opened by the command arm below, because an `output` frame
+    // carries no job id and only this loop knows which stream it read.
+    let mut job_output: Option<NativeStream<dsh_native_transport::dto::JobFollowFrame>> = None;
+    let mut job_output_for: Option<String> = None;
     let mut cancel_target: Option<SessionId> = None;
     // File intake needs a correlated, supported ordinary header, not just a Session address.
     let mut selected_file_target: Option<SessionId> = None;
@@ -1963,6 +1981,22 @@ async fn run(
                     }.await;(epoch,result)});
                     continue;
                 }
+                // An expand press reaches the loop here, where the mux and the publisher are in
+                // scope; the spawned command task can open no stream (it has neither).
+                if let Command::JobOutput{session,job}=command {
+                    let job_session=session.as_str().to_owned();
+                    let job_id=job.clone();
+                    job_output_for=Some(job_id.clone());
+                    match operation(&mut closing,&events,mux.as_ref().expect("live observation mux").jobs_follow(dsh_native_transport::dto::JobFollowRequest{session_id:Some(job_session),job_id:job_id.clone(),offset:None})).await {
+                        Some(Ok(stream))=>job_output=Some(stream),
+                        Some(Err(e))=>{
+                            job_output=None;job_output_for=None;
+                            if !publish(&events,Event::FollowError{generation,error:format!("Job output: {e}")}){break Some("Native UI delivery queue overflow".into());}
+                        }
+                        None=>break None,
+                    }
+                    continue;
+                }
                 if let Command::Select{generation:next,address}=command {
                     if !observations_live || submissions.busy() {if !publish(&events,Event::FollowError{generation:next,error:"Original submission unresolved; no Agent follow dispatched".into()}){break Some("Native UI delivery queue overflow".into());}continue;}
                     files.invalidate(); selected_file_target=None;
@@ -1971,7 +2005,7 @@ async fn run(
                     if let Some(stream)=terminal.as_mut(){stream.cancel().await;}terminal=None;terminal_ticket=None;
                     // The same rule the panel follow follows: a jobs stream belongs to the
                     // session it was opened for, so it retires with the selection.
-                    if let Some(stream)=jobs.as_mut(){stream.cancel().await;}jobs=None;
+                    if let Some(stream)=jobs.as_mut(){stream.cancel().await;}jobs=None;if let Some(stream)=job_output.as_mut(){stream.cancel().await;}job_output=None;job_output_for=None;
                     let target=selected_export_target(&address);cancel_target=target.clone();
                     match operation(&mut closing,&events,mux.as_ref().expect("live observation mux").session_follow(SessionFollowRequest{address,max_messages:Some(50),turn_window:None,assistant_stream:Some(true)})).await {
                         Some(Ok(stream))=>{
@@ -2285,7 +2319,7 @@ async fn run(
                     Command::Page{generation,request}=>Event::Page{generation,result:client.session_page(request).await.map_err(|e|format!("History page: {e}"))},
                     Command::CommandsList(session_id)=>Event::CommandsListed{session_id:session_id.clone(),result:client.commands_list(&session_id).await.map_err(|error|CommandListFailureOutcome::Failed{kind:CommandListFailure::of(&error),error})},
                     Command::CommandsExecute{session_id,line}=>Event::CommandsExecuted{session_id:session_id.clone(),line:line.clone(),result:client.commands_execute(&CommandExecuteRequest{session_id:session_id.clone(),line,submitted_attachments:Vec::new()}).await.map_err(|_|())},
-                    Command::Cloudflare(_)|Command::PromptFile{..}|Command::StageFile(_)|Command::DiscardFile(_)|Command::Codex(_)|Command::Export(_)|Command::PluginsRead(_)|Command::PluginSave{..}|Command::Manage(_)|Command::Rename(_)|Command::Fork(_)|Command::TerminalRead(_)|Command::TerminalFollow(_)|Command::TerminalCreate(_)|Command::TerminalClose(_)|Command::TerminalWrite(_)|Command::McpRead(_)|Command::McpWrite(_)|Command::KeyMetadata(_)|Command::SaveKey{..}|Command::Inspect|Command::Shutdown|Command::Select{..}=>Event::Fault("Invalid native command state".into()),
+                    Command::Cloudflare(_)|Command::PromptFile{..}|Command::StageFile(_)|Command::DiscardFile(_)|Command::Codex(_)|Command::Export(_)|Command::PluginsRead(_)|Command::PluginSave{..}|Command::Manage(_)|Command::Rename(_)|Command::Fork(_)|Command::TerminalRead(_)|Command::TerminalFollow(_)|Command::TerminalCreate(_)|Command::TerminalClose(_)|Command::TerminalWrite(_)|Command::McpRead(_)|Command::McpWrite(_)|Command::KeyMetadata(_)|Command::SaveKey{..}|Command::Inspect|Command::Shutdown|Command::JobOutput{..}=>Event::Fault("Invalid native command state".into()),Command::Select{..}=>Event::Fault("Invalid native command state".into()),
                 }});
             }
             event=next_root(&mut root),if root.is_some()=>match event {
@@ -2307,6 +2341,7 @@ async fn run(
             event=next_workspaces(&mut workspaces),if workspaces.is_some()=>match event {Some(Ok(event))=>if !publish(&events,Event::Workspace(event)){break Some("Native UI delivery queue overflow".into());},Some(Err(_))|None=>{drop_observations(&mut root,&mut workspaces,&mut selected,&mut terminal,&mut mux).await;observations_live=false;files.invalidate();selected_file_target=None;selected_target=None;for key in live_decisions.drain(..){decisions.cancel(&key.event_id);}if !publish(&events,Event::ObservationsLost){break Some("Native UI delivery queue overflow".into());}}},
             event=next_selected(&mut selected)=>match event {Some(Ok(frame))=>{if let SessionFollowFrame::Snapshot{header,..}=&frame {selected_file_target=file_receiver(header,selected_target.as_ref());if selected_file_target.is_none(){files.invalidate();}}if !publish(&events,Event::Selected{generation,frame}){break Some("Native UI delivery queue overflow".into());}},Some(Err(e))=>{files.invalidate();selected_file_target=None;selected=None;selected_target=None;if !publish(&events,Event::FollowError{generation,error:format!("Session stream: {e}")}){break Some("Native UI delivery queue overflow".into());}},None=>{files.invalidate();selected_file_target=None;selected=None;selected_target=None;if !publish(&events,Event::FollowError{generation,error:"Session stream closed; reload session".into()}){break Some("Native UI delivery queue overflow".into());}}},
             jobs_event=next_jobs(&mut jobs),if jobs.is_some()=>match jobs_event {Some(Ok(frame))=>{if !publish(&events,Event::JobsRows(frame.jobs)){break Some("Native UI delivery queue overflow".into());}},Some(Err(e))=>{jobs=None;if !publish(&events,Event::FollowError{generation,error:format!("Jobs list: {e}")}){break Some("Native UI delivery queue overflow".into());}},None=>{jobs=None;}},
+            job_event=next_job_output(&mut job_output),if job_output.is_some()=>match job_event {Some(Ok(frame))=>{let job=job_output_for.clone().unwrap_or_default();if !publish(&events,Event::JobsFollow{job,frame}){break Some("Native UI delivery queue overflow".into());}},Some(Err(e))=>{job_output=None;job_output_for=None;if !publish(&events,Event::FollowError{generation,error:format!("Job output: {e}")}){break Some("Native UI delivery queue overflow".into());}},None=>{job_output=None;job_output_for=None;}},
             event=next_terminal(&mut terminal),if terminal.is_some()=>match event {Some(Ok(frame))=>{if let Some(ticket)=terminal_ticket.clone()&& !publish(&events,Event::TerminalFrame{ticket,frame}){break Some("Native UI delivery queue overflow".into());}},Some(Err(_))|None=>{let ticket=terminal_ticket.take();terminal=None;if let Some(ticket)=ticket&& !publish(&events,Event::TerminalFollowEnded{ticket,failure:Some(crate::terminal::ReadFailure::Unavailable)}){break Some("Native UI delivery queue overflow".into());}}},
             event=core_rx.recv()=>match event {Some(event)=>{if let PublicEvent::Codex(metadata)=&event {codex.observe(*metadata);}if let PublicEvent::CloudflareAuth(status)=&event {cloudflare.observe(status.clone());cloudflare_worker::dispatch_cancel(&mut cloudflare,&backend,&mut tasks);}let exited=matches!(&event,PublicEvent::Exited(_));if !publish(&events,Event::Core(event)){break Some("Native UI delivery queue overflow".into());}if exited {break Some("Owned Core exited".into());}},None=>break Some("Core event stream closed".into())},
             download=next_download(&mut export_download),if export_download.is_some()=>{

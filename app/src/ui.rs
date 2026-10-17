@@ -2916,11 +2916,12 @@ impl App {
                 }
             }
             Message::ToggleJobOutput(id) => {
-                self.jobs_expanded = if self.jobs_expanded.as_deref() == Some(id.as_str()) {
-                    None
-                } else {
-                    Some(id)
-                };
+                let opening = self.jobs_expanded.as_deref() != Some(id.as_str());
+                self.jobs_expanded = if opening { Some(id.clone()) } else { None };
+                // The stream is per job, so expanding asks the worker for that job's output.
+                if opening && let Some(session) = self.selected.clone() {
+                    self.command(Command::JobOutput { session, job: id });
+                }
             }
             Message::Worker(Event::JobKilled(result)) => {
                 // A refusal keeps the panel as it was and says so; a receipt needs no words.

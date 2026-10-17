@@ -3193,3 +3193,20 @@ vocabulary.**
    read: the local and retirement beside the list stream's, the helper beside `next_jobs`, the
    open and the publication in the loop's command arm, and the app's expand press sending the
    command instead of only toggling a flag.
+
+   **The follow stream is open, and jobs is complete through every layer.** `Command::JobOutput
+   { session, job }` is handled **inside the loop's command arm** — the placement the read found —
+   opening `mux.jobs_follow(JobFollowRequest { session_id: Some(…), job_id, offset: None })`
+   through `operation(&mut closing, &events, …)` exactly as the list stream's own open does
+   (`worker.rs:2016`), with the local, the retirement and the `next_job_output` select arm beside
+   their list-stream counterparts. The app's expand press now **sends that command** instead of
+   only toggling a flag, so expanding a row asks the worker for its output and the frames arrive
+   tagged with the job they belong to.
+   Two arms exist only to keep matches exhaustive and say so: the spawned task's "not for me" list
+   and the reducer's invalid-state fault, both unreachable because the loop's arm takes the
+   command first.
+   Verified: fixture **1114** exit 0, default **1107** exit 0, format-debt 0.
+   Six attempts were needed for this loop, and the last three each failed on a *fact* rather than
+   on care: an `output` frame carries no job id, the dispatch task has no mux or publisher, and
+   the list stream's open call is the template for `operation`'s three arguments and the
+   `mux.as_ref().expect(…)` unwrap. Every failure was reverted, and the loop now stands.
