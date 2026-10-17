@@ -3807,3 +3807,26 @@ it now rests on a gate that was run whole.
    hardcoded key waits for the re-dispatch, which is a real change with a real test surface (the
    fixture suite's key-order assertions) and deserves the fresh context the handoff asked for.
    Verified: tree clean, format-debt 0, fixture **1134**, default **1127**.
+
+### Final verification battery (round 228) — every status captured
+
+| gate | status | result |
+|---|---|---|
+| app, fixture feature | **0** | **1134 passed**, 0 failed, 1 ignored |
+| app, default | **0** | **1127 passed**, 0 failed, 1 ignored |
+| transport | **0** | 4 targets: 17 + 82 + 7 passed |
+| core (`--lib`) | **0** | **112 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| working tree | — | **0 dirty** |
+
+Every count is read from a captured `$?`, not from matched text — the round-115 rule applied to
+every line. Since round 219 the suites grew by **three tests each** (1131→1134, 1124→1127): the
+multi-binding case, the catalog/invocation round trip and the orphan-free catalog assertion.
+
+**One honest gap this pass exposed by being written down:** `catalog_rows` — the function that
+renders the Host's commands as editor rows — has tests but **no caller**. Round 220 described it as
+letting the editor "display the Host's catalog", and that is not yet true: the disclosure still
+shows only this app's five. It is dead-but-tested code, which is better than dead-and-untested and
+still not what the document said. Either the disclosure gains the Host section, or the paragraph in
+round 220 should be read as the *capability* it enables rather than a shipped surface.
