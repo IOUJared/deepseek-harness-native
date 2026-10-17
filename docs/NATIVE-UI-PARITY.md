@@ -3011,3 +3011,37 @@ keep the upward behaviour they were captured with.
    rule they produced is now applied before writing rather than after: **a wire name is read from
    the artifact that defines it, and a working call in this repository outranks a generated
    descriptor's vocabulary.**
+
+### Overall status (round 181)
+
+**Complete and capture-verified:** the permission select end to end (chip, Host-driven menu with
+the `EXP` Auto badge, `/permission <preset>`, the guarded full-access confirmation, the settings
+default row); the agent-preset roster and selection (header label, hero seat, seat list, the
+staged pick and its `agentPreset/locked` announcement); and background jobs through transport,
+mux, worker, the counted header action, the panel and its row dots.
+
+**Built, capture-verified, with stated deviations:** the jobs row dot uses `◐` where the reference
+animates a 14px spinner a static capture cannot show.
+
+**Specified with no unread input, not built:** jobs' output expansion (the follow stream's shape,
+the `lossy` gap copy "… earlier output dropped …", and `job/kill`'s receipt
+`'requested' | 'already-finished'` are all read).
+
+**Gated on the user or the toolkit:** the reference screenshot at
+`/home/jared/Documents/deepseek-harness/default-workspace/reference.png`; a real window-edge drag
+for the 520×600 floor; one live close-timing run for the shutdown budgets; the image fetch policy;
+and the inline-code chip, blocked on Iced's missing span backgrounds.
+
+**Authorized, not started:** editable keybinding rebinding, with the reference's editor, binding
+store and conflict handling read and the work ordered store-first.
+
+**Corrected after being shipped:** five invented strings (the `/agent` line, English copy taken
+from the Chinese dictionary, `jobs/list`, `jobs/follow`, the select body) and two structural edits
+reverted (the worker loop, the popup widget). Five sizing estimates were also wrong in both
+directions and each is recorded with what corrected it.
+
+**Three rules earned, all in force:** capture every gating exit status in a variable; back every
+path claim with an implementation line; and insert by locating the line rather than matching text.
+A fourth was added this stretch and is the most transferable: **a wire name is read from the
+artifact that defines it, and a working call in this repository outranks a generated descriptor's
+vocabulary.**
