@@ -2914,3 +2914,21 @@ keep the upward behaviour they were captured with.
      this row needs before it can be drawn faithfully.
    That is the honest state of the one piece the panel still lacks, and it is two small reads away
    rather than a design question.
+
+   **The dot is fully specified now, and its shape is constant — only the colour varies.**
+   The mapping is exhaustive and one-to-one (`ui-jobs/src/client/JobListAction.tsx:86-96`):
+   `running → ongoing`, `stopping → warning`, `completed → done`, `killed → warning`,
+   `failed → error`, with an `assertNever` default for the closed union. The colours come from
+   design tokens (`ui-primitives/src/StateDot.module.css`): success for `done`, warn for
+   `warning`, error for `error`, idle for `idle`.
+   So the row marker in the reference is **one glyph in five colours**, not five glyphs — which
+   makes the native version small and honest:
+   - the shape is a single dot `●` (DejaVuSans covers it; checked in round 61);
+   - the colours are the native palette's nearest equivalents, recorded here rather than invented
+     per row: `done → MUTED`, `warning → GOLD`, `error → DANGER`, `idle → MUTED`;
+   - **`ongoing` is the one exception**, because the reference animates a 14px SVG spinner there
+     and a static fixture cannot capture an animation honestly. The stand-in is `◐` in `ACCENT` —
+     a half-filled dot reads as "in progress" — documented as a deviation rather than passed off
+     as the reference's spinner.
+   That is the last piece the panel lacks, and it is now a two-line change plus a capture rather
+   than a design question or a guess.
