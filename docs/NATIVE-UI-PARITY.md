@@ -4034,3 +4034,24 @@ Each is one line of work on this side once answered; none is blocked on further 
    So `catalog_rows` has a caller, a typed input and a capture. What remains on the audit's list is
    the **ten copy constants** and the `search_index`/`reset_all` group, all of which need the
    editor's per-row actions and confirmation — the surface those strings were quoted for.
+
+### Battery re-run after the rendering changes (round 240)
+
+The last three surfaces to change — the **sorted** disclosure rows, the **"customized" count line**, and
+the **Host commands group** — all alter what the settings view draws, so the battery was run again
+whole, every status captured:
+
+| gate | status | result |
+|---|---|---|
+| app, fixture | **0** | **1134 passed**, 1 ignored |
+| app, default | **0** | **1127 passed**, 1 ignored |
+| transport | **0** | 4 targets (17 + 82 + 7) |
+| core (`--lib`) | **0** | **112 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | **0 dirty** |
+
+No regression, and the counts are identical to round 228 — which is the right result for changes that
+add surfaces rather than alter tested behaviour. The three captures from those rounds stand on their
+own frames: `shots/87-…` (rows), `shots/89-…` (the count line with a cleared key), `shots/90-…`
+(the Host commands group).
