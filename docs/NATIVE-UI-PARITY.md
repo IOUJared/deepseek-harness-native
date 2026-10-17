@@ -36,22 +36,23 @@ fixture's direct `set_settings_open`, not the press.
 work in the Rust app, implemented in Rust, not left as a documented Web-only difference. The reuse
 point is the Host's canonical `/api/<namespace>/<method>` dispatcher, so adding typed endpoints to
 `dsh-native-transport` is in-bounds; what is out of bounds is rebuilding or forking the Host runtime
-in Rust. Keep coding without asking for permission. Queue edit/remove/steer, full-text content
-search, the goal bar (pause/resume/edit/clear), the per-turn usage detail and the **scheduled-tasks
-page** (catalog + delete + delivery history + title/instruction/timing edit) and the goal's
-**disarmed activation**, the timing-kind selector, an **expandable changed-file list with per-file
-diffs**, the **`@` file menu** and a **desktop-open action** now work end to end; the next items are
-the reference's **developer-tools gate and sidebar review tab**, then workspace open; the
-**date and clock pickers** now serve the one-shot and daily/weekly editors and are
-keyboard-navigable, **assistant replies carry Like/Dislike feedback with a note/category dialog**,
-and the composer shows the **expandable todo dock**; a local **Show coding view** preference gates
-the coding surfaces, and the workspace sheet can **browse** for a directory through the Host **or an in-app folder list**. Cross-session pending
-status is still unavailable from the present wires. The `@` menu is keyboard-navigable and lists
-sessions beside files.
+in Rust. **All closeable reference surfaces found by the final audit are cloned.** The chat,
+composer (slash commands, `@` files and sessions with keyboard navigation and drill-down, attachments,
+queue edit/remove/steer, goal bar, todo dock, context policy, usage), sidebar (sessions, search,
+pin/archive/trash, workspace list/filter and navigation sheet), schedules (catalog, delete, history,
+title/instruction/timing edits, date and clock pickers), goals and activation, plan and permissions,
+approvals and questions, jobs, subagents, deliverables (summary, file list, per-file diffs, desktop
+open), message feedback (rating, categories, note dialog), settings (general, API, Cloudflare,
+Codex, plugins, shortcuts) and workspace open (Host chooser and in-app folder list) work end to end.
 
-**Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
-the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
-policy. **One is Iced-blocked:** inline-code chips.
+**Deliberate differences, not open work:** the reference's right Sidebar (document preview, review
+tabs) is replaced by the full-page details panel and the scheduled-tasks page; sessions are grouped
+by time rather than the animated workspace browser (workspace filtering and the navigation sheet
+remain); the developer-tools gate is a local **Show coding view** preference instead of the Host's
+`configForms`; the reference's dockkit layout presets are not cloned; the workflow-run surface is not
+mounted; and the UI is English-only while the reference ships zh/en dictionaries. Cross-session
+pending status is still unavailable from the present wires. Live model runs, OAuth and desktop-open
+side effects remain unverified.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -6147,7 +6148,7 @@ conflict adoption.
 **No capture.** A `--feedback-dialog` fixture was built and captured once, but the report returned
 `passed: false` (`presetStatesMatch`/`expectedControlCountsMatch` reject the new modal's controls
 because the fixture's inventory and state predicates do not know this dialog). Rather than expand
-those checkss in this round the helper was removed; the dialog is unit-tested only, and this is
+those checks in this round the helper was removed; the dialog is unit-tested only, and this is
 recorded instead of shipping a failing capture. The composer is hidden while the dialog is open,
 as with the other modals.
 
@@ -6280,3 +6281,31 @@ not exposed. The sheet's fixed 110px workspace area means a long listing scrolls
 | JS runtime | **0** | **419 pass**, 0 fail |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+## Reference surface coverage (final audit)
+
+The reference client packages were read against the native surfaces at the end of the clone work.
+“Cloned” means the interaction exists and its reads/writes go through the canonical wire; “difference”
+means the reference behavior is replaced on purpose and the reason is recorded above.
+
+| Reference surface | Native status |
+| --- | --- |
+| Chat, renderer, tools, thoughts, turn triggers, images, copy/branch/edit/fork | cloned |
+| Composer: slash, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned |
+| Sidebar: sessions, search, pin/archive/trash, workspace filter, navigation sheet | cloned (time-grouped list, not the grouped browser) |
+| Settings: General, API, Cloudflare, Codex, plugins, shortcuts | cloned (coding view is a local substitute) |
+| Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab) |
+| Goals, plan mode, permissions, approvals/questions, jobs, subagents, session log | cloned |
+| Deliverables: summary, file list, diffs, desktop open | cloned (no right-Sidebar review tab) |
+| Message feedback: ratings, categories, note | cloned (session `/feedback` remains a Host command) |
+| Right Sidebar: document preview and resource tabs | difference: full-page details panel, no PDF/Office renderers |
+| Workspace browser: grouped/animated rows, drag order, per-row menus | difference: workspace filter + navigation sheet |
+| Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory) |
+| Workflow-run surface | not mounted by the native client |
+| Dockkit layout presets | difference: native fixed layout with its own preferences |
+| Locales (zh/en) | difference: English-only |
+
+**Verification limits.** Visual 1-to-1 remains unverified until `reference.png` is placed in the
+workspace; live Host reads/writes (schedule, feedback, workspace open, @ references, directory
+listings) are unit-tested parsers and fixture states, not a live run. The user-dependent items at the
+top of this document stand.
