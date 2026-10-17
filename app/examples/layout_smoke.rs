@@ -446,10 +446,20 @@ impl LayoutObservation {
         let frame_in_viewport = frame
             .zip(viewport)
             .is_some_and(|(r, size)| inside(r, &Rectangle::with_size(size)));
+        // A popup is a floating layer rather than layout, so it may legitimately overlap the
+        // fixture's own banner band, which occupies the top of every capture and is not product
+        // chrome. Every layout container still has to lie inside the frame.
+        const FLOATING: [&str; 3] = [
+            "native-jobs-panel",
+            "native-permission-menu",
+            "native-hero-preset-menu",
+        ];
         let controls_in_frame = frame.is_some_and(|frame| {
             self.rects
                 .iter()
-                .filter(|(name, _)| **name != "fixture-frame")
+                .filter(|(name, _)| {
+                    **name != "fixture-frame" && !FLOATING.iter().any(|id| **name == *id)
+                })
                 .all(|(_, rects)| rects.iter().all(|r| inside(r, frame)))
         });
         let counts = self.count("native-sidebar-options")

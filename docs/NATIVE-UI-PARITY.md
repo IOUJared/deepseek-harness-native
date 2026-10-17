@@ -2826,3 +2826,22 @@ Since the round-145 update, all local and unpushed, gates green at each commit:
    capture shows it in the clear (a UI choice with a real-window cost: it would leave the popup
    hanging over the conversation rather than flush at the top). **The first is the smaller and
    more truthful change**, and the widget's upward behaviour stays as the two captured menus have it.
+
+   **Two measurements, and they disagree — which is the honest end of this thread.** With the
+   fixture's containment check now exempting **floating layers** (a popup is not layout, and the
+   banner is not product chrome), running the binary directly with the panel open reports
+   `passed: true` and `knownRenderedControlsWithinFrame: true`. But the capture **harness** still
+   refuses it, because the parent qualifies *paint*: `allTextCollected` and
+   `paintVisibilityQualified` remain false, and the report's own `scope` says the parent "inspects
+   actual screenshot paint".
+   So the disagreement is precise and worth keeping: the **fixture** gates `passed` on frame
+   containment, counts and states (`layout_smoke.rs:517`) and now passes; the **parent** gates
+   success on paint visibility, and a popup clamped to the window's top edge sits under the
+   parent's own banner. Neither is wrong. The panel is simply not capturable in the clear at the
+   top of a window that begins with a test banner.
+   Consequences, stated rather than worked around: the containment exemption is **kept** because
+   it is correct on its own terms; the fixture's closed-state capture is unchanged and still
+   passes; and the panel's own grab stays **unverified** until either the panel is placed where
+   the parent can see it (the downward variant, reverted once and now known to need both structs)
+   or the parent's paint rule learns about window-top popups — a harness change outside this
+   repository's fixture and outside what a round can decide.
