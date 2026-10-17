@@ -4006,3 +4006,20 @@ Each is one line of work on this side once answered; none is blocked on further 
    tests pass. That is the **seventh structural edit reverted rather than committed**, and the
    second whose cause the compiler named in one line — which is the argument for attempting a
    private-type boundary once, cheaply, rather than designing around it from memory.
+
+   **The Host section is in — as pairs, filled when the commands arrive.** `Settings` carries
+   `commands: Vec<(String, String)>`, the App fills it from `Event::CommandsListed` (mapping each
+   command to `(name, name)`, since the reference labels a command row with its own name), and the
+   disclosure renders a **"Commands"** group after the fixed rows through
+   `catalog_rows(&self.commands)` and the same label-and-keys row widget. An advertised command with
+   no binding therefore shows its label and **no keys**, which is the unbound-row test, and a Host
+   that advertises nothing renders no group at all.
+   One mistake on the way, and it was mine: my `),`-search for the struct literal's initialiser
+   matched a **widget expression** instead, so `commands: Vec::new()` landed inside the view and the
+   compiler said "expected identifier, found `:`". Moving it beside the one-line store initialiser
+   fixed it — the same lesson as the anchors, in a scripting form: **search for the line, not for a
+   shape that appears elsewhere.**
+   Verified: fixture **1134** exit 0, default **1127** exit 0, format-debt 0.
+   **Not captured:** the section itself, because every fixture run has no Host and therefore no
+   advertised commands — the `!self.commands.is_empty()` guard hides it. A fixture setter seeding
+   two pairs plus one accepted flag is what turns this into a capture, and that is the next step.

@@ -3964,6 +3964,18 @@ impl App {
                     }
                 }
             }
+            Event::CommandsListed { session_id, result } => {
+                // The disclosure lists the same commands the slash menu completes, as pairs: the
+                // menu's own candidate type is private to the UI module tree.
+                if let Ok(commands) = &result
+                    && self.selected.as_ref() == Some(&session_id)
+                {
+                    self.settings.commands = commands
+                        .iter()
+                        .map(|command| (command.name.clone(), command.name.clone()))
+                        .collect();
+                }
+            }
             Event::CommandsExecuted {
                 session_id,
                 line,

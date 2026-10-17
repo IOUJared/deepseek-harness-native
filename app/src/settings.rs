@@ -251,6 +251,9 @@ pub struct Settings {
     /// The app's own bindings, seeded from the same list the input handling implements, so the
     /// disclosure and the resolver share one source rather than a copy of the strings.
     pub(crate) keybindings: crate::keybindings::Store,
+    /// The Host's advertised commands as plain name/label pairs: the candidates the slash menu
+    /// uses are private to the UI module tree, so the disclosure takes pairs instead.
+    pub(crate) commands: Vec<(String, String)>,
     /// The permission default row's preset list is open.
     permission_open: bool,
     api_help_open: bool,
@@ -280,6 +283,7 @@ impl Default for Settings {
             details_open: false,
             shortcuts_open: false,
             keybindings: crate::keybindings::Store::new(crate::keybindings::native_fixed()),
+            commands: Vec::new(),
             permission_open: false,
             api_help_open: false,
             context_policy_open: false,
@@ -1104,6 +1108,24 @@ impl Settings {
                     )
                     .size(11),
                 );
+            }
+            // The Host's advertised commands, listed but unbound: a row with no keys, which the
+            // unbound-row test pins. Empty when the Host advertises none.
+            if !self.commands.is_empty() {
+                rows = rows.push(label("Commands", MUTED).size(11));
+                for entry in crate::keybindings::rows(
+                    &self.keybindings,
+                    &crate::keybindings::catalog_rows(&self.commands),
+                ) {
+                    rows = rows.push(
+                        row![
+                            label(entry.label, TEXT).size(13).width(Length::Fill),
+                            label(entry.keys, MUTED).size(11),
+                        ]
+                        .spacing(8)
+                        .align_y(iced::Alignment::Center),
+                    );
+                }
             }
             body = body.push(rows);
         }
