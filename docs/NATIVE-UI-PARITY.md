@@ -3540,3 +3540,20 @@ the five above rather than missing work.
    must *show* — exposed it. That is the difference between a test that pins behaviour and a test
    that pins implementation, and it is the third time this session a deliberately-written test has
    been the thing that found the defect.
+
+   **This app's own bindings are now data, in the same store, and their test checks both what they
+   render and what they answer.** `native_fixed()` holds the five commands native's input handling
+   already implements — `Ctrl+B` navigation, `Ctrl+F` find, **`Enter` and `Ctrl+Enter`** send,
+   `Shift+Enter` new line, `Escape` close — prefixed `fixed.` like the reference's own fixed rows so
+   an editor can tell them from catalog commands. The test asserts each rendered string against
+   what the Settings disclosure already prints *and* resolves each press through the same function
+   the trigger will use, including **both** send bindings.
+   That closes the loop on the defect found two rounds ago: `send` could not be expressed before a
+   command held a list, and it now renders as exactly the `"Enter / Ctrl+Enter"` the disclosure has
+   been showing since round 202 — the string that exposed the single-binding shape in the first
+   place.
+   Verified: fixture **1130** exit 0 (sixteen keybinding tests), default **1123** exit 0,
+   format-debt 0.
+   The store and the model are complete: operations, copy, ordering, search index, code mapping,
+   resolver, the reference's three fixed menu keys and this app's five. What remains is the wiring,
+   and it is the only work left that touches input handling the user asked to preserve.

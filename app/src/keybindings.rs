@@ -288,6 +288,36 @@ pub fn resolve<'a>(
         .map(|(id, _)| id)
 }
 
+/// This app's own fixed bindings, with the ids and keys its input handling already implements and
+/// its Settings row already prints (`Ctrl+B`, `Ctrl+F`, `Enter / Ctrl+Enter`, `Shift+Enter`,
+/// `Escape`). They are prefixed `fixed.` like the reference's own fixed rows, so an editor can
+/// tell them from catalog commands, and they are **not** the reference's three menu keys — its
+/// fixed list is about its own surfaces, and this app's is about its own.
+pub fn native_fixed() -> Vec<(String, Vec<Binding>)> {
+    fn key(code: &str, modifiers: &[&str]) -> Binding {
+        Binding {
+            code: code.to_owned(),
+            second_code: None,
+            modifiers: modifiers.iter().map(|name| (*name).to_owned()).collect(),
+        }
+    }
+    vec![
+        (
+            "fixed.navigation".to_owned(),
+            vec![key("KeyB", &["primary"])],
+        ),
+        ("fixed.find".to_owned(), vec![key("KeyF", &["primary"])]),
+        (
+            // Send takes Enter and Ctrl+Enter, and the reference's own editor can only express
+            // that now that a command holds a list.
+            "fixed.send".to_owned(),
+            vec![key("Enter", &[]), key("Enter", &["primary"])],
+        ),
+        ("fixed.newline".to_owned(), vec![key("Enter", &["shift"])]),
+        ("fixed.close".to_owned(), vec![key("Escape", &[])]),
+    ]
+}
+
 /// The four groups in the reference's **product order**
 /// (`ui-shortcuts/src/client/Reference.tsx:179`).
 pub const GROUPS: [&str; 4] = ["application", "input", "menus", "approval"];
@@ -597,6 +627,56 @@ mod tests {
         assert_eq!(display(&escape), "Escape");
         let up = binding_from(&Key::Named(Named::ArrowUp), Modifiers::empty()).unwrap();
         assert_eq!(display(&up), "ArrowUp");
+    }
+
+    #[test]
+    fn the_apps_fixed_bindings_are_the_five_its_input_handling_implements() {
+        use iced::keyboard::{Key, Modifiers};
+        let store = Store::new(native_fixed());
+        // Every row renders as the Settings disclosure already prints it.
+        let catalog: Vec<(String, String, bool)> = native_fixed()
+            .into_iter()
+            .map(|(id, _)| (id.clone(), id, true))
+            .collect();
+        let rendered: Vec<String> = rows(&store, &catalog)
+            .into_iter()
+            .map(|row| row.keys)
+            .collect();
+        assert!(rendered.contains(&"Ctrl+B".to_owned()));
+        assert!(rendered.contains(&"Ctrl+F".to_owned()));
+        assert!(rendered.contains(&"Enter / Ctrl+Enter".to_owned()));
+        assert!(rendered.contains(&"Shift+Enter".to_owned()));
+        assert!(rendered.contains(&"Escape".to_owned()));
+        // And they answer presses: the app's own keys, through the same resolver the trigger uses.
+        assert_eq!(
+            resolve(&store, &Key::Character("b".into()), Modifiers::CTRL),
+            Some("fixed.navigation")
+        );
+        assert_eq!(
+            resolve(
+                &store,
+                &Key::Named(iced::keyboard::key::Named::Enter),
+                Modifiers::empty()
+            ),
+            Some("fixed.send")
+        );
+        assert_eq!(
+            resolve(
+                &store,
+                &Key::Named(iced::keyboard::key::Named::Enter),
+                Modifiers::CTRL
+            ),
+            Some("fixed.send")
+        );
+        // Escape is unambiguous because only one command claims it.
+        assert_eq!(
+            resolve(
+                &store,
+                &Key::Named(iced::keyboard::key::Named::Escape),
+                Modifiers::empty()
+            ),
+            Some("fixed.close")
+        );
     }
 
     #[test]
