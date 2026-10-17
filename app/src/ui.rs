@@ -220,6 +220,8 @@ pub enum Message {
     ToggleJobs,
     /// Stops one job, after the reference's two-click confirmation.
     KillJob(String),
+    /// Expands or collapses one job's live output.
+    ToggleJobOutput(String),
     /// Chooses one advertised preset from the hero seat's list.
     AgentPresetPick(String),
     /// Opens or dismisses the permission chip's menu.
@@ -742,6 +744,9 @@ pub struct App {
     jobs_armed: Option<String>,
     /// The Host's answer to the last kill, shown with the reference's own copy.
     jobs_kill_error: Option<String>,
+    /// The job whose live output is expanded, and the buffer that output accumulates into.
+    jobs_expanded: Option<String>,
+    jobs_output: std::collections::BTreeMap<String, String>,
     /// A write is in flight; the row is busy until its acknowledgement lands.
     permission_default_saving: bool,
     editor_undo: Vec<String>,
@@ -968,6 +973,8 @@ impl App {
                 jobs_open: false,
                 jobs_armed: None,
                 jobs_kill_error: None,
+                jobs_expanded: None,
+                jobs_output: std::collections::BTreeMap::new(),
                 permission_default_saving: false,
                 editor_undo: Vec::new(),
                 editor_redo: Vec::new(),
@@ -2908,6 +2915,13 @@ impl App {
                     self.jobs_kill_error = None;
                 }
             }
+            Message::ToggleJobOutput(id) => {
+                self.jobs_expanded = if self.jobs_expanded.as_deref() == Some(id.as_str()) {
+                    None
+                } else {
+                    Some(id)
+                };
+            }
             Message::Worker(Event::JobKilled(result)) => {
                 // A refusal keeps the panel as it was and says so; a receipt needs no words.
                 self.jobs_kill_error = result.err();
@@ -2927,7 +2941,16 @@ impl App {
                             None => self.jobs.push(job),
                         }
                     }
-                    JobFollowFrame::Output { .. } => {}
+                    JobFollowFrame::Output { chunks, lossy, .. } => {
+                        // **An `output` frame carries no job id** — the stream is per job
+                        // (`JobFollowRequest { jobId }`), so only the worker knows which row these
+                        // bytes belong to. The event must therefore carry the job id before this
+                        // buffer can be filled, which is why the worker's follow stream comes
+                        // first and why the open belongs beside the row's chevron rather than in
+                        // the selection arm. The gap copy is ready
+                        // (`locales.ts:75-76`: "… earlier output dropped …").
+                        let _ = (chunks, lossy);
+                    }
                 }
             }
             Message::Worker(Event::AgentPresetSelected(result)) => {
@@ -5096,6 +5119,12 @@ impl App {
         // and the unarmed rows both have their own captures.
         self.jobs_open = true;
         self.jobs_armed = Some("shell-1".to_owned());
+        self.jobs_expanded = Some("shell-1".to_owned());
+        self.jobs_output.insert(
+            "shell-1".to_owned(),
+            "… earlier output dropped …\nrunning 4 tests\ntest widget::layout ... ok\ntest widget::paint ... ok"
+                .to_owned(),
+        );
         self.jobs = vec![
             row("shell-1", "shell", "Run the test suite", "running"),
             row("build-2", "build", "Build the release binary", "stopping"),
@@ -6538,7 +6567,14 @@ impl App {
         if !live.is_empty() {
             panel = panel.push(label("Running", MUTED).size(11));
             for job in live {
-                panel = panel.push(job_row(job));
+                panel = panel.push(job_row(
+                    job,
+                    self.jobs_expanded.as_deref(),
+                    self.jobs_output
+                        .get(&job.id)
+                        .map(String::as_str)
+                        .unwrap_or_default(),
+                ));
             }
         }
         if settled > 0 {
@@ -6548,7 +6584,14 @@ impl App {
                 .iter()
                 .filter(|job| job.status != "running" && job.status != "stopping")
             {
-                panel = panel.push(job_row(job));
+                panel = panel.push(job_row(
+                    job,
+                    self.jobs_expanded.as_deref(),
+                    self.jobs_output
+                        .get(&job.id)
+                        .map(String::as_str)
+                        .unwrap_or_default(),
+                ));
             }
         }
         if let Some(armed) = &self.jobs_armed {
@@ -10998,7 +11041,11 @@ const AUTO_BADGE: &str = "EXP";
 const FULL_ACCESS_RISK: &str = "Full access lets new sessions reduce confirmation steps and perform more actions directly, including sensitive operations, file changes, or external commands. Only use it when you trust subsequent tasks.";
 /// One job row: the producer's label, then its kind and status words. The label is primary and
 /// the pair secondary, which is the reference's own row structure without its unread dot.
-fn job_row(job: &dsh_native_transport::dto::JobView) -> Element<'static, Message> {
+fn job_row(
+    job: &dsh_native_transport::dto::JobView,
+    expanded: Option<&str>,
+    output: &str,
+) -> Element<'static, Message> {
     let ink = match job.status.as_str() {
         "failed" => DANGER,
         "completed" | "killed" => MUTED,
@@ -11016,30 +11063,43 @@ fn job_row(job: &dsh_native_transport::dto::JobView) -> Element<'static, Message
         "completed" => ("●", MUTED),
         _ => ("○", MUTED),
     };
-    container(
-        row![
-            container(label(glyph, dot_ink).size(11))
-                .width(design::CRUMB_SIZE)
-                .align_x(iced::Alignment::Center),
-            column![
-                label(job.label.clone(), ink).size(13),
-                label(format!("{} · {}", job.kind, job.status), MUTED).size(11),
-            ]
-            .spacing(1)
-            .width(Length::Fill),
-            // The reference names the control through a label ("Stop task {label}") and confirms
-            // on a second click; the visible form of the control is unread, so a plain glyph
-            // stands in and the confirmation copy is the reference's own.
-            button(label("✕", MUTED).size(11))
-                .on_press(Message::KillJob(job.id.clone()))
-                .style(design::ghost)
-                .padding([2, 4]),
+    let expanded = expanded == Some(job.id.as_str());
+    let head = row![
+        // The reference's chevron control (`row.expandAria`: "Show live output of {label}").
+        button(label(if expanded { "▾" } else { "▸" }, MUTED).size(10))
+            .on_press(Message::ToggleJobOutput(job.id.clone()))
+            .style(design::ghost)
+            .padding([0, 2]),
+        container(label(glyph, dot_ink).size(11))
+            .width(design::CRUMB_SIZE)
+            .align_x(iced::Alignment::Center),
+        column![
+            label(job.label.clone(), ink).size(13),
+            label(format!("{} · {}", job.kind, job.status), MUTED).size(11),
         ]
-        .spacing(6)
-        .align_y(iced::Alignment::Center),
-    )
-    .width(Length::Fill)
-    .into()
+        .spacing(1)
+        .width(Length::Fill),
+        // The reference names the control through a label ("Stop task {label}") and confirms
+        // on a second click; the visible form of the control is unread, so a plain glyph
+        // stands in and the confirmation copy is the reference's own.
+        button(label("✕", MUTED).size(11))
+            .on_press(Message::KillJob(job.id.clone()))
+            .style(design::ghost)
+            .padding([2, 4]),
+    ]
+    .spacing(6)
+    .align_y(iced::Alignment::Center);
+    let mut body = column![head].spacing(2).width(Length::Fill);
+    if expanded {
+        // The reference renders the buffer in a code font; this app has one UI font, so the
+        // output is the same font at a smaller size in muted ink, recorded as a deviation.
+        body = body.push(
+            container(text(output.to_owned()).size(10).color(MUTED))
+                .width(Length::Fill)
+                .padding([2, 0]),
+        );
+    }
+    container(body).width(Length::Fill).into()
 }
 /// The display name for a permission preset. The reference takes it from the Host's
 /// catalog and falls back to a locale key; native has no catalog here yet, so the three

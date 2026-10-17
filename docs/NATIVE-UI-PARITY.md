@@ -3128,3 +3128,20 @@ vocabulary.**
    way I wrote it in round 151, when formatting had joined it — the **second** time an anchor has
    failed on formatting rather than on content, which is why the anchors that work are the short
    ones.
+
+   **The expansion's rendering is built and captured, and the attempt produced the reason the
+   worker comes first.** Each row now leads with the reference's chevron control — `▸` collapsed,
+   `▾` expanded, pressing either toggles that row — and an expanded row renders its buffer beneath
+   it in muted ink at a smaller size. `shots/84-jobs-output-expanded-dp2.png` shows the first row
+   open with **"… earlier output dropped …"** (the reference's own `output.gap`) above four lines
+   of output, and the three other rows collapsed with `▸`.
+   **The finding, and it changes the order of work:** an `output` frame carries **no job id**
+   (`JobFollowFrame::Output { chunks, next, lossy }`). The stream is per job
+   (`JobFollowRequest { jobId }`), so only the **worker** knows which row a frame belongs to —
+   which means the event must carry the job id, and the worker's follow stream has to exist
+   before any bytes can reach this buffer. That is the same reason the open belongs beside the
+   row's chevron rather than in the selection arm, and it is now recorded in the handler itself
+   besides here. Until then the buffer is filled only by the fixture, and the app's `Output` arm
+   says so rather than pretending.
+   The other stand-in: the reference renders output in a code font, and this app has one UI font,
+   so the buffer is that font at a smaller size.
