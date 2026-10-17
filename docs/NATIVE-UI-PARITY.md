@@ -38,9 +38,9 @@ point is the Host's canonical `/api/<namespace>/<method>` dispatcher, so adding 
 `dsh-native-transport` is in-bounds; what is out of bounds is rebuilding or forking the Host runtime
 in Rust. Keep coding without asking for permission. Queue edit/remove/steer, full-text content
 search, the goal bar (pause/resume/edit/clear), the per-turn usage detail and the **scheduled-tasks
-page** (catalog + delete + delivery history) now work end to end; the next items are schedule
-timing edits and the date/time pickers, then workspace open and the deliverables diff.
-Cross-session pending status is still unavailable from the present wires.
+page** (catalog + delete + delivery history) and the goal's **disarmed activation** now work end
+to end; the next items are schedule timing edits and the date/time pickers, then workspace open and
+the deliverables diff. Cross-session pending status is still unavailable from the present wires.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -5606,6 +5606,31 @@ unbuilt.
 | app, fixture | **0** | **1189 passed**, 1 ignored |
 | app, default | **0** | **1182 passed**, 1 ignored |
 | transport | **0** | **47 + 17 + 82 + 7** |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+### Round 290 — the goal's “Inactive Goal” activation
+
+**The goal bar now distinguishes an active-but-disarmed goal.** The Host's process-local
+`goal/activation-changed` event folds through `App::observe_goal_activation`: only the selected
+session's current goal identity/revision is stored, another session's update is ignored, and an
+absent goal clears the stored activation. An `active` goal whose activation is `disarmed` reads
+**“Inactive Goal”** (the reference's `phase.active.disarmed`); paused/blocked labels are unchanged.
+`shots/134-goal-inactive.png` shows the inactive label; the report is `status: passed`.
+
+One test covers the stored disarmed value, the other-session fence and the absent-goal clear. This
+supersedes the round-284 deliberate difference that said the disarmed label was unavailable; the
+durable projection still carries `phase` only, and the activation arrives on its own event.
+
+**Battery (round 290).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1190 passed**, 1 ignored |
+| app, default | **0** | **1183 passed**, 1 ignored |
+| transport | **0** | 47 + 17 + 82 + 7 (unchanged this round) |
 | core (`--lib`) | **0** | **112 passed** (unchanged) |
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |

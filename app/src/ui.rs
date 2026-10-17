@@ -806,6 +806,13 @@ pub struct App {
     schedule_delete: Option<(SessionId, String)>,
     /// The task with a delete in flight.
     schedule_busy: Option<String>,
+    /// The selected goal's process-local activation: (session, goal id, revision, activation).
+    goal_activation: Option<(
+        SessionId,
+        String,
+        u64,
+        dsh_native_transport::dto::GoalActivation,
+    )>,
     /// The task whose delivery history is open: (session binding, id).
     schedule_history: Option<(SessionId, String)>,
     schedule_history_page: Option<dsh_native_transport::dto::ScheduleHistory>,
@@ -1100,6 +1107,7 @@ impl App {
                 schedules_error: None,
                 schedule_delete: None,
                 schedule_busy: None,
+                goal_activation: None,
                 schedule_history: None,
                 schedule_history_page: None,
                 schedule_history_loading: false,
@@ -5350,6 +5358,11 @@ impl App {
                         }
                     }
                 }
+                "goal/activation-changed" => {
+                    if let Some(value) = args.first() {
+                        self.observe_goal_activation(value);
+                    }
+                }
                 "api-session/status" => {
                     if let (Some(id), Some(running)) = (
                         args.first()
@@ -5903,6 +5916,23 @@ impl App {
     pub(crate) fn mark_completion_unread(&mut self, id: &str) {
         if let Ok(id) = SessionId::new(id) {
             self.completion_unread.insert(id);
+        }
+    }
+
+    /// Fixture-only: mark the selected goal's process-local activation, which a real run
+    /// receives through `goal/activation-changed`.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn disarmed_goal_activation(&mut self) {
+        let Some(goal) = self.goal() else {
+            return;
+        };
+        if let Some(session) = self.selected.clone() {
+            self.goal_activation = Some((
+                session,
+                goal.reference.id,
+                goal.reference.revision,
+                dsh_native_transport::dto::GoalActivation::Disarmed,
+            ));
         }
     }
 
@@ -8002,6 +8032,39 @@ impl App {
             pending: self.plan_toggle_pending,
         }
     }
+    /// Fold one process-local activation update for the selected goal. A different session or
+    /// goal identity is ignored; an absent goal clears the stored activation.
+    fn observe_goal_activation(&mut self, value: &serde_json::Value) {
+        let Some(session) = value
+            .get("sessionId")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|id| SessionId::new(id).ok())
+        else {
+            return;
+        };
+        if self.selected.as_ref() != Some(&session) {
+            return;
+        }
+        let goal = value.get("goal").filter(|goal| !goal.is_null());
+        match goal {
+            Some(goal) => {
+                let (Some(id), Some(revision), Some(activation)) = (
+                    goal.get("id").and_then(serde_json::Value::as_str),
+                    goal.get("revision").and_then(serde_json::Value::as_u64),
+                    goal.get("activation")
+                        .cloned()
+                        .and_then(|value| serde_json::from_value(value).ok()),
+                ) else {
+                    return;
+                };
+                if id.is_empty() || id.len() > 256 || revision == 0 {
+                    return;
+                }
+                self.goal_activation = Some((session, id.to_owned(), revision, activation));
+            }
+            None => self.goal_activation = None,
+        }
+    }
     /// The selected session's current goal, from its own `goal` projection.
     fn goal(&self) -> Option<crate::goal_ui::Goal> {
         self.transcript
@@ -8134,7 +8197,27 @@ impl App {
             }
             bar = bar.push(
                 row![
-                    label(crate::goal_ui::phase_label(goal.phase), MUTED).size(10),
+                    label(
+                        match (&self.goal_activation, goal.phase) {
+                            (
+                                Some((
+                                    session,
+                                    id,
+                                    revision,
+                                    dsh_native_transport::dto::GoalActivation::Disarmed,
+                                )),
+                                dsh_native_transport::dto::GoalPhase::Active,
+                            ) if self.selected.as_ref() == Some(session)
+                                && id == &goal.reference.id
+                                && *revision == goal.reference.revision =>
+                            {
+                                "Inactive Goal"
+                            }
+                            _ => crate::goal_ui::phase_label(goal.phase),
+                        },
+                        MUTED,
+                    )
+                    .size(10),
                     label(short(&goal.objective, 80), TEXT)
                         .size(12)
                         .width(Length::Fill),
@@ -14651,6 +14734,36 @@ mod tests {
         }));
         assert!(app.schedules.is_empty());
         assert!(app.schedule_busy.is_none());
+    }
+    #[test]
+    fn goal_activation_is_fenced_to_the_selected_goal() {
+        use dsh_native_transport::dto::GoalActivation;
+        let (mut app, _receiver) = managed_app();
+        let selected = app.selected.clone().unwrap();
+        app.observe_goal_activation(&serde_json::json!({
+            "sessionId": selected.as_str(),
+            "goal": {"id":"PUBLIC-goal","revision":2,"activation":"disarmed"}
+        }));
+        assert_eq!(
+            app.goal_activation
+                .as_ref()
+                .map(|(_, id, revision, activation)| (id.as_str(), *revision, *activation)),
+            Some(("PUBLIC-goal", 2, GoalActivation::Disarmed))
+        );
+        // Another session's update is ignored.
+        app.observe_goal_activation(&serde_json::json!({
+            "sessionId": "PUBLIC-other",
+            "goal": {"id":"PUBLIC-goal","revision":2,"activation":"armed"}
+        }));
+        assert_eq!(
+            app.goal_activation
+                .as_ref()
+                .map(|(_, _, _, activation)| *activation),
+            Some(GoalActivation::Disarmed)
+        );
+        // An absent goal clears it.
+        app.observe_goal_activation(&serde_json::json!({"sessionId": selected.as_str()}));
+        assert!(app.goal_activation.is_none());
     }
     #[test]
     fn schedule_history_opens_fetches_and_closes() {

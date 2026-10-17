@@ -198,6 +198,8 @@ struct Options {
     schedule_delete: bool,
     /// Open the first scheduled task's delivery history.
     schedule_history: bool,
+    /// Mark the goal's activation disarmed.
+    goal_inactive: bool,
     /// Open the shortcuts disclosure, so its rows are captured.
     shortcuts: bool,
 }
@@ -311,6 +313,7 @@ fn options() -> Result<Options, &'static str> {
             "--goal-clear",
             "--schedule-delete",
             "--schedule-history",
+            "--goal-inactive",
             "--agent-seat-error",
             "--settings",
             "--scrolled-away",
@@ -470,6 +473,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         schedule_history: match values.remove("--schedule-history") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        goal_inactive: match values.remove("--goal-inactive") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -870,6 +877,9 @@ impl Fixture {
         }
         if options.schedule_history {
             app.open_schedule_history();
+        }
+        if options.goal_inactive {
+            app.disarmed_goal_activation();
         }
         if options.scrolled_away {
             app.set_scrolled_away(true);
