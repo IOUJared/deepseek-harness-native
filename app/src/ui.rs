@@ -737,6 +737,13 @@ struct WidthDrag {
     origin_x: Option<f32>,
     moved: bool,
 }
+/// One turn's changed-file summary read state.
+enum ChangesState {
+    Loading,
+    Ready(dsh_native_transport::dto::ChangesSummary),
+    Missing,
+}
+
 /// The inline schedule editor: the complete expected record plus the title, instruction and
 /// timing drafts for the record's kind.
 #[derive(Clone)]
@@ -917,6 +924,10 @@ pub struct App {
     schedule_delete: Option<(SessionId, String)>,
     /// The task with a delete in flight.
     schedule_busy: Option<String>,
+    /// Changed-file summaries by announcing seq.
+    changes: std::collections::BTreeMap<u64, ChangesState>,
+    /// The public fixture disables background reads it cannot answer.
+    background_reads_disabled: bool,
     /// The inline schedule editor.
     schedule_edit: Option<ScheduleEdit>,
     /// The selected goal's process-local activation: (session, goal id, revision, activation).
@@ -1222,6 +1233,8 @@ impl App {
                 schedules_error: None,
                 schedule_delete: None,
                 schedule_busy: None,
+                changes: Default::default(),
+                background_reads_disabled: false,
                 schedule_edit: None,
                 goal_activation: None,
                 schedule_history: None,
@@ -2312,6 +2325,7 @@ impl App {
         self.mcp.dismiss();
         self.exporter.dismiss();
         self.selected = Some(session.clone());
+        self.changes.clear();
         self.completion_unread.remove(&session);
         self.generation += 1;
         self.transcript = Transcript::new(self.generation);
@@ -4772,6 +4786,13 @@ impl App {
                     }
                 }
             }
+            Event::ChangesLoaded { seq, result } => {
+                let state = match result {
+                    Ok(summary) => ChangesState::Ready(summary),
+                    Err(_) => ChangesState::Missing,
+                };
+                self.changes.insert(seq, state);
+            }
             Event::SchedulesLoaded(result) => {
                 self.schedules_loading = false;
                 match result {
@@ -5663,6 +5684,7 @@ impl App {
                 // the projection the frame carries, so no round trip is needed
                 // to know whether this Host mounts plan mode.
                 self.plan_published = Some(plan_mode::published(self.transcript.projections()));
+                self.request_changes();
             }
             Err(error) => {
                 self.files.invalidate();
@@ -6287,6 +6309,45 @@ impl App {
         if let Ok(id) = SessionId::new(id) {
             self.completion_unread.insert(id);
         }
+    }
+
+    /// Fixture-only: stop background reads the fixture cannot answer.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn disable_background_reads(&mut self) {
+        self.background_reads_disabled = true;
+    }
+
+    /// Fixture-only: seed one ready changed-file summary, which a real run reads from
+    /// `/api/changes.summary`.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn seed_changes_summary(&mut self) {
+        self.changes.insert(
+            2,
+            ChangesState::Ready(dsh_native_transport::dto::ChangesSummary {
+                turn: 1,
+                total: 2,
+                added: 9,
+                deleted: 3,
+                files: vec![
+                    dsh_native_transport::dto::ChangedFile {
+                        path: "src/main.rs".into(),
+                        display: "src/main.rs".into(),
+                        added: 7,
+                        deleted: 1,
+                        binary: false,
+                        oversized: false,
+                    },
+                    dsh_native_transport::dto::ChangedFile {
+                        path: "src/lib.rs".into(),
+                        display: "src/lib.rs".into(),
+                        added: 2,
+                        deleted: 2,
+                        binary: false,
+                        oversized: false,
+                    },
+                ],
+            }),
+        );
     }
 
     /// Fixture-only: begin editing the first scheduled task, which a real run starts by press.
@@ -8446,6 +8507,38 @@ impl App {
             None => self.goal_activation = None,
         }
     }
+    /// Ask for every new `workspace/changes` summary, bounded to 64 outstanding reads.
+    fn request_changes(&mut self) {
+        // The public fixture seeds its summary and must not dispatch a read it cannot answer.
+        if self.options.smoke.is_some() || self.background_reads_disabled {
+            return;
+        }
+        let Some(session) = self.selected.clone() else {
+            return;
+        };
+        for (_, seq) in self.transcript.changes_events().into_iter().take(64) {
+            if self.changes.contains_key(&seq) {
+                continue;
+            }
+            self.changes.insert(seq, ChangesState::Loading);
+            self.command(worker::Command::ChangesSummary {
+                session: session.clone(),
+                seq,
+            });
+        }
+    }
+    /// The one-line changed-files reading for a reply's turn, when its summary is ready.
+    fn changes_line(&self, row: &DisplayRow) -> Option<String> {
+        let turn = row.turn?;
+        let seq = self.transcript.changes_seq(turn)?;
+        match self.changes.get(&seq)? {
+            ChangesState::Ready(summary) if !summary.files.is_empty() => Some(format!(
+                "Changed files · {} files · +{} −{}",
+                summary.total, summary.added, summary.deleted
+            )),
+            _ => None,
+        }
+    }
     /// The selected session's current goal, from its own `goal` projection.
     fn goal(&self) -> Option<crate::goal_ui::Goal> {
         self.transcript
@@ -10339,6 +10432,7 @@ impl App {
             text,
             files: Vec::new(),
             references: Vec::new(),
+            turn: None,
             trigger: None,
             time: 0,
             surface: false,
@@ -10453,10 +10547,19 @@ impl App {
             } else {
                 0.0
             };
+            let changes = if self.changes_line(row).is_some() {
+                design::content_secondary(self.content_font_size).max(12.0) + 2.0
+            } else {
+                0.0
+            };
             return chat_geometry::Geometry {
                 width,
                 body_height,
-                height: chat_geometry::chrome_height(&row.role) + body_height + actions + usage,
+                height: chat_geometry::chrome_height(&row.role)
+                    + body_height
+                    + actions
+                    + usage
+                    + changes,
             };
         }
         let mut geometry = self.chat_geometry.geometry(
@@ -10565,6 +10668,7 @@ impl App {
                     text,
                     files: Vec::new(),
                     references: Vec::new(),
+                    turn: None,
                     trigger: None,
                     time: 0,
                     surface: false,
@@ -10701,6 +10805,7 @@ impl App {
             text,
             files: Vec::new(),
             references: Vec::new(),
+            turn: None,
             trigger: None,
             time: 0,
             surface: false,
@@ -11168,6 +11273,9 @@ impl App {
                         if let Some(detail) = &usage_detail {
                             assembled = assembled.push(label(short(detail, 160), MUTED).size(10));
                         }
+                        if let Some(line) = self.changes_line(record) {
+                            assembled = assembled.push(label(short(&line, 120), MUTED).size(10));
+                        }
                         assembled.align_x(iced::Alignment::End).into()
                     } else {
                         let mut assembled = card
@@ -11176,6 +11284,9 @@ impl App {
                             .push(footer);
                         if let Some(detail) = &usage_detail {
                             assembled = assembled.push(label(short(detail, 160), MUTED).size(10));
+                        }
+                        if let Some(line) = self.changes_line(record) {
+                            assembled = assembled.push(label(short(&line, 120), MUTED).size(10));
                         }
                         container(assembled)
                             .padding([10, 14])
@@ -14526,6 +14637,7 @@ mod tests {
             text: "fixture".into(),
             files: Vec::new(),
             references: Vec::new(),
+            turn: None,
             trigger: None,
             time: 1000,
             surface: false,

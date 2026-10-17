@@ -113,6 +113,7 @@ pub const PRESETS: &[&str] = &[
     "information-expanded",
     "work-panel",
     "schedules",
+    "changes-card",
     "context-pressure",
     "context-pressure-risk",
     "context-management",
@@ -266,6 +267,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "information-expanded"
         | "work-panel"
         | "schedules"
+        | "changes-card"
         | "context-pressure"
         | "context-pressure-risk"
         | "context-management"
@@ -764,6 +766,7 @@ pub fn build(
     drop((events, closing));
     let (mut app, boot_task) = App::boot(options, handle, feed);
     drop(boot_task);
+    app.disable_background_reads();
     // A fixture may render the transcript at any content size the control offers,
     // so a scaled run is reproducible without writing a preference file.
     if let Some(content_size) = content_size {
@@ -1045,6 +1048,18 @@ pub fn build(
                     "stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],
                         "texts":["PUBLIC synthetic answer; the token reading is a projection, not billing."]}]}}}),
         ]
+    } else if preset == "changes-card" {
+        vec![
+            json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
+                "surfaceOp":"append","data":{"role":"user","id":"PUBLIC-changes-message",
+                    "source":{"kind":"user"},"content":[{"type":"text","text":"PUBLIC turn with changed files."}]}}}),
+            json!({"type":"event","event":{"type":"assistant/message","seq":1,"time":1001,
+                "surfaceOp":"append","data":{"turn":1,"step":1,
+                    "stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],
+                        "texts":["PUBLIC synthetic answer whose turn changed two files."]}]}}}),
+            json!({"type":"event","event":{"type":"workspace/changes","seq":2,"time":1002,
+                "data":{"turn":1}}}),
+        ]
     } else if preset == "turn-trigger" {
         vec![
             json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
@@ -1130,6 +1145,9 @@ pub fn build(
         let ticket = app.reply_parts(7).unwrap().ticket.unwrap();
         drop(app.update(Message::ToggleThoughts(ticket)));
         assert!(app.thoughts_expanded.contains(&7));
+    }
+    if preset == "changes-card" {
+        app.seed_changes_summary();
     }
     if preset == "schedules" {
         app.schedules_open = true;
@@ -2018,7 +2036,7 @@ pub fn metadata(app: &App, preset: &str) -> Value {
         "reasoningStateMatchesPreset":app.chosen_model.as_ref().is_some_and(|m| !m.efforts.is_empty()) == reasoning_expected,
         "durablePublicRecordCount":app.transcript.rows().len(),
         "durablePublicSnapshotCursor":app.transcript.opening_cursor(),
-        "conversationSnapshotSimulated":matches!(preset, "conversation" | "inbox-canceled") || preset.starts_with("tool-activity"),
+        "conversationSnapshotSimulated":matches!(preset, "conversation" | "inbox-canceled" | "changes-card") || preset.starts_with("tool-activity"),
         "displayedPublicRecordCount":app.transcript.display_rows(app.records_expanded).count(),
         "canceledInboxHeadingExpected":preset == "inbox-canceled",
         "publicToolSnapshotSimulated":preset.starts_with("tool-activity"),

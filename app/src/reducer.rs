@@ -60,6 +60,8 @@ pub struct DisplayRow {
     /// `Referenced session · labels` (`ui-chat/src/client/chat/MessageItem.tsx:225-229`,
     /// labels from `conversation-nodes/event-projection.ts:83-87`).
     pub references: Vec<String>,
+    /// The turn this assistant record belongs to, when the event carries one.
+    pub turn: Option<u64>,
     /// A non-human source that began this turn, drawn as the reference's trigger
     /// notice instead of a user bubble; `None` for human history.
     pub trigger: Option<presentation::Trigger>,
@@ -141,6 +143,27 @@ impl Transcript {
     /// One assistant record's accounting rows, when its usage carries any bucket.
     pub fn turn_usage_detail(&self, key: u64) -> Option<crate::ui::chat_usage::TurnUsageDetail> {
         crate::ui::chat_usage::turn_usage_detail(self.records.get(&key)?)
+    }
+    /// Every `workspace/changes` record as `(turn, seq)`, in log order.
+    pub fn changes_events(&self) -> Vec<(u64, u64)> {
+        self.records
+            .values()
+            .filter(|event| event.event_type == "workspace/changes")
+            .filter_map(|event| {
+                event
+                    .data
+                    .get("turn")
+                    .and_then(serde_json::Value::as_u64)
+                    .map(|turn| (turn, event.seq))
+            })
+            .collect()
+    }
+    /// The announcing `workspace/changes` seq for one turn, if any.
+    pub fn changes_seq(&self, turn: u64) -> Option<u64> {
+        self.changes_events()
+            .into_iter()
+            .find(|(candidate, _)| *candidate == turn)
+            .map(|(_, seq)| seq)
     }
     /// The whole-log decode speed from the retained assistant records.
     pub fn decode_speed(&self) -> Option<String> {
@@ -744,6 +767,7 @@ impl Transcript {
                 text: bounded(&text, MAX_DISPLAY_BYTES),
                 files,
                 references: Vec::new(),
+                turn: event.data["turn"].as_u64(),
                 trigger,
                 time: event.time,
                 surface,

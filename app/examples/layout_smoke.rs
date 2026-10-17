@@ -974,6 +974,7 @@ impl Fixture {
                 worker::Command::Search { .. } => "Search",
                 worker::Command::Goal { .. } => "Goal",
                 worker::Command::ScheduleCatalog => "ScheduleCatalog",
+                worker::Command::ChangesSummary { .. } => "ChangesSummary",
                 worker::Command::ScheduleDelete { .. } => "ScheduleDelete",
                 worker::Command::ScheduleHistory { .. } => "ScheduleHistory",
                 worker::Command::ScheduleUpdate { .. } => "ScheduleUpdate",

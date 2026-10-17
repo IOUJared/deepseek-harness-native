@@ -39,9 +39,10 @@ point is the Host's canonical `/api/<namespace>/<method>` dispatcher, so adding 
 in Rust. Keep coding without asking for permission. Queue edit/remove/steer, full-text content
 search, the goal bar (pause/resume/edit/clear), the per-turn usage detail and the **scheduled-tasks
 page** (catalog + delete + delivery history + title/instruction/timing edit) and the goal's
-**disarmed activation** now work end to end, including a timing-kind selector; the next items are
-the reference's **date/time picker popovers**, then workspace open and the deliverables diff.
-Cross-session pending status is still unavailable from the present wires.
+**disarmed activation**, the timing-kind selector and a **changed-files summary line** now work end
+to end; the next items are the reference's **changed-file list and diff viewer** (plus its date/time
+picker popovers), then workspace open. Cross-session pending status is still unavailable from the
+present wires.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -5781,3 +5782,35 @@ summary and four malformed shapes; the transport gate is **50 + 17 + 82 + 7**.
 
 No changed-files card exists in Chat yet; that is the next item. The diff route and the open action
 are not built.
+
+### Round 297 — the changed-files summary line
+
+**A reply whose turn announced `workspace/changes` now carries the reference's change summary.**
+After each follow frame the app asks for every new announcing seq's
+`/api/changes.summary`, bounded to 64 outstanding reads, and a ready summary draws
+**Changed files · N files · +A −D** under the assistant footer. The row geometry reserves that line
+so the fixed transcript height does not clip it; a missing or failed read draws nothing. The public
+fixture disables these background reads and seeds a ready summary, so its captures stay zero-command.
+`shots/136-changes-card.png` shows **“Changed files · 2 files · +9 −3”** under the reply; the report
+is `status: passed`.
+
+The transport read landed in round 296; this round adds the app fetch/state and the line. No app-level
+test covers the fetch dispatch yet — the transport parser and the fixture rendering are the evidence,
+and that gap is recorded rather than overstated.
+
+**Deliberate limits.** The reference's deliverables card expands to a file list with per-file
+counts, opens a comparison diff and a review tab, and is gated on developer tools; native draws the
+summary line only. The listing/diff/open action and the developer-tools gate are not built. The
+live GET path is unverified (the parser is unit-tested; the fixture bypasses the read).
+
+**Battery (round 297).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1194 passed**, 1 ignored |
+| app, default | **0** | **1187 passed**, 1 ignored |
+| transport | **0** | **50 + 17 + 82 + 7** |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |

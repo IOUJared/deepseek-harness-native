@@ -74,6 +74,11 @@ pub enum Command {
     },
     /// Mutate one pending queue item (edit, remove or steer).
     UpdateQueue(crate::queue_update::Submission),
+    /// Read one turn's changed-file summary.
+    ChangesSummary {
+        session: dsh_native_transport::dto::SessionId,
+        seq: u64,
+    },
     /// Read the Host's whole schedule catalog.
     ScheduleCatalog,
     /// Delete one schedule inside its original session binding.
@@ -208,6 +213,10 @@ pub enum Event {
     GoalUpdated {
         session: dsh_native_transport::dto::SessionId,
         result: Result<(), String>,
+    },
+    ChangesLoaded {
+        seq: u64,
+        result: Result<dsh_native_transport::dto::ChangesSummary, String>,
     },
     SchedulesLoaded(Result<Vec<dsh_native_transport::dto::ScheduleCatalogItem>, String>),
     ScheduleDeleted {
@@ -857,6 +866,10 @@ fn rejected(command: Command) -> Event {
         Command::AgentPresetsRead => Event::AgentPresets(Err(error)),
         Command::AgentPresetSelect { .. } => Event::AgentPresetSelected(Err(error)),
         Command::JobKill { .. } => Event::JobKilled(Err(error)),
+        Command::ChangesSummary { seq, .. } => Event::ChangesLoaded {
+            seq,
+            result: Err(error),
+        },
         Command::ScheduleCatalog => Event::SchedulesLoaded(Err(error)),
         Command::ScheduleDelete { session, id } => Event::ScheduleDeleted {
             session,
@@ -2405,6 +2418,10 @@ async fn run(
                     Command::Create{workspace,cwd}=>Event::Created(client.session_create(SessionCreateRequest{workspace_id:workspace,cwd,..Default::default()}).await.map_err(|e|format!("New session: {e}"))),
                     Command::AgentPresetSelect{session,preset}=>Event::AgentPresetSelected(client.agent_preset_select(&session,&preset).await.map_err(|error|format!("Agent preset: {error}"))),
                     Command::JobKill{session,job}=>Event::JobKilled(client.job_kill(session.as_str(),&job).await.map_err(|error|format!("Job kill: {error}"))),
+                    Command::ChangesSummary{session,seq}=>Event::ChangesLoaded{
+                        seq,
+                        result:client.changes_summary(&session,seq).await.map_err(|error|format!("Changed files: {error}")),
+                    },
                     Command::ScheduleCatalog=>Event::SchedulesLoaded(client.schedule_catalog().await.map_err(|error|format!("Schedules: {error}"))),
                     Command::ScheduleDelete{session,id}=>{
                         let result=client.schedule_delete(&session,&id).await.map_err(|error|format!("Schedule delete: {error}"));
