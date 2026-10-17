@@ -3482,3 +3482,28 @@ the five above rather than missing work.
    binding answers, and `conflict` compares against every binding of every other command.
    That is the next step, and it is the last design question in the store: every other operation,
    rule and string the editor needs is already in tested code.
+
+   **The multi-binding change has a complete, read patch map — every site and its current text.**
+   One abort-safe attempt (asserts before the single write, so a missed anchor changes nothing)
+   stopped at `default_of`, whose body formatting had moved since round 196. Reading the module's
+   consumers afterwards produced the full list, which is the artifact the next attempt needs:
+   - `Entry` (`:32`, `:40`): `default` and `binding` become `Vec<Binding>`;
+   - `Store::new`: takes `(String, Vec<Binding>)` and seeds both fields from one list;
+   - `binding(id)` (`:90`): becomes `bindings(id) -> Option<&[Binding]>`;
+   - the iterator (`:97`): becomes `all() -> (&str, &[Binding])`;
+   - `apply` (`:118-119`): a `set` **replaces the whole list** — which is what the reference's
+     editor does — and `reset` clones the default list;
+   - `reset_all` (`:140`) and `default_of` (`:149-152`, whose real body is
+     `self.entries.get(id).and_then(|entry| entry.default.as_ref())` across three lines);
+   - `conflict` (`:159`): answers if **any** held binding of another command matches;
+   - `rows` (`:327`, `:334`) and `modified_count` (`:363`): compare slices, and a row's `keys`
+     become `describe_all` — the bindings joined with `" / "`, which is exactly what native's own
+     list already prints as "Enter / Ctrl+Enter";
+   - `describe` (`:368`) stays single-binding; `matches` (`:262`) stays per-binding and `resolve`
+     (`:276`) becomes `.any()` over the command's list;
+   - five test sites (`:423`, `:439`, `:450`, `:468`, `:660`) change from `store.binding(id)`
+     equal to `Some(Some(&…))` / `Some(None)` to slice comparisons, where **an empty slice is the
+     cleared state**.
+   That is every edit the change needs, each with the text it will be applied to. What it is *not*
+   is written — the attempt above reverted to a clean tree with fifteen tests still passing, and
+   the next round should apply these from the file rather than from this list alone.
