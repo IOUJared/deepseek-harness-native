@@ -134,6 +134,10 @@ impl Transcript {
         &self.rows
     }
     /// The projections that describe this retained window.
+    /// The whole-log decode speed from the retained assistant records.
+    pub fn decode_speed(&self) -> Option<String> {
+        crate::ui::chat_usage::decode_speed(self.records.values())
+    }
     /// The next-turn queue as the composer's dock draws it, rebuilt from the retained inbox
     /// splices. Read-only; the reducer keeps the same records for the chat rows.
     pub fn queued(&self) -> Vec<crate::queue_dock::Item> {

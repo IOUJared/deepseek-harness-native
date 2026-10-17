@@ -7907,7 +7907,24 @@ impl App {
         if let Some(plan) = plan {
             metadata = metadata.push(label(short(&plan, 60), MUTED).size(10));
         }
-        metadata = metadata.push(label(context.line.clone(), severity_color).size(10));
+        // The reference's compact stats pill (`StatsPills.tsx:281-300`): whole-log tokens
+        // and cache-hit share, from the same `tokenUsage` projection the catalog rows read.
+        // A whole-log reading is a usage line in its own right, so it stands in for the
+        // plain "Usage unavailable" label rather than sitting beside it.
+        let token_reading = chat_usage::token_reading(self.transcript.projections());
+        if let Some(reading) = &token_reading {
+            let mut text = format!("{} tok", subagent_catalog::format_tokens(reading.total));
+            if let Some(percent) = &reading.cache_hit {
+                text.push_str(&format!(" · Cache hit {percent}%"));
+            }
+            if let Some(speed) = self.transcript.decode_speed() {
+                text.push_str(&format!(" · {speed}"));
+            }
+            metadata = metadata.push(label(text, MUTED).size(10));
+        }
+        if token_reading.is_none() || context.line != chat_usage::UNAVAILABLE {
+            metadata = metadata.push(label(context.line.clone(), severity_color).size(10));
+        }
         if !context.detail.is_empty() {
             metadata = metadata.push(
                 button(

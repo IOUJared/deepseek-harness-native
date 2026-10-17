@@ -57,6 +57,7 @@ pub const PRESETS: &[&str] = &[
     "working-conversation",
     "working-queue",
     "turn-trigger",
+    "token-usage",
     "working-phase-6",
     "working-narrow",
     "chat-submitted",
@@ -210,6 +211,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "working-conversation"
         | "working-queue"
         | "turn-trigger"
+        | "token-usage"
         | "working-phase-6"
         | "subagent-trail"
         | "subagent-catalog"
@@ -1026,6 +1028,17 @@ pub fn build(
                 json!({"type":"event","event":{"type":"assistant/message","seq":seq,"time":1000+seq,"surfaceOp":"append","data":{"turn":1,"step":1,"stream":[{"type":"text-chunks","time0":1000+seq,"index":0,"dt":[],"texts":[text]}]}}})
             }
         }).collect()
+    } else if preset == "token-usage" {
+        vec![
+            json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
+                "surfaceOp":"append","data":{"role":"user","id":"PUBLIC-usage-message",
+                    "source":{"kind":"user"},"content":[{"type":"text","text":"PUBLIC usage reading without a live Host."}]}}}),
+            json!({"type":"event","event":{"type":"assistant/message","seq":1,"time":3001,
+                "surfaceOp":"append","data":{"turn":1,"step":1,
+                    "usage":{"outputTokens":345},
+                    "stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],
+                        "texts":["PUBLIC synthetic answer; the token reading is a projection, not billing."]}]}}}),
+        ]
     } else if preset == "turn-trigger" {
         vec![
             json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
@@ -1069,6 +1082,10 @@ pub fn build(
         "plan-mode" => json!({"plan":{"active":true,"pending":false}}),
         "plan-mode-applying" => json!({"plan":{"active":true,"pending":true}}),
         "plan-mode-leaving" => json!({"plan":{"active":false,"pending":true}}),
+        "token-usage" => json!({"tokenUsage":{
+            "uncachedInputTokens":6000,"outputTokens":345,
+            "cacheReadTokens":6000,"cacheWriteTokens":0
+        }}),
         "working-queue" => json!({"inbox":{"next-turn":[
             {"id":"PUBLIC-queued-one","source":{"kind":"user"},
                 "content":[{"type":"text","text":"PUBLIC queued question about the running turn."}]},

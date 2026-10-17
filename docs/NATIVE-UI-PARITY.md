@@ -17,8 +17,9 @@ the sidebar's **subagent rows and running-child count** (`shots/107-…`); the c
 (`shots/110-…`, `111-…`); the selected row's **pending-interaction status** (`shots/112-…`); the
 **busy-state Enter preference** with text steering (`shots/113-…`, `114-…`) and a read-only
 **queue dock** (`shots/115-…`, `116-…`); **branching at a reply** (`shots/117-…`); **turn-trigger
-notices** (`shots/118-…`, `119-…`); the sidebar's **completion-unread marker** (`shots/120-…`); and
-**keys as data**, so the store's five commands drive the live chain instead of a hardcoded map.
+notices** (`shots/118-…`, `119-…`); the sidebar's **completion-unread marker** (`shots/120-…`); the
+composer's **token/cache/speed reading** (`shots/121-…`); and **keys as data**, so the store's five
+commands drive the live chain instead of a hardcoded map.
 
 **Read this before trusting the list above.** Round 257 found that the editor's per-row actions,
 the permission default row and eight Host-event handlers were **unreachable behind two catch-all
@@ -31,16 +32,15 @@ same shape in the `Ctrl+/` trigger: it opened the account page and the open path
 disclosure, so the editor was never shown; the trigger's "captured" evidence had gone through the
 fixture's direct `set_settings_open`, not the press.
 
-**Next, in one step:** the remaining **unblocked** conversation surface, the composer's usage/stats
-reading. Native's line already carries the context tier; the reference's compact stats pill adds
-in-window token totals and cache-hit share, which native may be able to read from the same
-`tokenUsage` projection the catalog metrics use. Before drawing it, confirm the projection is served
-on the selected session (not only on child summaries) and size the speed figure separately, since it
-needs recorded timings. Two items are now blocked and must not be half-built: queue item actions
-need the Host's `session/updateQueue` **Remote channel**, which native's transport does not carry
-(a new wire path, not a view change), and `@` mentions need atomic reference chips, which Iced's
-`text_editor` cannot model (the inline-chip limit). The settings/rename editable menu is blocked the
-same way.
+**Next, in one step:** the **blocked/open inventory**, because the unblocked conversation surface is
+now thin. The composer stats are in compact form only; the reference's detailed dialog (turns,
+steps, LLM/tool wall time, exact token buckets) is derivable from retained events but is a larger
+view, and its speed/turn data is only as good as recorded step times. The transport-blocked items
+(queue edit/remove/steer, goal mutations, schedules, the deliverables diff, cross-session pending
+status) all need Host Remote channels native does not carry; the Iced-blocked items (`@` reference
+chips, inline-code chips, the settings/rename editable menu, drawn icons) all need editor
+decorations or a drawing layer. The four user-only items are unchanged. Do not half-build any of
+them.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -5209,3 +5209,42 @@ the selected session's decisions.
 One test was added: `a_background_stop_is_unread_until_its_session_is_selected` (mark, clear on a new
 run, clear on selection, and no marker for the selected session's own stop). The
 `--completion-unread` fixture flag seeds the marker for the capture.
+
+### Round 275 — the composer's compact token, cache and speed reading
+
+**The composer's metadata line now carries the reference's three compact stat readings.** A
+`tokenUsage` projection supplies the whole-log token total (every prompt-side billing bucket plus
+output) and the cache-hit share of billed input; the durable assistant records supply decode speed
+from the first streamed chunk to the message. The line reads
+**"12.3K tok · Cache hit 50% · 173 tok/s"** (`shots/121-composer-token-usage.png`, report
+`status: passed`). The whole-log reading stands in for the plain "Usage unavailable" label when the
+context reading is absent, so the two never sit beside each other.
+
+Numeric rules follow the reference where native can: the total is four checked buckets; a cache hit
+of 100 is reserved for a full hit, integer percent comes first and one decimal is used before the
+capped `99.9`, so a near-full cache never displays a false 100; speed rounds to whole above 10 and
+to one decimal below. Malformed or partial usage yields no reading; a step missing either tokens or
+the chunk span is skipped rather than guessed.
+
+**Deliberate differences.** This is a plain text line in the metadata row, not a separate pill with
+an icon, hover dialog or detailed mode; there are no turn/step counts, LLM/tool wall times, exact
+bucket rows or TTFT rows, which would need a larger dialog and are not claimed. Speed aggregates
+durable `assistant/message` records only (not partial attempts), so it can differ from the
+reference's window fold. The `tokenUsage` projection is **seeded in the fixture**; its arrival from
+a live Host list is not observed, the same caveat as the catalog metrics.
+
+**Battery (round 275).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1180 passed**, 1 ignored |
+| app, default | **0** | **1173 passed**, 1 ignored |
+| transport | **0** | 38 + 17 + 82 + 7 (unchanged, no transport edit) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+Two tests were added: `the_token_reading_sums_the_buckets_and_never_rounds_a_near_full_cache_to_100`
+and `decode_speed_sums_durable_steps_and_skips_records_without_both_readings`. The `token-usage`
+preset seeds the projection and one timed assistant step for the capture.

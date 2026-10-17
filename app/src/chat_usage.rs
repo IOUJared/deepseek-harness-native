@@ -5,7 +5,8 @@ use std::collections::BTreeMap;
 
 const MAX_COUNT: u64 = 9_007_199_254_740_991;
 const MAX_RECORDS: usize = 4096;
-const UNAVAILABLE: &str = "Usage unavailable";
+/// The plain label when neither a context reading nor a whole-log usage is available.
+pub const UNAVAILABLE: &str = "Usage unavailable";
 
 #[derive(Clone, PartialEq, Eq)]
 struct Route<'a> {
@@ -317,6 +318,112 @@ pub fn describe<'a>(
 /// tier that colours it and bounded disclosure entries. A last-request or
 /// unavailable line keeps [`Severity::Normal`] and stays undisclosed, so the app
 /// warns only where a real window and occupancy are both known.
+/// The whole-log token reading the reference's stats pill shows: every prompt-side billing
+/// bucket plus output, and the cache-hit share of the billed input
+/// (`StatsPills.tsx:281-300`). Absent when the projection is missing, malformed or has no
+/// billed activity. Speed is deliberately absent: it needs recorded timings this app does
+/// not carry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TokenReading {
+    pub total: u64,
+    pub cache_hit: Option<String>,
+}
+
+pub fn token_reading(projections: &BTreeMap<String, Value>) -> Option<TokenReading> {
+    let usage = projections.get("tokenUsage")?.as_object()?;
+    let uncached = field(usage, "uncachedInputTokens").ok()??;
+    let output = field(usage, "outputTokens").ok()??;
+    let cached = field(usage, "cacheReadTokens").ok()??;
+    let written = field(usage, "cacheWriteTokens").ok()??;
+    let billed = sum(&[uncached, cached, written])?;
+    let total = sum(&[billed, output])?;
+    if billed == 0 && output == 0 {
+        return None;
+    }
+    Some(TokenReading {
+        total,
+        cache_hit: cache_hit(cached, billed),
+    })
+}
+
+/// The reference never rounds a near-full cache to a false 100: integer percent first, then
+/// one decimal, and a capped `99.9` for the remaining edge.
+fn cache_hit(cached: u64, billed: u64) -> Option<String> {
+    if billed == 0 {
+        return None;
+    }
+    if cached == billed {
+        return Some("100".into());
+    }
+    let rounded = |scale: u128| -> u128 {
+        (u128::from(cached) * 100 * scale + u128::from(billed) / 2) / u128::from(billed)
+    };
+    if rounded(1) < 100 {
+        return Some(rounded(1).to_string());
+    }
+    if rounded(10) < 1000 {
+        let units = rounded(10);
+        return Some(format!("{}.{}", units / 10, units % 10));
+    }
+    Some("99.9".into())
+}
+
+/// The whole-log decode speed the reference's activity pill shows
+/// (`StatsPills.tsx:166-170`): output tokens over the span from the first streamed chunk to
+/// the assistant message. Only durable `assistant/message` records count, and a record
+/// without a usable time/token pair is skipped rather than guessed. `None` when no step
+/// carries both, or the span is zero.
+pub fn decode_speed<'a>(records: impl Iterator<Item = &'a SessionWireEvent>) -> Option<String> {
+    let mut decode_ms = 0u64;
+    let mut tokens = 0u64;
+    for event in records {
+        if event.event_type != "assistant/message" {
+            continue;
+        }
+        let Some(output) = event
+            .data
+            .get("usage")
+            .and_then(|usage| usage.get("outputTokens"))
+            .and_then(Value::as_u64)
+        else {
+            continue;
+        };
+        let Some(first) = event
+            .data
+            .get("stream")
+            .and_then(Value::as_array)
+            .and_then(|stream| {
+                stream
+                    .iter()
+                    .find_map(|chunk| chunk.get("time0").and_then(Value::as_i64))
+            })
+        else {
+            continue;
+        };
+        let completed = event.time;
+        if completed <= first {
+            continue;
+        }
+        let Some(next_ms) = decode_ms.checked_add((completed - first) as u64) else {
+            return None;
+        };
+        let Some(next_tokens) = tokens.checked_add(output) else {
+            return None;
+        };
+        decode_ms = next_ms;
+        tokens = next_tokens;
+    }
+    if decode_ms == 0 || tokens == 0 || tokens > MAX_COUNT {
+        return None;
+    }
+    let tps = tokens as f64 / (decode_ms as f64 / 1000.0);
+    Some(if tps >= 10.0 {
+        format!("{} tok/s", tps.round() as u64)
+    } else {
+        format!("{:.1} tok/s", (tps * 10.0).round() / 10.0)
+    })
+}
+
 pub fn state<'a>(
     projections: &BTreeMap<String, Value>,
     projection_current: bool,
@@ -612,6 +719,57 @@ mod tests {
         );
         assert_eq!(describe(&pending, true, [].iter()), UNAVAILABLE);
     }
+    #[test]
+    fn the_token_reading_sums_the_buckets_and_never_rounds_a_near_full_cache_to_100() {
+        let with = |uncached: u64, output: u64, cached: u64, written: u64| {
+            let mut p = BTreeMap::new();
+            p.insert(
+                "tokenUsage".to_owned(),
+                json!({"uncachedInputTokens":uncached,"outputTokens":output,
+                    "cacheReadTokens":cached,"cacheWriteTokens":written}),
+            );
+            p
+        };
+        let reading = token_reading(&with(6000, 345, 6000, 0)).unwrap();
+        assert_eq!(reading.total, 12345);
+        assert_eq!(reading.cache_hit.as_deref(), Some("50"));
+        let reading = token_reading(&with(0, 0, 1000, 0)).unwrap();
+        assert_eq!(reading.cache_hit.as_deref(), Some("100"));
+        let reading = token_reading(&with(1, 0, 999, 0)).unwrap();
+        assert_eq!(reading.cache_hit.as_deref(), Some("99.9"));
+        assert_eq!(token_reading(&with(0, 0, 0, 0)), None);
+        let mut partial = BTreeMap::new();
+        partial.insert(
+            "tokenUsage".to_owned(),
+            json!({"uncachedInputTokens":1,"outputTokens":2}),
+        );
+        assert_eq!(token_reading(&partial), None);
+        assert_eq!(token_reading(&BTreeMap::new()), None);
+    }
+
+    #[test]
+    fn decode_speed_sums_durable_steps_and_skips_records_without_both_readings() {
+        let step = |seq: u64, time0: i64, time: i64, output: u64| {
+            let mut event = event(
+                seq,
+                "assistant/message",
+                json!({"usage":{"outputTokens":output},
+                    "stream":[{"type":"text-chunks","time0":time0,"dt":[],"texts":["PUBLIC"]}]}),
+            );
+            event.time = time;
+            event
+        };
+        let events = vec![
+            step(0, 1000, 3000, 100),
+            step(1, 5000, 6000, 20),
+            event(2, "assistant/message", json!({"stream":[]})),
+        ];
+        assert_eq!(decode_speed(events.iter()).as_deref(), Some("40 tok/s"));
+        let slow = vec![step(0, 0, 2000, 5)];
+        assert_eq!(decode_speed(slow.iter()).as_deref(), Some("2.5 tok/s"));
+        assert_eq!(decode_speed([].iter()), None);
+    }
+
     #[test]
     fn nonsequential_range_and_latest_missing_usage_fail_closed() {
         let p = pressure(json!({"pressureTokens":100,"contextWindow":128000}));
