@@ -6301,15 +6301,19 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Message feedback: ratings, categories, note | cloned (session `/feedback` remains a Host command) |
 | Right Sidebar: document preview and resource tabs | difference: full-page details panel, no PDF/Office renderers |
 | Workspace browser: grouped/animated rows, drag order, per-row menus | difference: workspace filter + navigation sheet |
-| Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory) |
+| Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory; the app's Host serves browse, so the in-app list is the live path and `pick` reports unavailable) |
 | Workflow-run surface | cloned (folded `tool-workflow/*` card; no interrupted detection) |
 | Dockkit layout presets | difference: native fixed layout with its own preferences |
 | Locales (zh/en) | difference: English-only |
 
 **Verification limits.** Visual 1-to-1 remains unverified until `reference.png` is placed in the
-workspace; live Host reads/writes (schedule, feedback, workspace open, @ references, directory
-listings) are unit-tested parsers and fixture states, not a live run. The user-dependent items at the
-top of this document stand.
+workspace. Live Host reads/writes were exercised once against the desktop-composed alpha Host
+([record](NATIVE-LIVE-VERIFICATION.md)): session create/rename/page/projections, `@` file and
+session references, feedback list/delete and the put request shape, schedule catalog/history/
+delete/update request shapes, workspace create, directory listings, and the picker capability. That
+pass found and fixed three null-field defects in `c9dd30e`; it did not create a schedule task or an
+assistant message, open a desktop file successfully, run OAuth or run a model. The user-dependent
+items at the top of this document stand.
 
 ### Round 315 — the workflow-run chat card
 
@@ -6340,3 +6344,44 @@ than the four known outcomes is drawn with a neutral marker.
 | JS runtime | **0** | **419 pass**, 0 fail |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+### Round 316 — the live Host pass
+
+**The reads and request shapes above were driven against a real Host, not a fixture.** The host
+was the pinned alpha runtime booted exactly as the app boots it (desktop profile, cleared
+environment without `DISPLAY`, isolated home); the launch token was exchanged for the cookie and
+every call used the exact ClientRPC envelope. [Observed results and limits](NATIVE-LIVE-VERIFICATION.md).
+
+The pass found three wire defects, fixed in `c9dd30e`: feedback put sent `note`/`category` as
+`null`, schedule history sent `before` as `null` on its first page, and the root directory listing
+sent `path` as `null`. The Host's typert boundary rejects a present null for all three, so a plain
+rating, every first history page and the folder browser's root all failed live. Each absent field
+is now an omitted key. The fake wire rejects a present null for these fields and one transport test
+drives both the absent and present shapes; transport grew from **82** to **83** tests.
+
+**The picker claim is narrower than it looked.** Core clears `DISPLAY`, so the Host's
+picker-auto resolver serves `browse`; `directoryPicker/pick` answers `directory-picker/unavailable`
+and only the in-app folder list is usable. The **Browse…** control therefore reports the documented
+failure in the app's own composition. The reference's browse surface is the in-app browser, so the
+open follow-up is to route **Browse…** to the folder list rather than the Host chooser.
+
+**Not claimed.** No schedule task was created (that needs the agent tool), no feedback was attached
+to a real assistant message, no desktop file was opened, and no OAuth or model request ran. Those
+remain the next live pass.
+
+**Battery (round 316).** Captured from the rebuilt release fixture; `shots/145-live-wire-navigation.png`
+shows the unchanged navigation sheet and folder list (`status: passed`) and is a paint check, not
+wire evidence. The suite's two extras stay red for pre-existing reasons unrelated to this change:
+`wayland-drops` lacks `as-raw-xcb-connection v1.0.1` in the offline cache and `scroll_app_smoke`
+does not compile (it includes `worker.rs` without `mod queue_update`).
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1210 passed**, 1 ignored (unchanged) |
+| app, default | **0** | **1203 passed**, 1 ignored (unchanged) |
+| transport | **0** | 56 + 17 + **83** + 7 |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
