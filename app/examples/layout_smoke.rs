@@ -180,6 +180,8 @@ struct Options {
     queue_expanded: bool,
     /// Expand the first turn-trigger notice for capture.
     trigger_expanded: bool,
+    /// Expand the first assistant row's usage detail.
+    turn_usage_expanded: bool,
     /// Seed a background stop's unread marker on the notes row.
     completion_unread: bool,
     /// Begin editing the first queued item.
@@ -296,6 +298,7 @@ fn options() -> Result<Options, &'static str> {
             "--busy-enter",
             "--queue-expanded",
             "--trigger-expanded",
+            "--turn-usage-expanded",
             "--completion-unread",
             "--queue-edit",
             "--queue-remove",
@@ -425,6 +428,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         trigger_expanded: match values.remove("--trigger-expanded") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        turn_usage_expanded: match values.remove("--turn-usage-expanded") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -822,6 +829,9 @@ impl Fixture {
         }
         if options.trigger_expanded {
             app.expand_trigger(0);
+        }
+        if options.turn_usage_expanded {
+            app.expand_turn_usage(1);
         }
         if options.completion_unread {
             app.mark_completion_unread("PUBLIC-layout-notes");

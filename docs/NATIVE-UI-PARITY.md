@@ -37,9 +37,10 @@ work in the Rust app, implemented in Rust, not left as a documented Web-only dif
 point is the Host's canonical `/api/<namespace>/<method>` dispatcher, so adding typed endpoints to
 `dsh-native-transport` is in-bounds; what is out of bounds is rebuilding or forking the Host runtime
 in Rust. Keep coding without asking for permission. Queue edit/remove/steer, full-text content
-search and the goal bar (pause/resume/edit/clear) now work end to end; the next item is workspace
-open (`session/openWorkspacePath`), then schedules and the deliverables diff. Cross-session pending
-status is still unavailable from the present wires.
+search, the goal bar (pause/resume/edit/clear) and the per-turn usage detail now work end to end;
+the next item is the **scheduled-tasks page** (`schedule/catalog|update|delete|history` plus the
+timing pickers), then workspace open and the deliverables diff. Cross-session pending status is
+still unavailable from the present wires.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -5490,3 +5491,32 @@ Two app tests were added: the projection parser and the single-admission/failure
 landed with its two DTO/ref tests in round 283. A duplicate example match arm produced a warning
 after the first build and was removed before the green suites; the captures predate that inert
 source-only change and show the same rendering.
+
+### Round 285 — the per-turn usage detail
+
+**The “Usage N tok” label now expands to the reference's accounting rows.** Clicking it toggles an
+inline line under the assistant footer with the message's reported buckets — Input, Cache read,
+Cache write, Output, Reasoning and Total — plus the cache-hit share when the input side is known.
+`shots/130-turn-usage-detail.png` shows “Input 1.0K tok · Cache read 6.0K tok · Cache write 0 tok ·
+Output 345 tok · Total 7.3K tok · Cache hit 86%”; the report is `status: passed`. The row geometry
+reserves the extra line when expanded, so the fixed transcript height does not clip it (the first
+capture did clip it; the reservation was added and the frame retaken from a rebuilt binary).
+
+One test covers the bucket rows, the total and the cache share, plus the empty-usage case.
+
+**Deliberate differences.** Native expands inline under the message, while the reference opens a
+popover dialog anchored to the pill; there are no provider/model route rows (that needs per-attempt
+attribution), and the reading comes from the assistant message's usage rather than the reference's
+whole-turn aggregate across attempts. The label is a text control, not a drawn icon.
+
+**Battery (round 285).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1187 passed**, 1 ignored |
+| app, default | **0** | **1180 passed**, 1 ignored |
+| transport | **0** | 44 + 17 + 82 + 7 (unchanged this round) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |

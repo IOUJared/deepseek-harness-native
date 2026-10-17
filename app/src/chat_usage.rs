@@ -368,6 +368,60 @@ fn cache_hit(cached: u64, billed: u64) -> Option<String> {
     Some("99.9".into())
 }
 
+/// One turn's accounting rows for the per-turn detail, from the assistant message's usage.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TurnUsageDetail {
+    pub line: String,
+}
+
+pub fn turn_usage_detail(event: &SessionWireEvent) -> Option<TurnUsageDetail> {
+    if event.event_type != "assistant/message" {
+        return None;
+    }
+    let usage = event.data.get("usage")?.as_object()?;
+    let field_any = |names: &[&str]| {
+        names
+            .iter()
+            .find_map(|name| field(usage, name).ok().flatten())
+    };
+    let input = field_any(&["inputTokens", "uncachedInputTokens"]);
+    let output = field_any(&["outputTokens"]);
+    let cached = field_any(&["cacheReadTokens"]);
+    let written = field_any(&["cacheWriteTokens"]);
+    let reasoning = field_any(&["reasoningTokens"]);
+    let total = field_any(&["totalTokens"]);
+    let mut parts = Vec::new();
+    for (label, value) in [
+        ("Input", input),
+        ("Cache read", cached),
+        ("Cache write", written),
+        ("Output", output),
+        ("Reasoning", reasoning),
+        ("Total", total),
+    ] {
+        if let Some(value) = value {
+            parts.push(format!(
+                "{label} {} tok",
+                crate::ui::subagent_catalog::format_tokens(value)
+            ));
+        }
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    if let (Some(cached), Some(input)) = (cached, input) {
+        let billed = input
+            .saturating_add(cached)
+            .saturating_add(written.unwrap_or(0));
+        if let Some(percent) = cache_hit(cached, billed) {
+            parts.push(format!("Cache hit {percent}%"));
+        }
+    }
+    Some(TurnUsageDetail {
+        line: parts.join(" · "),
+    })
+}
+
 /// The whole-log decode speed the reference's activity pill shows
 /// (`StatsPills.tsx:166-170`): output tokens over the span from the first streamed chunk to
 /// the assistant message. Only durable `assistant/message` records count, and a record
@@ -796,6 +850,28 @@ mod tests {
         let slow = vec![step(0, 0, 2000, 5)];
         assert_eq!(decode_speed(slow.iter()).as_deref(), Some("2.5 tok/s"));
         assert_eq!(decode_speed([].iter()), None);
+    }
+
+    #[test]
+    fn a_turn_usage_detail_lists_the_reported_buckets_and_cache_share() {
+        let mut event = SessionWireEvent {
+            event_type: "assistant/message".into(),
+            seq: 0,
+            time: 1,
+            data: json!({"usage":{"inputTokens":1000,"outputTokens":345,
+                "cacheReadTokens":6000,"cacheWriteTokens":0,"totalTokens":7345}}),
+            ignorable: None,
+            source_event_seqs: None,
+            surface_op: None,
+        };
+        let detail = turn_usage_detail(&event).unwrap();
+        assert!(detail.line.contains("Input 1.0K tok"));
+        assert!(detail.line.contains("Cache read 6.0K tok"));
+        assert!(detail.line.contains("Output 345 tok"));
+        assert!(detail.line.contains("Total 7.3K tok"));
+        assert!(detail.line.contains("Cache hit 86%"));
+        event.data = json!({"usage":{}});
+        assert_eq!(turn_usage_detail(&event), None);
     }
 
     #[test]

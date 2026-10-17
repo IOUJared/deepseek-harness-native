@@ -266,6 +266,8 @@ pub enum Message {
     GoalClearCancel,
     /// Expands or collapses one turn-trigger notice.
     ToggleTrigger(u64),
+    /// Expands or collapses one per-turn usage detail.
+    ToggleTurnUsage(u64),
     /// A key press as **data** for the live chain, with the state at the moment it arrives: an
     /// armed capture consumes it, a focused field's links own it, or a stored binding invokes a
     /// command — so a rebound key replaces the hardcoded default instead of shadowing it.
@@ -768,6 +770,8 @@ pub struct App {
     queue_expanded: bool,
     /// Expanded turn-trigger notices, by record key.
     trigger_expanded: std::collections::BTreeSet<u64>,
+    /// Expanded per-turn usage details, by assistant record key.
+    usage_expanded: std::collections::BTreeSet<u64>,
     /// The queue dock's inline edit: the item id and the draft text.
     queue_edit: Option<(String, String)>,
     /// The queue item whose removal waits for a second press.
@@ -1067,6 +1071,7 @@ impl App {
                 content_search_serial: 0,
                 search_error: None,
                 trigger_expanded: Default::default(),
+                usage_expanded: Default::default(),
                 completion_unread: Default::default(),
                 workspace_path,
                 workspace_controls: false,
@@ -3305,6 +3310,11 @@ impl App {
                 self.queue_remove_armed = None;
                 self.queue_edit = None;
                 self.submit_queue(id, dsh_native_transport::dto::QueueAction::Steer);
+            }
+            Message::ToggleTurnUsage(key) if self.layout_controls_enabled() => {
+                if !self.usage_expanded.remove(&key) {
+                    self.usage_expanded.insert(key);
+                }
             }
             Message::ToggleTrigger(key) if self.layout_controls_enabled() => {
                 if !self.trigger_expanded.remove(&key) {
@@ -5788,6 +5798,12 @@ impl App {
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn arm_queue_remove(&mut self, id: &str) {
         let _ = self.update(Message::QueueRemove(id.into()));
+    }
+
+    /// Fixture-only: expand one assistant row's usage detail, which a real run expands by press.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn expand_turn_usage(&mut self, key: u64) {
+        self.usage_expanded.insert(key);
     }
 
     /// Fixture-only: expand one turn-trigger notice, which a real run expands by press.
@@ -9754,10 +9770,19 @@ impl App {
             } else {
                 0.0
             };
+            // The expanded per-turn accounting line is drawn under the action row, so
+            // its line box must be reserved here or the fixed row height clips it.
+            let usage = if self.usage_expanded.contains(&row.key)
+                && self.transcript.turn_usage_detail(row.key).is_some()
+            {
+                design::content_secondary(self.content_font_size).max(12.0) + 2.0
+            } else {
+                0.0
+            };
             return chat_geometry::Geometry {
                 width,
                 body_height,
-                height: chat_geometry::chrome_height(&row.role) + body_height + actions,
+                height: chat_geometry::chrome_height(&row.role) + body_height + actions + usage,
             };
         }
         let mut geometry = self.chat_geometry.geometry(
@@ -10343,7 +10368,19 @@ impl App {
                     // "Usage N tok" label on the completed assistant row. Native draws the
                     // reading only; the reference's click-open accounting dialog is not built.
                     if !human && let Some(usage) = self.transcript.turn_usage(record.key) {
-                        footer = footer.push(label(format!("Usage {usage}"), MUTED).size(10));
+                        let expanded = self.usage_expanded.contains(&record.key);
+                        footer = footer.push(
+                            button(
+                                label(
+                                    format!("Usage {usage} {}", if expanded { "▾" } else { "▸" }),
+                                    MUTED,
+                                )
+                                .size(10),
+                            )
+                            .on_press(Message::ToggleTurnUsage(record.key))
+                            .style(design::ghost)
+                            .padding([1, 2]),
+                        );
                     }
                     if assistant || excerpt(&record.text) != record.text {
                         footer = footer.push(
@@ -10383,6 +10420,13 @@ impl App {
                             }),
                         );
                     }
+                    let usage_detail = if !human && self.usage_expanded.contains(&record.key) {
+                        self.transcript
+                            .turn_usage_detail(record.key)
+                            .map(|detail| detail.line)
+                    } else {
+                        None
+                    };
                     let mut card = Column::new();
                     if chat_geometry::status_header(&record.role) {
                         card = card
@@ -10446,19 +10490,24 @@ impl App {
                                 .id("native-reference-summary"),
                             );
                         }
-                        column![stack, Space::new().height(ACTION_GAP), footer]
-                            .align_x(iced::Alignment::End)
-                            .into()
+                        let mut assembled = column![stack, Space::new().height(ACTION_GAP), footer];
+                        if let Some(detail) = &usage_detail {
+                            assembled = assembled.push(label(short(detail, 160), MUTED).size(10));
+                        }
+                        assembled.align_x(iced::Alignment::End).into()
                     } else {
-                        container(
-                            card.push(body)
-                                .push(Space::new().height(ACTION_GAP))
-                                .push(footer),
-                        )
-                        .padding([10, 14])
-                        .width(geometry.width)
-                        .style(|_| panel(BASE))
-                        .into()
+                        let mut assembled = card
+                            .push(body)
+                            .push(Space::new().height(ACTION_GAP))
+                            .push(footer);
+                        if let Some(detail) = &usage_detail {
+                            assembled = assembled.push(label(short(detail, 160), MUTED).size(10));
+                        }
+                        container(assembled)
+                            .padding([10, 14])
+                            .width(geometry.width)
+                            .style(|_| panel(BASE))
+                            .into()
                     }
                 }
             } else {

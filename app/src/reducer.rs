@@ -138,6 +138,10 @@ impl Transcript {
     pub fn turn_usage(&self, key: u64) -> Option<String> {
         crate::ui::chat_usage::turn_usage(self.records.get(&key)?)
     }
+    /// One assistant record's accounting rows, when its usage carries any bucket.
+    pub fn turn_usage_detail(&self, key: u64) -> Option<crate::ui::chat_usage::TurnUsageDetail> {
+        crate::ui::chat_usage::turn_usage_detail(self.records.get(&key)?)
+    }
     /// The whole-log decode speed from the retained assistant records.
     pub fn decode_speed(&self) -> Option<String> {
         crate::ui::chat_usage::decode_speed(self.records.values())

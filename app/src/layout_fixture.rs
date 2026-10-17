@@ -1037,7 +1037,8 @@ pub fn build(
                     "source":{"kind":"user"},"content":[{"type":"text","text":"PUBLIC usage reading without a live Host."}]}}}),
             json!({"type":"event","event":{"type":"assistant/message","seq":1,"time":3001,
                 "surfaceOp":"append","data":{"turn":1,"step":1,
-                    "usage":{"outputTokens":345},
+                    "usage":{"inputTokens":1000,"outputTokens":345,
+                        "cacheReadTokens":6000,"cacheWriteTokens":0,"totalTokens":7345},
                     "stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],
                         "texts":["PUBLIC synthetic answer; the token reading is a projection, not billing."]}]}}}),
         ]
