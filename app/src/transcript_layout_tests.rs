@@ -10,6 +10,7 @@ fn row(key: u64, role: &str) -> DisplayRow {
         files: Vec::new(),
         references: Vec::new(),
         turn: None,
+        message_id: None,
         trigger: None,
         time: 0,
         surface: false,
