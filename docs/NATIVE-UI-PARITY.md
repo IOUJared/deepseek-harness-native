@@ -45,7 +45,7 @@ the reference's **developer-tools gate and sidebar review tab**, then workspace 
 **date and clock pickers** now serve the one-shot and daily/weekly editors and are
 keyboard-navigable, **assistant replies carry Like/Dislike feedback with a note/category dialog**,
 and the composer shows the **expandable todo dock**; a local **Show coding view** preference gates
-the coding surfaces. Cross-session pending
+the coding surfaces, and the workspace sheet can **browse** for a directory through the Host. Cross-session pending
 status is still unavailable from the present wires. The `@` menu is keyboard-navigable and lists
 sessions beside files.
 
@@ -6221,5 +6221,32 @@ has no equivalent full preset selector to hide.
 | transport | **0** | 55 + 17 + 82 + 7 (unchanged this round) |
 | core (`--lib`) | **0** | **112 passed** (unchanged) |
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+### Round 313 — the host directory chooser
+
+**The workspace sheet's path field now has a Browse… action backed by the Host's native directory
+chooser.** The transport calls `directoryPicker/pick`, which returns an absolute path or `null` on
+cancel; a picked path fills the workspace field (the existing Open workspace button then commits it),
+a cancel changes nothing, and a failure (for example a Host without the native picker capability) is
+announced in the status. `shots/142-workspace-picker.png` shows the path field with **Browse…** in
+the navigation sheet; the report is `status: passed`. At this sheet height the Open workspace button
+sits just below the fold, so the capture shows the picker row rather than the commit row.
+
+One transport call and one app test cover the path, the cancel no-op and the failure status.
+
+**Remainder.** Native still does not use `directoryPicker/list` for an in-app browse tree and has no
+create-directory flow; the reference's browse capability is therefore only partly covered.
+
+**Battery (round 313).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1208 passed**, 1 ignored |
+| app, default | **0** | **1201 passed**, 1 ignored |
+| transport | **0** | 55 + 17 + 82 + 7 (unchanged this round) |
+| core (`--lib`) | **0** | **112 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |

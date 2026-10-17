@@ -210,6 +210,7 @@ enum Endpoint {
     FeedbackList,
     FeedbackPut,
     FeedbackDelete,
+    PickDirectory,
 }
 impl Endpoint {
     fn name(self) -> &'static str {
@@ -240,6 +241,7 @@ impl Endpoint {
             Self::FeedbackList => "messageFeedback/list",
             Self::FeedbackPut => "messageFeedback/put",
             Self::FeedbackDelete => "messageFeedback/delete",
+            Self::PickDirectory => "directoryPicker/pick",
             Self::Page => "session/page",
             Self::AccountState => "account/getState",
             Self::WorkspaceCreate => "workspace/create",
@@ -848,6 +850,15 @@ impl NativeClient {
             )
             .await?;
         bounded_session_references(items).ok_or(Error::InvalidDto)
+    }
+    /// Open the Host desktop's native directory chooser. `None` means the operator cancelled.
+    pub async fn pick_directory(&self) -> Result<Option<String>> {
+        let value: Value = self.invoke(Endpoint::PickDirectory, json!({})).await?;
+        match value {
+            Value::Null => Ok(None),
+            Value::String(path) if !path.is_empty() && path.len() <= 4096 => Ok(Some(path)),
+            _ => Err(Error::InvalidDto),
+        }
     }
     /// Read the current per-message feedback for one session.
     pub async fn message_feedback_list(

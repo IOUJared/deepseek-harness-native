@@ -316,6 +316,8 @@ pub enum Message {
     OpenChanged(u64, usize),
     /// Expands or collapses the composer's todo dock.
     ToggleTodoDock,
+    /// Opens the Host's native directory chooser.
+    PickDirectory,
     /// Rates one assistant message positive.
     FeedbackLike(String),
     /// Rates one assistant message negative.
@@ -3758,6 +3760,9 @@ impl App {
                 self.schedule_edit = None;
             }
             Message::ToggleTodoDock => self.todo_dock_open = !self.todo_dock_open,
+            Message::PickDirectory => {
+                self.command(worker::Command::PickDirectory);
+            }
             Message::FeedbackLike(message_id) => {
                 return self.feedback_press(message_id, "positive");
             }
@@ -5294,6 +5299,11 @@ impl App {
                     Err(_) => self.file_references.clear(),
                 }
             }
+            Event::DirectoryPicked(result) => match result {
+                Ok(Some(path)) => self.workspace_path = path,
+                Ok(None) => {}
+                Err(error) => self.status = error,
+            },
             Event::FeedbackWritten {
                 session,
                 message_id,
@@ -11493,12 +11503,21 @@ impl App {
                 .direction(design::scrollbar())
                 .style(design::scrollable_style)
                 .height(if self.sidebar_sheet { 110 } else { 80 }),
-            text_input("Absolute workspace directory", &self.workspace_path)
-                .on_input(Message::WorkspacePath)
-                .padding(9)
-                .size(11)
-                .font(FONT)
-                .style(design::field),
+            row![
+                text_input("Absolute workspace directory", &self.workspace_path)
+                    .on_input(Message::WorkspacePath)
+                    .padding(9)
+                    .size(11)
+                    .font(FONT)
+                    .style(design::field)
+                    .width(Length::Fill),
+                button(label("Browse…", MUTED).size(10))
+                    .on_press(Message::PickDirectory)
+                    .style(design::ghost)
+                    .padding([4, 6]),
+            ]
+            .spacing(6)
+            .align_y(iced::Alignment::Center),
             button(
                 label(
                     if self.workspace_pending {
@@ -13020,14 +13039,16 @@ impl App {
         } else {
             container(preset_chip).id("native-hero-preset")
         };
+        let mut hero_chips = row![chip]
+            .spacing(design::HERO_CHIP_GAP)
+            .align_y(iced::Alignment::Center);
+        if self.coding_view {
+            hero_chips = hero_chips.push(preset_chip);
+        }
         container(
-            container(
-                row![chip, preset_chip]
-                    .spacing(design::HERO_CHIP_GAP)
-                    .align_y(iced::Alignment::Center),
-            )
-            .width(Length::Fill)
-            .padding(design::HERO_ROW_PAD),
+            container(hero_chips)
+                .width(Length::Fill)
+                .padding(design::HERO_ROW_PAD),
         )
         .max_width(self.chat_cap() + design::COMPOSER_CARD_OVERHANG)
         .width(Length::Fill)
@@ -16885,6 +16906,28 @@ mod tests {
         assert_eq!(app.schedule_edit.as_ref().unwrap().time, "14:45:00");
         assert!(app.at_picker.is_none());
         assert!(app.schedule_edit.as_ref().unwrap().at.is_empty());
+    }
+    #[test]
+    fn the_directory_picker_fills_the_workspace_path() {
+        let (mut app, mut receiver) = managed_app();
+        let _ = app.update(Message::PickDirectory);
+        let mut reads = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if matches!(command, Command::PickDirectory) {
+                reads += 1;
+            }
+        }
+        assert_eq!(reads, 1);
+        let _ = app.update(Message::Worker(Event::DirectoryPicked(Ok(Some(
+            "/PUBLIC-workspace".into(),
+        )))));
+        assert_eq!(app.workspace_path, "/PUBLIC-workspace");
+        let _ = app.update(Message::Worker(Event::DirectoryPicked(Ok(None))));
+        assert_eq!(app.workspace_path, "/PUBLIC-workspace");
+        let _ = app.update(Message::Worker(Event::DirectoryPicked(Err(
+            "Directory picker: unavailable".into(),
+        ))));
+        assert!(app.status.contains("unavailable"));
     }
     #[test]
     fn the_coding_view_toggle_is_local_state() {

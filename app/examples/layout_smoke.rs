@@ -1020,6 +1020,7 @@ impl Fixture {
                 worker::Command::SessionReferences { .. } => "SessionReferences",
                 worker::Command::OpenWorkspacePath { .. } => "OpenWorkspacePath",
                 worker::Command::FeedbackPut { .. } => "FeedbackPut",
+                worker::Command::PickDirectory => "PickDirectory",
                 worker::Command::FeedbackDelete { .. } => "FeedbackDelete",
                 worker::Command::ScheduleDelete { .. } => "ScheduleDelete",
                 worker::Command::ScheduleHistory { .. } => "ScheduleHistory",
