@@ -3944,3 +3944,16 @@ Each is one line of work on this side once answered; none is blocked on further 
    not the last resort. `modified_count` and `COPY_MODIFIED_COUNT` are no longer on the
    dead-but-tested list: they render.
    Verified: fixture **1134** exit 0, default **1127** exit 0, format-debt 0.
+
+   **Where the next dead item's data lives is not where I assumed.** `catalog_rows` — the last
+   function on the audit's dead-but-tested list apart from the editor's copy constants — needs the
+   Host's command descriptors to render a Host section in the disclosure. A grep for
+   `CommandDescriptor` and `commands: Vec<` in `ui.rs` returns **nothing**, and `Commands(` does not
+   appear in `worker.rs`: the app does **not** hold the descriptors where the slash menu seems to
+   need them, which means the `/` menu's source is a path I did not find in one grep.
+   Recorded instead of guessing a second site, because guessing sites is exactly what this document
+   has reverted six times. The next step is one read: follow the `/` menu's rows to their source and
+   see whether that list is the descriptors, a cached projection of them, or something the app
+   builds for itself. **Only then** does `catalog_rows` get a caller, and if the data is already in
+   the app the edit is a section and a loop — the same shape as the fixed rows.
+   That is the honest state of the last dead item: **its consumer is known, its input is not.**
