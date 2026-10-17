@@ -869,9 +869,13 @@ impl NativeClient {
         }) {
             return Err(Error::InvalidDto);
         }
-        let value: Value = self
-            .invoke(Endpoint::ListDirectory, json!({"path": path}))
-            .await?;
+        // The Host's descriptor accepts an absent `path`; a present `null` fails its
+        // boundary check, so the root request must omit the key entirely.
+        let args = match path {
+            Some(path) => json!({"path": path}),
+            None => json!({}),
+        };
+        let value: Value = self.invoke(Endpoint::ListDirectory, args).await?;
         bounded_directory_listing(value).ok_or(Error::InvalidDto)
     }
     /// Read the current per-message feedback for one session.
@@ -904,18 +908,21 @@ impl NativeClient {
         {
             return Err(Error::InvalidDto);
         }
+        // The Host's boundary schema rejects explicit `null` for the two optional
+        // strings; omitting the keys is what "absent keeps the current value" means.
+        let mut request = serde_json::Map::new();
+        request.insert("sessionId".into(), json!(session_id.as_str()));
+        request.insert("messageId".into(), json!(message_id));
+        request.insert("rating".into(), json!(rating));
+        request.insert("ifVersion".into(), json!(if_version));
+        if let Some(note) = note {
+            request.insert("note".into(), json!(note));
+        }
+        if let Some(category) = category {
+            request.insert("category".into(), json!(category));
+        }
         let value: Value = self
-            .invoke(
-                Endpoint::FeedbackPut,
-                json!({"request": {
-                    "sessionId": session_id.as_str(),
-                    "messageId": message_id,
-                    "rating": rating,
-                    "ifVersion": if_version,
-                    "note": note,
-                    "category": category,
-                }}),
-            )
+            .invoke(Endpoint::FeedbackPut, json!({"request": request}))
             .await?;
         Ok(feedback_put_outcome(&value))
     }
@@ -1099,13 +1106,18 @@ impl NativeClient {
         {
             return Err(Error::InvalidDto);
         }
-        let request = serde_json::json!({"request": {
-            "sessionId": session_id.as_str(),
-            "id": id,
-            "limit": limit,
-            "before": before,
-        }});
-        let value: Value = self.invoke(Endpoint::ScheduleHistory, request).await?;
+        // The descriptor's `before` is an optional cursor: absent for the first
+        // page, never `null` (the Host rejects that at its boundary).
+        let mut request = serde_json::Map::new();
+        request.insert("sessionId".into(), json!(session_id.as_str()));
+        request.insert("id".into(), json!(id));
+        request.insert("limit".into(), json!(limit));
+        if let Some(before) = before {
+            request.insert("before".into(), json!(before));
+        }
+        let value: Value = self
+            .invoke(Endpoint::ScheduleHistory, json!({"request": request}))
+            .await?;
         schedule_history_outcome(&value, limit).ok_or(Error::InvalidDto)
     }
     pub async fn session_cancel(&self, session_id: &SessionId) -> Result<Accepted> {

@@ -585,6 +585,73 @@ async fn fork_uses_exact_authenticated_wire_and_returns_the_child_id() {
 }
 
 #[tokio::test]
+async fn optional_absent_fields_are_omitted_from_the_live_wire() {
+    // Matching the alpha Host's typert boundary observed in the live verification
+    // pass: the fixture 400s on a present `null` here. Directory roots omit
+    // `path`, feedback omits absent note/category, and the first schedule-history
+    // page omits `before`; every absent field is an omitted key, never `null`.
+    let mut fixture = NodeHostFixture::start("normal").await;
+    let client = fixture.connect(Limits::default()).await.unwrap();
+
+    let root = client.list_directory(None).await.unwrap();
+    assert_eq!(root.path, "/PUBLIC/root");
+    assert_eq!(root.entries[0].name, "project");
+    let child = client.list_directory(Some("/PUBLIC/root")).await.unwrap();
+    assert_eq!(child.home, "/PUBLIC/home");
+
+    let feedback = SessionId::new("session / feedback opaque:%").unwrap();
+    match client
+        .message_feedback_put(&feedback, "PUBLIC-message", "positive", None, None, None)
+        .await
+        .unwrap()
+    {
+        MessageFeedbackPutOutcome::Saved(item) => {
+            assert_eq!(item.message_id, "PUBLIC-message");
+            assert_eq!(item.note, None);
+            assert_eq!(item.category, None);
+        }
+        other => panic!("{other:?}"),
+    }
+    match client
+        .message_feedback_put(
+            &feedback,
+            "PUBLIC-message-note",
+            "positive",
+            None,
+            Some("PUBLIC note"),
+            Some("task-result"),
+        )
+        .await
+        .unwrap()
+    {
+        MessageFeedbackPutOutcome::Saved(item) => {
+            assert_eq!(item.note.as_deref(), Some("PUBLIC note"));
+            assert_eq!(item.category.as_deref(), Some("task-result"));
+        }
+        other => panic!("{other:?}"),
+    }
+
+    let schedule = SessionId::new("session / schedule opaque:%").unwrap();
+    assert!(matches!(
+        client
+            .schedule_history(&schedule, "PUBLIC-schedule", 20, None)
+            .await
+            .unwrap(),
+        ScheduleHistoryOutcome::History(_)
+    ));
+    assert!(matches!(
+        client
+            .schedule_history(&schedule, "PUBLIC-schedule", 20, Some("PUBLIC-before"))
+            .await
+            .unwrap(),
+        ScheduleHistoryOutcome::History(_)
+    ));
+
+    client.close().await;
+    fixture.stop().await;
+}
+
+#[tokio::test]
 async fn fork_at_seq_carries_exactly_the_requested_inclusive_boundary() {
     let mut fixture = NodeHostFixture::start("fork-at").await;
     let client = fixture.connect(Limits::default()).await.unwrap();

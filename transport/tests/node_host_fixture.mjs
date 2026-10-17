@@ -119,6 +119,54 @@ const server = http.createServer(async (request, response) => {
     }
     case 'session/page': value = { records: [], hasMore: false }; break;
     case 'session/projections': value = null; break;
+    case 'directoryPicker/list': {
+      // `path` is optional, but the Host's boundary rejects a present null. Root
+      // requests must carry exactly `{}`; child requests exactly one string path.
+      const root = isDeepStrictEqual(args, {});
+      const child = isDeepStrictEqual(args, { path: '/PUBLIC/root' });
+      if (!root && !child) { response.writeHead(400); response.end(); return; }
+      value = {
+        path: '/PUBLIC/root', home: '/PUBLIC/home',
+        crumbs: [{ name: '/', path: '/', hidden: false }],
+        entries: [{ name: 'project', path: '/PUBLIC/root/project', hidden: false }],
+        truncated: false,
+      };
+      break;
+    }
+    case 'messageFeedback/put': {
+      // Absent note/category are omitted keys, never explicit nulls: the Host's
+      // boundary schema refuses null for either optional string.
+      const bare = { sessionId: 'session / feedback opaque:%', messageId: 'PUBLIC-message', rating: 'positive', ifVersion: null };
+      const noted = { ...bare, messageId: 'PUBLIC-message-note', note: 'PUBLIC note', category: 'task-result' };
+      const expected = args.request?.messageId === 'PUBLIC-message-note' ? noted : bare;
+      if (!isDeepStrictEqual(envelope, { type: 'client-request', rpcId: envelope.rpcId, method: 'messageFeedback/put', payload: { args: { request: expected } } })) {
+        response.writeHead(400); response.end(); return;
+      }
+      value = {
+        ok: true,
+        value: {
+          messageId: expected.messageId, rating: 'positive', version: 'v-fixture',
+          createdAt: 1, updatedAt: 2,
+          ...(expected.note === undefined ? {} : { note: expected.note }),
+          ...(expected.category === undefined ? {} : { category: expected.category }),
+        },
+      };
+      break;
+    }
+    case 'schedule/history': {
+      // The first page omits `before` entirely; later pages carry the opaque
+      // cursor string. A null cursor fails the Host boundary and this check.
+      const base = { sessionId: 'session / schedule opaque:%', id: 'PUBLIC-schedule', limit: 20 };
+      const first = isDeepStrictEqual(args, { request: base });
+      const next = isDeepStrictEqual(args, { request: { ...base, before: 'PUBLIC-before' } });
+      if (!first && !next) { response.writeHead(400); response.end(); return; }
+      value = {
+        id: 'PUBLIC-schedule', records: [],
+        earlierRecordsUnavailable: false, earlierRecordsPruned: false,
+        retention: { days: 7, records: 50 },
+      };
+      break;
+    }
     case 'workspace/pinSession': case 'workspace/unpinSession':
     case 'workspace/archiveSession': case 'workspace/unarchiveSession': {
       const expected = { request: { sessionId: 'session / registry opaque:%' } };
