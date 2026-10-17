@@ -5390,3 +5390,16 @@ the actions are text controls rather than drawn icons.
 Two app tests were added: the queue-failure classes and a single admission with the not-found
 announcement. The transport's three DTO/validation tests were landed with the endpoint (round 279).
 The `working-queue` fixture drives all three captures through the production message handlers.
+
+### Round 281 — the session search endpoint (transport half)
+
+**`session/search` is now a typed Rust transport method.** The request/response DTOs
+(`SessionSearchRequest { query }`, `SessionSearchValue { items, hasMore }`,
+`SessionSearchItem { sessionId, snippet }`) follow
+`api/session-controller/src/types.ts:207-305`. The query is trimmed, non-empty and at most 512
+characters; the reply is refused if it carries more than 20 items or a snippet over 240 characters,
+so a malformed page cannot be truncated into a confident result list. One serialization test covers
+both shapes; the transport gate is **42 + 17 + 82 + 7**.
+
+No worker or sidebar caller exists yet; the sidebar still filters loaded titles. The app half is
+the next item.

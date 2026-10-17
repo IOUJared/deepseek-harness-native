@@ -194,6 +194,7 @@ enum Endpoint {
     CommandsList,
     CommandsExecute,
     UpdateQueue,
+    Search,
 }
 impl Endpoint {
     fn name(self) -> &'static str {
@@ -208,6 +209,7 @@ impl Endpoint {
             Self::ForkSession => "session/fork",
             Self::Cancel => "session/cancel",
             Self::UpdateQueue => "session/updateQueue",
+            Self::Search => "session/search",
             Self::Page => "session/page",
             Self::AccountState => "account/getState",
             Self::WorkspaceCreate => "workspace/create",
@@ -667,6 +669,32 @@ impl NativeClient {
             self.invoke(Endpoint::UpdateQueue, request_args(request)?)
                 .await?,
         )
+    }
+    /// Full-text search over the Host's Session content. The query is trimmed and bounded; the
+    /// reply's items and snippets are bounded too, and a malformed page is refused rather than
+    /// truncated into confident nonsense.
+    pub async fn session_search(&self, query: &str) -> Result<SessionSearchValue> {
+        let query = query.trim();
+        if query.is_empty() || query.chars().count() > 512 {
+            return Err(Error::InvalidDto);
+        }
+        let value: SessionSearchValue = self
+            .invoke(
+                Endpoint::Search,
+                request_args(SessionSearchRequest {
+                    query: query.to_owned(),
+                })?,
+            )
+            .await?;
+        if value.items.len() > 20
+            || value
+                .items
+                .iter()
+                .any(|item| item.snippet.chars().count() > 240)
+        {
+            return Err(Error::InvalidDto);
+        }
+        Ok(value)
     }
     pub async fn session_cancel(&self, session_id: &SessionId) -> Result<Accepted> {
         accepted(
@@ -1243,6 +1271,34 @@ mod job_kill_tests {
         assert!(job_kill_outcome(json!(null)).is_err());
         assert!(job_kill_outcome(json!({"outcome": "requested-please"})).is_err());
         assert!(job_kill_outcome(json!({"outcome": 7})).is_err());
+    }
+}
+
+#[cfg(test)]
+mod search_tests {
+    use crate::dto::{SessionId, SessionSearchItem, SessionSearchRequest, SessionSearchValue};
+
+    #[test]
+    fn a_search_request_serializes_to_the_canonical_shape() {
+        assert_eq!(
+            serde_json::to_value(SessionSearchRequest {
+                query: "PUBLIC query".into()
+            })
+            .unwrap(),
+            serde_json::json!({"query":"PUBLIC query"})
+        );
+        let page = SessionSearchValue {
+            items: vec![SessionSearchItem {
+                session_id: SessionId::new("PUBLIC-session").unwrap(),
+                snippet: "PUBLIC snippet".into(),
+            }],
+            has_more: false,
+        };
+        assert_eq!(
+            serde_json::to_value(page).unwrap(),
+            serde_json::json!({"items":[{"sessionId":"PUBLIC-session","snippet":"PUBLIC snippet"}],
+                "hasMore":false})
+        );
     }
 }
 

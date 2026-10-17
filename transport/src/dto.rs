@@ -419,6 +419,26 @@ pub struct QueueTextBlock {
     pub block_type: String,
     pub text: String,
 }
+/// One full-text Session search request (`api/session-controller/src/types.ts:297-305`).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionSearchRequest {
+    pub query: String,
+}
+/// One content search hit: the Session and a bounded snippet.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionSearchItem {
+    pub session_id: SessionId,
+    pub snippet: String,
+}
+/// One search page. `hasMore` reports a truncated result set, not another page cursor.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionSearchValue {
+    pub items: Vec<SessionSearchItem>,
+    pub has_more: bool,
+}
 /// One pending queue mutation for one Session item.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
