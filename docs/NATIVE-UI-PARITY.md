@@ -2724,3 +2724,20 @@ Since the round-145 update, all local and unpushed, gates green at each commit:
    fixture in a state that breaks the harness, the open state was reverted and the closed capture
    re-verified — so the panel's *rendering* is written and compiled but **not** seen, and the next
    attempt should run the fixture directly to see the failure the script swallows.
+
+   **The failed capture is diagnosed: the fixture's own observation refuses the open panel, not
+   the capture script.** Running the binary directly — the invocation is
+   `layout_smoke --mode … --screenshot … --report …` (`/tmp/dsh-capture.sh:23`) — with the panel
+   held open gives exit 1, `passed: false`, and the message "PUBLIC actual-App layout fixture
+   failed; inspect its report **and paint**". The script's "all attempts failed" was therefore
+   downstream of a fixture that correctly refused its own frame.
+   One hypothesis, stated as a hypothesis because nothing in this round tested it: the panel
+   anchors to a **header** crumb and overflows downward across the conversation, while the preset
+   seat's list — which passes — anchors inside the hero with room beneath it. The fixture appears
+   to measure its own paint against expectations that a header-anchored overlay violates, so the
+   fix is likely either to place the panel where the fixture can hold it or to teach the fixture
+   that a header overlay is expected. That is a fixture question, not a panel question, and it is
+   the next step rather than a guess to build on.
+   The diagnosis edit was reverted, the fixture's closed-state capture re-verified
+   (`fixture exit=0 pick=0`), and all three gates are green: format-debt 0, fixture **1114**
+   exit 0, default **1107** exit 0.
