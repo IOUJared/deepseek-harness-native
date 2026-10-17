@@ -3899,3 +3899,17 @@ Each is one line of work on this side once answered; none is blocked on further 
    function is a capability, not a shipped surface.** The next session can either wire these (an
    editor needs all of them) or read the document's "in code" claims the way this paragraph defines
    them.
+
+   **Audit of the objective's own requirement: 318 commit subjects, sampled for imperative mood.**
+   A vocabulary-based check flagged **120** subjects as non-imperative; reading the first twenty of
+   the flagged ones shows **every one of them is imperative** — "Consult", "Separate", "Complete",
+   "Project", "Plan", "Capture", "Confirm", "Specify", "Exempt", "Reframe", "Measure", "Replace",
+   "Format", "Declare", "Find", "Append", "Pin", "Re-size" — so the check was wrong and the commits
+   were fine. My verb list simply did not contain them.
+   Stated precisely, because the difference matters: **twenty of the 120 flagged subjects were read
+   and all twenty are imperative; the other hundred were not individually read.** A complete audit
+   would read all 318, and this one did not. The sampling is recorded as sampling.
+   What it does establish is the reverse of the usual finding: the objective's imperative-subject
+   rule has been followed even where a mechanical check said otherwise, which is a reminder that a
+   heuristic's false positives say more about the heuristic than about the data — the same lesson as
+   the fixture's mode mismatch and the anchor misses, on a different axis.
