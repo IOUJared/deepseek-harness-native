@@ -3614,3 +3614,30 @@ the five above rather than missing work.
    keybinding tests, `Cmd+/` and four near misses), the routing compiles in both configurations, and
    the key-order assertions in the fixture suite still hold — but "I pressed `Ctrl+/` and it
    opened" needs a real keyboard, and is the user's to confirm.
+
+### The rebinding editor: what is built, and what it would take to finish it
+
+**Built and tested:** the store (set, clear, reset, reset-all under a revision guard, conflict
+lookup, modified count), the four groups in product order, core-first ordering, the search index
+with both joinings, the DOM-style code mapping and display, the resolver (code **and** exact
+modifiers, list-aware), the reference's three fixed menu keys, this app's five, the trigger's
+decision and its route. The disclosure renders from the store and a capture reports
+`passed: true` (`shots/88-shortcuts-datadriven.png`).
+
+**The scope finding, which matters more than the remaining work:** the reference's editor lists the
+**Host's command catalog** — `commands/list`, whose descriptors this app already fetches — and its
+rows' defaults come from that catalog, not from the client. This app's five bindings are
+*hardcoded input handling*, deliberately marked non-rebindable in its own test (`fixed.*` ids fall
+outside any catalog). So **the capture-and-rebind interaction currently has no subject**: there is
+nothing whose rebinding this app would honour.
+
+Finishing it therefore means a **new capability, not a new screen** — routing Host catalog commands
+through the resolver so that a rebound key actually runs something. That is a feature in its own
+right: it would list the Host's commands with their defaults, honour a captured binding, and keep
+the composer's keys intact. The *capture mechanism* itself is already decided and tested
+(`binding_from`: a press becomes a code plus `primary`/`alt`/`shift`), so the missing part is
+everything *around* it.
+
+**Stated plainly for the next session:** building the capture UI first would produce a screen that
+records bindings nothing reads — the same shape as the panel that was drawn before its stream, and
+the same mistake in reverse. The order is: honour catalog commands, then capture bindings for them.
