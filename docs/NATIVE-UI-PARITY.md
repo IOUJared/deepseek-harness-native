@@ -42,8 +42,8 @@ page** (catalog + delete + delivery history + title/instruction/timing edit) and
 **disarmed activation**, the timing-kind selector, an **expandable changed-file list with per-file
 diffs** and the **`@` file menu** now work end to end; the next items are the reference's
 **open/review action and developer-tools gate**, its **date/time picker popovers**, then workspace
-open. Cross-session pending status is still unavailable from the present wires. The `@` menu is now
-keyboard-navigable.
+open. Cross-session pending status is still unavailable from the present wires. The `@` menu is
+keyboard-navigable and now lists sessions beside files.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -5943,6 +5943,36 @@ recomputed token; the live child read remains unverified (the fixture bypasses i
 | app, fixture | **0** | **1198 passed**, 1 ignored |
 | app, default | **0** | **1191 passed**, 1 ignored |
 | transport | **0** | 52 + 17 + 82 + 7 (unchanged this round) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+### Round 304 — sessions in the `@` menu
+
+**The `@` menu now lists session candidates below the file rows and inserts their canonical
+mention.** A changed query reads both `fileReferences/list` and
+`sessionReferenceResolver/candidates`; session rows show the display title (falling back to the
+label) with a `session` marker. Arrow selection spans files then sessions, and accepting a session
+inserts its exact `@[label](dsh-session://…)` mention plus a space — the form the reference's host
+resolves. Files remain the first rows, directories still drill down. `shots/138-reference-menu.png`
+now shows the session row under `src/ui/`; the report is `status: passed`.
+
+One test covers accepting the session row and inserting the canonical mention; a transport test
+covers the bounded session-candidate reply.
+
+**Deliberate limits.** Session rows are not grouped/sorted like the reference (subagents first,
+then sessions by recency), carry no timestamps, and quoted queries still suppress nothing (the
+reference drops session rows inside `@"…"`); child/parent section titles are absent. Live reads
+remain unverified.
+
+**Battery (round 304).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1199 passed**, 1 ignored |
+| app, default | **0** | **1192 passed**, 1 ignored |
+| transport | **0** | **53 + 17 + 82 + 7** |
 | core (`--lib`) | **0** | **112 passed** (unchanged) |
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |

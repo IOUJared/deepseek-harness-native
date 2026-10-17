@@ -419,6 +419,16 @@ pub struct QueueTextBlock {
     pub block_type: String,
     pub text: String,
 }
+/// One `@` session-reference completion candidate (`SessionReferenceMentionCandidate`).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionReferenceCandidate {
+    pub session_id: String,
+    pub label: String,
+    #[serde(default)]
+    pub display_title: Option<String>,
+    pub mention: String,
+}
 /// One `@` file-reference completion candidate (`FileReferenceCandidate`).
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct FileReferenceCandidate {

@@ -938,10 +938,14 @@ pub struct App {
     schedule_busy: Option<String>,
     /// `@` file-reference candidates for the active token.
     file_references: Vec<dsh_native_transport::dto::FileReferenceCandidate>,
+    /// `@` session-reference candidates for the active token.
+    session_references: Vec<dsh_native_transport::dto::SessionReferenceCandidate>,
     /// The active `@` query and whether it opened a quoted path.
     reference_token: Option<(String, bool)>,
-    /// A reference read is in flight for the active query.
+    /// A file-reference read is in flight for the active query.
     reference_pending: bool,
+    /// A session-reference read is in flight for the active query.
+    session_reference_pending: bool,
     /// The highlighted `@` menu row.
     reference_selected: usize,
     /// Changed-file summaries by announcing seq.
@@ -1260,8 +1264,10 @@ impl App {
                 schedule_delete: None,
                 schedule_busy: None,
                 file_references: Vec::new(),
+                session_references: Vec::new(),
                 reference_token: None,
                 reference_pending: false,
+                session_reference_pending: false,
                 reference_selected: 0,
                 changes: Default::default(),
                 changes_expanded: Default::default(),
@@ -3913,7 +3919,7 @@ impl App {
             // The menu consumes these keys only while it is open, so nothing
             // about ordinary composing changes when no command line is typed.
             Message::CommandMenuMove(delta) if self.reference_menu_open() => {
-                let len = self.file_references.len();
+                let len = self.file_references.len() + self.session_references.len();
                 let next = self.reference_selected as i64 + i64::from(delta);
                 self.reference_selected = next.clamp(0, len as i64 - 1) as usize;
             }
@@ -3922,11 +3928,17 @@ impl App {
                 self.command_selected = command_menu::advance(self.command_selected, len, delta);
             }
             Message::CommandMenuAccept if self.reference_menu_open() => {
-                let Some(candidate) = self.file_references.get(self.reference_selected).cloned()
-                else {
+                if let Some(candidate) = self.file_references.get(self.reference_selected).cloned()
+                {
+                    return self.update(Message::ReferencePick(candidate.path, candidate.kind));
+                }
+                let index = self
+                    .reference_selected
+                    .saturating_sub(self.file_references.len());
+                let Some(candidate) = self.session_references.get(index).cloned() else {
                     return Task::none();
                 };
-                return self.update(Message::ReferencePick(candidate.path, candidate.kind));
+                return self.update(Message::ReferencePick(candidate.mention, "session".into()));
             }
             Message::CommandMenuAccept if self.completion().is_some() => {
                 if let Some(candidate) = self
@@ -3943,8 +3955,10 @@ impl App {
             }
             Message::CommandMenuDismiss if self.reference_menu_open() => {
                 self.file_references.clear();
+                self.session_references.clear();
                 self.reference_token = None;
                 self.reference_pending = false;
+                self.session_reference_pending = false;
                 return Self::focus_composer();
             }
             Message::CommandMenuDismiss if self.completion().is_some() => {
@@ -3962,6 +3976,18 @@ impl App {
                 let text = self.editor.text();
                 if token_len > text.len() {
                     return Task::none();
+                }
+                if kind == "session" {
+                    let new = format!("{}{} ", &text[..text.len() - token_len], path);
+                    self.editor = text_editor::Content::with_text(&new);
+                    self.draft_serial = self.draft_serial.saturating_add(1);
+                    self.touch_draft();
+                    self.file_references.clear();
+                    self.session_references.clear();
+                    self.reference_token = None;
+                    self.reference_pending = false;
+                    self.session_reference_pending = false;
+                    return Self::focus_composer();
                 }
                 let directory = kind == "directory";
                 let mentions_space = path.contains(' ');
@@ -3987,8 +4013,10 @@ impl App {
                 self.draft_serial = self.draft_serial.saturating_add(1);
                 self.touch_draft();
                 self.file_references.clear();
+                self.session_references.clear();
                 self.reference_token = None;
                 self.reference_pending = false;
+                self.session_reference_pending = false;
                 if directory {
                     self.refresh_reference_token();
                 }
@@ -4922,6 +4950,20 @@ impl App {
                 match result {
                     Ok(items) => self.file_references = items,
                     Err(_) => self.file_references.clear(),
+                }
+            }
+            Event::SessionReferencesLoaded { query, result } => {
+                self.session_reference_pending = false;
+                let current = self
+                    .reference_token
+                    .as_ref()
+                    .map(|(query, _)| query.clone());
+                if current.as_ref() != Some(&query) {
+                    return Task::none();
+                }
+                match result {
+                    Ok(items) => self.session_references = items,
+                    Err(_) => self.session_references.clear(),
                 }
             }
             Event::ChangesDiffLoaded { seq, index, result } => {
@@ -6488,6 +6530,12 @@ impl App {
                 kind: "directory".into(),
             },
         ];
+        self.session_references = vec![dsh_native_transport::dto::SessionReferenceCandidate {
+            session_id: "PUBLIC-review-session".into(),
+            label: "PUBLIC review".into(),
+            display_title: Some("PUBLIC review".into()),
+            mention: "@[PUBLIC review](dsh-session://PUBLIC-review)".into(),
+        }];
     }
 
     /// Fixture-only: expand the seeded changed-file list, which a real run starts by press.
@@ -8715,6 +8763,7 @@ impl App {
         let Some((query, quoted)) = Self::active_reference_token(&self.editor.text()) else {
             self.reference_token = None;
             self.file_references.clear();
+            self.session_references.clear();
             return;
         };
         if self
@@ -8727,6 +8776,7 @@ impl App {
         self.reference_token = Some((query.clone(), quoted));
         self.reference_selected = 0;
         self.file_references.clear();
+        self.session_references.clear();
         if !self.reference_pending {
             self.request_references(query);
         }
@@ -8739,11 +8789,19 @@ impl App {
             return;
         };
         self.reference_pending = true;
+        if !self.session_reference_pending {
+            self.session_reference_pending = true;
+            self.command(worker::Command::SessionReferences {
+                session: session.clone(),
+                query: query.clone(),
+            });
+        }
         self.command(worker::Command::FileReferences { session, query });
     }
     /// Whether the `@` menu is showing rows and may claim navigation keys.
     fn reference_menu_open(&self) -> bool {
-        self.reference_token.is_some() && !self.file_references.is_empty()
+        self.reference_token.is_some()
+            && (!self.file_references.is_empty() || !self.session_references.is_empty())
     }
     /// Ask for every new `workspace/changes` summary, bounded to 64 outstanding reads.
     fn request_changes(&mut self) {
@@ -9727,7 +9785,9 @@ impl App {
                     .style(|_| design::card(SURFACE, design::RADIUS_SM)),
             );
         }
-        if self.reference_token.is_some() && !self.file_references.is_empty() {
+        if self.reference_token.is_some()
+            && (!self.file_references.is_empty() || !self.session_references.is_empty())
+        {
             let mut rows = column![].spacing(1);
             for (index, candidate) in self.file_references.iter().take(12).enumerate() {
                 let directory = candidate.kind == "directory";
@@ -9758,6 +9818,43 @@ impl App {
                         candidate.path.clone(),
                         candidate.kind.clone(),
                     ),
+                }));
+            }
+            for (offset, candidate) in self.session_references.iter().take(12).enumerate() {
+                let index = self.file_references.len() + offset;
+                let selected = index == self.reference_selected;
+                let row = container(
+                    row![
+                        label("◆", MUTED).size(9),
+                        label(
+                            short(
+                                candidate
+                                    .display_title
+                                    .as_deref()
+                                    .unwrap_or(&candidate.label),
+                                80,
+                            ),
+                            MUTED,
+                        )
+                        .size(11)
+                        .width(Length::Fill),
+                        label("session", MUTED).size(9),
+                    ]
+                    .spacing(6)
+                    .align_y(iced::Alignment::Center),
+                )
+                .padding([3, 7])
+                .width(Length::Fill)
+                .style(move |_| {
+                    if selected {
+                        design::card(OVERLAY, design::RADIUS_SM)
+                    } else {
+                        container::Style::default()
+                    }
+                });
+                rows = rows.push(Element::new(FocusKeeper {
+                    content: row.into(),
+                    on_press: Message::ReferencePick(candidate.mention.clone(), "session".into()),
                 }));
             }
             shell = shell.push(
@@ -15863,6 +15960,26 @@ mod tests {
             Some(serde_json::json!({"kind":"weekly","weekly":{
                 "time":"09:00:00","time_zone":"UTC","weekdays":[2,4]}}))
         );
+    }
+    #[test]
+    fn accepting_a_session_candidate_inserts_its_canonical_mention() {
+        use dsh_native_transport::dto::SessionReferenceCandidate;
+        let (mut app, _receiver) = managed_app();
+        app.editor = text_editor::Content::with_text("@rev");
+        app.reference_token = Some(("rev".into(), false));
+        app.session_references = vec![SessionReferenceCandidate {
+            session_id: "PUBLIC-review-session".into(),
+            label: "PUBLIC review".into(),
+            display_title: Some("PUBLIC review".into()),
+            mention: "@[PUBLIC review](dsh-session://PUBLIC-review)".into(),
+        }];
+        let _ = app.update(Message::CommandMenuAccept);
+        assert_eq!(
+            app.editor.text(),
+            "@[PUBLIC review](dsh-session://PUBLIC-review) "
+        );
+        assert!(app.session_references.is_empty());
+        assert!(app.reference_token.is_none());
     }
     #[test]
     fn picking_a_directory_keeps_the_mention_open_for_its_children() {

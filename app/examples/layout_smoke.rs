@@ -997,6 +997,7 @@ impl Fixture {
                 worker::Command::ChangesSummary { .. } => "ChangesSummary",
                 worker::Command::ChangesDiff { .. } => "ChangesDiff",
                 worker::Command::FileReferences { .. } => "FileReferences",
+                worker::Command::SessionReferences { .. } => "SessionReferences",
                 worker::Command::ScheduleDelete { .. } => "ScheduleDelete",
                 worker::Command::ScheduleHistory { .. } => "ScheduleHistory",
                 worker::Command::ScheduleUpdate { .. } => "ScheduleUpdate",

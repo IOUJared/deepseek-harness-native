@@ -84,6 +84,11 @@ pub enum Command {
         session: dsh_native_transport::dto::SessionId,
         query: String,
     },
+    /// List `@` session-reference candidates.
+    SessionReferences {
+        session: dsh_native_transport::dto::SessionId,
+        query: String,
+    },
     /// Read one listed file's comparison.
     ChangesDiff {
         session: dsh_native_transport::dto::SessionId,
@@ -237,6 +242,10 @@ pub enum Event {
     FileReferencesLoaded {
         query: String,
         result: Result<Vec<dsh_native_transport::dto::FileReferenceCandidate>, String>,
+    },
+    SessionReferencesLoaded {
+        query: String,
+        result: Result<Vec<dsh_native_transport::dto::SessionReferenceCandidate>, String>,
     },
     SchedulesLoaded(Result<Vec<dsh_native_transport::dto::ScheduleCatalogItem>, String>),
     ScheduleDeleted {
@@ -891,6 +900,10 @@ fn rejected(command: Command) -> Event {
             result: Err(error),
         },
         Command::FileReferences { query, .. } => Event::FileReferencesLoaded {
+            query,
+            result: Err(error),
+        },
+        Command::SessionReferences { query, .. } => Event::SessionReferencesLoaded {
             query,
             result: Err(error),
         },
@@ -2450,6 +2463,10 @@ async fn run(
                     Command::ChangesSummary{session,seq}=>Event::ChangesLoaded{
                         seq,
                         result:client.changes_summary(&session,seq).await.map_err(|error|format!("Changed files: {error}")),
+                    },
+                    Command::SessionReferences{session,query}=>Event::SessionReferencesLoaded{
+                        result:client.session_reference_candidates(&session,&query).await.map_err(|error|format!("Session references: {error}")),
+                        query,
                     },
                     Command::FileReferences{session,query}=>Event::FileReferencesLoaded{
                         result:client.file_references(&session,&query).await.map_err(|error|format!("File references: {error}")),

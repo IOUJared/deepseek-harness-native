@@ -205,6 +205,7 @@ enum Endpoint {
     ScheduleHistory,
     ScheduleUpdate,
     FileReferences,
+    SessionReferences,
 }
 impl Endpoint {
     fn name(self) -> &'static str {
@@ -230,6 +231,7 @@ impl Endpoint {
             Self::ScheduleHistory => "schedule/history",
             Self::ScheduleUpdate => "schedule/update",
             Self::FileReferences => "fileReferences/list",
+            Self::SessionReferences => "sessionReferenceResolver/candidates",
             Self::Page => "session/page",
             Self::AccountState => "account/getState",
             Self::WorkspaceCreate => "workspace/create",
@@ -799,6 +801,27 @@ impl NativeClient {
             )
             .await?;
         bounded_file_references(items).ok_or(Error::InvalidDto)
+    }
+    /// List `@` session-reference candidates for one session's query. Mentions are the canonical
+    /// markdown form the Host expects in prompt text.
+    pub async fn session_reference_candidates(
+        &self,
+        session_id: &SessionId,
+        query: &str,
+    ) -> Result<Vec<SessionReferenceCandidate>> {
+        if query.chars().count() > 512 || query.chars().any(char::is_control) {
+            return Err(Error::InvalidDto);
+        }
+        let items: Vec<SessionReferenceCandidate> = self
+            .invoke(
+                Endpoint::SessionReferences,
+                json!({
+                    "agentId": session_id.as_str(),
+                    "query": query,
+                }),
+            )
+            .await?;
+        bounded_session_references(items).ok_or(Error::InvalidDto)
     }
     /// One turn's changed-file summary from the authenticated GET route the deliverables card
     /// reads (`/api/changes.summary?sessionId&seq`). A 404 is an absent summary, not a transport
@@ -1618,6 +1641,23 @@ fn parse_changes_summary(value: Value) -> Option<ChangesSummary> {
         deleted,
     })
 }
+fn bounded_session_references(
+    items: Vec<SessionReferenceCandidate>,
+) -> Option<Vec<SessionReferenceCandidate>> {
+    if items.len() > 20
+        || items.iter().any(|item| {
+            item.session_id.is_empty()
+                || item.session_id.len() > 256
+                || item.label.is_empty()
+                || item.label.len() > 256
+                || item.mention.is_empty()
+                || item.mention.len() > 4096
+        })
+    {
+        return None;
+    }
+    Some(items)
+}
 fn bounded_file_references(
     items: Vec<FileReferenceCandidate>,
 ) -> Option<Vec<FileReferenceCandidate>> {
@@ -2219,6 +2259,42 @@ mod file_reference_tests {
             bounded_file_references(
                 (0..51)
                     .map(|index| candidate(&format!("f{index}"), "file"))
+                    .collect()
+            )
+            .is_none()
+        );
+    }
+}
+
+#[cfg(test)]
+mod session_reference_tests {
+    use super::bounded_session_references;
+    use crate::dto::SessionReferenceCandidate;
+
+    fn candidate(id: &str, mention: &str) -> SessionReferenceCandidate {
+        SessionReferenceCandidate {
+            session_id: id.into(),
+            label: "PUBLIC".into(),
+            display_title: None,
+            mention: mention.into(),
+        }
+    }
+
+    #[test]
+    fn session_reference_candidates_are_bounded() {
+        assert!(
+            bounded_session_references(vec![candidate(
+                "PUBLIC-session",
+                "@[PUBLIC](dsh-session://abc)"
+            )])
+            .is_some()
+        );
+        assert!(bounded_session_references(vec![candidate("", "m")]).is_none());
+        assert!(bounded_session_references(vec![candidate("s", "")]).is_none());
+        assert!(
+            bounded_session_references(
+                (0..21)
+                    .map(|index| candidate(&format!("s{index}"), "m"))
                     .collect()
             )
             .is_none()
