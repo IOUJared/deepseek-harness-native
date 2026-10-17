@@ -846,7 +846,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn images_fall_back_to_their_alt_run_and_keep_the_rest_of_the_message() {
         // The reference's unresolvable branch renders the alt text as tertiary italic
         // (`render.tsx:640`); the failed-load branch adds the destination when there is

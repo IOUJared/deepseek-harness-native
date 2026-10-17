@@ -5,17 +5,29 @@ Rust/Iced app. Every claim below was verified with a captured exit status, and e
 in `~/.local/share/dsh-macos-shell-reference/shots/` (mirrored, git-ignored, in `app/evidence/`).
 
 **Done, with captures:** permission select; agent-preset roster and selection; background jobs
-(transport → mux → worker → action → panel → dots → kill → output expansion); and the shortcuts
-**editor complete in behaviour** — store, catalog, resolver, trigger, sorted rows, "Modified",
-Remove, Restore default, the customized count, the Host commands group, the guarded restore-all and
-**capture-a-key** (`shots/87-…` through `96-…`).
+(transport → mux → worker → action → panel → dots → kill → output expansion); the shortcuts
+**editor** — store, catalog, resolver, trigger, sorted rows, "Modified", Remove, Restore default,
+the customized count, the Host commands group, the guarded restore-all and capture-a-key
+(`shots/87-…` through `97-…`); and **keys as data**, so the store's five commands drive the live
+chain instead of a hardcoded map.
 
-**Next, in one step:** **keys as data** (round 227's design) — a `Message::KeyPressed(key,
-modifiers)` routed by `update` through the whole chain with live state, so a stored binding can
-*replace* a hardcoded one. A store-first subscription would swallow `Ctrl+V`; that is why it is not
-done that way, and the fallback route already carries unclaimed presses as data today. Two smaller
-follow-ups: a fixture flag to capture the armed *capture* state, and renaming the stale `fixed.`
-prefix on this app's five ids (round 242/243).
+**Read this before trusting the list above.** Round 257 found that the editor's per-row actions,
+the permission default row and eight Host-event handlers were **unreachable behind two catch-all
+match arms**: the buttons drew and did nothing, and live jobs, the roster, the permission
+catalog/descriptor and the Host command advertisement never reached the state the fixtures seed.
+Both catch-alls are now ordered correctly and every affected surface has an App test, but the
+earlier "wired and captured" claims for those controls are corrected below. The transport, worker,
+Core and rendering halves were real; the missing hop was into App state.
+
+**Next, in one step:** the General page's session-log row has no read path — `plugin_context`
+admits `Page::General` (`settings.rs:372-384`), but `plugins.enter` is called only for
+Plugins/ApiLogin (`settings.rs:694-708`), so the row renders from a snapshot only after another
+page has fetched one. Give the General page its own ticket over the same namespace family, then
+continue the remaining Open items in order.
+
+**Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
+the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
+policy. **One is Iced-blocked:** inline-code chips.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -4330,3 +4342,104 @@ document, and — beyond the features — a record of **twelve self-corrections 
 structural edits** with the rules they produced. The most transferable of those: a wire name is read
 from the artifact that defines it; a claim in my own notes is still an assumption until checked; and
 a gate whose status is read from text rather than an exit code is not a gate.
+
+### Round 257 — keys as data, the armed recorder, and the catch-alls it exposed
+
+**Keys as data is landed as the chain's shape, not a second path.** The keyboard subscription
+(`ui.rs:1142-1150`) now forwards every unclaimed press as `Message::KeyPressed(key, modifiers)`;
+`key_pressed` (`ui.rs:5042-5097`) decides with live state in this order: an armed capture consumes
+it; a focused field's `settings_paste_message`/`clipboard_field_shortcut` links keep `Ctrl+V` and
+`Ctrl+C`; the fixed `shortcuts.open` trigger; the store's current bindings; then nothing. The
+hardcoded `layout_shortcut`/`panel_shortcut` pair is deleted, so a command that was cleared or
+moved no longer falls back to its old key. The focused composer reads the same store in
+`composer_binding` (`ui.rs:11560-11626`): Send and Newline resolve through it, `Close` carries the
+press on as `Message::KeyPressed` so the live detail ticket chooses `HideDetails` or
+`DismissPanel`, and `Ctrl+V`/`Ctrl+C` return to the editor before the store is consulted.
+
+That last ordering is the part the earlier design got right: a store-first subscription would have
+swallowed the field links. The ordering is pinned by tests, not by the comment:
+
+- `a_command_bound_to_ctrl_v_never_swallows_the_field_paste` — a command moved onto `Ctrl+V`
+  does not toggle the sidebar; the field link wins.
+- `a_rebound_command_replaces_its_default_in_the_live_chain` — after moving Navigation to
+  `Ctrl+L`, `Ctrl+B` does nothing and `Ctrl+L` toggles.
+- `the_focused_composer_follows_the_live_send_binding` — after moving Send to `Ctrl+J`, Enter no
+  longer sends and `Ctrl+J` does.
+- `a_cleared_close_command_does_not_fall_back_to_escape` — a cleared `native.close` leaves
+  Escape dead instead of dismissing.
+- `escape_is_stamp_bound_and_stateless_dismiss_never_closes_details` and
+  `escape_closes_only_the_cover_and_preserves_hidden_details` were rewritten to press through
+  `Message::KeyPressed`; the first now proves no dismissal can carry a stale stamp at all.
+
+**The armed capture is captured.** `--capture true` (an accepted flag, applied at
+`layout_smoke.rs:673-675`) calls `App::arm_shortcut_capture` (`ui.rs:5256-5260`), which arms
+`native.find`. The row's binding area then shows the reference's `record` copy —
+`COPY_RECORD = "Press a shortcut"` (`keybindings.rs:402`) — in the reference's recorder chip, and
+the old keys are **not** drawn beside it (`settings.rs:1128-1145`, `:1215-1232`): the reference's
+binding area holds either the recorder or the keys, never both. `shots/97-shortcuts-capture-armed.png`
+is the frame. The direct run exited 0 with `layoutObservation.passed: true`,
+`expectedControlCountsMatch: true`, `presetStatesMatch: true`, `allTextCollected: false` and
+`paintVisibilityQualified: false` — the same settings-modal scope as `shots/85`–`96`, not a new
+failure. `an_armed_capture_turns_the_next_press_into_the_rows_binding` still proves the real press
+applies `Edit::Set { id, binding }` and disarms.
+
+**Two catch-alls had made shipped controls and Host reports inert — the earlier record was
+wrong.** The compiler's `unreachable pattern` warnings were the signal:
+
+1. `Message::Settings(action)` (`ui.rs:2699`) matched every settings action before the specific
+   arms for `CaptureShortcut`, `ResetShortcut`, `ClearShortcut`, `ResetAllDefaults`,
+   `ConfirmResetAll` and `PermissionDefault`. `Settings::handle` has its own wildcard, so those
+   controls drew, compiled and did nothing. They now run at the top of the catch-all
+   (`ui.rs:2700-2746`), before `Settings::handle`.
+   `the_editors_row_actions_run_through_their_real_action_messages` and
+   `the_permission_default_rows_action_reaches_its_gated_pick` press the **real** `Action`s, not the
+   downstream messages. This corrects the round-245–255 claims that Remove, Restore default,
+   Restore all, Capture and the permission default pick were wired: the frames were real, the
+   wiring was not.
+2. `Message::Worker(event)` (`ui.rs:2884`) matched every Host event before the specific
+   `JobKilled`, `JobsRows`, `JobsFollow`, `AgentPresetSelected`, `AgentPresets`,
+   `PermissionCatalog`, `PermissionSettings` and `PermissionDefaultSet` arms, and `receive` did not
+   handle any of them. Live jobs, the agent roster, the permission catalog/descriptor and the Host
+   command advertisement therefore never reached the state the fixtures seed. The handlers now live
+   in `receive` (`ui.rs:4562-4632`), pinned by `worker_job_events_reach_the_panel_state`,
+   `worker_permission_and_roster_events_reach_their_surfaces` and
+   `a_host_command_advertisement_reaches_the_editor_too`. The Host command pairs were also a
+   duplicate `CommandsListed` arm; the surviving arm (`ui.rs:3875`) feeds both the slash menu and
+   the editor, so the "Commands" group is no longer fixture-only.
+
+This round adds **three self-corrections** to the record — the Settings catch-all, the Worker
+catch-all, and the reference's fixed-input reading below — and the first two are the largest yet:
+they invalidate part of the "Done" list above. They also raise the bar for their own replacement
+claims: the tests are **App-boundary** tests, not a live Host run. The wire path that produces these
+events remains qualified only by the transport/worker suites, as `docs/FEATURE-PARITY.md` already
+said.
+
+**The five ids no longer claim to be uneditable.** `fixed.navigation`/`find`/`send`/`newline`/`close`
+became `native.*` (`keybindings.rs:367-395`), with the resolver, catalog, fixture and tests renamed
+in one scoped transform. Reading the reference's registration while renaming sharpened the reason:
+`fixed.send` (Enter) and `fixed.newline` (Shift+Enter) really do exist there, as **fixed** input
+commands registered with `registerFixed` (`ui-conversation/src/client/apply.ts:238-244`), beside
+`fixed.complementary` (Ctrl/Meta+Enter, "Use the complementary Queue / Steer action"),
+`fixed.slash` and `fixed.mention`. Native exposes its five as editable by the user's authorization,
+so reusing the reference's `fixed.` ids would claim a fixedness native deliberately does not have.
+Native also keeps Ctrl+Enter as a send alias — the user's confirmed behavior — where the reference
+maps it to complementary Queue/Steer; that is a deliberate difference, not an id question. No
+binding is persisted, so there is no migration; earlier records that quote `fixed.*` describe the
+names at the time they were written.
+
+**Battery (round 257).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1144 passed**, 1 ignored |
+| app, default | **0** | **1137 passed**, 1 ignored |
+| transport | **0** | 38 + 17 + 82 + 7 |
+| core (`--lib`) | **0** | **112 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+Fixture and default each gained **10 tests**: four chain tests, the armed-capture test, two
+action-reachability tests and three Host-event tests. The `paste_shortcut` test had lost its
+`#[test]` marker in an earlier edit; restoring it and removing a doubled `#[test]` on the
+markdown-image test cancel in the total. Every status above is an exit code captured with `$?`.

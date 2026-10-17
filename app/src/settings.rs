@@ -1104,6 +1104,7 @@ impl Settings {
             // name is this app's own, since the group keys are internal to the reference.
             let mut rows = column![label("Application", MUTED).size(11)].spacing(4);
             for entry in crate::keybindings::rows(&self.keybindings, &catalog) {
+                let armed = self.capture_for.as_deref() == Some(entry.id.as_str());
                 rows = rows.push(
                     row![
                         label(entry.label, TEXT).size(13).width(Length::Fill),
@@ -1126,11 +1127,28 @@ impl Settings {
                             .on_press(Action::ClearShortcut(entry.id.clone()))
                             .style(design::ghost)
                             .padding([0, 4]),
-                        button(label("Capture", MUTED).size(11))
-                            .on_press(Action::CaptureShortcut(entry.id.clone()))
-                            .style(design::ghost)
-                            .padding([0, 4]),
-                        label(entry.keys, MUTED).size(11),
+                        button(
+                            label(
+                                if armed {
+                                    crate::keybindings::COPY_RECORD
+                                } else {
+                                    "Capture"
+                                },
+                                MUTED,
+                            )
+                            .size(11),
+                        )
+                        .on_press(Action::CaptureShortcut(entry.id.clone()))
+                        // Armed, this is the reference's recorder chip: a bordered module
+                        // surface in secondary ink, not a plain action. The binding area holds
+                        // either the recorder or the keys, never both.
+                        .style(if armed {
+                            design::elevated
+                        } else {
+                            design::ghost
+                        })
+                        .padding(if armed { [3, 14] } else { [0, 4] }),
+                        label(if armed { String::new() } else { entry.keys }, MUTED).size(11),
                     ]
                     .spacing(8)
                     .align_y(iced::Alignment::Center),
@@ -1184,6 +1202,7 @@ impl Settings {
                     &self.keybindings,
                     &crate::keybindings::catalog_rows(&self.commands),
                 ) {
+                    let armed = self.capture_for.as_deref() == Some(entry.id.as_str());
                     rows = rows.push(
                         row![
                             label(entry.label, TEXT).size(13).width(Length::Fill),
@@ -1195,11 +1214,29 @@ impl Settings {
                                 .on_press(Action::ClearShortcut(entry.id.clone()))
                                 .style(design::ghost)
                                 .padding([0, 4]),
-                            button(label("Capture", MUTED).size(11))
-                                .on_press(Action::CaptureShortcut(entry.id.clone()))
-                                .style(design::ghost)
-                                .padding([0, 4]),
-                            label(entry.keys, MUTED).size(11),
+                            button(
+                                label(
+                                    if armed {
+                                        crate::keybindings::COPY_RECORD
+                                    } else {
+                                        "Capture"
+                                    },
+                                    MUTED,
+                                )
+                                .size(11),
+                            )
+                            .on_press(Action::CaptureShortcut(entry.id.clone()))
+                            .style(if armed {
+                                design::elevated
+                            } else {
+                                design::ghost
+                            })
+                            .padding(if armed {
+                                [3, 14]
+                            } else {
+                                [0, 4]
+                            }),
+                            label(if armed { String::new() } else { entry.keys }, MUTED).size(11),
                         ]
                         .spacing(8)
                         .align_y(iced::Alignment::Center),

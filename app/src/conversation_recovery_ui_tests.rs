@@ -148,14 +148,12 @@ fn input(app: &mut App, query: &str) {
 fn search_is_local_bounded_and_navigates_loaded_messages_and_supplied_thoughts() {
     let (mut app, mut queue) = app();
     let cursor = app.transcript.cursor();
-    assert!(matches!(
-        layout_shortcut(
-            &keyboard::Key::Character("f".into()),
-            keyboard::Modifiers::CTRL
-        ),
-        Some(Message::SearchOpen)
-    ));
-    drop(app.update(Message::SearchOpen));
+    assert!(!app.search_open);
+    drop(app.update(Message::KeyPressed(
+        keyboard::Key::Character("f".into()),
+        keyboard::Modifiers::CTRL,
+    )));
+    assert!(app.search_open);
     input(&mut app, "PUBLIC");
     assert_eq!(app.search_hits(), vec![0, 1]);
     assert_eq!(app.search_cursor, Some(0));

@@ -152,6 +152,8 @@ struct Options {
     commands: bool,
     /// Arm the restore-all confirmation, so its copy is captured.
     reset_all: bool,
+    /// Arm one shortcut row's recorder, so the capture-in-progress state is captured.
+    capture: bool,
     /// Open the shortcuts disclosure, so its rows are captured.
     shortcuts: bool,
 }
@@ -245,6 +247,7 @@ fn options() -> Result<Options, &'static str> {
             "--customised",
             "--commands",
             "--reset-all",
+            "--capture",
             "--agent-seat-error",
             "--settings",
             "--scrolled-away",
@@ -330,6 +333,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         reset_all: match values.remove("--reset-all") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        capture: match values.remove("--capture") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -661,6 +668,9 @@ impl Fixture {
         }
         if options.reset_all {
             app.arm_reset_all();
+        }
+        if options.capture {
+            app.arm_shortcut_capture();
         }
         if options.scrolled_away {
             app.set_scrolled_away(true);

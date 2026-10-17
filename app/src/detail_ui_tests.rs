@@ -365,25 +365,17 @@ fn escape_is_stamp_bound_and_stateless_dismiss_never_closes_details() {
     snapshot(&mut app, "assistant/message", "# PUBLIC");
     let key = keyboard::Key::Named(keyboard::key::Named::Escape);
     let first = open(&mut app);
-    let old_escape = panel_shortcut(
-        &key,
+    // The live chain reads the ticket when the press arrives, so the dismissal cannot carry a
+    // stamp from before the sheet it names.
+    drop(app.update(Message::KeyPressed(
+        key.clone(),
         keyboard::Modifiers::empty(),
-        app.detail_escape_ticket(),
-    )
-    .unwrap();
-    assert!(matches!(old_escape,Message::HideDetails(ticket) if ticket==first));
-    drop(app.update(app.detail_back().unwrap()));
+    )));
+    assert!(app.detail.is_none());
     let second = open(&mut app);
-    drop(app.update(old_escape));
-    drop(app.update(Message::DismissPanel));
+    drop(app.update(Message::HideDetails(first)));
     assert_eq!(app.detail.as_ref().unwrap().ticket, Some(second));
-    let current_escape = panel_shortcut(
-        &key,
-        keyboard::Modifiers::empty(),
-        app.detail_escape_ticket(),
-    )
-    .unwrap();
-    drop(app.update(current_escape));
+    drop(app.update(Message::KeyPressed(key, keyboard::Modifiers::empty())));
     assert!(app.detail.is_none());
     assert!(queue.try_recv().is_err());
 }
@@ -401,14 +393,16 @@ fn escape_closes_only_the_cover_and_preserves_hidden_details() {
         assert!(app.detail_escape_ticket().is_none());
         drop(app.update(Message::HideDetails(ticket)));
         assert_eq!(app.detail.as_ref().unwrap().ticket, Some(ticket));
-        let escape = panel_shortcut(
-            &keyboard::Key::Named(keyboard::key::Named::Escape),
+        drop(app.update(Message::KeyPressed(
+            keyboard::Key::Named(keyboard::key::Named::Escape),
             keyboard::Modifiers::empty(),
-            app.detail_escape_ticket(),
-        )
-        .unwrap();
-        assert!(matches!(escape, Message::DismissPanel));
-        drop(app.update(escape));
+        )));
+        // A cover is the topmost surface, so Escape closes it and leaves Details untouched.
+        match cover {
+            0 => assert!(!app.capabilities),
+            1 => assert!(!app.sidebar_sheet),
+            _ => assert!(!app.conversation_menu),
+        }
         assert!(app.detail_visible());
         assert_eq!(app.detail.as_ref().unwrap().ticket, Some(ticket));
         assert!(queue.try_recv().is_err());

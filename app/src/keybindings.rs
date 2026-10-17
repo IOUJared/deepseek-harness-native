@@ -316,11 +316,11 @@ pub enum Invoke {
 /// is the honest answer for a Host command it lists but cannot run from a key yet.
 pub fn invoke_for(id: &str) -> Option<Invoke> {
     match id {
-        "fixed.navigation" => Some(Invoke::Navigation),
-        "fixed.find" => Some(Invoke::Find),
-        "fixed.send" => Some(Invoke::Send),
-        "fixed.newline" => Some(Invoke::Newline),
-        "fixed.close" => Some(Invoke::Close),
+        "native.navigation" => Some(Invoke::Navigation),
+        "native.find" => Some(Invoke::Find),
+        "native.send" => Some(Invoke::Send),
+        "native.newline" => Some(Invoke::Newline),
+        "native.close" => Some(Invoke::Close),
         _ => None,
     }
 }
@@ -330,11 +330,11 @@ pub fn invoke_for(id: &str) -> Option<Invoke> {
 /// defaults, so a binding cannot exist without a row and a row cannot exist without a binding.
 pub fn native_catalog() -> Vec<(String, String, bool)> {
     let labels = [
-        ("fixed.navigation", "Navigation"),
-        ("fixed.find", "Find in conversation"),
-        ("fixed.send", "Send non-empty text"),
-        ("fixed.newline", "New line"),
-        ("fixed.close", "Close settings and panels"),
+        ("native.navigation", "Navigation"),
+        ("native.find", "Find in conversation"),
+        ("native.send", "Send non-empty text"),
+        ("native.newline", "New line"),
+        ("native.close", "Close settings and panels"),
     ];
     native_fixed()
         .into_iter()
@@ -359,11 +359,11 @@ pub fn catalog_rows(commands: &[(String, String)]) -> Vec<(String, String, bool)
         .collect()
 }
 
-/// This app's own fixed bindings, with the ids and keys its input handling already implements and
-/// its Settings row already prints (`Ctrl+B`, `Ctrl+F`, `Enter / Ctrl+Enter`, `Shift+Enter`,
-/// `Escape`). They are prefixed `fixed.` like the reference's own fixed rows, so an editor can
-/// tell them from catalog commands, and they are **not** the reference's three menu keys — its
-/// fixed list is about its own surfaces, and this app's is about its own.
+/// This app's own catalog bindings, with the ids and keys its input handling implements and its
+/// Settings row prints (`Ctrl+B`, `Ctrl+F`, `Enter / Ctrl+Enter`, `Shift+Enter`, `Escape`). The
+/// `native.` prefix marks them as this app's own commands, editable like any catalog entry. The
+/// reference reserves `fixed.` for the keys its editor may not edit (its three menu keys, below),
+/// so reusing that prefix here would claim a restriction native's five do not have.
 pub fn native_fixed() -> Vec<(String, Vec<Binding>)> {
     fn key(code: &str, modifiers: &[&str]) -> Binding {
         Binding {
@@ -374,18 +374,18 @@ pub fn native_fixed() -> Vec<(String, Vec<Binding>)> {
     }
     vec![
         (
-            "fixed.navigation".to_owned(),
+            "native.navigation".to_owned(),
             vec![key("KeyB", &["primary"])],
         ),
-        ("fixed.find".to_owned(), vec![key("KeyF", &["primary"])]),
+        ("native.find".to_owned(), vec![key("KeyF", &["primary"])]),
         (
-            // Send takes Enter and Ctrl+Enter, and the reference's own editor can only express
-            // that now that a command holds a list.
-            "fixed.send".to_owned(),
+            // Enter sends; Ctrl+Enter is native's confirmed send alias (the reference maps it to
+            // the complementary Queue/Steer action), so one command holds both.
+            "native.send".to_owned(),
             vec![key("Enter", &[]), key("Enter", &["primary"])],
         ),
-        ("fixed.newline".to_owned(), vec![key("Enter", &["shift"])]),
-        ("fixed.close".to_owned(), vec![key("Escape", &[])]),
+        ("native.newline".to_owned(), vec![key("Enter", &["shift"])]),
+        ("native.close".to_owned(), vec![key("Escape", &[])]),
     ]
 }
 
@@ -398,6 +398,8 @@ pub const GROUPS: [&str; 4] = ["application", "input", "menus", "approval"];
 pub const COPY_RESET: &str = "Restore default";
 pub const COPY_CLEAR: &str = "Remove";
 pub const COPY_MODIFIED: &str = "Modified";
+/// The reference's recorder copy while a row is armed (`locales.ts` `record`).
+pub const COPY_RECORD: &str = "Press a shortcut";
 pub const COPY_RETRY_SAVE: &str = "Retry save";
 pub const COPY_MODIFIED_COUNT: &str = "{count} customized";
 pub const COPY_RESET_ALL: &str = "Restore all defaults";
@@ -666,6 +668,7 @@ mod tests {
         assert_eq!(COPY_RESET, "Restore default");
         assert_eq!(COPY_CLEAR, "Remove");
         assert_eq!(COPY_MODIFIED, "Modified");
+        assert_eq!(COPY_RECORD, "Press a shortcut");
         assert_eq!(COPY_RETRY_SAVE, "Retry save");
         assert_eq!(COPY_MODIFIED_COUNT, "{count} customized");
         assert_eq!(COPY_RESET_ALL, "Restore all defaults");
@@ -706,8 +709,8 @@ mod tests {
         for (id, _, _) in native_catalog() {
             assert!(invoke_for(&id).is_some(), "{id} has no invocation");
         }
-        assert_eq!(invoke_for("fixed.send"), Some(Invoke::Send));
-        assert_eq!(invoke_for("fixed.newline"), Some(Invoke::Newline));
+        assert_eq!(invoke_for("native.send"), Some(Invoke::Send));
+        assert_eq!(invoke_for("native.newline"), Some(Invoke::Newline));
         // A Host command, or anything else, is not an action this app can take.
         assert_eq!(invoke_for("session.compact"), None);
         assert_eq!(invoke_for(""), None);
@@ -808,7 +811,7 @@ mod tests {
         // And they answer presses: the app's own keys, through the same resolver the trigger uses.
         assert_eq!(
             resolve(&store, &Key::Character("b".into()), Modifiers::CTRL),
-            Some("fixed.navigation")
+            Some("native.navigation")
         );
         assert_eq!(
             resolve(
@@ -816,7 +819,7 @@ mod tests {
                 &Key::Named(iced::keyboard::key::Named::Enter),
                 Modifiers::empty()
             ),
-            Some("fixed.send")
+            Some("native.send")
         );
         assert_eq!(
             resolve(
@@ -824,7 +827,7 @@ mod tests {
                 &Key::Named(iced::keyboard::key::Named::Enter),
                 Modifiers::CTRL
             ),
-            Some("fixed.send")
+            Some("native.send")
         );
         // Escape is unambiguous because only one command claims it.
         assert_eq!(
@@ -833,7 +836,7 @@ mod tests {
                 &Key::Named(iced::keyboard::key::Named::Escape),
                 Modifiers::empty()
             ),
-            Some("fixed.close")
+            Some("native.close")
         );
     }
 

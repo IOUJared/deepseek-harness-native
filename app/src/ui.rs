@@ -220,10 +220,10 @@ pub enum Message {
     ToggleJobs,
     /// The reference's `shortcuts.open` trigger (`primary + Slash`).
     ShortcutsOpen,
-    /// A key the hardcoded map did not claim, handed to the live binding store: routing a key as
-    /// *data* is the only way to consult live bindings, since a subscription's captured data goes
-    /// stale the moment a panel opens (see the chain's own comment).
-    KeyFallback(iced::keyboard::Key, iced::keyboard::Modifiers),
+    /// A key press as **data** for the live chain, with the state at the moment it arrives: an
+    /// armed capture consumes it, a focused field's links own it, or a stored binding invokes a
+    /// command — so a rebound key replaces the hardcoded default instead of shadowing it.
+    KeyPressed(iced::keyboard::Key, iced::keyboard::Modifiers),
     /// Stops one job, after the reference's two-click confirmation.
     KillJob(String),
     /// Expands or collapses one job's live output.
@@ -1134,37 +1134,19 @@ impl App {
                 crate::single_instance::Source::stream,
             )
             .map(|_| Message::FocusRequested),
-            keyboard::listen()
-                .with((self.detail_escape_ticket(), self.settings_paste_ticket()))
-                .filter_map(|((ticket, paste), event)| match event {
-                    keyboard::Event::KeyPressed {
-                        key,
-                        modifiers,
-                        repeat: false,
-                        ..
-                    } => panel_shortcut(&key, modifiers, ticket)
-                        .or_else(|| {
-                            settings_paste_message(wayland_session(), paste, &key, modifiers)
-                        })
-                        // The tagged fields answer Ctrl+C and Ctrl+V here. This
-                        // mapping deliberately reads no subscription data: data
-                        // captured when the stream was built goes stale the moment
-                        // the panel opens, which is how this silently stopped
-                        // working inside Settings. The handlers below hold live
-                        // state and decide, and they say why when they refuse.
-                        .or_else(|| clipboard_field_shortcut(&key, modifiers))
-                        // `shortcuts.open` is `primary + Slash` in the reference; the decision is
-                        // tested in `keybindings::is_trigger` and this only routes it.
-                        .or_else(|| {
-                            crate::keybindings::is_trigger(&key, modifiers)
-                                .then_some(Message::ShortcutsOpen)
-                        })
-                        // Nothing claimed it, so hand it to the store as data. The handler above
-                        // decides against live bindings, which is why the key travels rather than
-                        // a decision taken here.
-                        .or_else(|| Some(Message::KeyFallback(key.clone(), modifiers))),
-                    _ => None,
-                }),
+            // Every press no widget claimed is carried as data to `update`, the one place that
+            // reads live state: an armed capture, a focused field's paste/copy, the
+            // `shortcuts.open` trigger and the stored binding chain all decide there. Deciding
+            // in this closure would capture state that goes stale the moment a panel opens.
+            keyboard::listen().filter_map(|event| match event {
+                keyboard::Event::KeyPressed {
+                    key,
+                    modifiers,
+                    repeat: false,
+                    ..
+                } => Some(Message::KeyPressed(key, modifiers)),
+                _ => None,
+            }),
             animation,
             if self.draft_state.ready()
                 && self.draft_state.dirty()
@@ -2715,6 +2697,53 @@ impl App {
                 });
             }
             Message::Settings(action) => {
+                // The editor's own actions are local store edits, and the permission default
+                // reuses the same gated pick. They must be handled *before* `Settings::handle`,
+                // whose wildcard would otherwise absorb them: a button whose arm sits after a
+                // catch-all compiles and does nothing, which is how this surface was once inert.
+                match &action {
+                    crate::settings::Action::CaptureShortcut(id) => {
+                        self.settings.capture_for = Some(id.clone());
+                        return Task::none();
+                    }
+                    crate::settings::Action::ResetAllDefaults => {
+                        self.settings.reset_all_armed = true;
+                        return Task::none();
+                    }
+                    crate::settings::Action::ConfirmResetAll(confirmed) => {
+                        self.settings.reset_all_armed = false;
+                        if *confirmed {
+                            let _ = self
+                                .settings
+                                .keybindings
+                                .reset_all(self.settings.keybindings.revision());
+                        }
+                        return Task::none();
+                    }
+                    crate::settings::Action::ResetShortcut(id) => {
+                        let _ = self.settings.keybindings.apply(
+                            crate::keybindings::Edit::Reset { id: id.clone() },
+                            self.settings.keybindings.revision(),
+                        );
+                        return Task::none();
+                    }
+                    crate::settings::Action::ClearShortcut(id) => {
+                        // Synchronous and local: the store lives on Settings, so the edit
+                        // needs no message and cannot race the revision it just read.
+                        let _ = self.settings.keybindings.apply(
+                            crate::keybindings::Edit::Set {
+                                id: id.clone(),
+                                binding: None,
+                            },
+                            self.settings.keybindings.revision(),
+                        );
+                        return Task::none();
+                    }
+                    crate::settings::Action::PermissionDefault(name) => {
+                        return self.update(Message::PermissionDefaultPick(name.clone()));
+                    }
+                    _ => {}
+                }
                 // A documentation link is the one settings action that reaches no
                 // Host state: the destination is a constant this app ships, so it
                 // is copied for the user to open rather than launched.
@@ -2916,32 +2945,8 @@ impl App {
                     });
                 }
             }
-            Message::KeyFallback(key, modifiers) => {
-                // A capture wins over routing: the press *becomes* a binding rather than invoking
-                // anything, bounded to the armed row (`Editor.tsx:59-71`).
-                if let Some(id) = self.settings.capture_for.clone() {
-                    if let Some(binding) = crate::keybindings::binding_from(&key, modifiers) {
-                        let _ = self.settings.keybindings.apply(
-                            crate::keybindings::Edit::Set {
-                                id,
-                                binding: Some(binding),
-                            },
-                            self.settings.keybindings.revision(),
-                        );
-                        self.settings.capture_for = None;
-                    }
-                    return Task::none();
-                }
-                // Only keys the hardcoded map does not claim reach here, so nothing that worked
-                // before can change. The store decides, and a command this app cannot act on is
-                // ignored rather than approximated.
-                let invoke =
-                    crate::keybindings::resolve(&self.settings.keybindings, &key, modifiers)
-                        .and_then(crate::keybindings::invoke_for);
-                if let Some(message) = invoke_message(invoke) {
-                    return Task::done(message);
-                }
-                return Task::none();
+            Message::KeyPressed(key, modifiers) => {
+                return self.key_pressed(key, modifiers);
             }
             Message::ShortcutsOpen => {
                 // The reference's `shortcuts.open` shows its own overlay; the equivalent here is
@@ -2973,54 +2978,6 @@ impl App {
                     self.command(Command::JobOutput { session, job: id });
                 }
             }
-            Message::Worker(Event::JobKilled(result)) => {
-                // A refusal keeps the panel as it was and says so; a receipt needs no words.
-                self.jobs_kill_error = result.err();
-            }
-            Message::Worker(Event::JobsRows(rows)) => {
-                // Whole-set replacement: a reconnect's first frame is already the truth.
-                self.jobs = rows;
-            }
-            Message::Worker(Event::JobsFollow {
-                job: followed,
-                frame,
-            }) => {
-                use dsh_native_transport::dto::JobFollowFrame;
-                match frame {
-                    // A job opening or changing state updates that row; output is not consumed
-                    // until the panel's expansion exists, and saying so beats pretending.
-                    JobFollowFrame::Opened { job, .. } | JobFollowFrame::Status { job } => {
-                        match self.jobs.iter_mut().find(|row| row.id == job.id) {
-                            Some(row) => *row = job,
-                            None => self.jobs.push(job),
-                        }
-                    }
-                    JobFollowFrame::Output { chunks, lossy, .. } => {
-                        // The event carries the job id, because the frame itself does not: the
-                        // stream is per job, so the worker is the only party that knows which row
-                        // these bytes belong to. The gap copy is the reference's own
-                        // (`locales.ts:75-76`).
-                        let buffer = self.jobs_output.entry(followed.clone()).or_default();
-                        if lossy == Some(true) && !buffer.is_empty() {
-                            buffer.push_str("… earlier output dropped …\n");
-                        }
-                        for chunk in chunks {
-                            if chunk.gap_before == Some(true) && !buffer.is_empty() {
-                                buffer.push_str("… earlier output dropped …\n");
-                            }
-                            buffer.push_str(&chunk.text);
-                        }
-                    }
-                }
-            }
-            Message::Worker(Event::AgentPresetSelected(result)) => {
-                match result {
-                    // The Host returns the committed identity, so the seat's own value follows
-                    // the Host rather than the click.
-                    Ok(_) => self.agent_seat_error = None,
-                    Err(message) => self.agent_seat_error = Some(message),
-                }
-            }
             Message::TogglePermissionMenu if self.composer_visible() => {
                 self.permission_menu = !self.permission_menu;
                 // The reference reads the catalog when the picker opens; native does the
@@ -3028,61 +2985,6 @@ impl App {
                 if self.permission_menu && self.permission_catalog.is_none() {
                     self.command(Command::PermissionCatalogRead);
                 }
-            }
-            Message::Worker(Event::PermissionCatalog(result)) => {
-                if let Ok(catalog) = result {
-                    self.permission_catalog = Some(catalog);
-                }
-            }
-            Message::Worker(Event::AgentPresets(result)) => {
-                if let Ok(roster) = result {
-                    self.agent_roster = Some(roster);
-                }
-            }
-            Message::Worker(Event::PermissionSettings(result)) => {
-                if let Ok(settings) = result {
-                    self.permission_settings = Some(settings);
-                }
-            }
-            Message::Worker(Event::PermissionDefaultSet(result)) => {
-                self.permission_default_saving = false;
-                // A successful write changes the descriptor, so the row re-reads it rather
-                // than assuming the new value; a refusal leaves the old one in place.
-                if result.is_ok() {
-                    self.command(Command::PermissionSettingsRead);
-                }
-            }
-            Message::Settings(crate::settings::Action::CaptureShortcut(id)) => {
-                self.settings.capture_for = Some(id);
-            }
-            Message::Settings(crate::settings::Action::ResetAllDefaults) => {
-                self.settings.reset_all_armed = true;
-            }
-            Message::Settings(crate::settings::Action::ConfirmResetAll(confirmed)) => {
-                self.settings.reset_all_armed = false;
-                if confirmed {
-                    let _ = self
-                        .settings
-                        .keybindings
-                        .reset_all(self.settings.keybindings.revision());
-                }
-            }
-            Message::Settings(crate::settings::Action::ResetShortcut(id)) => {
-                // Restores the default list this command was seeded with; same synchronous path.
-                let _ = self.settings.keybindings.apply(
-                    crate::keybindings::Edit::Reset { id },
-                    self.settings.keybindings.revision(),
-                );
-            }
-            Message::Settings(crate::settings::Action::ClearShortcut(id)) => {
-                // Synchronous and local: the store lives on Settings, so the edit needs no message.
-                let _ = self.settings.keybindings.apply(
-                    crate::keybindings::Edit::Set { id, binding: None },
-                    self.settings.keybindings.revision(),
-                );
-            }
-            Message::Settings(crate::settings::Action::PermissionDefault(name)) => {
-                return self.update(Message::PermissionDefaultPick(name));
             }
             Message::PermissionDefaultPick(name) => {
                 if let Some(settings) = &self.permission_settings
@@ -3975,6 +3877,16 @@ impl App {
                 // An advertisement belongs to the session that answered; a reply
                 // for a session the user has left changes nothing.
                 if self.selected.as_ref() == Some(&session_id) {
+                    // The shortcuts disclosure lists the same advertisement as pairs: the
+                    // slash menu's candidate type is private to the UI module tree. A failed
+                    // read advertises nothing rather than keeping a stale list.
+                    self.settings.commands = match &result {
+                        Ok(commands) => commands
+                            .iter()
+                            .map(|command| (command.name.clone(), command.name.clone()))
+                            .collect(),
+                        Err(_) => Vec::new(),
+                    };
                     match result {
                         Ok(commands) if commands.is_empty() => {
                             self.commands = Some(Vec::new());
@@ -4006,18 +3918,6 @@ impl App {
                             self.status = failure.message();
                         }
                     }
-                }
-            }
-            Event::CommandsListed { session_id, result } => {
-                // The disclosure lists the same commands the slash menu completes, as pairs: the
-                // menu's own candidate type is private to the UI module tree.
-                if let Ok(commands) = &result
-                    && self.selected.as_ref() == Some(&session_id)
-                {
-                    self.settings.commands = commands
-                        .iter()
-                        .map(|command| (command.name.clone(), command.name.clone()))
-                        .collect();
                 }
             }
             Event::CommandsExecuted {
@@ -4659,6 +4559,77 @@ impl App {
                     };
                 }
             }
+            Event::JobKilled(result) => {
+                // A refusal keeps the panel as it was and says so; a receipt needs no words.
+                self.jobs_kill_error = result.err();
+            }
+            Event::JobsRows(rows) => {
+                // Whole-set replacement: a reconnect's first frame is already the truth.
+                self.jobs = rows;
+            }
+            Event::JobsFollow {
+                job: followed,
+                frame,
+            } => {
+                use dsh_native_transport::dto::JobFollowFrame;
+                match frame {
+                    // A job opening or changing state updates that row; output is not consumed
+                    // until the panel's expansion exists, and saying so beats pretending.
+                    JobFollowFrame::Opened { job, .. } | JobFollowFrame::Status { job } => {
+                        match self.jobs.iter_mut().find(|row| row.id == job.id) {
+                            Some(row) => *row = job,
+                            None => self.jobs.push(job),
+                        }
+                    }
+                    JobFollowFrame::Output { chunks, lossy, .. } => {
+                        // The event carries the job id, because the frame itself does not: the
+                        // stream is per job, so the worker is the only party that knows which row
+                        // these bytes belong to. The gap copy is the reference's own
+                        // (`locales.ts:75-76`).
+                        let buffer = self.jobs_output.entry(followed.clone()).or_default();
+                        if lossy == Some(true) && !buffer.is_empty() {
+                            buffer.push_str("… earlier output dropped …\n");
+                        }
+                        for chunk in chunks {
+                            if chunk.gap_before == Some(true) && !buffer.is_empty() {
+                                buffer.push_str("… earlier output dropped …\n");
+                            }
+                            buffer.push_str(&chunk.text);
+                        }
+                    }
+                }
+            }
+            Event::AgentPresetSelected(result) => {
+                match result {
+                    // The Host returns the committed identity, so the seat's own value follows
+                    // the Host rather than the click.
+                    Ok(_) => self.agent_seat_error = None,
+                    Err(message) => self.agent_seat_error = Some(message),
+                }
+            }
+            Event::PermissionCatalog(result) => {
+                if let Ok(catalog) = result {
+                    self.permission_catalog = Some(catalog);
+                }
+            }
+            Event::AgentPresets(result) => {
+                if let Ok(roster) = result {
+                    self.agent_roster = Some(roster);
+                }
+            }
+            Event::PermissionSettings(result) => {
+                if let Ok(settings) = result {
+                    self.permission_settings = Some(settings);
+                }
+            }
+            Event::PermissionDefaultSet(result) => {
+                self.permission_default_saving = false;
+                // A successful write changes the descriptor, so the row re-reads it rather
+                // than assuming the new value; a refusal leaves the old one in place.
+                if result.is_ok() {
+                    self.command(Command::PermissionSettingsRead);
+                }
+            }
             _ => {}
         }
         self.reconcile_local_files();
@@ -5064,6 +5035,66 @@ impl App {
             .paste_allowed(ticket, self.transport_epoch, self.settings_enabled())
             .then_some(ticket)
     }
+    /// The live key chain. Order is the contract: an armed capture changes what the next press
+    /// means; a focused field's own links keep copy and paste; the global trigger is fixed; then
+    /// the stored bindings decide, and a key no current binding holds does nothing rather than
+    /// falling back to the default it was moved away from.
+    fn key_pressed(&mut self, key: keyboard::Key, modifiers: keyboard::Modifiers) -> Task<Message> {
+        use crate::keybindings::Invoke;
+        // A capture wins over routing: the press *becomes* a binding rather than invoking
+        // anything, bounded to the armed row (`Editor.tsx:59-71`).
+        if let Some(id) = self.settings.capture_for.clone() {
+            if let Some(binding) = crate::keybindings::binding_from(&key, modifiers) {
+                let _ = self.settings.keybindings.apply(
+                    crate::keybindings::Edit::Set {
+                        id,
+                        binding: Some(binding),
+                    },
+                    self.settings.keybindings.revision(),
+                );
+                self.settings.capture_for = None;
+            }
+            return Task::none();
+        }
+        // The field-level links own these keys before any command is consulted, so a stored
+        // binding cannot swallow Ctrl+C or Ctrl+V from the field that needs it.
+        // Each routed message is applied through `update` now, not returned as a `Task` the
+        // runtime would apply on the next pass: that keeps the live chain synchronous, and the
+        // gates that own a modal see the message exactly as they would from a direct press.
+        if let Some(message) = settings_paste_message(
+            wayland_session(),
+            self.settings_paste_ticket(),
+            &key,
+            modifiers,
+        ) {
+            return self.update(message);
+        }
+        if let Some(message) = clipboard_field_shortcut(&key, modifiers) {
+            return self.update(message);
+        }
+        // `shortcuts.open` is fixed (`primary + Slash`); the reference does not expose it as an
+        // editable command either.
+        if crate::keybindings::is_trigger(&key, modifiers) {
+            return self.update(Message::ShortcutsOpen);
+        }
+        if let Some(id) = crate::keybindings::resolve(&self.settings.keybindings, &key, modifiers) {
+            let invoke = crate::keybindings::invoke_for(id);
+            if invoke == Some(Invoke::Close) {
+                // The visible Details sheet is the topmost dismissal, as the tagged route always
+                // was; the command decides the key, the surface decides what Escape means here.
+                return match self.detail_escape_ticket() {
+                    Some(ticket) => self.update(Message::HideDetails(ticket)),
+                    None => self.update(Message::DismissPanel),
+                };
+            }
+            if let Some(message) = invoke_message(invoke) {
+                return self.update(message);
+            }
+        }
+        // A press whose command was cleared or moved is dead, not a second chance for the
+        // hardcoded handler: this is what makes a stored binding *replace* a default.
+        Task::none()
+    }
     /// DeepSeek route facts the Settings page renders. Read-only projection of
     /// the real catalog read; never invents a model or an endpoint.
     fn settings_route_facts(&self) -> crate::settings::RouteFacts {
@@ -5167,8 +5198,6 @@ impl App {
             self.follow_bottom = false;
         }
     }
-    /// Fixture-only: open the editable-field context menu, which a real run only
-    /// opens from a right press inside the composer's editor.
     /// Fixture-only: open the permission chip's menu, which a real run opens by pressing
     /// the chip itself.
     #[cfg(feature = "public-layout-fixture")]
@@ -5192,48 +5221,46 @@ impl App {
             crate::settings::Page::General,
         )));
     }
-    /// Fixture-only: stand in for the settings descriptor reply, so the General page's
-    /// permission row is capturable without a running Host.
-    #[cfg(feature = "public-layout-fixture")]
-    /// Fixture-only: stand in for the Host's roster reply, so the label's display name is
-    /// capturable without a running Host.
-    #[cfg(feature = "public-layout-fixture")]
     /// Fixture-only: hold the seat's refusal state open, which a real run reaches by picking a
     /// preset for a session that has already started.
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn set_agent_seat_error(&mut self, message: &str) {
         self.agent_seat_error = Some(message.to_owned());
     }
-    /// Fixture-only: seed background jobs, so the counted header action and its panel are
-    /// capturable without a running Host.
-    #[cfg(feature = "public-layout-fixture")]
-    /// Fixture-only: open the shortcuts disclosure, so its rows are capturable.
-    #[cfg(feature = "public-layout-fixture")]
     /// Fixture-only: clear one binding through the store, so the count line is visible.
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn customise_one_shortcut(&mut self) {
         // A *clear*, not a reset: `Reset` restores the default, which is not a modification.
         let _ = self.settings.keybindings.apply(
             crate::keybindings::Edit::Set {
-                id: "fixed.find".to_owned(),
+                id: "native.find".to_owned(),
                 binding: None,
             },
             0,
         );
     }
 
+    /// Fixture-only: open the shortcuts disclosure, so its rows are capturable.
+    #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn set_shortcuts_open(&mut self, open: bool) {
         self.settings.shortcuts_open = open;
     }
 
-    /// Fixture-only: seed the Host's advertised commands as the pairs the disclosure reads.
-    #[cfg(feature = "public-layout-fixture")]
     /// Fixture-only: arm the restore-all confirmation, so its copy is capturable.
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn arm_reset_all(&mut self) {
         self.settings.reset_all_armed = true;
     }
 
+    /// Fixture-only: arm the capture branch for one row, so the reference's recorder copy is
+    /// capturable without a pointer press.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn arm_shortcut_capture(&mut self) {
+        self.settings.capture_for = Some("native.find".to_owned());
+    }
+
+    /// Fixture-only: seed the Host's advertised commands as the pairs the disclosure reads.
+    #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn seed_commands(&mut self) {
         self.settings.commands = vec![
             ("session.compact".to_owned(), "session.compact".to_owned()),
@@ -5241,6 +5268,9 @@ impl App {
         ];
     }
 
+    /// Fixture-only: seed background jobs, so the counted header action and its panel are
+    /// capturable without a running Host.
+    #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn set_jobs(&mut self) {
         let row =
             |id: &str, kind: &str, label: &str, status: &str| dsh_native_transport::dto::JobView {
@@ -5267,9 +5297,14 @@ impl App {
             row("lint-4", "shell", "Lint the app crate", "failed"),
         ];
     }
+    /// Fixture-only: open the hero preset seat's list, so its rows are capturable.
+    #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn set_agent_seat_open(&mut self) {
         self.agent_seat_open = true;
     }
+    /// Fixture-only: stand in for the Host's roster reply, so the label's display name is
+    /// capturable without a running Host.
+    #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn set_agent_roster(&mut self) {
         self.agent_roster = Some(dsh_native_core::AgentPresetRoster {
             presets: vec![
@@ -5298,6 +5333,9 @@ impl App {
             ],
         });
     }
+    /// Fixture-only: stand in for the settings descriptor reply, so the permission row is
+    /// capturable without a running Host.
+    #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn set_permission_settings(&mut self, writable: bool) {
         self.permission_settings = Some(dsh_native_core::PermissionSettingsState {
             current_value: "workspace-write".to_owned(),
@@ -6874,7 +6912,14 @@ impl App {
             .size(design::BODY_SIZE as u32)
             .line_height(design::body_line(self.content_delta()))
             .style(design::editor)
-            .key_binding(move |event| composer_binding(event, keyboard_allowed, menu_open));
+            .key_binding(move |event| {
+                composer_binding(
+                    event,
+                    keyboard_allowed,
+                    menu_open,
+                    &self.settings.keybindings,
+                )
+            });
         // The shell's editable context menu: a right press opens it, and the anchoring
         // wrapper keeps the anchor's own flow size and dismisses on an outside press
         // (`apps/desktop/src/main.ts:276-300`).
@@ -10843,35 +10888,6 @@ fn invoke_message(invoke: Option<crate::keybindings::Invoke>) -> Option<Message>
     }
 }
 
-fn layout_shortcut(key: &keyboard::Key, modifiers: keyboard::Modifiers) -> Option<Message> {
-    if modifiers.control()
-        && !modifiers.alt()
-        && !modifiers.logo()
-        && !modifiers.shift()
-        && let keyboard::Key::Character(value) = key
-    {
-        if value.eq_ignore_ascii_case("f") {
-            return Some(Message::SearchOpen);
-        }
-        if value.eq_ignore_ascii_case("b") {
-            return Some(Message::ToggleSidebar);
-        }
-    }
-    if modifiers.is_empty() && matches!(key, keyboard::Key::Named(keyboard::key::Named::Escape)) {
-        return Some(Message::DismissPanel);
-    }
-    None
-}
-fn panel_shortcut(
-    key: &keyboard::Key,
-    modifiers: keyboard::Modifiers,
-    ticket: Option<detail_panel::Stamp>,
-) -> Option<Message> {
-    match (layout_shortcut(key, modifiers)?, ticket) {
-        (Message::DismissPanel, Some(ticket)) => Some(Message::HideDetails(ticket)),
-        (message, _) => Some(message),
-    }
-}
 fn routine_status(status: &str) -> bool {
     // Exact controlled successes only. Never hide errors by substring/prefix or infer account validity.
     matches!(
@@ -11545,10 +11561,12 @@ fn composer_binding(
     event: text_editor::KeyPress,
     send_enabled: bool,
     menu_open: bool,
+    bindings: &crate::keybindings::Store,
 ) -> Option<text_editor::Binding<Message>> {
     if matches!(event.status, text_editor::Status::Focused { .. }) {
         // While the menu is open these keys move the highlight or accept it, so
-        // a half-typed command is never sent and the caret does not jump.
+        // a half-typed command is never sent and the caret does not jump. They
+        // are the reference's fixed menu keys, not editable commands.
         if menu_open && event.modifiers.is_empty() {
             match &event.key {
                 keyboard::Key::Named(keyboard::key::Named::ArrowDown) => {
@@ -11566,20 +11584,42 @@ fn composer_binding(
                 _ => {}
             }
         }
-        if !event.modifiers.alt()
-            && !event.modifiers.logo()
-            && !event.modifiers.shift()
-            && matches!(event.key, keyboard::Key::Named(keyboard::key::Named::Enter))
-        {
-            return send_enabled.then_some(text_editor::Binding::Custom(Message::KeyboardSend));
+        // The field's own clipboard links keep their keys: a command bound to Ctrl+V or Ctrl+C
+        // must not swallow the paste or copy the focused editor owns.
+        if paste_shortcut(&event.key, event.modifiers) {
+            return if wayland_session() {
+                // Iced's own Ctrl+V goes through the unusable Wayland clipboard
+                // backend; read on a worker thread instead (see native_clipboard).
+                Some(text_editor::Binding::Custom(Message::PasteComposer))
+            } else {
+                text_editor::Binding::from_key_press(event)
+            };
         }
-        if let Some(message) = layout_shortcut(&event.key, event.modifiers) {
-            return Some(text_editor::Binding::Custom(message));
+        if clipboard_field_shortcut(&event.key, event.modifiers).is_some() {
+            return text_editor::Binding::from_key_press(event);
         }
-        if wayland_session() && paste_shortcut(&event.key, event.modifiers) {
-            // Iced's own Ctrl+V goes through the unusable Wayland clipboard
-            // backend; read on a worker thread instead (see native_clipboard).
-            return Some(text_editor::Binding::Custom(Message::PasteComposer));
+        // The store is read in the view, so its snapshot is the one this frame draws: a rebound
+        // key invokes its command here, and a cleared or moved key falls through to the editor
+        // instead of the default it no longer holds.
+        if let Some(id) = crate::keybindings::resolve(bindings, &event.key, event.modifiers) {
+            use crate::keybindings::Invoke;
+            return match crate::keybindings::invoke_for(id) {
+                Some(Invoke::Send) => {
+                    send_enabled.then_some(text_editor::Binding::Custom(Message::KeyboardSend))
+                }
+                Some(Invoke::Newline) => Some(text_editor::Binding::Enter),
+                Some(Invoke::Navigation) => {
+                    Some(text_editor::Binding::Custom(Message::ToggleSidebar))
+                }
+                Some(Invoke::Find) => Some(text_editor::Binding::Custom(Message::SearchOpen)),
+                // The surface decides what dismissal means (Details is topmost); carrying the
+                // press as data keeps that decision in `key_pressed`, where live state lives.
+                Some(Invoke::Close) => Some(text_editor::Binding::Custom(Message::KeyPressed(
+                    event.key.clone(),
+                    event.modifiers,
+                ))),
+                None => None,
+            };
         }
     }
     text_editor::Binding::from_key_press(event)
@@ -12182,7 +12222,7 @@ mod tests {
     fn the_completion_menu_claims_navigation_keys_only_while_open() {
         use keyboard::key::Named;
         for key in [Named::ArrowDown, Named::ArrowUp, Named::Tab, Named::Escape] {
-            let open = composer_binding(named(key), true, true);
+            let open = composer_binding(named(key), true, true, &bindings());
             let claimed = matches!(
                 open,
                 Some(text_editor::Binding::Custom(
@@ -12199,7 +12239,7 @@ mod tests {
                 } else {
                     -1
                 };
-                let actual = composer_binding(named(key), true, true);
+                let actual = composer_binding(named(key), true, true, &bindings());
                 assert!(
                     matches!(
                         actual,
@@ -12211,7 +12251,7 @@ mod tests {
             }
             // Closed: the same keys fall through to the editor's own handling,
             // except Escape, which the app already binds elsewhere.
-            let closed = composer_binding(named(key), true, false);
+            let closed = composer_binding(named(key), true, false, &bindings());
             if !matches!(key, Named::Escape) {
                 assert!(
                     !matches!(
@@ -12230,7 +12270,7 @@ mod tests {
         let mut modified = named(Named::ArrowDown);
         modified.modifiers = keyboard::Modifiers::CTRL;
         assert!(!matches!(
-            composer_binding(modified, true, true),
+            composer_binding(modified, true, true, &bindings()),
             Some(text_editor::Binding::Custom(Message::CommandMenuMove(1)))
         ));
     }
@@ -12402,6 +12442,19 @@ mod tests {
         assert!(captured);
         assert!(messages.is_empty());
     }
+    fn bindings() -> crate::keybindings::Store {
+        crate::keybindings::Store::new(crate::keybindings::native_fixed())
+    }
+    fn press(character: &str, modifiers: keyboard::Modifiers) -> text_editor::KeyPress {
+        text_editor::KeyPress {
+            key: keyboard::Key::Character(character.into()),
+            modified_key: keyboard::Key::Character(character.into()),
+            physical_key: keyboard::key::Physical::Code(keyboard::key::Code::KeyJ),
+            modifiers,
+            text: None,
+            status: text_editor::Status::Focused { is_hovered: false },
+        }
+    }
     fn enter(modifiers: keyboard::Modifiers) -> text_editor::KeyPress {
         text_editor::KeyPress {
             key: keyboard::Key::Named(keyboard::key::Named::Enter),
@@ -12415,22 +12468,304 @@ mod tests {
     #[test]
     fn enter_and_ctrl_enter_require_nonempty_send_permission_shift_enter_is_newline() {
         for modifiers in [keyboard::Modifiers::empty(), keyboard::Modifiers::CTRL] {
-            assert!(composer_binding(enter(modifiers), false, false).is_none());
+            assert!(composer_binding(enter(modifiers), false, false, &bindings()).is_none());
             assert!(matches!(
-                composer_binding(enter(modifiers), true, false),
+                composer_binding(enter(modifiers), true, false, &bindings()),
                 Some(text_editor::Binding::Custom(Message::KeyboardSend))
             ));
         }
         for allowed in [false, true] {
             assert!(matches!(
-                composer_binding(enter(keyboard::Modifiers::SHIFT), allowed, false),
+                composer_binding(
+                    enter(keyboard::Modifiers::SHIFT),
+                    allowed,
+                    false,
+                    &bindings()
+                ),
                 Some(text_editor::Binding::Enter)
             ));
         }
         let mut unfocused = enter(keyboard::Modifiers::empty());
         unfocused.status = text_editor::Status::Active;
         assert!(!matches!(
-            composer_binding(unfocused, true, false),
+            composer_binding(unfocused, true, false, &bindings()),
+            Some(text_editor::Binding::Custom(Message::KeyboardSend))
+        ));
+    }
+    #[test]
+    fn a_rebound_command_replaces_its_default_in_the_live_chain() {
+        use keyboard::{Key, Modifiers};
+        let (mut app, _receiver) = app();
+        let _ = app.update(Message::WindowActive(true));
+        let before = app.sidebar_expanded;
+        let _ = app.update(Message::KeyPressed(
+            Key::Character("b".into()),
+            Modifiers::CTRL,
+        ));
+        assert_ne!(app.sidebar_expanded, before, "the default still works");
+        // Move Navigation onto Ctrl+L through the store the editor edits.
+        let _ = app.settings.keybindings.apply(
+            crate::keybindings::Edit::Set {
+                id: "native.navigation".to_owned(),
+                binding: Some(
+                    crate::keybindings::binding_from(&Key::Character("l".into()), Modifiers::CTRL)
+                        .unwrap(),
+                ),
+            },
+            app.settings.keybindings.revision(),
+        );
+        let before = app.sidebar_expanded;
+        let _ = app.update(Message::KeyPressed(
+            Key::Character("b".into()),
+            Modifiers::CTRL,
+        ));
+        assert_eq!(
+            app.sidebar_expanded, before,
+            "the replaced default must not still act"
+        );
+        let _ = app.update(Message::KeyPressed(
+            Key::Character("l".into()),
+            Modifiers::CTRL,
+        ));
+        assert_ne!(app.sidebar_expanded, before, "the new binding acts instead");
+    }
+    #[test]
+    fn an_armed_capture_turns_the_next_press_into_the_rows_binding() {
+        use keyboard::{Key, Modifiers};
+        let (mut app, _receiver) = app();
+        let _ = app.update(Message::Settings(crate::settings::Action::CaptureShortcut(
+            "native.find".to_owned(),
+        )));
+        assert_eq!(app.settings.capture_for.as_deref(), Some("native.find"));
+        let _ = app.update(Message::KeyPressed(
+            Key::Character("g".into()),
+            Modifiers::CTRL,
+        ));
+        assert!(app.settings.capture_for.is_none(), "a captured key disarms");
+        let binding = app
+            .settings
+            .keybindings
+            .bindings("native.find")
+            .expect("the row keeps a binding");
+        assert_eq!(binding.len(), 1);
+        assert_eq!(crate::keybindings::display(&binding[0]), "Ctrl+G");
+    }
+    #[test]
+    fn the_editors_row_actions_run_through_their_real_action_messages() {
+        let (mut app, _receiver) = app();
+        let _ = app.update(Message::Settings(crate::settings::Action::ClearShortcut(
+            "native.find".to_owned(),
+        )));
+        assert!(
+            app.settings
+                .keybindings
+                .bindings("native.find")
+                .is_some_and(<[_]>::is_empty),
+            "Remove clears the seeded binding"
+        );
+        let _ = app.update(Message::Settings(crate::settings::Action::ResetShortcut(
+            "native.find".to_owned(),
+        )));
+        assert!(
+            !app.settings
+                .keybindings
+                .bindings("native.find")
+                .is_some_and(<[_]>::is_empty),
+            "Restore default returns the seeded list"
+        );
+        let _ = app.update(Message::Settings(crate::settings::Action::ResetAllDefaults));
+        assert!(app.settings.reset_all_armed);
+        let _ = app.update(Message::Settings(crate::settings::Action::ConfirmResetAll(
+            false,
+        )));
+        assert!(
+            !app.settings.reset_all_armed,
+            "Cancel disarms and changes nothing"
+        );
+    }
+    #[test]
+    fn the_permission_default_rows_action_reaches_its_gated_pick() {
+        let (mut app, mut receiver) = app();
+        app.permission_settings = Some(dsh_native_core::PermissionSettingsState {
+            current_value: "ask".to_owned(),
+            revision: 2,
+            writable: true,
+        });
+        let _ = app.update(Message::Settings(
+            crate::settings::Action::PermissionDefault("workspace-write".to_owned()),
+        ));
+        assert!(app.permission_default_saving);
+        assert!(matches!(
+            receiver.try_recv(),
+            Ok(Command::PermissionDefaultSet {
+                name,
+                expected_revision: 2
+            }) if name == "workspace-write"
+        ));
+    }
+    #[test]
+    fn worker_job_events_reach_the_panel_state() {
+        let (mut app, _receiver) = app();
+        assert!(app.jobs.is_empty());
+        let _ = app.update(Message::Worker(Event::JobsRows(vec![
+            dsh_native_transport::dto::JobView {
+                id: "shell-1".to_owned(),
+                kind: "shell".to_owned(),
+                label: "Run the test suite".to_owned(),
+                owner: None,
+                status: "running".to_owned(),
+            },
+        ])));
+        assert_eq!(app.jobs.len(), 1, "the Host's list is the panel's list");
+        let _ = app.update(Message::Worker(Event::JobsFollow {
+            job: "shell-1".to_owned(),
+            frame: dsh_native_transport::dto::JobFollowFrame::Output {
+                chunks: vec![dsh_native_transport::dto::JobChunk {
+                    at: 1,
+                    text: "hello".to_owned(),
+                    channel: None,
+                    gap_before: None,
+                }],
+                next: 1,
+                lossy: None,
+            },
+        }));
+        assert_eq!(
+            app.jobs_output.get("shell-1").map(String::as_str),
+            Some("hello"),
+            "a followed job's bytes reach its own buffer"
+        );
+        let _ = app.update(Message::Worker(Event::JobKilled(Err(
+            "Could not stop the job".to_owned(),
+        ))));
+        assert_eq!(
+            app.jobs_kill_error.as_deref(),
+            Some("Could not stop the job")
+        );
+    }
+    #[test]
+    fn worker_permission_and_roster_events_reach_their_surfaces() {
+        let (mut app, _receiver) = app();
+        let _ = app.update(Message::Worker(Event::PermissionSettings(Ok(
+            dsh_native_core::PermissionSettingsState {
+                current_value: "ask".to_owned(),
+                revision: 3,
+                writable: true,
+            },
+        ))));
+        assert!(app.permission_settings.is_some());
+        app.permission_default_saving = true;
+        let _ = app.update(Message::Worker(Event::PermissionDefaultSet(Err(
+            "refused".to_owned()
+        ))));
+        assert!(!app.permission_default_saving, "a refusal settles the row");
+        let _ = app.update(Message::Worker(Event::AgentPresets(Ok(
+            dsh_native_core::AgentPresetRoster {
+                presets: vec![dsh_native_core::AgentPresetRow {
+                    id: "scout".to_owned(),
+                    is_default: true,
+                    name: Some("Scout".to_owned()),
+                    description: None,
+                    broken: None,
+                }],
+            },
+        ))));
+        assert!(app.agent_roster.is_some());
+    }
+    #[test]
+    fn a_host_command_advertisement_reaches_the_editor_too() {
+        let (mut app, _receiver) = app();
+        let session = SessionId::new("PUBLIC-session").unwrap();
+        app.selected = Some(session.clone());
+        let _ = app.update(Message::Worker(Event::CommandsListed {
+            session_id: session,
+            result: Ok(vec![dsh_native_transport::dto::CommandDescriptor {
+                definition_id: None,
+                name: "session.compact".to_owned(),
+                description: String::new(),
+            }]),
+        }));
+        assert_eq!(
+            app.settings.commands,
+            vec![("session.compact".to_owned(), "session.compact".to_owned())],
+            "the disclosure lists the same advertisement the slash menu completes"
+        );
+    }
+    #[test]
+    fn a_cleared_close_command_does_not_fall_back_to_escape() {
+        use keyboard::{Key, Modifiers};
+        let (mut app, _receiver) = app();
+        app.work_open = true;
+        let _ = app.update(Message::KeyPressed(
+            Key::Named(keyboard::key::Named::Escape),
+            Modifiers::empty(),
+        ));
+        assert!(!app.work_open, "the default Escape still dismisses");
+        app.work_open = true;
+        let _ = app.settings.keybindings.apply(
+            crate::keybindings::Edit::Set {
+                id: "native.close".to_owned(),
+                binding: None,
+            },
+            app.settings.keybindings.revision(),
+        );
+        let _ = app.update(Message::KeyPressed(
+            Key::Named(keyboard::key::Named::Escape),
+            Modifiers::empty(),
+        ));
+        assert!(app.work_open, "a cleared command leaves its old key dead");
+    }
+    #[test]
+    fn a_command_bound_to_ctrl_v_never_swallows_the_field_paste() {
+        use keyboard::{Key, Modifiers};
+        let (mut app, _receiver) = app();
+        let _ = app.settings.keybindings.apply(
+            crate::keybindings::Edit::Set {
+                id: "native.navigation".to_owned(),
+                binding: Some(
+                    crate::keybindings::binding_from(&Key::Character("v".into()), Modifiers::CTRL)
+                        .unwrap(),
+                ),
+            },
+            app.settings.keybindings.revision(),
+        );
+        let before = app.sidebar_expanded;
+        let _ = app.update(Message::KeyPressed(
+            Key::Character("v".into()),
+            Modifiers::CTRL,
+        ));
+        assert_eq!(
+            app.sidebar_expanded, before,
+            "Ctrl+V belongs to the field link, not to a binding"
+        );
+    }
+    #[test]
+    fn the_focused_composer_follows_the_live_send_binding() {
+        let mut store = bindings();
+        assert!(matches!(
+            composer_binding(enter(keyboard::Modifiers::empty()), true, false, &store),
+            Some(text_editor::Binding::Custom(Message::KeyboardSend))
+        ));
+        // Move Send onto Ctrl+J: Enter must stop sending, and the new key must send.
+        let _ = store.apply(
+            crate::keybindings::Edit::Set {
+                id: "native.send".to_owned(),
+                binding: Some(
+                    crate::keybindings::binding_from(
+                        &keyboard::Key::Character("j".into()),
+                        keyboard::Modifiers::CTRL,
+                    )
+                    .unwrap(),
+                ),
+            },
+            store.revision(),
+        );
+        assert!(!matches!(
+            composer_binding(enter(keyboard::Modifiers::empty()), true, false, &store),
+            Some(text_editor::Binding::Custom(Message::KeyboardSend))
+        ));
+        assert!(matches!(
+            composer_binding(press("j", keyboard::Modifiers::CTRL), true, false, &store),
             Some(text_editor::Binding::Custom(Message::KeyboardSend))
         ));
     }
@@ -12465,6 +12800,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn paste_shortcut_matches_only_unmodified_ctrl_or_command_v() {
         let lower = keyboard::Key::Character("v".into());
         let upper = keyboard::Key::Character("V".into());
