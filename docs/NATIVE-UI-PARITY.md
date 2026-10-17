@@ -2691,3 +2691,20 @@ Since the round-145 update, all local and unpushed, gates green at each commit:
    Still to come for jobs: the panel itself behind the action (sections, clear, per-row dot,
    label, kind, status, duration), the two-click kill, and the follow stream that the expansion
    needs. The action's own press already toggles a `jobs_open` flag, so the panel has its state.
+
+   **The action's copy was invented and is now corrected, and the incident is the point.** The
+   first version rendered **"2 background tasks running"**. The package's own English dictionary
+   says otherwise — `count.live.one` is "{count} background **job** running", `count.live.other`
+   "{count} background **jobs** running", with `count.idle.one/other` for the quiet case
+   (`ui-jobs/src/client/locales.ts:51-54`) — so the string is now built with the reference's own
+   singular/plural forms, and the grab reads **"2 background jobs running"**
+   (`shots/79-jobs-action-corrected-dp2.png` against the earlier
+   `shots/78-jobs-header-action-dp2.png`).
+   How it happened matters: I read the **Chinese** dictionary — the file lists `zh` first — and
+   rendered English from it, which is inventing copy rather than translating a product's own
+   words. That is the same class as the invented `/agent` line and the descriptor misread: a
+   plausible string that no source supports. It was caught one round later **by reading the
+   dictionary I should have read first**.
+   Reading it also paid forward: `output.gap` is "… earlier output dropped …" and
+   `output.error` is "live output stream interrupted: {error}" — the exact copy the follow
+   stream's `lossy` flag needs, already waiting for the expansion work.

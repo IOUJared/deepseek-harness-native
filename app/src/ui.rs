@@ -7339,10 +7339,26 @@ impl App {
                 .iter()
                 .filter(|job| job.status == "running" || job.status == "stopping")
                 .count();
-            let text = if running > 0 {
-                format!("{running} background tasks running")
+            // The reference's own English copy distinguishes live from idle **and** singular
+            // from plural (`ui-jobs/src/client/locales.ts:51-54`): "{count} background job
+            // running" / "{count} background jobs running" / "{count} background job" /
+            // "{count} background jobs". An earlier revision of this arm translated the
+            // package's Chinese dictionary instead of reading the English one, which is the
+            // same class of mistake as an invented command line.
+            let count = if running > 0 {
+                running
             } else {
-                format!("{} background tasks", self.jobs.len())
+                self.jobs.len()
+            };
+            let noun = if count == 1 {
+                "background job"
+            } else {
+                "background jobs"
+            };
+            let text = if running > 0 {
+                format!("{count} {noun} running")
+            } else {
+                format!("{count} {noun}")
             };
             crumbs = crumbs.push(
                 container(
