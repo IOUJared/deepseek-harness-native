@@ -16865,6 +16865,47 @@ mod tests {
         assert_eq!(crate::keybindings::display(&binding[0]), "Ctrl+G");
     }
     #[test]
+    fn closing_settings_disarms_the_recorder_and_the_restore_all() {
+        use keyboard::{Key, Modifiers};
+        let (mut app, _receiver) = app();
+        let _ = app.update(Message::Settings(crate::settings::Action::Open));
+        let _ = app.update(Message::Settings(crate::settings::Action::CaptureShortcut(
+            "native.find".to_owned(),
+        )));
+        let _ = app.update(Message::Settings(crate::settings::Action::ResetAllDefaults));
+        assert_eq!(app.settings.capture_for.as_deref(), Some("native.find"));
+        assert!(app.settings.reset_all_armed);
+        let _ = app.update(Message::Settings(crate::settings::Action::Close));
+        assert!(
+            app.settings.capture_for.is_none(),
+            "closing disarms the recorder"
+        );
+        assert!(
+            !app.settings.reset_all_armed,
+            "closing disarms the destructive confirmation"
+        );
+        assert!(app.settings.capture_error.is_none());
+        // A press outside the modal is an ordinary key press again: it cannot rewrite the row,
+        // which is what the armed-and-hidden recorder used to do silently.
+        let _ = app.update(Message::KeyPressed(
+            Key::Character("g".into()),
+            Modifiers::CTRL,
+        ));
+        let binding = app
+            .settings
+            .keybindings
+            .bindings("native.find")
+            .expect("the row keeps a binding");
+        assert_eq!(
+            crate::keybindings::display(&binding[0]),
+            "Ctrl+F",
+            "a closed modal's recorder must not rewrite a binding"
+        );
+        // Reopening cannot present a destructive confirmation nobody agreed to.
+        let _ = app.update(Message::Settings(crate::settings::Action::Open));
+        assert!(!app.settings.reset_all_armed);
+    }
+    #[test]
     fn the_editors_row_actions_run_through_their_real_action_messages() {
         let (mut app, _receiver) = app();
         let _ = app.update(Message::Settings(crate::settings::Action::ClearShortcut(

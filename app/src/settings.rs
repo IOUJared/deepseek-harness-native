@@ -422,6 +422,13 @@ impl Settings {
         self.shortcuts_open = false;
         self.api_help_open = false;
         self.context_policy_open = false;
+        // An armed recorder and an armed restore-all belong to the disclosure that drew
+        // them. Hiding that surface must disarm them: otherwise the next key press anywhere
+        // silently rewrites a binding nobody is looking at, and reopening the page draws the
+        // destructive confirmation already agreed.
+        self.capture_for = None;
+        self.capture_error = None;
+        self.reset_all_armed = false;
     }
     fn info_button(&self, info: Info, title: &'static str, expanded: bool) -> Element<'_, Action> {
         button(
@@ -854,7 +861,16 @@ impl Settings {
                     Info::ApiHelp => &mut self.api_help_open,
                     Info::ContextPolicy => &mut self.context_policy_open,
                 };
-                *expanded = !*expanded;
+                let now = !*expanded;
+                *expanded = now;
+                // Collapsing the disclosure hides the recorder rows and the restore-all
+                // prompt with it, so collapsing must disarm both — an armed control behind a
+                // closed disclosure is the same silent rewrite the close path refuses.
+                if matches!(info, Info::Shortcuts) && !now {
+                    self.capture_for = None;
+                    self.capture_error = None;
+                    self.reset_all_armed = false;
+                }
             }
             return None;
         }
@@ -1975,6 +1991,39 @@ mod disclosure_tests {
                 .handle(Action::ToggleInfo { ticket, info }, epoch, false)
                 .is_none()
         );
+    }
+
+    #[test]
+    fn collapsing_the_shortcuts_disclosure_disarms_the_recorder_and_restore_all() {
+        let mut state = Settings::default();
+        assert!(state.handle(Action::Open, 1, false).is_none());
+        assert!(
+            state
+                .handle(Action::SelectPage(Page::General), 1, false)
+                .is_none()
+        );
+        toggle(&mut state, Info::Shortcuts, 1);
+        assert!(state.shortcuts_open);
+        state.capture_for = Some("native.find".to_owned());
+        state.capture_error = Some("Already used by “Navigation”".to_owned());
+        state.reset_all_armed = true;
+        toggle(&mut state, Info::Shortcuts, 1);
+        assert!(!state.shortcuts_open);
+        assert!(
+            state.capture_for.is_none(),
+            "a collapsed recorder cannot stay armed"
+        );
+        assert!(state.capture_error.is_none());
+        assert!(
+            !state.reset_all_armed,
+            "a collapsed restore-all cannot stay armed"
+        );
+        // The other disclosures are unrelated: their collapse leaves the recorder alone.
+        state.capture_for = Some("native.find".to_owned());
+        state.reset_all_armed = true;
+        toggle(&mut state, Info::Details, 1);
+        assert_eq!(state.capture_for.as_deref(), Some("native.find"));
+        assert!(state.reset_all_armed);
     }
 
     #[test]

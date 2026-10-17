@@ -33,7 +33,10 @@ disclosure, so the editor was never shown; the trigger's "captured" evidence had
 fixture's direct `set_settings_open`, not the press. Round 323 then found the reverse hop: five
 permission/preset reply families were decoded by the Core but absent from its `matches_reply` gate,
 so every reply became `Error::Protocol`; the captured surfaces had injected the events directly.
-The gate is fixed and covered end to end.
+The gate is fixed and covered end to end. Round 327 then audited the settings, management and
+sidebar `Action` wiring: every variant reaches a handler, but the editor's armed capture and the
+armed "Restore all defaults" question outlived the modal that drew them, so a hidden recorder
+rewrote a binding on the next key press. The hide paths now disarm both.
 
 **Scope note (user decision, 2026-10-17).** **Native Rust first:** every web UI capability should
 work in the Rust app, implemented in Rust, not left as a documented Web-only difference. The reuse
@@ -6682,6 +6685,63 @@ Two App tests pin the plan-reply clear and the permission read/write failures.
 | --- | --- | --- |
 | app, fixture | **0** | **1217 passed**, 1 ignored |
 | app, default | **0** | **1210 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 86 + 7 |
+| core (`--lib`) | **0** | **115 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+### Round 327 — the armed recorder cannot outlive its surface
+
+**A read-only audit of the settings, management and sidebar `Action` wiring — the subsystem the
+round-326 UI audit explicitly did not read — enumerated every variant and found five divergences.
+This round closes the first and names the other four below.**
+
+The audit's coverage: `settings::Action` 27/27 constructed by a drawn control and handled (7 in the
+`ui.rs` interception, 20 in `Settings::handle`), `account::Action` 4, `cloudflare::Action` 22,
+`plugins::Action` 12, `codex::Action` 24/24, `management::Action` 4 with `Operation` 4 and
+`Notice` 6, `sidebar_ui::Action` 11/11, and all 6 pages. The four wildcards
+(`settings.rs:950`, `:1014`, `management.rs:294`, `sidebar_ui.rs:201`) absorb **nothing** a drawn
+control posts. The catch-all class of rounds 257 and 258 is not present at these sites.
+
+**The finding.** An armed shortcut recorder and an armed "Restore all defaults" question outlived
+the modal that drew them. `Action::CaptureShortcut` sets `settings.capture_for`
+(`app/src/ui.rs:3241`) and `Action::ResetAllDefaults` sets `settings.reset_all_armed`
+(`:3246`), but `Settings::close` cleared only the four disclosures via `reset_info`, and
+`key_pressed` reads the recorder with no visibility check (`:6783`). Closing the modal with either
+armed therefore left a hidden recorder: the next key press anywhere rewrote that command's binding
+and was swallowed, and reopening Settings drew the destructive confirmation already agreed.
+
+**The fix.** `Settings::reset_info` now clears `capture_for`, `capture_error` and `reset_all_armed`.
+That one function is what every hide path runs — `close`, page changes (`:790`), `adopt_epoch` and
+`disconnect` — so the state cannot outlive the surface by construction rather than per caller.
+Collapsing the Shortcuts disclosure hides the same rows and the same question, so `ToggleInfo` on
+`Info::Shortcuts` now disarms both too; other disclosures leave them alone.
+
+Two tests pin it: `collapsing_the_shortcuts_disclosure_disarms_the_recorder_and_restore_all` in
+the settings module, and the App test `closing_settings_disarms_the_recorder_and_the_restore_all`,
+which presses the real `Action`s, closes, presses `Ctrl+G` and asserts the row still reads
+`Ctrl+F`. The previously captured editor surfaces (`shots/87-…`–`102-…`) are unchanged; this is a
+state fix with no new drawing, so there is no new capture and no wire change.
+
+**The other four findings, named as work rather than lost.** (1) Shortcut edits have no durable
+sink: `ClearShortcut`/`ResetShortcut`/`ConfirmResetAll` call `keybindings.apply` and drop the
+result, no store key exists, so every edit dies at restart — while `settings.rs:1295` still says
+the store "is not yet writable from this surface" and the coverage table calls shortcuts cloned.
+(2) `save_layout_preference` returns silently on no home, a store-open failure and a failed
+`save`, so the busy-Enter and coding-view rows repaint as changed while nothing was stored.
+(3) Settings → Agent presets draws a nav row over a single static paragraph, while the reference
+mounts a real section (`packages/client/ui-agent-preset/src/client/index.ts:266-274`) whose
+`makeDefault` writes `agent-preset-registry`'s `selectedDefault` through `settings/update`.
+(4) The sidebar's workspace destinations are enabled for the session's current group, which
+`sidebar_organization` refuses silently.
+
+**Battery (round 327).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1219 passed**, 1 ignored |
+| app, default | **0** | **1212 passed**, 1 ignored |
 | transport | **0** | 56 + 17 + 86 + 7 |
 | core (`--lib`) | **0** | **115 passed** |
 | JS runtime | **0** | **419 pass**, 0 fail |
