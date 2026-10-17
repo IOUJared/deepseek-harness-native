@@ -3880,3 +3880,22 @@ unblocks a specific piece of measured work.
    conversation renderer gains an image path at all, and under what privacy expectation.
 
 Each is one line of work on this side once answered; none is blocked on further reading.
+
+   **Audit: "built" has been true, "used" less so — fourteen tested public items have no caller.**
+   I grepped the module's public surface for uses outside it. The **counts above zero prove nothing**
+   (generic names like `Outcome` and `new` collide with the rest of the app), so this records only
+   the **zeroes**, which are sound: a name that never appears outside the module is not used there.
+   - **internal by design, not dead:** `reset_all` and `default_of` (called by `apply`), `code_for`
+     and `binding_from` (called by `matches`), `GROUPS` (read by `group_rank`). Zero external uses is
+     correct for these.
+   - **dead but tested:** `search_index`, `modified_count`, `catalog_rows`, and **eleven** `COPY_*`
+     constants (`COPY_RESET`, `COPY_CLEAR`, `COPY_MODIFIED`, `COPY_RETRY_SAVE`,
+     `COPY_MODIFIED_COUNT`, `COPY_RESET_ALL`, `COPY_RESET_TITLE`, `COPY_RESET_DESCRIPTION`,
+     `COPY_RESET_FAILED`, `COPY_CANCEL`, `COPY_OPEN_FROM_ANYWHERE`). The copy was quoted verbatim
+     from the reference and the tests assert it — **and the disclosure does not use it**: its labels
+     are its own words, which is right for this app's five commands, but means the eleven strings
+     wait for an editor surface that offers reset, clear, the modified count and a confirmation.
+   That is not a defect, and it is a real distinction the document has been blurring: **a tested
+   function is a capability, not a shipped surface.** The next session can either wire these (an
+   editor needs all of them) or read the document's "in code" claims the way this paragraph defines
+   them.
