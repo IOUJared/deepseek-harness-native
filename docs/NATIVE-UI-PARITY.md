@@ -39,10 +39,10 @@ point is the Host's canonical `/api/<namespace>/<method>` dispatcher, so adding 
 in Rust. Keep coding without asking for permission. Queue edit/remove/steer, full-text content
 search, the goal bar (pause/resume/edit/clear), the per-turn usage detail and the **scheduled-tasks
 page** (catalog + delete + delivery history + title/instruction/timing edit) and the goal's
-**disarmed activation**, the timing-kind selector and an **expandable changed-file list with
-per-file diffs** now work end to end; the next items are the reference's **open/review action and
-developer-tools gate**, its **date/time picker popovers**, then workspace open. Cross-session
-pending status is still unavailable from the present wires.
+**disarmed activation**, the timing-kind selector, an **expandable changed-file list with per-file
+diffs** and the **`@` file menu** now work end to end; the next items are the reference's
+**open/review action and developer-tools gate**, its **date/time picker popovers**, then workspace
+open. Cross-session pending status is still unavailable from the present wires.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -5868,3 +5868,33 @@ empty-path, unknown-kind and over-limit replies; the transport gate is **52 + 17
 The composer still has no `@` menu; that is the next item. The reference also folds session
 candidates into the same menu and supports quoted paths and directory drill-down; native has not
 built those.
+
+### Round 301 — the `@` file menu
+
+**Typing `@` in the composer now lists workspace file candidates and inserts the picked mention.**
+The draft's trailing `@query` (or an open `@"quoted` path) is detected after every edit; a changed
+query asks for `fileReferences/list` and the reply draws a menu above the composer card with up to
+12 rows (`file`/`folder` markers). Pressing a row replaces the token with `@path`, `@"path with
+spaces"` or a quoted/plain directory form and keeps focus in the composer. The fixture seeds the
+menu and `shots/138-reference-menu.png` shows `@src` with `src/main.rs`, `src/lib.rs` and `src/ui/`;
+the report is `status: passed`.
+
+One test covers plain and quoted token detection, the email negative, and insertion of a file
+mention; another transport test covers the bounded candidate reply.
+
+**Deliberate limits.** The menu is **pointer-only** (no arrow/Enter navigation), recognizes the
+token only at the end of the draft (not at an arbitrary caret), lists files only (the reference
+also lists sessions in the same menu), and has no directory drill-down or quoted-close handling
+beyond the initial token. Live reads are unverified; the fixture bypasses them.
+
+**Battery (round 301).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1196 passed**, 1 ignored |
+| app, default | **0** | **1189 passed**, 1 ignored |
+| transport | **0** | **52 + 17 + 82 + 7** |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |

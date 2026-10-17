@@ -314,6 +314,8 @@ pub enum Message {
     ToggleChanges(u64),
     /// Opens one changed file's comparison.
     OpenChanged(u64, usize),
+    /// Inserts one `@` file-reference candidate into the draft.
+    ReferencePick(String, String),
     /// A key press as **data** for the live chain, with the state at the moment it arrives: an
     /// armed capture consumes it, a focused field's links own it, or a stored binding invokes a
     /// command — so a rebound key replaces the hardcoded default instead of shadowing it.
@@ -934,6 +936,12 @@ pub struct App {
     schedule_delete: Option<(SessionId, String)>,
     /// The task with a delete in flight.
     schedule_busy: Option<String>,
+    /// `@` file-reference candidates for the active token.
+    file_references: Vec<dsh_native_transport::dto::FileReferenceCandidate>,
+    /// The active `@` query and whether it opened a quoted path.
+    reference_token: Option<(String, bool)>,
+    /// A reference read is in flight for the active query.
+    reference_pending: bool,
     /// Changed-file summaries by announcing seq.
     changes: std::collections::BTreeMap<u64, ChangesState>,
     /// Expanded changed-file lists by announcing seq.
@@ -1249,6 +1257,9 @@ impl App {
                 schedules_error: None,
                 schedule_delete: None,
                 schedule_busy: None,
+                file_references: Vec::new(),
+                reference_token: None,
+                reference_pending: false,
                 changes: Default::default(),
                 changes_expanded: Default::default(),
                 changes_diffs: Default::default(),
@@ -3893,6 +3904,7 @@ impl App {
                         // later command line starts from the top.
                         self.command_selected = 0;
                     }
+                    self.refresh_reference_token();
                 }
             }
             // The menu consumes these keys only while it is open, so nothing
@@ -3919,6 +3931,37 @@ impl App {
                 // command position, and keep every typed character.
                 self.commands = Some(Vec::new());
                 self.command_selected = 0;
+                return Self::focus_composer();
+            }
+            Message::ReferencePick(path, kind) if self.reference_token.is_some() => {
+                let Some((query, quoted)) = self.reference_token.clone() else {
+                    return Task::none();
+                };
+                let token_len = query.len() + if quoted { 3 } else { 1 };
+                let text = self.editor.text();
+                if token_len > text.len() {
+                    return Task::none();
+                }
+                let directory = kind == "directory";
+                let mentions_space = path.contains(' ');
+                let mention = if quoted || mentions_space {
+                    if directory {
+                        format!("@\"{path}/")
+                    } else {
+                        format!("@\"{path}\"")
+                    }
+                } else if directory {
+                    format!("@{path}/")
+                } else {
+                    format!("@{path}")
+                };
+                let new = format!("{}{} ", &text[..text.len() - token_len], mention);
+                self.editor = text_editor::Content::with_text(&new);
+                self.draft_serial = self.draft_serial.saturating_add(1);
+                self.touch_draft();
+                self.file_references.clear();
+                self.reference_token = None;
+                self.reference_pending = false;
                 return Self::focus_composer();
             }
             // A press that belongs to the composer but not to a control in it.
@@ -4829,6 +4872,23 @@ impl App {
                             self.search_error = Some(error);
                         }
                     }
+                }
+            }
+            Event::FileReferencesLoaded { query, result } => {
+                self.reference_pending = false;
+                let current = self
+                    .reference_token
+                    .as_ref()
+                    .map(|(query, _)| query.clone());
+                if current.as_ref() != Some(&query) {
+                    if let Some(current) = current {
+                        self.request_references(current);
+                    }
+                    return Task::none();
+                }
+                match result {
+                    Ok(items) => self.file_references = items,
+                    Err(_) => self.file_references.clear(),
                 }
             }
             Event::ChangesDiffLoaded { seq, index, result } => {
@@ -6373,6 +6433,28 @@ impl App {
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn disable_background_reads(&mut self) {
         self.background_reads_disabled = true;
+    }
+
+    /// Fixture-only: show the `@` menu for a seeded query, which a real run opens by typing.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn seed_reference_menu(&mut self) {
+        self.editor = text_editor::Content::with_text("@src");
+        self.reference_token = Some(("src".into(), false));
+        self.reference_pending = false;
+        self.file_references = vec![
+            dsh_native_transport::dto::FileReferenceCandidate {
+                path: "src/main.rs".into(),
+                kind: "file".into(),
+            },
+            dsh_native_transport::dto::FileReferenceCandidate {
+                path: "src/lib.rs".into(),
+                kind: "file".into(),
+            },
+            dsh_native_transport::dto::FileReferenceCandidate {
+                path: "src/ui/".into(),
+                kind: "directory".into(),
+            },
+        ];
     }
 
     /// Fixture-only: expand the seeded changed-file list, which a real run starts by press.
@@ -8571,6 +8653,60 @@ impl App {
             None => self.goal_activation = None,
         }
     }
+    /// The `@` token at the end of the draft, as `(query, quoted)`.
+    fn active_reference_token(text: &str) -> Option<(String, bool)> {
+        // An open quote keeps its whole path, spaces included, as the query.
+        if let Some(quote) = text.rfind("@\"") {
+            let rest = &text[quote + 2..];
+            if !rest.contains('"') && (quote == 0 || text[..quote].ends_with(char::is_whitespace)) {
+                return Some((rest.to_owned(), true));
+            }
+        }
+        let start = text
+            .char_indices()
+            .rev()
+            .find(|(_, character)| character.is_whitespace())
+            .map(|(index, character)| index + character.len_utf8())
+            .unwrap_or(0);
+        let token = &text[start..];
+        if let Some(rest) = token.strip_prefix("@\"") {
+            Some((rest.trim_end_matches('"').to_owned(), true))
+        } else {
+            token
+                .strip_prefix('@')
+                .map(|query| (query.to_owned(), false))
+        }
+    }
+    /// Recompute the active `@` token and read candidates when it changes.
+    fn refresh_reference_token(&mut self) {
+        let Some((query, quoted)) = Self::active_reference_token(&self.editor.text()) else {
+            self.reference_token = None;
+            self.file_references.clear();
+            return;
+        };
+        if self
+            .reference_token
+            .as_ref()
+            .is_some_and(|(current, _)| current == &query)
+        {
+            return;
+        }
+        self.reference_token = Some((query.clone(), quoted));
+        self.file_references.clear();
+        if !self.reference_pending {
+            self.request_references(query);
+        }
+    }
+    fn request_references(&mut self, query: String) {
+        if self.options.smoke.is_some() || self.background_reads_disabled {
+            return;
+        }
+        let Some(session) = self.selected.clone() else {
+            return;
+        };
+        self.reference_pending = true;
+        self.command(worker::Command::FileReferences { session, query });
+    }
     /// Ask for every new `workspace/changes` summary, bounded to 64 outstanding reads.
     fn request_changes(&mut self) {
         // The public fixture seeds its summary and must not dispatch a read it cannot answer.
@@ -9544,6 +9680,38 @@ impl App {
                 rows = rows.push(Element::new(FocusKeeper {
                     content: row.into(),
                     on_press: Message::CommandMenuPick(candidate.name.clone()),
+                }));
+            }
+            shell = shell.push(
+                container(rows)
+                    .padding(4)
+                    .width(Length::Fill)
+                    .style(|_| design::card(SURFACE, design::RADIUS_SM)),
+            );
+        }
+        if self.reference_token.is_some() && !self.file_references.is_empty() {
+            let mut rows = column![].spacing(1);
+            for candidate in self.file_references.iter().take(12) {
+                let directory = candidate.kind == "directory";
+                let row = container(
+                    row![
+                        label(if directory { "▸" } else { "·" }, MUTED).size(10),
+                        label(short(&candidate.path, 90), MUTED)
+                            .size(11)
+                            .width(Length::Fill),
+                        label(if directory { "folder" } else { "file" }, MUTED).size(9),
+                    ]
+                    .spacing(6)
+                    .align_y(iced::Alignment::Center),
+                )
+                .padding([3, 7])
+                .width(Length::Fill);
+                rows = rows.push(Element::new(FocusKeeper {
+                    content: row.into(),
+                    on_press: Message::ReferencePick(
+                        candidate.path.clone(),
+                        candidate.kind.clone(),
+                    ),
                 }));
             }
             shell = shell.push(
@@ -15649,6 +15817,29 @@ mod tests {
             Some(serde_json::json!({"kind":"weekly","weekly":{
                 "time":"09:00:00","time_zone":"UTC","weekdays":[2,4]}}))
         );
+    }
+    #[test]
+    fn an_at_token_is_detected_and_picks_a_reference() {
+        assert_eq!(
+            App::active_reference_token("@src"),
+            Some(("src".into(), false))
+        );
+        assert_eq!(
+            App::active_reference_token("look at @src/main"),
+            Some(("src/main".into(), false))
+        );
+        assert_eq!(
+            App::active_reference_token("@\"my file"),
+            Some(("my file".into(), true))
+        );
+        assert_eq!(App::active_reference_token("user@example.com"), None);
+        let (mut app, _receiver) = managed_app();
+        app.editor = text_editor::Content::with_text("@src");
+        app.reference_token = Some(("src".into(), false));
+        let _ = app.update(Message::ReferencePick("src/main.rs".into(), "file".into()));
+        assert_eq!(app.editor.text(), "@src/main.rs ");
+        assert!(app.reference_token.is_none());
+        assert!(app.file_references.is_empty());
     }
     #[test]
     fn opening_a_changed_file_reads_and_shows_its_diff() {

@@ -202,6 +202,8 @@ struct Options {
     schedule_edit: bool,
     /// Expand the seeded changed-file list.
     changes_expanded: bool,
+    /// Show the seeded `@` file-reference menu.
+    reference_menu: bool,
     /// Mark the goal's activation disarmed.
     goal_inactive: bool,
     /// Open the shortcuts disclosure, so its rows are captured.
@@ -319,6 +321,7 @@ fn options() -> Result<Options, &'static str> {
             "--schedule-history",
             "--schedule-edit",
             "--changes-expanded",
+            "--reference-menu",
             "--goal-inactive",
             "--agent-seat-error",
             "--settings",
@@ -487,6 +490,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         changes_expanded: match values.remove("--changes-expanded") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        reference_menu: match values.remove("--reference-menu") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -898,6 +905,9 @@ impl Fixture {
         if options.changes_expanded {
             app.expand_seeded_changes();
         }
+        if options.reference_menu {
+            app.seed_reference_menu();
+        }
         if options.goal_inactive {
             app.disarmed_goal_activation();
         }
@@ -986,6 +996,7 @@ impl Fixture {
                 worker::Command::ScheduleCatalog => "ScheduleCatalog",
                 worker::Command::ChangesSummary { .. } => "ChangesSummary",
                 worker::Command::ChangesDiff { .. } => "ChangesDiff",
+                worker::Command::FileReferences { .. } => "FileReferences",
                 worker::Command::ScheduleDelete { .. } => "ScheduleDelete",
                 worker::Command::ScheduleHistory { .. } => "ScheduleHistory",
                 worker::Command::ScheduleUpdate { .. } => "ScheduleUpdate",

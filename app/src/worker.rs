@@ -79,6 +79,11 @@ pub enum Command {
         session: dsh_native_transport::dto::SessionId,
         seq: u64,
     },
+    /// List `@` file-reference candidates.
+    FileReferences {
+        session: dsh_native_transport::dto::SessionId,
+        query: String,
+    },
     /// Read one listed file's comparison.
     ChangesDiff {
         session: dsh_native_transport::dto::SessionId,
@@ -228,6 +233,10 @@ pub enum Event {
         seq: u64,
         index: usize,
         result: Result<dsh_native_transport::dto::ChangesDiff, String>,
+    },
+    FileReferencesLoaded {
+        query: String,
+        result: Result<Vec<dsh_native_transport::dto::FileReferenceCandidate>, String>,
     },
     SchedulesLoaded(Result<Vec<dsh_native_transport::dto::ScheduleCatalogItem>, String>),
     ScheduleDeleted {
@@ -879,6 +888,10 @@ fn rejected(command: Command) -> Event {
         Command::JobKill { .. } => Event::JobKilled(Err(error)),
         Command::ChangesSummary { seq, .. } => Event::ChangesLoaded {
             seq,
+            result: Err(error),
+        },
+        Command::FileReferences { query, .. } => Event::FileReferencesLoaded {
+            query,
             result: Err(error),
         },
         Command::ChangesDiff { seq, index, .. } => Event::ChangesDiffLoaded {
@@ -2437,6 +2450,10 @@ async fn run(
                     Command::ChangesSummary{session,seq}=>Event::ChangesLoaded{
                         seq,
                         result:client.changes_summary(&session,seq).await.map_err(|error|format!("Changed files: {error}")),
+                    },
+                    Command::FileReferences{session,query}=>Event::FileReferencesLoaded{
+                        result:client.file_references(&session,&query).await.map_err(|error|format!("File references: {error}")),
+                        query,
                     },
                     Command::ChangesDiff{session,seq,index}=>Event::ChangesDiffLoaded{
                         seq,
