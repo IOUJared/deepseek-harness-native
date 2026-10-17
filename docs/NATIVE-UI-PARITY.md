@@ -3294,3 +3294,27 @@ the five above rather than missing work.
    transport's `commands_list`) and a **fixed** list in the app — beside the store's tested
    behaviour. What remains is the editor's rendering and its capture step, not its data.
    Verified: fixture **1120** exit 0, default **1113** exit 0, format-debt 0.
+
+   **The editor's surface is fully specified now, so what remains is drawing rather than deciding.**
+   `Reference.tsx` — the same package's read-only view of the bindings, and the surface the
+   settings row opens — gives:
+   - **four groups in product order**: `['application', 'input', 'menus', 'approval']` (`:179`),
+     with **core actions first, then other commands by id within each group** (`:67`);
+   - a **search field** (`role="search"`, `:167-174`) with a clear-search button, and a search
+     **index per row** — aliases, the keys joined with `+`, the keys joined without `+`, the
+     `aria` string, and the `aria` string with `Meta` replaced by `Cmd` (`:137`) — ranked by
+     `rankByName` (`:144`);
+   - a **modified count** from the active profile: the English is "**{count} customized**"
+     (`locales.ts:48`);
+   - per-row actions: "**Restore default**" (`reset`) and "**Remove**" (`clear`), with
+     "**Modified**" as the saved marker and "**Retry save**" for the stale path
+     (`:47-48`);
+   - one destructive action with a **confirmation**: "**Restore all defaults**" opening
+     "Restore all default shortcuts?" — "Restore the default shortcuts for this platform. All
+     modified or removed shortcuts will be restored. Other platforms are unaffected." — with
+     "**Cancel**" and a failure line "**Could not restore defaults. Your shortcuts are unchanged.
+     Please retry.**" (`:47-52`);
+   - the trigger's tooltip: "**Open from anywhere**" (`:64`).
+   That is every string, group order, per-row action, confirmation and search rule the native
+   editor needs, all taken from the reference rather than paraphrased — which is exactly the
+   position the jobs panel was in one round before it was drawn.
