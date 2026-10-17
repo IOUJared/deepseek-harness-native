@@ -796,6 +796,27 @@ impl NativeClient {
             .await?;
         parse_changes_summary(value).ok_or(Error::InvalidDto)
     }
+    /// One listed file's turn-start/turn-end comparison from the same authenticated GET
+    /// family (`/api/changes.diff?sessionId&seq&index`).
+    pub async fn changes_diff(
+        &self,
+        session_id: &SessionId,
+        seq: u64,
+        index: usize,
+    ) -> Result<ChangesDiff> {
+        let index = index.to_string();
+        let value = self
+            .get_json(
+                "api/changes.diff",
+                &[
+                    ("sessionId", session_id.as_str()),
+                    ("seq", &seq.to_string()),
+                    ("index", &index),
+                ],
+            )
+            .await?;
+        parse_changes_diff(value).ok_or(Error::InvalidDto)
+    }
     async fn get_json(&self, path: &str, query: &[(&str, &str)]) -> Result<Value> {
         let auth = self.inner.authority()?;
         let mut url = auth.origin.join(path).map_err(|_| Error::InvalidLaunch)?;
@@ -1574,6 +1595,71 @@ fn parse_changes_summary(value: Value) -> Option<ChangesSummary> {
         deleted,
     })
 }
+fn parse_changes_diff(value: Value) -> Option<ChangesDiff> {
+    let object = value.as_object()?;
+    let path = object.get("path")?.as_str()?;
+    let display = object.get("display")?.as_str()?;
+    if path.is_empty() || path.len() > 4096 || display.is_empty() || display.len() > 4096 {
+        return None;
+    }
+    match object.get("kind")?.as_str()? {
+        "binary" => Some(ChangesDiff::Binary {
+            path: path.to_owned(),
+            display: display.to_owned(),
+        }),
+        "oversized" => Some(ChangesDiff::Oversized {
+            path: path.to_owned(),
+            display: display.to_owned(),
+        }),
+        "text" => {
+            let before = object.get("before")?.as_bool()?;
+            let after = object.get("after")?.as_bool()?;
+            let coarse = object.get("coarse")?.as_bool()?;
+            let hunks = object
+                .get("hunks")?
+                .as_array()?
+                .iter()
+                .map(|hunk| {
+                    let hunk = hunk.as_object()?;
+                    let lines = hunk
+                        .get("lines")?
+                        .as_array()?
+                        .iter()
+                        .map(|line| {
+                            let line = line.as_str()?;
+                            if !matches!(line.as_bytes().first(), Some(b'+' | b'-' | b' ')) {
+                                return None;
+                            }
+                            Some(line.to_owned())
+                        })
+                        .collect::<Option<Vec<_>>>()?;
+                    if lines.len() > 20_000 {
+                        return None;
+                    }
+                    Some(ChangesHunk {
+                        old_start: hunk.get("oldStart")?.as_u64()?,
+                        old_lines: hunk.get("oldLines")?.as_u64()?,
+                        new_start: hunk.get("newStart")?.as_u64()?,
+                        new_lines: hunk.get("newLines")?.as_u64()?,
+                        lines,
+                    })
+                })
+                .collect::<Option<Vec<_>>>()?;
+            if hunks.len() > 4096 {
+                return None;
+            }
+            Some(ChangesDiff::Text {
+                path: path.to_owned(),
+                display: display.to_owned(),
+                before,
+                after,
+                coarse,
+                hunks,
+            })
+        }
+        _ => None,
+    }
+}
 fn validate_goal_ref(reference: &GoalRef) -> Result<()> {
     if reference.id.is_empty() || reference.id.len() > 256 || reference.revision == 0 {
         return Err(Error::InvalidDto);
@@ -2006,6 +2092,41 @@ mod schedule_tests {
 mod changes_tests {
     use super::parse_changes_summary;
     use serde_json::json;
+
+    #[test]
+    fn a_changes_diff_parses_text_binary_and_oversized() {
+        use super::parse_changes_diff;
+        use crate::dto::ChangesDiff;
+        let text = parse_changes_diff(serde_json::json!({
+            "kind":"text","path":"src/a.rs","display":"src/a.rs",
+            "before":true,"after":true,"coarse":false,
+            "hunks":[{"oldStart":1,"oldLines":1,"newStart":1,"newLines":1,
+                "lines":["-old","+new"," context"]}]
+        }))
+        .unwrap();
+        let ChangesDiff::Text { hunks, .. } = text else {
+            panic!("text diff expected");
+        };
+        assert_eq!(hunks[0].lines.len(), 3);
+        assert!(matches!(
+            parse_changes_diff(serde_json::json!({"kind":"binary","path":"a","display":"a"})),
+            Some(ChangesDiff::Binary { .. })
+        ));
+        assert!(matches!(
+            parse_changes_diff(serde_json::json!({"kind":"oversized","path":"a","display":"a"})),
+            Some(ChangesDiff::Oversized { .. })
+        ));
+        for bad in [
+            serde_json::json!({}),
+            serde_json::json!({"kind":"unknown","path":"a","display":"a"}),
+            serde_json::json!({"kind":"text","path":"a","display":"a","before":true,
+                "after":true,"coarse":false,
+                "hunks":[{"oldStart":0,"oldLines":0,"newStart":0,"newLines":0,
+                    "lines":["x"]}]}),
+        ] {
+            assert_eq!(parse_changes_diff(bad), None);
+        }
+    }
 
     #[test]
     fn a_changes_summary_parses_files_and_refuses_malformed_records() {

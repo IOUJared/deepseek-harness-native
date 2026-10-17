@@ -5814,3 +5814,15 @@ live GET path is unverified (the parser is unit-tested; the fixture bypasses the
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+### Round 298 — file comparison (transport half)
+
+**One listed file's turn-start/turn-end comparison is now a Rust transport read.** `changes_diff`
+GETs the authenticated `/api/changes.diff?sessionId&seq&index` route and parses the union: a text
+comparison with bounded hunks (`oldStart/oldLines/newStart/newLines` and `+`/`-`/space lines), or the
+`binary`/`oversized` refusals. Empty/oversized paths, unknown kinds and malformed hunk lines are
+refused. One test covers text, binary, oversized and three malformed shapes; the transport gate is
+**51 + 17 + 82 + 7**.
+
+No file list or diff viewer exists in Chat yet; the summary line remains the only deliverables
+surface.

@@ -430,6 +430,35 @@ pub struct ChangedFile {
     pub binary: bool,
     pub oversized: bool,
 }
+/// One unified-diff hunk (`WorkspaceDiffHunk`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChangesHunk {
+    pub old_start: u64,
+    pub old_lines: u64,
+    pub new_start: u64,
+    pub new_lines: u64,
+    pub lines: Vec<String>,
+}
+/// One listed file's comparison (`WorkspaceFileDiff`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ChangesDiff {
+    Text {
+        path: String,
+        display: String,
+        before: bool,
+        after: bool,
+        coarse: bool,
+        hunks: Vec<ChangesHunk>,
+    },
+    Binary {
+        path: String,
+        display: String,
+    },
+    Oversized {
+        path: String,
+        display: String,
+    },
+}
 /// One turn's changed-file summary (`ChangesSummary`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChangesSummary {

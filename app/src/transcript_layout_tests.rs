@@ -9,6 +9,7 @@ fn row(key: u64, role: &str) -> DisplayRow {
         text: "PUBLIC".into(),
         files: Vec::new(),
         references: Vec::new(),
+        turn: None,
         trigger: None,
         time: 0,
         surface: false,
