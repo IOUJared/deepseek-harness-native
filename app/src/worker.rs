@@ -1888,6 +1888,9 @@ async fn run(
     let _ = publish(&events, Event::Ready(ready.version));
     let mut selected: Option<NativeStream<SessionFollowFrame>> = None;
     let mut selected_target: Option<SessionId> = None;
+    // The selected session's background jobs; the list stream is whole-set replacement and
+    // the follow stream updates one job at a time.
+    let mut jobs: Option<NativeStream<dsh_native_transport::dto::JobListFrame>> = None;
     let mut cancel_target: Option<SessionId> = None;
     // File intake needs a correlated, supported ordinary header, not just a Session address.
     let mut selected_file_target: Option<SessionId> = None;
@@ -1943,6 +1946,9 @@ async fn run(
                     if let Some(stream)=selected.as_mut(){stream.cancel().await;}selected=None;selected_target=None;generation=next;
                     // A panel follow belongs to the previous Session; retire it.
                     if let Some(stream)=terminal.as_mut(){stream.cancel().await;}terminal=None;terminal_ticket=None;
+                    // The same rule the panel follow follows: a jobs stream belongs to the
+                    // session it was opened for, so it retires with the selection.
+                    if let Some(stream)=jobs.as_mut(){stream.cancel().await;}jobs=None;
                     let target=selected_export_target(&address);cancel_target=target.clone();
                     match operation(&mut closing,&events,mux.as_ref().expect("live observation mux").session_follow(SessionFollowRequest{address,max_messages:Some(50),turn_window:None,assistant_stream:Some(true)})).await {
                         Some(Ok(stream))=>{selected=Some(stream);selected_target=target;},Some(Err(e))=>if !publish(&events,Event::FollowError{generation,error:format!("Session follow: {e}")}){break Some("Native UI delivery queue overflow".into());},None=>break None,

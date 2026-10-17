@@ -2616,3 +2616,14 @@ Since the round-145 update, all local and unpushed, gates green at each commit:
    and the choice belongs with whoever writes the line.
    That is now everything: two declarations, one retirement, one open, one select arm, and one
    small signature decision — in a file whose surrounding code has a direct precedent for each.
+
+   **The first two halves of the loop edit landed: the declaration and the retirement.**
+   `worker.rs:1890` now holds `jobs: Option<NativeStream<JobListFrame>>` beside the selected
+   follow stream, and `:1949` retires it beside the panel follow with the same rule stated in
+   the comment — a jobs stream belongs to the session it was opened for. Both compile; the
+   declaration is still unused, which is a warning rather than an error and is exactly the state
+   a half-landed edit should be in rather than a pretence of completeness.
+   Verified: fixture **1114** exit 0, default **1107** exit 0, format-debt 0.
+   The remaining two halves — opening the stream where the follow is dispatched and selecting on
+   it at `:2261` — need one read of the dispatch site to know whether the session id comes from
+   the follow request's address or from `selected_target`, and that read is the next step.
