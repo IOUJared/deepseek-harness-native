@@ -74,6 +74,12 @@ pub enum Command {
     },
     /// Mutate one pending queue item (edit, remove or steer).
     UpdateQueue(crate::queue_update::Submission),
+    /// Full-text search at one generation/serial fence.
+    Search {
+        generation: u64,
+        serial: u64,
+        query: String,
+    },
     JobKill {
         session: dsh_native_transport::dto::SessionId,
         job: String,
@@ -166,6 +172,11 @@ pub enum Event {
     QueueUpdated {
         submission: crate::queue_update::Submission,
         result: Result<(), crate::queue_update::Failure>,
+    },
+    Searched {
+        generation: u64,
+        serial: u64,
+        result: Result<dsh_native_transport::dto::SessionSearchValue, String>,
     },
     /// The complete set of background jobs the session can see. Each list frame replaces
     /// the set wholesale (`api/job-controller/src/types.ts:19-27`).
@@ -799,6 +810,13 @@ fn rejected(command: Command) -> Event {
         Command::AgentPresetsRead => Event::AgentPresets(Err(error)),
         Command::AgentPresetSelect { .. } => Event::AgentPresetSelected(Err(error)),
         Command::JobKill { .. } => Event::JobKilled(Err(error)),
+        Command::Search {
+            generation, serial, ..
+        } => Event::Searched {
+            generation,
+            serial,
+            result: Err(error),
+        },
         Command::UpdateQueue(submission) => Event::QueueUpdated {
             submission,
             result: Err(crate::queue_update::Failure::NotSent),
@@ -2320,6 +2338,11 @@ async fn run(
                     Command::Create{workspace,cwd}=>Event::Created(client.session_create(SessionCreateRequest{workspace_id:workspace,cwd,..Default::default()}).await.map_err(|e|format!("New session: {e}"))),
                     Command::AgentPresetSelect{session,preset}=>Event::AgentPresetSelected(client.agent_preset_select(&session,&preset).await.map_err(|error|format!("Agent preset: {error}"))),
                     Command::JobKill{session,job}=>Event::JobKilled(client.job_kill(session.as_str(),&job).await.map_err(|error|format!("Job kill: {error}"))),
+                    Command::Search{generation,serial,query}=>Event::Searched{
+                        generation,
+                        serial,
+                        result:client.session_search(&query).await.map_err(|error|format!("Search: {error}")),
+                    },
                     Command::UpdateQueue(submission)=>{
                         let request=dsh_native_transport::dto::SessionUpdateQueueRequest{
                             session_id:submission.session.clone(),

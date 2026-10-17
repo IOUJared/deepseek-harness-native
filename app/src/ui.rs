@@ -675,6 +675,13 @@ struct WidthDrag {
     origin_x: Option<f32>,
     moved: bool,
 }
+/// One content-search page shown under the session rows.
+struct SearchMatches {
+    query: String,
+    items: Vec<(SessionId, String)>,
+    has_more: bool,
+}
+
 pub struct App {
     pub options: Options,
     handle: Handle,
@@ -751,6 +758,12 @@ pub struct App {
     queue_busy: Option<String>,
     /// The last queue mutation's redacted failure, shown under the dock.
     queue_error: Option<String>,
+    /// The latest full-text search page, fenced by query and serial.
+    search_results: Option<SearchMatches>,
+    /// The serial of the latest dispatched content search; older replies are ignored.
+    content_search_serial: u64,
+    /// The latest search failure, shown under the session rows.
+    search_error: Option<String>,
     /// Sessions that stopped outside the main view since they were last selected. The
     /// reference's `completionUnread` (`ui-session/src/client/index.ts:487-490`).
     completion_unread: std::collections::BTreeSet<SessionId>,
@@ -1020,6 +1033,9 @@ impl App {
                 queue_remove_armed: None,
                 queue_busy: None,
                 queue_error: None,
+                search_results: None,
+                content_search_serial: 0,
+                search_error: None,
                 trigger_expanded: Default::default(),
                 completion_unread: Default::default(),
                 workspace_path,
@@ -3436,7 +3452,25 @@ impl App {
                     self.status = "Choose an existing absolute workspace directory".into();
                 }
             }
-            Message::Filter(value) => self.filter = value,
+            Message::Filter(value) => {
+                self.filter = value;
+                self.search_results = None;
+                self.search_error = None;
+                let query = self.filter.trim().to_owned();
+                if query.is_empty() {
+                    return Task::none();
+                }
+                if query.chars().count() > 512 {
+                    self.search_error = Some("Search query is too long".into());
+                    return Task::none();
+                }
+                self.content_search_serial = self.content_search_serial.wrapping_add(1);
+                self.command(worker::Command::Search {
+                    generation: self.generation,
+                    serial: self.content_search_serial,
+                    query,
+                });
+            }
             Message::LoadModels
                 if self.options.smoke.is_none()
                     && self.ready
@@ -4176,6 +4210,32 @@ impl App {
                             self.status =
                                 "Command outcome unknown; the mode shown is the last one the Host reported."
                                     .into();
+                        }
+                    }
+                }
+            }
+            Event::Searched {
+                generation,
+                serial,
+                result,
+            } => {
+                if generation == self.generation && serial == self.content_search_serial {
+                    match result {
+                        Ok(page) => {
+                            self.search_results = Some(SearchMatches {
+                                query: self.filter.trim().to_owned(),
+                                items: page
+                                    .items
+                                    .into_iter()
+                                    .map(|item| (item.session_id, item.snippet))
+                                    .collect(),
+                                has_more: page.has_more,
+                            });
+                            self.search_error = None;
+                        }
+                        Err(error) => {
+                            self.search_results = None;
+                            self.search_error = Some(error);
                         }
                     }
                 }
@@ -5576,6 +5636,34 @@ impl App {
         if let Ok(id) = SessionId::new(id) {
             self.completion_unread.insert(id);
         }
+    }
+
+    /// Fixture-only: seed one content-search page, which a real run reaches through
+    /// `session/search`.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn seed_search_results(&mut self) {
+        self.filter = "PUBLIC".into();
+        self.search_error = None;
+        let selected = self.selected.clone();
+        let notes = SessionId::new("PUBLIC-layout-notes").ok();
+        let mut items = Vec::new();
+        if let Some(id) = selected {
+            items.push((
+                id,
+                "PUBLIC content match · the session that is currently open.".into(),
+            ));
+        }
+        if let Some(id) = notes {
+            items.push((
+                id,
+                "PUBLIC content match · a second session with a longer snippet.".into(),
+            ));
+        }
+        self.search_results = Some(SearchMatches {
+            query: "PUBLIC".into(),
+            items,
+            has_more: false,
+        });
     }
 
     /// Fixture-only: begin editing one queued item, which a real run starts by press.
@@ -8392,7 +8480,7 @@ impl App {
         // seat, then Settings); only the web's part metrics and its own gaps are
         // taken: `.logoRow`'s 4px, `.newSession`'s 12px, and `.panelList`'s 4px
         // gap with its 8px trailing margin.
-        let navigation = column![
+        let mut navigation = column![
             row![
                 brand(),
                 label("Harness", TEXT).size(17).width(Length::Fill),
@@ -8407,13 +8495,19 @@ impl App {
             new_session,
             Space::new().height(design::NEW_SESSION_GAP),
             self.session_navigation(),
-            Space::new().height(design::PANEL_LIST_GAP),
-            workspaces,
-            Space::new().height(design::PANEL_GAP),
-            self.workspace_navigation(),
-            Space::new().height(design::PANEL_GAP),
-            self.settings_entry(false)
         ];
+        if let Some(matches) = self.search_matches() {
+            navigation = navigation
+                .push(Space::new().height(design::PANEL_LIST_GAP))
+                .push(matches);
+        }
+        navigation = navigation
+            .push(Space::new().height(design::PANEL_LIST_GAP))
+            .push(workspaces)
+            .push(Space::new().height(design::PANEL_GAP))
+            .push(self.workspace_navigation())
+            .push(Space::new().height(design::PANEL_GAP))
+            .push(self.settings_entry(false));
         container(navigation)
             .padding(design::SIDEBAR_PAD)
             .width(width)
@@ -8744,6 +8838,57 @@ impl App {
         sessions.extend(self.navigation_candidates_for(ids));
         sessions.sort_by(|a, b| self.navigation_order(a, b));
         sessions
+    }
+    /// Content-search results as selectable rows under the session list, plus a bounded error.
+    fn search_matches(&self) -> Option<Element<'_, Message>> {
+        if let Some(error) = &self.search_error {
+            return Some(
+                container(label(short(error, 80), DANGER).size(10))
+                    .padding([4, 6])
+                    .into(),
+            );
+        }
+        let matches = self.search_results.as_ref()?;
+        if matches.items.is_empty() {
+            return Some(
+                container(label("No content matches", MUTED).size(10))
+                    .padding([4, 6])
+                    .into(),
+            );
+        }
+        let mut column = column![
+            label(
+                format!("CONTENT MATCHES · {}", short(&matches.query, 40)),
+                MUTED
+            )
+            .size(10)
+        ]
+        .spacing(2);
+        for (id, snippet) in matches.items.iter().take(20) {
+            let title = self
+                .sessions
+                .get(id)
+                .map(|session| self.session_title(session))
+                .unwrap_or_else(|| id.as_str().to_owned());
+            column = column.push(
+                button(
+                    column![
+                        label(short(&title, 28), TEXT).size(12),
+                        label(short(snippet, 90), MUTED).size(10),
+                    ]
+                    .spacing(2)
+                    .width(Length::Fill),
+                )
+                .on_press(Message::Select(id.clone()))
+                .style(design::ghost)
+                .padding([4, 6])
+                .width(Length::Fill),
+            );
+        }
+        if matches.has_more {
+            column = column.push(label("More matches not shown", MUTED).size(10));
+        }
+        Some(container(column).padding([4, 2]).into())
     }
     fn session_navigation(&self) -> Element<'_, Message> {
         let sessions = self.navigation_sessions();
@@ -13766,6 +13911,52 @@ mod tests {
             .bindings("native.find")
             .expect("the row keeps a binding");
         assert_eq!(crate::keybindings::display(&binding[0]), "Ctrl+G");
+    }
+    #[test]
+    fn content_search_is_fenced_and_stale_pages_are_ignored() {
+        use dsh_native_transport::dto::{SessionSearchItem, SessionSearchValue};
+        let (mut app, mut receiver) = managed_app();
+        let _ = app.update(Message::Filter("PUBLIC".into()));
+        let mut serial = None;
+        while let Ok(command) = receiver.try_recv() {
+            if let Command::Search {
+                serial: sent,
+                query,
+                ..
+            } = command
+            {
+                assert_eq!(query, "PUBLIC");
+                serial = Some(sent);
+            }
+        }
+        let serial = serial.expect("one content search");
+        let _ = app.update(Message::Worker(Event::Searched {
+            generation: app.generation,
+            serial,
+            result: Ok(SessionSearchValue {
+                items: vec![SessionSearchItem {
+                    session_id: app.selected.clone().unwrap(),
+                    snippet: "PUBLIC matched content".into(),
+                }],
+                has_more: false,
+            }),
+        }));
+        assert_eq!(
+            app.search_results.as_ref().map(|page| page.items.len()),
+            Some(1)
+        );
+        let _ = app.update(Message::Worker(Event::Searched {
+            generation: app.generation,
+            serial: serial.wrapping_sub(1),
+            result: Ok(SessionSearchValue {
+                items: Vec::new(),
+                has_more: false,
+            }),
+        }));
+        assert_eq!(
+            app.search_results.as_ref().map(|page| page.items.len()),
+            Some(1)
+        );
     }
     #[test]
     fn a_queue_mutation_is_admitted_once_and_its_failure_is_announced() {

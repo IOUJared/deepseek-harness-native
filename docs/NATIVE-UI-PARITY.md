@@ -36,10 +36,10 @@ fixture's direct `set_settings_open`, not the press.
 work in the Rust app, implemented in Rust, not left as a documented Web-only difference. The reuse
 point is the Host's canonical `/api/<namespace>/<method>` dispatcher, so adding typed endpoints to
 `dsh-native-transport` is in-bounds; what is out of bounds is rebuilding or forking the Host runtime
-in Rust. Keep coding without asking for permission. Queue edit/remove/steer now works end to end;
-the next item is full-text session search (`session/search`), then workspace open, goal/schedule
-mutations and the deliverables diff. Cross-session pending status is still unavailable from the
-present wires.
+in Rust. Keep coding without asking for permission. Queue edit/remove/steer and full-text content
+search now work end to end; the next item is workspace open (`session/openWorkspacePath`), then
+goal/schedule mutations and the deliverables diff. Cross-session pending status is still unavailable
+from the present wires.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -5403,3 +5403,40 @@ both shapes; the transport gate is **42 + 17 + 82 + 7**.
 
 No worker or sidebar caller exists yet; the sidebar still filters loaded titles. The app half is
 the next item.
+
+### Round 282 — sidebar content search
+
+**The sidebar's search box now asks the Host for full-text matches.** `Message::Filter` dispatches a
+generation/serial-fenced `Command::Search` for a non-empty trimmed query (≤512 characters); the
+worker calls `session_search` and returns the bounded page; the app ignores a stale generation or
+serial. Results render under the session rows as **CONTENT MATCHES · {query}** with each hit's title
+and snippet (up to 20), selecting one opens that session; "No content matches", "More matches not
+shown" and a red search failure are bounded states. `shots/126-sidebar-content-search.png` shows two
+hits with their snippets; the report is `status: passed`.
+
+The transport endpoint landed in round 281; this round adds the worker command/event and the
+sidebar view. One app test covers the dispatch (query/serial), a matching reply and a stale reply
+being ignored.
+
+**Deliberate differences and limits.** Native keeps the title-filtered session rows and adds the
+content matches below them, where the reference replaces the workspace tree with its result list.
+A hit for a session not in the loaded roster still renders its id as the title (no invented
+title). The query is sent on each edit without a debounce; stale pages are dropped by the fence,
+not cancelled. Search failures show the transport's message text, which is already redacted.
+
+**Battery (round 282).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1184 passed**, 1 ignored |
+| app, default | **0** | **1177 passed**, 1 ignored |
+| transport | **0** | **42 + 17 + 82 + 7** |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+A regression caught during this round: a broad rename of the transcript-search serial to the new
+content-search serial broke `SearchInput`/`SearchNext`/`SearchClose`; the full suites failed and the
+four transcript call sites were restored to `self.search_serial` before the green run. The captures
+were retaken from a rebuilt release binary after that fix.

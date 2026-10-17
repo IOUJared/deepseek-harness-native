@@ -184,6 +184,8 @@ struct Options {
     queue_edit: bool,
     /// Arm the second queued item's removal confirmation.
     queue_remove: bool,
+    /// Seed a content-search page under the session rows.
+    search_results: bool,
     /// Open the shortcuts disclosure, so its rows are captured.
     shortcuts: bool,
 }
@@ -291,6 +293,7 @@ fn options() -> Result<Options, &'static str> {
             "--completion-unread",
             "--queue-edit",
             "--queue-remove",
+            "--search-results",
             "--agent-seat-error",
             "--settings",
             "--scrolled-away",
@@ -426,6 +429,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         queue_remove: match values.remove("--queue-remove") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        search_results: match values.remove("--search-results") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -809,6 +816,9 @@ impl Fixture {
         if options.queue_remove {
             app.arm_queue_remove("PUBLIC-queued-two");
         }
+        if options.search_results {
+            app.seed_search_results();
+        }
         if options.scrolled_away {
             app.set_scrolled_away(true);
         }
@@ -889,6 +899,7 @@ impl Fixture {
                 worker::Command::Rename(_) => "Rename",
                 worker::Command::Fork(_) => "Fork",
                 worker::Command::UpdateQueue(_) => "UpdateQueue",
+                worker::Command::Search { .. } => "Search",
                 worker::Command::CommandsList(_) => "CommandsList",
                 worker::Command::CommandsExecute { .. } => "CommandsExecute",
                 worker::Command::TerminalRead(_) => "TerminalRead",
