@@ -32,16 +32,14 @@ same shape in the `Ctrl+/` trigger: it opened the account page and the open path
 disclosure, so the editor was never shown; the trigger's "captured" evidence had gone through the
 fixture's direct `set_settings_open`, not the press.
 
-**Next, one step that needs a decision, not more code:** the remaining reference mutations and
-feeds all live on the Host's **Remote RPC channel** (`session/updateQueue`, `session/search`,
-`openWorkspacePath`, goal mutations, schedule CRUD, the deliverables diff, cross-session pending
-status). Native's transport is the BFF HTTP/control protocol and does not speak that channel;
-adding it would be a second wire path, which the standing constraint forbids. Either that channel
-is authorized (canonical methods only, no parallel commands) or those capabilities stay explicitly
-blocked. The only unblocked local item left is the **detailed performance dialog** (turns, steps,
-LLM/tool wall time, exact buckets) whose inputs are already retained; it is a view, not a wire
-change. The Iced-blocked list and the four user-only items are unchanged. Do not half-build any of
-them.
+**Next, one step that is now unblocked:** add the canonical `session/updateQueue` endpoint to the
+existing BFF transport (`Endpoint::UpdateQueue`, typed `{sessionId,itemId,action}` request,
+`{accepted:true}` value), then the queue dock's edit/save/cancel, remove and steer controls with
+their pending/failed states. The earlier claim that this needed a second Remote protocol was wrong:
+the Host's `/api/<namespace>/<method>` dispatcher serves it, and native already posts that envelope.
+After queue actions, the same transport style opens `session/search`, workspace open, goal and
+schedule mutations, and the deliverables diff. Cross-session pending status remains unavailable
+(the status event carries only `running`), and the Iced/user-only lists are unchanged.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -5256,30 +5254,29 @@ The unblocked conversation surface is now thin enough that the remaining gaps sh
 list rather than discovered one at a time. Each entry below was re-read in the reference tree this
 round; none is a guess.
 
-**Blocked on the Host Remote channel.** Native's transport speaks the BFF control protocol. These
-reference capabilities are `@Remote` methods or client feeds on the RPC channel; reusing them would
-mean adding that second channel, which the standing constraint forbids unless authorized.
+**Reachable through the existing BFF, not yet implemented.** The earlier inventory called these
+"Remote channel" work and inferred a second protocol. That was wrong: the Host's generic
+`/api/<namespace>/<method>` endpoint serves every Remote method, and native's transport already
+posts exactly that shape (`transport/src/http.rs:360-434`: `api/{endpoint.name()}` with the
+`client-request`/`server-response` envelope). The web queue e2e even waits on
+`/api/session/updateQueue` (`apps/web/tests/queue-actions.e2e.ts:76`), and the desktop welcome
+backend invokes arbitrary namespaces the same way (`apps/desktop/src/welcome-backend.ts:55-70`).
+So these are **open work behind additional endpoints on the current transport**, not a blocked
+protocol:
 
-- **Queue item edit / remove / steer.** `api/session-controller/src/index.ts:468`
-  (`@Remote('updateQueue')`), consumed at `ui-conversation/src/client/queue/QueueDock.tsx:150-160`.
-  Native's dock is read-only and stays so.
-- **Full-text session search.** `api/session-controller/src/index.ts:273` (`@Remote('search')`),
-  consumed at `ui-workspace/src/client/rows/WorkspaceBrowser.tsx:1106`. Native's sidebar search
-  filters the loaded titles only; it does not call a backend search.
-- **Workspace path open/import.** `api/session-controller/src/index.ts:350,380`
-  (`openWorkspacePath`, `workspacePathApplications`); the native workspace chip lists known
-  workspaces but does not open an arbitrary path.
-- **Goal mutations.** `packages/client/ui-goal/src/client/GoalBar.tsx` and its slots carry
-  pause/resume/clear verbs through the generated Goal Remote API. Native has no goal bar.
-- **Schedule CRUD and delivery history.** `packages/client/ui-schedule/src/client/TaskManagerPage.tsx`
-  (and `TaskDetail`, `ClockPicker`, `DeliveryHistory`). Native lists schedule records read-only in
-  the work panel.
-- **Deliverables turn-tail diff/summary/opener.** `ui-deliverables/src/client/index.ts:60-74`
-  (`loadChangesDiff`, `loadChangesSummary`, `openPresented`). Native has per-tool diff counts, not
-  the changed-files view.
-- **Cross-session pending-interaction status.** `ui-session/src/client/index.ts:63,292,487` — the
-  snapshot is populated by client domains; native follows only the selected session's decisions.
-  (`completionUnread` is implemented already because it derives from the status event.)
+- **Queue item edit / remove / steer.** Canonical request `{sessionId, itemId, action}` and
+  `{accepted:true}` value from `api/session-controller/src/types.ts`; native needs an
+  `Endpoint::UpdateQueue` plus the queue action/store and the dock controls.
+- **Full-text session search.** `session/search` over the same BFF; native's sidebar currently
+  filters loaded titles and would call this only when the user searches.
+- **Workspace path open/import.** `session/openWorkspacePath` and
+  `session/workspacePathApplications`.
+- **Goal mutations, schedule CRUD and the deliverables diff.** Their namespaces (`goal/*`,
+  `schedule/*`, `deliverables/*`) are served by the same dispatcher; each needs its request/response
+  typed from the reference and its own bounded app surface.
+- **Cross-session pending status** remains different: the reference builds it from its client
+  domains (`ui-session/src/client/index.ts:63,292,487`), and the Host's `api-session/status` event
+  carries only `running`. That one is still not available from the current wires.
 
 **Blocked on Iced.** No new toolkit capability was added, so these stay recorded rather than
 approximated:
