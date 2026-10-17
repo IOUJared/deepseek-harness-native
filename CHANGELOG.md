@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- [Preset and job-resume wires](<docs/NATIVE-LIVE-VERIFICATION.md>): a read-only transport audit against the generated descriptors found two undocumented divergences. `agentPresets/select` was wrapped in a `request` body although the Host takes flat `agentId` and `agentPreset` — confirmed live: the wrapped body was refused with `gateway/arguments-invalid`, so every preset pick failed. `job/follow` sent its resume cursor as `offset`; the wire field is `from`, and the unknown key was silently ignored, so a resume restarted at the oldest byte. Both are fixed and pinned by fake-wire envelope tests (transport 84 to 86), and an App test covers the preset pick dispatch and its reply tracking.
+
 - [All-targets fixture repair](<docs/VERIFICATION.md>): `--suite clippy` compiles every app target, and twelve fixture examples had drifted from the App's shared module set (`crash_log`, `goal_ui`, `keybindings`, `queue_dock`, `queue_update`, `single_instance`), so the clippy gate failed on unresolved imports rather than lint findings. All twelve now mirror `layout_smoke`; the geometry probe wraps `ui.rs` and re-exports only the cache it drives, with its two calls updated to the current signature. The suite passes all three checks, and the docs now record that the 2026-10-11 "App 0" `-D warnings` figure is historical.
 
 - [Chooser reply validation](<docs/NATIVE-LIVE-VERIFICATION.md>): `directoryPicker/pick` now has a fake-wire test. It takes no arguments and answers one absolute path or `null` on cancel; missing, blank, non-string and oversized replies are refused as malformed rather than treated as a cancel. The native chooser remains unreachable on the app's browse-composed Host; this pins the contract the fallback falls back from.

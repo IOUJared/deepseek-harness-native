@@ -2203,7 +2203,7 @@ async fn run(
                     let job_session=session.as_str().to_owned();
                     let job_id=job.clone();
                     job_output_for=Some(job_id.clone());
-                    match operation(&mut closing,&events,mux.as_ref().expect("live observation mux").jobs_follow(dsh_native_transport::dto::JobFollowRequest{session_id:Some(job_session),job_id:job_id.clone(),offset:None})).await {
+                    match operation(&mut closing,&events,mux.as_ref().expect("live observation mux").jobs_follow(dsh_native_transport::dto::JobFollowRequest{session_id:Some(job_session),job_id:job_id.clone(),from:None})).await {
                         Some(Ok(stream))=>job_output=Some(stream),
                         Some(Err(e))=>{
                             job_output=None;job_output_for=None;

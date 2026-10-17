@@ -6523,3 +6523,36 @@ than a fix. It does not claim a queued turn ran, a goal changed or a terminal se
 | format debt | **0** | 0 files, 0 hunks |
 | clippy suite | **0** | core, transport and app passed |
 | tree | — | clean before the commit |
+### Round 322 — the audit fixes the preset and job-resume wires
+
+**A read-only transport audit found two undocumented divergences, both real.** The audit compared
+every request builder against the generated `typert.host.js` descriptors and the reference client
+types.
+
+- `agentPresets/select` sent `{"request":{"sessionId",…}}` although the descriptor declares exactly
+  the flat `agentId` (lookup) and `agentPreset`. Confirmed live: the flat body returned the committed
+  preset, the wrapped body was refused as `gateway/arguments-invalid` (*missing `agentId`,
+  `agentPreset`; unexpected `request`*). Every preset pick was failing at the gateway; the
+  `agentPreset/locked` mapping was unreachable. The comment that justified the wrapper by
+  `commands/list` was wrong — that call is flat.
+- `job/follow` sent its resume cursor as `offset`; the descriptor and the reference type name it
+  `from`. The Host silently ignores the unknown key, so a resume would have restarted at the oldest
+  retained byte rather than the requested cursor. The field is renamed; a fake-wire test pins the
+  exact opening envelope `{request:{sessionId,jobId,from}}`.
+
+Transport grew from **84** to **86** tests, and an App test now covers the pick dispatch
+(session + preset) and the reply tracking (a refusal is surfaced, a success clears it). The audit's
+coverage and its explicit not-inspected list are recorded in
+[the live record](NATIVE-LIVE-VERIFICATION.md).
+
+**Battery (round 322).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1211 passed**, 1 ignored |
+| app, default | **0** | **1204 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + **86** + 7 |
+| core (`--lib`) | **0** | **112 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |

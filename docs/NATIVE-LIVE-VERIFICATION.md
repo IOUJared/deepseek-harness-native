@@ -1,10 +1,11 @@
 # Live Host verification
 
-Two passes of the native `@` / schedule / feedback / workspace / picker and remaining non-model
-commands against a **running Host**, not a fixture. The first found three wire defects, all fixed in
-`c9dd30e`, and one composition limit that changes what the workspace picker can honestly claim; the
-second exercised the queue, goals, attachment, terminal, registry, model-selection, cancel and
-command paths and found no defects.
+Two live passes and a read-only wire audit of the native `@` / schedule / feedback / workspace /
+picker paths and the remaining non-model commands against a **running Host**, not a fixture. The
+first pass found three wire defects, all fixed in `c9dd30e`, and one composition limit that changes
+what the workspace picker can honestly claim; the second exercised the queue, goals, attachment,
+terminal, registry, model-selection, cancel and command paths and found no defects; the audit found
+two more divergences (`agentPresets/select`, `job/follow`), both fixed.
 
 ## What ran
 
@@ -106,6 +107,37 @@ observations, not a claim that a queued turn, goal mutation or terminal session 
    straight to the list. A successful pick or cancel keeps the native path. The first press in a
    browse Host still performs one failing chooser call because the wire advertises no capability.
 
+## Audit pass — two more wire divergences
+
+A read-only audit of `transport/src` against the generated `typert.host.js` descriptors and the
+reference client types found two real divergences, both fixed:
+
+5. **`agentPresets/select` sent a wrapped body instead of flat arguments.** The descriptor declares
+   exactly `agentId` (the lookup parameter) and `agentPreset`; the native sent
+   `{"request":{"sessionId",…}}`. Confirmed live on a fresh Host: the flat body returned the
+   committed preset (`"ptc"`, then `"standard"`), while the wrapped body was refused with
+   `gateway/arguments-invalid` — *missing `agentId`, `agentPreset`; unexpected `request`*. Every
+   preset pick was failing before this fix.
+6. **`job/follow` sent the resume cursor as `offset`; the wire field is `from`.** The descriptor
+   declares exactly `sessionId`, `jobId` and `from`, and the reference type names the cursor
+   `from`. The Host's nested codec ignored the extra `offset` key rather than refusing it (a
+   missing-job probe answered the same business error with either name), so a real resume would
+   have restarted from the oldest byte instead of the requested cursor — a silent failure rather
+   than a refusal. The request field is renamed and a fake-wire opening-envelope test pins it.
+
+**Coverage.** Modules read: `dto.rs`, `http.rs` (complete), `mux.rs`, `lib.rs`, `event.rs`,
+`upload.rs`, `terminal.rs`, `plugin.rs`, `prompt_admission.rs`, `question.rs`, `export.rs`
+(container validation; tail unread). Reference read: session-controller, gateway, job-controller,
+terminal-controller, settings-controller, workspace-controller (+directory-picker),
+account-controller, plugin-inventory, commands, goal, schedule, message-feedback,
+agent-preset-registry, session-reference, user-questions, session-log-export,
+host/directory-picker, plus the `lib/typert.host.js` descriptors. **Not inspected:** `skills/list`,
+`session/attachment`, `session/canOpenWorkspacePath`, `session/initializeDefaultModel`, workspace
+delete/rename/insertBefore/insertSessionBefore, `directoryPicker/createDirectory`,
+`terminal/rename|retain`, `workspaceFiles/*`, `llm/*`, `subagents/*`, `permissionPresets/catalog`,
+`speech/*`, `dynamicCordisRunner/*`, `pluginManager/*`, account sign-in/watch/credentials,
+`command-feedback`, and the export container tail.
+
 ## Still unverified
 
 - A schedule with a real record: creation happens through the agent's schedule tool, so catalog
@@ -126,9 +158,9 @@ Measured with `python3 -B scripts/verify-native.py --suite test` and the format-
 
 | gate | result |
 | --- | --- |
-| app, default | **1203 passed**, 1 ignored |
-| app, `public-layout-fixture` | **1210 passed**, 1 ignored |
-| transport | 56 + 17 + **84** + 7 |
+| app, default | **1204 passed**, 1 ignored |
+| app, `public-layout-fixture` | **1211 passed**, 1 ignored |
+| transport | 56 + 17 + **86** + 7 |
 | core (`--lib`, through the suite) | **112 passed** |
 | JS runtime | **419 pass**, 0 fail |
 | format debt | 0 files, 0 hunks |

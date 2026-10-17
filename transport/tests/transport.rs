@@ -690,6 +690,50 @@ async fn picker_reply_is_one_qualified_path_or_a_cancel() {
 }
 
 #[tokio::test]
+async fn preset_selection_uses_flat_agent_authority() {
+    // The descriptor wires the lookup as `agentId` and the preset as `agentPreset`,
+    // both flat; a wrapped request body is refused before the registry runs.
+    let mut fixture = NodeHostFixture::start("normal").await;
+    let client = fixture.connect(Limits::default()).await.unwrap();
+    let preset = client
+        .agent_preset_select(
+            &SessionId::new("session / preset opaque:%").unwrap(),
+            "cordis",
+        )
+        .await
+        .unwrap();
+    assert_eq!(preset, "cordis");
+    client.close().await;
+    fixture.stop().await;
+}
+
+#[tokio::test]
+async fn job_follow_resumes_from_the_wire_cursor() {
+    // The wire field is `from`; an `offset` key would make the fixture refuse the
+    // open instead of sending the anchor frame.
+    let mut fixture = NodeHostFixture::start("normal").await;
+    let client = fixture.connect(Limits::default()).await.unwrap();
+    let mux = client.connect_mux().await.unwrap();
+    let mut stream = mux
+        .jobs_follow(JobFollowRequest {
+            session_id: Some("session / job opaque:%".into()),
+            job_id: "PUBLIC-job".into(),
+            from: Some(5),
+        })
+        .await
+        .unwrap();
+    let frame = tokio::time::timeout(Duration::from_secs(3), stream.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(matches!(frame, JobFollowFrame::Opened { from: 5, .. }));
+    mux.close().await;
+    client.close().await;
+    fixture.stop().await;
+}
+
+#[tokio::test]
 async fn fork_at_seq_carries_exactly_the_requested_inclusive_boundary() {
     let mut fixture = NodeHostFixture::start("fork-at").await;
     let client = fixture.connect(Limits::default()).await.unwrap();

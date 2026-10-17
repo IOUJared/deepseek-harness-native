@@ -18481,6 +18481,43 @@ mod tests {
         assert!(app.agent_roster.is_some());
     }
     #[test]
+    fn picking_an_agent_preset_sends_the_selected_session_and_tracks_the_reply() {
+        let (mut app, mut receiver) = managed_app();
+        let selected = app.selected.clone().unwrap();
+        let _ = app.update(Message::AgentPresetSeat);
+        let mut reads = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if matches!(command, Command::AgentPresetsRead) {
+                reads += 1;
+            }
+        }
+        assert_eq!(reads, 1, "opening the seat issues exactly one roster read");
+        assert!(app.agent_seat_open);
+        let _ = app.update(Message::AgentPresetPick("cordis".into()));
+        assert!(!app.agent_seat_open);
+        let mut picked = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if let Command::AgentPresetSelect { session, preset } = command {
+                assert_eq!(session, selected);
+                assert_eq!(preset, "cordis");
+                picked += 1;
+            }
+        }
+        assert_eq!(picked, 1);
+        let _ = app.update(Message::Worker(Event::AgentPresetSelected(Err(
+            "Agent preset: locked".into(),
+        ))));
+        assert!(
+            app.agent_seat_error
+                .as_deref()
+                .is_some_and(|error| error.contains("locked"))
+        );
+        let _ = app.update(Message::Worker(Event::AgentPresetSelected(Ok(
+            "cordis".into()
+        ))));
+        assert!(app.agent_seat_error.is_none());
+    }
+    #[test]
     fn a_host_command_advertisement_reaches_the_editor_too() {
         let (mut app, _receiver) = app();
         let session = SessionId::new("PUBLIC-session").unwrap();

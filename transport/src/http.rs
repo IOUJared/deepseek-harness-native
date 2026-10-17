@@ -1141,23 +1141,19 @@ impl NativeClient {
     }
     /// Stage an agent preset for the session that starts next. The Host refuses a session
     /// that has already started with `agentPreset/locked`; the reply carries the committed
-    /// identity. `agentId` travels in the body, as `commands/list` sends it
-    /// (`transport/src/http.rs:551-558`).
+    /// identity. The call takes two flat named arguments, `agentId` (the descriptor's lookup
+    /// parameter) and `agentPreset`, exactly like `commands/list`; a wrapped `request` body is
+    /// refused as `gateway/arguments-invalid` before the registry runs
+    /// (`agent-preset-registry/lib/typert.host.js`: `parameters[{wire:"agentId"},{wire:"agentPreset"}]`).
     pub async fn agent_preset_select(
         &self,
         session_id: &SessionId,
         agent_preset: &str,
     ) -> Result<String> {
-        // An agent-scoped call sends the session in the wrapper body under `sessionId` — which is
-        // what this transport's own working `commands/list` call does, and its comment names the
-        // same wire parameter the descriptor calls `agentId`
-        // (`transport/src/http.rs:551-558`; `typert.host.js:77-118`). An earlier revision sent a
-        // bare body with `agentId` in it, which was invented from the descriptor's vocabulary
-        // rather than taken from the working call.
         agent_preset_of(
             self.invoke(
                 Endpoint::AgentPresetSelect,
-                request_args(json!({"sessionId": session_id, "agentPreset": agent_preset}))?,
+                json!({"agentId": session_id, "agentPreset": agent_preset}),
             )
             .await?,
         )

@@ -179,6 +179,17 @@ const server = http.createServer(async (request, response) => {
       };
       break;
     }
+    case 'agentPresets/select': {
+      // The descriptor wires the lookup parameter as `agentId` and the preset as
+      // `agentPreset`; both are flat. A wrapped `request` body is refused.
+      const expected = { agentId: 'session / preset opaque:%', agentPreset: 'cordis' };
+      if (request.method !== 'POST' || request.headers['content-type'] !== 'application/json'
+          || !isDeepStrictEqual(envelope, { type: 'client-request', rpcId: envelope.rpcId, method: 'agentPresets/select', payload: { args: expected } })) {
+        response.writeHead(400); response.end(); return;
+      }
+      value = 'cordis';
+      break;
+    }
     case 'workspace/pinSession': case 'workspace/unpinSession':
     case 'workspace/archiveSession': case 'workspace/unarchiveSession': {
       const expected = { request: { sessionId: 'session / registry opaque:%' } };
@@ -362,6 +373,17 @@ wss.on('connection', ws => {
           for (let i = 0; i < 5; i++) send({ type: 'waterfall', event: 'approval/request', eventId: `overflow-${i}`, agentId: 'agent-fixture', request: { toolName: 'fixture' } });
         }
         break;
+      case 'job/follow': {
+        // The descriptor accepts exactly sessionId/jobId/from; a resume cursor named
+        // `offset` is an unexpected key and must not open the stream.
+        const expected = { type: 'open', streamId: id, endpoint: 'job/follow', payload: { args: { request: { sessionId: 'session / job opaque:%', jobId: 'PUBLIC-job', from: 5 } } } };
+        if (!isDeepStrictEqual(message, expected)) {
+          ws.send(JSON.stringify({ type: 'error', streamId: id, error: { code: 'fixture/arguments', message: 'PRIVATE_JOB_SENTINEL', details: {} } }));
+          break;
+        }
+        send({ type: 'opened', job: { id: 'PUBLIC-job', kind: 'bash', label: 'PUBLIC job', status: 'running' }, from: 5 });
+        break;
+      }
       case 'terminal/follow': {
         const expected = { type: 'open', streamId: id, endpoint: 'terminal/follow', payload: { args: { agentId: terminalAgent, id: 'PUBLIC-terminal-1', attachmentId: 'PUBLIC-attachment-1' } } };
         if (!isDeepStrictEqual(message, expected)) { ws.close(1008); return; }

@@ -719,8 +719,10 @@ pub enum JobKillOutcome {
     AlreadyFinished,
 }
 
-/// The `jobs/follow` request: an optional owning session, a required job, and an absolute byte
-/// offset to resume from (`types.ts:49-60`).
+/// The `job/follow` request: an optional owning session, a required job, and an absolute byte
+/// cursor named `from` (`types.ts:47-60`). The descriptor accepts exactly `sessionId`, `jobId`
+/// and `from`; a request carrying `offset` is not refused but is read as no cursor, so the
+/// stream restarts from the oldest retained byte.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JobFollowRequest {
     #[serde(rename = "sessionId", skip_serializing_if = "Option::is_none")]
@@ -728,7 +730,7 @@ pub struct JobFollowRequest {
     #[serde(rename = "jobId")]
     pub job_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub offset: Option<u64>,
+    pub from: Option<u64>,
 }
 
 /// One `jobs/follow` frame: a job opening, its output, or a status change (`types.ts:72-89`).
