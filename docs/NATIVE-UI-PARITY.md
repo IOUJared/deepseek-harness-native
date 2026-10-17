@@ -2792,3 +2792,19 @@ Since the round-145 update, all local and unpushed, gates green at each commit:
    logic, which would put both captured menus back through a capture to prove they had not moved.
    The first is the one to take, and it is now a small, bounded piece of widget work rather than
    a panel bug.
+
+   **The downward variant was attempted and reverted: the direction has to reach two structs, and
+   my patch was too broad.** Adding `below` to `Anchored` and to `popup_bounds` turned out to be
+   half the change. The overlay that actually calls `popup_bounds` during layout is a **second**
+   struct — `Popup` (`anchored_popup.rs:211`, `self.anchor`, `self.viewport`) — which has no such
+   field, and my paren-counting patch also injected `false,` into the **function signature**
+   itself, because it matched any `popup_bounds(` including the definition.
+   `git checkout -- app/src/anchored_popup.rs` restored the committed widget, and the crate checks
+   clean again with format-debt 0. The lesson is the one from the worker loop, twice over: a
+   mechanical transform over a file must be scoped to the **call sites**, and a widget has more
+   than one struct between its constructor and its placement.
+   The change that will work, recorded so it is not re-derived: thread `below` through **both**
+   `Anchored` and `Popup`, pass it at `:211`, and add `false` to the **test calls** only — the
+   four `popup_bounds(` uses inside `mod tests` — leaving the signature untouched. Everything else
+   stays as it is, so the composer menu and the hero seat keep the upward behaviour they were
+   captured with.
