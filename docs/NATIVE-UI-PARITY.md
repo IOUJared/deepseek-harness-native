@@ -2596,3 +2596,23 @@ Since the round-145 update, all local and unpushed, gates green at each commit:
    What remains in the worker is exactly the three placements already pinned (open beside
    `selected`, open through the mux, select and publish at `:2261`), each of which now ends in
    publishing one of these two events rather than in app-side design.
+
+   **The worker edit is now two lines and one retirement, all with a template in the same arm.**
+   Reading the `Command::Select` arm (`app/src/worker.rs:1940-1946`) shows three things the plan
+   needed and did not have:
+   - the loop already keeps **`selected_target: Option<SessionId>`** beside
+     `let mut selected: Option<NativeStream<SessionFollowFrame>> = None;` (`:1884-1885`), so the
+     session id `jobs_list` wants is **already a local** rather than something to derive from the
+     address;
+   - the arm retires the previous stream with an exact precedent and comment — "A panel follow
+     belongs to the previous Session; retire it" — before `terminal=None`, which is precisely the
+     shape a jobs stream needs when the selection changes;
+   - so the edit is: declare `jobs` beside `selected` (`:1885`), retire it beside `terminal`
+     (`:1945`), open it where the follow is dispatched, and add its select arm at `:2261`
+     publishing `Event::JobsRows`/`Event::JobsFollow`, which the app already applies.
+   One detail is still open and small: whether `jobs_list` should take the `SessionId` from
+   `selected_target` once it is set, or whether the transport method should take the address the
+   follow request carries and send the id itself — the wire key is `sessionId`, so either works,
+   and the choice belongs with whoever writes the line.
+   That is now everything: two declarations, one retirement, one open, one select arm, and one
+   small signature decision — in a file whose surrounding code has a direct precedent for each.
