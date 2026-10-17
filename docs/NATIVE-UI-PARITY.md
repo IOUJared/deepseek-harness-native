@@ -3957,3 +3957,21 @@ Each is one line of work on this side once answered; none is blocked on further 
    builds for itself. **Only then** does `catalog_rows` get a caller, and if the data is already in
    the app the edit is a section and a loop — the same shape as the fixed rows.
    That is the honest state of the last dead item: **its consumer is known, its input is not.**
+
+   **The input is found: the app *does* hold the descriptors — as an `Option`.** `Event::CommandsListed
+   { session_id, result }` sets `self.commands` (`ui.rs:3929-3942`), including the empty case that
+   carries the "slash completion is unavailable" status. My earlier grep missed it because the field
+   is `Option<Vec<CommandDescriptor>>`, not a bare `Vec`, which is the same class of miss as the
+   `keybindings` crate-root path and the `default_of` body: **the search pattern was narrower than
+   the fact.**
+   So `catalog_rows` has a known consumer *and* a known input, and the remaining edit is exactly
+   three small pieces:
+   1. the disclosure takes the descriptors as a **parameter** (`general_view(&self, route, commands)`
+      and its caller, since the rows are built on `Settings` and the data lives on `App`);
+   2. after the fixed rows it renders a second group — `catalog_rows(commands)` mapped through the
+      existing `rows()`/label-and-keys row widget, so an unbound Host command shows its label and no
+      keys, which the unbound-row test already pins;
+   3. a fixture run of `settings-general` with a seeded command list would capture it, if the fixture
+      can seed `self.commands` (a one-line setter, the same shape as the others).
+   That is the shape of the last dead item: **parameter, section, capture** — no new logic, because
+   the function and its unbound-row behaviour are already tested.
