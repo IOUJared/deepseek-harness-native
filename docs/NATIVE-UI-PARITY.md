@@ -4154,3 +4154,17 @@ own frames: `shots/87-…` (rows), `shots/89-…` (the count line with a cleared
    this stretch: the reverts were the tuition.
    Verified: fixture **1134** exit 0, default **1127** exit 0, format-debt 0, direct capture
    `passed: true`.
+
+   **The "Modified" marker is in, and it needed no restructure at all.** Each fixed row now carries a
+   label whose text is `COPY_MODIFIED` — the reference's own marker (`locales.ts:48`) — when
+   `Row::modified` is set and **empty otherwise**, so the row keeps one shape and no conditional
+   layout is involved. It was a **single-line insertion** after the row's label, located in the file;
+   my first attempt tried to restructure the `row![]` into a pushable value and failed on an anchor,
+   which was the better outcome: the simpler edit worked first time.
+   `shots/93-shortcuts-modified.png` shows it with the fixture's cleared binding: **`Find in
+   conversation`** carries **"Modified"** in gold, **no keys**, and the count line reads
+   **"1 customized"** — the three pieces of the reference's modified-state story in one frame.
+   `COPY_MODIFIED` is the fourth copy constant to leave the dead list, and the only one that needed no
+   action or handler.
+   Verified: fixture **1134** exit 0, default **1127** exit 0, format-debt 0, direct capture
+   `passed: true`.

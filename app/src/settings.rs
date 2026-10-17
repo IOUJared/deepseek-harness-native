@@ -1095,6 +1095,17 @@ impl Settings {
                 rows = rows.push(
                     row![
                         label(entry.label, TEXT).size(13).width(Length::Fill),
+                        // The reference's own marker for a changed binding (`locales.ts:48`); empty when the
+                        // command still holds its default, so the row keeps one shape.
+                        label(
+                            if entry.modified {
+                                crate::keybindings::COPY_MODIFIED
+                            } else {
+                                ""
+                            },
+                            design::GOLD,
+                        )
+                        .size(11),
                         button(label(crate::keybindings::COPY_RESET, MUTED).size(11))
                             .on_press(Action::ResetShortcut(entry.id.clone()))
                             .style(design::ghost)
