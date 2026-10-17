@@ -4122,3 +4122,19 @@ own frames: `shots/87-…` (rows), `shots/89-…` (the count line with a cleared
    data (`PermissionDefault`) — my grep found only its `on_press`, not its handler, so the handler
    lives somewhere I have not looked. Finding it is the whole difference between an inert button and
    a working one, and the wildcard is why the compiler will not say so.
+
+   **The per-row Remove is built, wired and captured — the third attempt.** `Action::ClearShortcut(String)`
+   beside `TogglePermissionDefault`; a `button(COPY_CLEAR)` on **both** row groups, inserted by
+   locating the keys labels in the file rather than from memory; and the App arm beside the sibling
+   it already intercepts (`Message::Settings(Action::PermissionDefault(..))`, `ui.rs:3040`) that calls
+   `apply(Edit::Set { binding: None }, revision)` **synchronously**, because the store lives on
+   `Settings` and needs no message to reach it.
+   `shots/91-shortcuts-remove.png` shows the result: **"Remove"** on every fixed row and on both Host
+   commands. On a **fixed** row it clears a real binding — the count line and the empty keys follow by
+   construction. On a **Host** row it is a no-op today, because those commands have no binding yet;
+   the control is there for the moment they do, and that is stated rather than implied.
+   The wildcard trap from round 245 is what made the difference: the App's interception is the real
+   handler, and the `match action` inside `Settings` is not. Finding that arm — one grep for the
+   sibling's every occurrence — turned two reverted rounds into one working commit.
+   Verified: fixture **1134** exit 0, default **1127** exit 0, format-debt 0, direct capture
+   `passed: true`.

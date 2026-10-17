@@ -188,6 +188,8 @@ pub enum Action {
     },
     /// Opens or dismisses the permission default row's preset list.
     TogglePermissionDefault,
+    /// Clears one shortcut's binding — the reference's "Remove" (`locales.ts:47`).
+    ClearShortcut(String),
     /// Persists one new-session permission default; the App gates it on the descriptor.
     PermissionDefault(String),
     Account(account::Action),
@@ -1091,6 +1093,10 @@ impl Settings {
                 rows = rows.push(
                     row![
                         label(entry.label, TEXT).size(13).width(Length::Fill),
+                        button(label(crate::keybindings::COPY_CLEAR, MUTED).size(11))
+                            .on_press(Action::ClearShortcut(entry.id.clone()))
+                            .style(design::ghost)
+                            .padding([0, 4]),
                         label(entry.keys, MUTED).size(11),
                     ]
                     .spacing(8)
@@ -1120,6 +1126,10 @@ impl Settings {
                     rows = rows.push(
                         row![
                             label(entry.label, TEXT).size(13).width(Length::Fill),
+                            button(label(crate::keybindings::COPY_CLEAR, MUTED).size(11))
+                                .on_press(Action::ClearShortcut(entry.id.clone()))
+                                .style(design::ghost)
+                                .padding([0, 4]),
                             label(entry.keys, MUTED).size(11),
                         ]
                         .spacing(8)
