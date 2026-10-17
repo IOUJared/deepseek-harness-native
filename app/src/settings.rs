@@ -198,6 +198,8 @@ pub enum Action {
     ConfirmResetAll(bool),
     /// Arms one command so its next key press becomes its binding.
     CaptureShortcut(String),
+    /// Filters the shortcuts list; local to the Open question's own surface.
+    ShortcutsSearch(String),
     /// Persists one new-session permission default; the App gates it on the descriptor.
     PermissionDefault(String),
     Account(account::Action),
@@ -258,6 +260,8 @@ pub struct Settings {
     details_open: bool,
     /// Crate-visible so the fixture can open it without a press.
     pub(crate) shortcuts_open: bool,
+    /// The reference's search query for the shortcuts list (`Reference.tsx:167-174`).
+    pub(crate) shortcuts_query: String,
     /// The app's own bindings, seeded from the same list the input handling implements, so the
     /// disclosure and the resolver share one source rather than a copy of the strings.
     pub(crate) keybindings: crate::keybindings::Store,
@@ -296,6 +300,7 @@ impl Default for Settings {
             info_generation: 0,
             details_open: false,
             shortcuts_open: false,
+            shortcuts_query: String::new(),
             keybindings: crate::keybindings::Store::new(crate::keybindings::native_fixed()),
             commands: Vec::new(),
             reset_all_armed: false,
@@ -335,6 +340,11 @@ impl Settings {
                 )
                 .is_none()
         );
+    }
+    /// The page the modal would show; the fixture and the trigger's test read it to prove a
+    /// shortcut opens the editor rather than a hidden disclosure on the account page.
+    pub(crate) fn page(&self) -> Page {
+        self.page
     }
     pub fn is_open(&self) -> bool {
         self.open
@@ -713,6 +723,12 @@ impl Settings {
         if let Action::TogglePermissionDefault = action {
             self.permission_open = !self.permission_open;
         }
+        if let Action::ShortcutsSearch(ref raw) = action {
+            if raw.len() <= 128 {
+                self.shortcuts_query = raw.clone();
+            }
+            return None;
+        }
         if let Action::ToggleInfo { ticket, info } = action {
             // Local help is available even read-only. Never touches drafts, reviews or workers.
             if self.open
@@ -1075,6 +1091,59 @@ impl Settings {
             .clip(true)
             .into()
     }
+    /// One shortcut row: label, "Modified", the three row actions, and the binding area. The
+    /// armed row's area is the reference's recorder chip (and nothing else), so this helper is
+    /// also the one place the armed shape can drift from the unarmed one.
+    fn shortcut_row(&self, entry: crate::keybindings::Row) -> Element<'_, Action> {
+        let armed = self.capture_for.as_deref() == Some(entry.id.as_str());
+        row![
+            label(entry.label, TEXT).size(13).width(Length::Fill),
+            // The reference's own marker for a changed binding (`locales.ts:48`); empty when the
+            // command still holds its default, so the row keeps one shape.
+            label(
+                if entry.modified {
+                    crate::keybindings::COPY_MODIFIED
+                } else {
+                    ""
+                },
+                design::GOLD,
+            )
+            .size(11),
+            button(label(crate::keybindings::COPY_RESET, MUTED).size(11))
+                .on_press(Action::ResetShortcut(entry.id.clone()))
+                .style(design::ghost)
+                .padding([0, 4]),
+            button(label(crate::keybindings::COPY_CLEAR, MUTED).size(11))
+                .on_press(Action::ClearShortcut(entry.id.clone()))
+                .style(design::ghost)
+                .padding([0, 4]),
+            button(
+                label(
+                    if armed {
+                        crate::keybindings::COPY_RECORD
+                    } else {
+                        "Capture"
+                    },
+                    MUTED,
+                )
+                .size(11),
+            )
+            .on_press(Action::CaptureShortcut(entry.id.clone()))
+            // Armed, this is the reference's recorder chip: a bordered module surface in
+            // secondary ink, not a plain action. The binding area holds either the recorder or
+            // the keys, never both.
+            .style(if armed {
+                design::elevated
+            } else {
+                design::ghost
+            })
+            .padding(if armed { [3, 14] } else { [0, 4] }),
+            label(if armed { String::new() } else { entry.keys }, MUTED).size(11),
+        ]
+        .spacing(8)
+        .align_y(iced::Alignment::Center)
+        .into()
+    }
     fn general_view(&self, route: &RouteFacts) -> Element<'_, Action> {
         let mut body = column![
             label("General", TEXT).size(17),
@@ -1100,59 +1169,52 @@ impl Settings {
             // One source for both the strings and the keys: the store the resolver will read.
             // One source for the ids, labels and keys: the same catalog the resolver reads.
             let catalog = crate::keybindings::native_catalog();
+            // The reference searches the same list it draws (`Reference.tsx:167-174`): one
+            // query, rows filtered by label, id and both key joinings, and the no-match line
+            // when nothing survives.
+            let mut search = row![
+                text_input("Search shortcuts", &self.shortcuts_query)
+                    .id("native-shortcuts-search")
+                    .on_input(Action::ShortcutsSearch)
+                    .padding([4, 10])
+                    .size(12)
+                    .style(design::search_field)
+                    .width(Length::Fill),
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center);
+            if !self.shortcuts_query.is_empty() {
+                search = search.push(
+                    button(label("×", MUTED).size(12))
+                        .on_press(Action::ShortcutsSearch(String::new()))
+                        .style(design::ghost)
+                        .padding([0, 6]),
+                );
+            }
+            body = body.push(search);
+            let fixed: Vec<_> = crate::keybindings::rows(&self.keybindings, &catalog)
+                .into_iter()
+                .filter(|row| crate::keybindings::matches_search(row, &self.shortcuts_query))
+                .collect();
+            let commands: Vec<_> = crate::keybindings::rows(
+                &self.keybindings,
+                &crate::keybindings::catalog_rows(&self.commands),
+            )
+            .into_iter()
+            .filter(|row| crate::keybindings::matches_search(row, &self.shortcuts_query))
+            .collect();
+            let empty = fixed.is_empty() && commands.is_empty();
             // The reference's first group is `application` (`Reference.tsx:179`); its display
             // name is this app's own, since the group keys are internal to the reference.
-            let mut rows = column![label("Application", MUTED).size(11)].spacing(4);
-            for entry in crate::keybindings::rows(&self.keybindings, &catalog) {
-                let armed = self.capture_for.as_deref() == Some(entry.id.as_str());
-                rows = rows.push(
-                    row![
-                        label(entry.label, TEXT).size(13).width(Length::Fill),
-                        // The reference's own marker for a changed binding (`locales.ts:48`); empty when the
-                        // command still holds its default, so the row keeps one shape.
-                        label(
-                            if entry.modified {
-                                crate::keybindings::COPY_MODIFIED
-                            } else {
-                                ""
-                            },
-                            design::GOLD,
-                        )
-                        .size(11),
-                        button(label(crate::keybindings::COPY_RESET, MUTED).size(11))
-                            .on_press(Action::ResetShortcut(entry.id.clone()))
-                            .style(design::ghost)
-                            .padding([0, 4]),
-                        button(label(crate::keybindings::COPY_CLEAR, MUTED).size(11))
-                            .on_press(Action::ClearShortcut(entry.id.clone()))
-                            .style(design::ghost)
-                            .padding([0, 4]),
-                        button(
-                            label(
-                                if armed {
-                                    crate::keybindings::COPY_RECORD
-                                } else {
-                                    "Capture"
-                                },
-                                MUTED,
-                            )
-                            .size(11),
-                        )
-                        .on_press(Action::CaptureShortcut(entry.id.clone()))
-                        // Armed, this is the reference's recorder chip: a bordered module
-                        // surface in secondary ink, not a plain action. The binding area holds
-                        // either the recorder or the keys, never both.
-                        .style(if armed {
-                            design::elevated
-                        } else {
-                            design::ghost
-                        })
-                        .padding(if armed { [3, 14] } else { [0, 4] }),
-                        label(if armed { String::new() } else { entry.keys }, MUTED).size(11),
-                    ]
-                    .spacing(8)
-                    .align_y(iced::Alignment::Center),
-                );
+            let mut rows = column![].spacing(4);
+            if !fixed.is_empty() {
+                rows = rows.push(label("Application", MUTED).size(11));
+                for entry in fixed {
+                    rows = rows.push(self.shortcut_row(entry));
+                }
+            }
+            if empty {
+                rows = rows.push(label(crate::keybindings::COPY_EMPTY, MUTED).size(11));
             }
             if self.reset_all_armed {
                 // Armed: the reference's own question, with cancel beside it (`locales.ts:48-52`).
@@ -1195,52 +1257,12 @@ impl Settings {
                 );
             }
             // The Host's advertised commands, listed but unbound: a row with no keys, which the
-            // unbound-row test pins. Empty when the Host advertises none.
-            if !self.commands.is_empty() {
+            // unbound-row test pins. Empty when the Host advertises none or the query excludes
+            // every one of them.
+            if !commands.is_empty() {
                 rows = rows.push(label("Commands", MUTED).size(11));
-                for entry in crate::keybindings::rows(
-                    &self.keybindings,
-                    &crate::keybindings::catalog_rows(&self.commands),
-                ) {
-                    let armed = self.capture_for.as_deref() == Some(entry.id.as_str());
-                    rows = rows.push(
-                        row![
-                            label(entry.label, TEXT).size(13).width(Length::Fill),
-                            button(label(crate::keybindings::COPY_RESET, MUTED).size(11))
-                                .on_press(Action::ResetShortcut(entry.id.clone()))
-                                .style(design::ghost)
-                                .padding([0, 4]),
-                            button(label(crate::keybindings::COPY_CLEAR, MUTED).size(11))
-                                .on_press(Action::ClearShortcut(entry.id.clone()))
-                                .style(design::ghost)
-                                .padding([0, 4]),
-                            button(
-                                label(
-                                    if armed {
-                                        crate::keybindings::COPY_RECORD
-                                    } else {
-                                        "Capture"
-                                    },
-                                    MUTED,
-                                )
-                                .size(11),
-                            )
-                            .on_press(Action::CaptureShortcut(entry.id.clone()))
-                            .style(if armed {
-                                design::elevated
-                            } else {
-                                design::ghost
-                            })
-                            .padding(if armed {
-                                [3, 14]
-                            } else {
-                                [0, 4]
-                            }),
-                            label(if armed { String::new() } else { entry.keys }, MUTED).size(11),
-                        ]
-                        .spacing(8)
-                        .align_y(iced::Alignment::Center),
-                    );
+                for entry in commands {
+                    rows = rows.push(self.shortcut_row(entry));
                 }
             }
             body = body.push(rows);

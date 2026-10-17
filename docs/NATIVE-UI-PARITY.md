@@ -7,9 +7,9 @@ in `~/.local/share/dsh-macos-shell-reference/shots/` (mirrored, git-ignored, in 
 **Done, with captures:** permission select; agent-preset roster and selection; background jobs
 (transport → mux → worker → action → panel → dots → kill → output expansion); the shortcuts
 **editor** — store, catalog, resolver, trigger, sorted rows, "Modified", Remove, Restore default,
-the customized count, the Host commands group, the guarded restore-all and capture-a-key
-(`shots/87-…` through `97-…`); and **keys as data**, so the store's five commands drive the live
-chain instead of a hardcoded map.
+the customized count, the Host commands group, the guarded restore-all, capture-a-key and its
+searchable list (`shots/87-…` through `99-…`); and **keys as data**, so the store's five commands
+drive the live chain instead of a hardcoded map.
 
 **Read this before trusting the list above.** Round 257 found that the editor's per-row actions,
 the permission default row and eight Host-event handlers were **unreachable behind two catch-all
@@ -17,7 +17,10 @@ match arms**: the buttons drew and did nothing, and live jobs, the roster, the p
 catalog/descriptor and the Host command advertisement never reached the state the fixtures seed.
 Both catch-alls are now ordered correctly and every affected surface has an App test, but the
 earlier "wired and captured" claims for those controls are corrected below. The transport, worker,
-Core and rendering halves were real; the missing hop was into App state.
+Core and rendering halves were real; the missing hop was into App state. Round 258 then found the
+same shape in the `Ctrl+/` trigger: it opened the account page and the open path reset the
+disclosure, so the editor was never shown; the trigger's "captured" evidence had gone through the
+fixture's direct `set_settings_open`, not the press.
 
 **Next, in one step:** the General page's session-log row has no read path — `plugin_context`
 admits `Page::General` (`settings.rs:372-384`), but `plugins.enter` is called only for
@@ -4443,3 +4446,53 @@ Fixture and default each gained **10 tests**: four chain tests, the armed-captur
 action-reachability tests and three Host-event tests. The `paste_shortcut` test had lost its
 `#[test]` marker in an earlier edit; restoring it and removing a doubled `#[test]` on the
 markdown-image test cancel in the total. Every status above is an exit code captured with `$?`.
+
+### Round 258 — the shortcut search, and the trigger that opened the wrong page
+
+**The shortcuts list is searchable, and `search_index` finally has a caller.** The disclosure now
+draws the reference's search field above its groups (`settings.rs:1171-1194`), filters both the
+application rows and the Host command rows through `keybindings::matches_search`
+(`keybindings.rs:468-477`), shows the reference's own **"No matching shortcuts"** copy
+(`COPY_EMPTY`, `locales.ts` `empty`) when nothing survives, and offers a clear control that resets
+the query. A query matches a row's label, its id, its rendered keys and both key joinings — the
+subset of the reference's names that native's catalog actually carries. The field is bounded at
+128 bytes and local to the modal; the app's `Settings` reducer owns it (`Action::ShortcutsSearch`).
+The fixture gains `--shortcuts-search <query>` (`layout_smoke.rs`) so both states are real frames:
+`shots/98-shortcuts-search-empty.png` (`zzz` → the no-match line) and
+`shots/99-shortcuts-search-filtered.png` (`ctrl` → Find / Navigation / Send only). Both direct runs
+reported `passed: true`, `expectedControlCountsMatch: true`, `presetStatesMatch: true`; the false
+`allTextCollected`/`paintVisibilityQualified` pair is the same settings-modal scope as `97`.
+
+**The trigger was pointing at the account page, and the disclosure flag was being reset.** `Ctrl+/`
+set `shortcuts_open` and then posted `Action::Open`; `Settings::open` calls `close()` → `reset_info()`,
+which clears `details_open`, `shortcuts_open` and the other disclosures. So the real press opened
+the modal on the default **ApiLogin** page with the editor collapsed — while the fixture's direct
+`set_settings_open` (which selects General) made the captured claim look true. `Message::ShortcutsOpen`
+now opens, selects General, sets the disclosure **after** those resets, and issues
+`operation::focus("native-shortcuts-search")` the way `SearchOpen` focuses its field. The new test
+`the_shortcuts_trigger_opens_the_general_page_with_the_editor_showing` pins page, open state and
+disclosure; it failed on the first ordering (flag first) before the fix, which is the evidence that
+the ordering is load-bearing.
+
+**Deliberate difference in the search row.** The reference draws a magnifier glyph inside the field
+and an inside-field clear button. DejaVu Sans has no magnifier code point (`U+2315` and `U+1F50D`
+are both absent), and drawing the reference's SVG needs `canvas` — the same missing lyon dependency
+family recorded for the action icons. The placeholder names the field, and the clear button sits
+beside it rather than inside it; no space is faked to imitate the icon.
+
+**Battery (round 258).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1147 passed**, 1 ignored |
+| app, default | **0** | **1140 passed**, 1 ignored |
+| transport | **0** | 38 + 17 + 82 + 7 (unchanged, no transport edit) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+The three added tests are `search_matches_the_label_the_keys_both_joinings_and_the_id`,
+`the_shortcuts_search_is_local_bounded_and_clears`, and the trigger test. The search state, the
+filtered list and the empty state are captured; the **focus operation is issued and compiled, not
+visually verified** — the fixture opens the disclosure directly, so no frame shows the caret.

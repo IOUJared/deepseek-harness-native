@@ -154,6 +154,8 @@ struct Options {
     reset_all: bool,
     /// Arm one shortcut row's recorder, so the capture-in-progress state is captured.
     capture: bool,
+    /// Prefill the shortcuts search, so its filtered and empty states are captured.
+    shortcuts_search: Option<String>,
     /// Open the shortcuts disclosure, so its rows are captured.
     shortcuts: bool,
 }
@@ -248,6 +250,7 @@ fn options() -> Result<Options, &'static str> {
             "--commands",
             "--reset-all",
             "--capture",
+            "--shortcuts-search",
             "--agent-seat-error",
             "--settings",
             "--scrolled-away",
@@ -340,6 +343,7 @@ fn options() -> Result<Options, &'static str> {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
+        shortcuts_search: values.remove("--shortcuts-search"),
         commands: match values.remove("--commands") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
@@ -671,6 +675,9 @@ impl Fixture {
         }
         if options.capture {
             app.arm_shortcut_capture();
+        }
+        if let Some(query) = &options.shortcuts_search {
+            app.set_shortcuts_query(query);
         }
         if options.scrolled_away {
             app.set_scrolled_away(true);

@@ -2950,10 +2950,20 @@ impl App {
             }
             Message::ShortcutsOpen => {
                 // The reference's `shortcuts.open` shows its own overlay; the equivalent here is
-                // the Settings modal with the Shortcuts disclosure already expanded, opened the
-                // same way the rail's Settings entry opens it (`Action::Open`).
+                // the Settings modal on the General page with the Shortcuts disclosure expanded.
+                // Opening alone lands on the account page, which is why this selects General:
+                // the disclosure existed but was hidden behind the default page.
+                let opened = self.update(Message::Settings(crate::settings::Action::Open));
+                let page = self.update(Message::Settings(crate::settings::Action::SelectPage(
+                    crate::settings::Page::General,
+                )));
+                // Set the disclosure *after* open and page selection: both reset the info
+                // disclosures, so setting it first is silently undone.
                 self.settings.shortcuts_open = true;
-                return Task::done(Message::Settings(crate::settings::Action::Open));
+                // The reference focuses its search field when the overlay opens
+                // (`Reference.tsx:137-139`).
+                let focus = iced::widget::operation::focus("native-shortcuts-search");
+                return Task::batch([opened, page, focus]);
             }
             Message::ToggleJobs => {
                 self.jobs_open = !self.jobs_open;
@@ -5244,6 +5254,13 @@ impl App {
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn set_shortcuts_open(&mut self, open: bool) {
         self.settings.shortcuts_open = open;
+    }
+
+    /// Fixture-only: prefill the shortcuts search, so its filtered and empty states are
+    /// capturable without typing.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn set_shortcuts_query(&mut self, query: &str) {
+        self.settings.shortcuts_query = query.to_owned();
     }
 
     /// Fixture-only: arm the restore-all confirmation, so its copy is capturable.
@@ -12602,6 +12619,33 @@ mod tests {
                 expected_revision: 2
             }) if name == "workspace-write"
         ));
+    }
+    #[test]
+    fn the_shortcuts_trigger_opens_the_general_page_with_the_editor_showing() {
+        let (mut app, _receiver) = app();
+        let _ = app.update(Message::ShortcutsOpen);
+        assert!(app.settings.is_open());
+        assert_eq!(app.settings.page(), crate::settings::Page::General);
+        assert!(app.settings.shortcuts_open);
+    }
+    #[test]
+    fn the_shortcuts_search_is_local_bounded_and_clears() {
+        let (mut app, _receiver) = app();
+        let _ = app.update(Message::Settings(crate::settings::Action::ShortcutsSearch(
+            "send".to_owned(),
+        )));
+        assert_eq!(app.settings.shortcuts_query, "send");
+        // The field is bounded like every other text surface; an oversized value is ignored
+        // rather than truncated into a stale filter.
+        let oversized = "x".repeat(129);
+        let _ = app.update(Message::Settings(crate::settings::Action::ShortcutsSearch(
+            oversized,
+        )));
+        assert_eq!(app.settings.shortcuts_query, "send");
+        let _ = app.update(Message::Settings(crate::settings::Action::ShortcutsSearch(
+            String::new(),
+        )));
+        assert!(app.settings.shortcuts_query.is_empty());
     }
     #[test]
     fn worker_job_events_reach_the_panel_state() {

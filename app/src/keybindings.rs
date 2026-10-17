@@ -400,6 +400,8 @@ pub const COPY_CLEAR: &str = "Remove";
 pub const COPY_MODIFIED: &str = "Modified";
 /// The reference's recorder copy while a row is armed (`locales.ts` `record`).
 pub const COPY_RECORD: &str = "Press a shortcut";
+/// The reference's no-match line (`locales.ts` `empty`).
+pub const COPY_EMPTY: &str = "No matching shortcuts";
 pub const COPY_RETRY_SAVE: &str = "Retry save";
 pub const COPY_MODIFIED_COUNT: &str = "{count} customized";
 pub const COPY_RESET_ALL: &str = "Restore all defaults";
@@ -457,6 +459,21 @@ pub fn search_index(row: &Row) -> Vec<String> {
         row.keys.replace([' ', '+'], ""),
         row.id.clone(),
     ]
+}
+
+/// Whether one row answers a search query, the reference's filter over a row's names
+/// (`Reference.tsx:137`): its label, its rendered keys, both key joinings and its id. The
+/// reference also searches aliases and an `aria` variant; native's catalog carries neither, so
+/// matching what it does carry is the honest subset.
+pub fn matches_search(row: &Row, query: &str) -> bool {
+    let query = query.trim().to_lowercase();
+    if query.is_empty() {
+        return true;
+    }
+    row.label.to_lowercase().contains(&query)
+        || search_index(row)
+            .iter()
+            .any(|name| name.to_lowercase().contains(&query))
 }
 
 /// How many commands the user has changed — the reference's "{{count}} customized" input.
@@ -664,11 +681,32 @@ mod tests {
     }
 
     #[test]
+    fn search_matches_the_label_the_keys_both_joinings_and_the_id() {
+        let store = Store::new(native_fixed());
+        let rows = rows(&store, &native_catalog());
+        let find = rows
+            .iter()
+            .find(|row| row.id == "native.find")
+            .expect("the find row");
+        // The reference ranks names and labels; native's labels are its own names.
+        assert!(matches_search(find, "conversation"));
+        assert!(matches_search(find, "ctrl+f"));
+        assert!(matches_search(find, "CtrlF"));
+        assert!(matches_search(find, "native.find"));
+        assert!(
+            matches_search(find, "   "),
+            "an empty query keeps every row"
+        );
+        assert!(!matches_search(find, "no-such-command"));
+    }
+
+    #[test]
     fn the_copy_is_the_reference_strings_verbatim() {
         assert_eq!(COPY_RESET, "Restore default");
         assert_eq!(COPY_CLEAR, "Remove");
         assert_eq!(COPY_MODIFIED, "Modified");
         assert_eq!(COPY_RECORD, "Press a shortcut");
+        assert_eq!(COPY_EMPTY, "No matching shortcuts");
         assert_eq!(COPY_RETRY_SAVE, "Retry save");
         assert_eq!(COPY_MODIFIED_COUNT, "{count} customized");
         assert_eq!(COPY_RESET_ALL, "Restore all defaults");
