@@ -5826,3 +5826,33 @@ refused. One test covers text, binary, oversized and three malformed shapes; the
 
 No file list or diff viewer exists in Chat yet; the summary line remains the only deliverables
 surface.
+
+### Round 299 — the changed-file list and diff viewer
+
+**The changed-files line now expands into the reference's file list, and each file opens its
+comparison.** The header toggles up to 20 file rows with `+N −N` (or `binary`/`oversized`); pressing a
+row reads `/api/changes.diff` for its (seq, index) and opens the **details panel** with the unified
+hunks (`@@ -old,oldLines +new,newLines @@` and the `+`/`-`/space lines) or the binary/oversized
+refusal. The row geometry reserves the padded file rows, so the fixed transcript height shows every
+row. `shots/137-changes-files.png` shows both files (`src/main.rs +7 −1`, `src/lib.rs +2 −2`); the
+report is `status: passed`.
+
+One app test covers the fetch dispatch, the loading state, the landed text comparison and the opened
+detail (heading, hunk header and `+new` line).
+
+**Deliberate limits.** The reference opens the comparison in its right-sidebar review tab and offers
+a native-open action plus a developer-tools gate; native substitutes the details panel, has no open
+action and always shows the summary. The diff panel itself is not captured (the fixture metadata
+treats the composer as present); its opening is unit-tested. The live reads remain unverified.
+
+**Battery (round 299).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1195 passed**, 1 ignored |
+| app, default | **0** | **1188 passed**, 1 ignored |
+| transport | **0** | **51 + 17 + 82 + 7** |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |

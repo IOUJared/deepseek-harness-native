@@ -310,6 +310,10 @@ pub enum Message {
     ToggleTrigger(u64),
     /// Expands or collapses one per-turn usage detail.
     ToggleTurnUsage(u64),
+    /// Expands or collapses one turn's changed-file list.
+    ToggleChanges(u64),
+    /// Opens one changed file's comparison.
+    OpenChanged(u64, usize),
     /// A key press as **data** for the live chain, with the state at the moment it arrives: an
     /// armed capture consumes it, a focused field's links own it, or a stored binding invokes a
     /// command — so a rebound key replaces the hardcoded default instead of shadowing it.
@@ -743,6 +747,12 @@ enum ChangesState {
     Ready(dsh_native_transport::dto::ChangesSummary),
     Missing,
 }
+/// One listed file's comparison read state.
+enum ChangesDiffState {
+    Loading,
+    Ready(dsh_native_transport::dto::ChangesDiff),
+    Failed,
+}
 
 /// The inline schedule editor: the complete expected record plus the title, instruction and
 /// timing drafts for the record's kind.
@@ -926,6 +936,12 @@ pub struct App {
     schedule_busy: Option<String>,
     /// Changed-file summaries by announcing seq.
     changes: std::collections::BTreeMap<u64, ChangesState>,
+    /// Expanded changed-file lists by announcing seq.
+    changes_expanded: std::collections::BTreeSet<u64>,
+    /// File comparisons by (announcing seq, file index).
+    changes_diffs: std::collections::BTreeMap<(u64, usize), ChangesDiffState>,
+    /// The comparison whose detail should open when its read lands.
+    pending_diff: Option<(u64, usize)>,
     /// The public fixture disables background reads it cannot answer.
     background_reads_disabled: bool,
     /// The inline schedule editor.
@@ -1234,6 +1250,9 @@ impl App {
                 schedule_delete: None,
                 schedule_busy: None,
                 changes: Default::default(),
+                changes_expanded: Default::default(),
+                changes_diffs: Default::default(),
+                pending_diff: None,
                 background_reads_disabled: false,
                 schedule_edit: None,
                 goal_activation: None,
@@ -3760,6 +3779,32 @@ impl App {
                 self.queue_edit = None;
                 self.submit_queue(id, dsh_native_transport::dto::QueueAction::Steer);
             }
+            Message::ToggleChanges(seq) if self.layout_controls_enabled() => {
+                if !self.changes_expanded.remove(&seq) {
+                    self.changes_expanded.insert(seq);
+                }
+            }
+            Message::OpenChanged(seq, index) if self.layout_controls_enabled() => {
+                match self.changes_diffs.get(&(seq, index)) {
+                    Some(ChangesDiffState::Ready(diff)) => {
+                        self.open_changed_detail(seq, index, diff.clone());
+                    }
+                    Some(ChangesDiffState::Loading) => {}
+                    _ => {
+                        let Some(session) = self.selected.clone() else {
+                            return Task::none();
+                        };
+                        self.changes_diffs
+                            .insert((seq, index), ChangesDiffState::Loading);
+                        self.pending_diff = Some((seq, index));
+                        self.command(worker::Command::ChangesDiff {
+                            session,
+                            seq,
+                            index,
+                        });
+                    }
+                }
+            }
             Message::ToggleTurnUsage(key) if self.layout_controls_enabled() => {
                 if !self.usage_expanded.remove(&key) {
                     self.usage_expanded.insert(key);
@@ -4785,6 +4830,19 @@ impl App {
                         }
                     }
                 }
+            }
+            Event::ChangesDiffLoaded { seq, index, result } => {
+                let state = match result {
+                    Ok(diff) => ChangesDiffState::Ready(diff),
+                    Err(_) => ChangesDiffState::Failed,
+                };
+                if self.pending_diff == Some((seq, index))
+                    && let ChangesDiffState::Ready(diff) = &state
+                {
+                    self.open_changed_detail(seq, index, diff.clone());
+                    self.pending_diff = None;
+                }
+                self.changes_diffs.insert((seq, index), state);
             }
             Event::ChangesLoaded { seq, result } => {
                 let state = match result {
@@ -6315,6 +6373,12 @@ impl App {
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn disable_background_reads(&mut self) {
         self.background_reads_disabled = true;
+    }
+
+    /// Fixture-only: expand the seeded changed-file list, which a real run starts by press.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn expand_seeded_changes(&mut self) {
+        self.changes_expanded.insert(2);
     }
 
     /// Fixture-only: seed one ready changed-file summary, which a real run reads from
@@ -8527,16 +8591,126 @@ impl App {
             });
         }
     }
-    /// The one-line changed-files reading for a reply's turn, when its summary is ready.
-    fn changes_line(&self, row: &DisplayRow) -> Option<String> {
+    /// Open one file's comparison in the details panel as formatted diff text.
+    fn open_changed_detail(
+        &mut self,
+        seq: u64,
+        index: usize,
+        diff: dsh_native_transport::dto::ChangesDiff,
+    ) {
+        use dsh_native_transport::dto::ChangesDiff;
+        let (display, body) = match diff {
+            ChangesDiff::Text { display, hunks, .. } => {
+                let mut text = String::new();
+                for hunk in hunks {
+                    text.push_str(&format!(
+                        "@@ -{},{} +{},{} @@\n",
+                        hunk.old_start, hunk.old_lines, hunk.new_start, hunk.new_lines
+                    ));
+                    for line in hunk.lines {
+                        text.push_str(&line);
+                        text.push('\n');
+                    }
+                }
+                (display, text)
+            }
+            ChangesDiff::Binary { display, .. } => {
+                (display, "Binary file; no textual comparison.\n".into())
+            }
+            ChangesDiff::Oversized { display, .. } => {
+                (display, "File too large for a textual comparison.\n".into())
+            }
+        };
+        self.open_detail(
+            format!("Changes · {}", short(&display, 60)),
+            crate::reducer::bounded(&body, 512 * 1024),
+            Some(format!("File comparison · seq {seq} · file {index}")),
+            false,
+        );
+    }
+    /// The ready changed-file summary for a reply's turn.
+    fn changes_for(
+        &self,
+        row: &DisplayRow,
+    ) -> Option<(u64, &dsh_native_transport::dto::ChangesSummary)> {
         let turn = row.turn?;
         let seq = self.transcript.changes_seq(turn)?;
         match self.changes.get(&seq)? {
-            ChangesState::Ready(summary) if !summary.files.is_empty() => Some(format!(
-                "Changed files · {} files · +{} −{}",
-                summary.total, summary.added, summary.deleted
-            )),
+            ChangesState::Ready(summary) if !summary.files.is_empty() => Some((seq, summary)),
             _ => None,
+        }
+    }
+    /// The one-line changed-files reading for a reply's turn, when its summary is ready.
+    fn changes_line(&self, row: &DisplayRow) -> Option<String> {
+        let (_, summary) = self.changes_for(row)?;
+        Some(format!(
+            "Changed files · {} files · +{} −{}",
+            summary.total, summary.added, summary.deleted
+        ))
+    }
+    /// The changed-files card: a header toggle and, when expanded, one row per listed file.
+    fn changes_card(&self, row: &DisplayRow) -> Option<Element<'_, Message>> {
+        let (seq, summary) = self.changes_for(row)?;
+        let open = self.changes_expanded.contains(&seq);
+        let mut card = column![
+            button(
+                row![
+                    label(
+                        format!(
+                            "Changed files · {} files · +{} −{}",
+                            summary.total, summary.added, summary.deleted
+                        ),
+                        MUTED,
+                    )
+                    .size(10),
+                    label(if open { "▾" } else { "▸" }, MUTED).size(10),
+                ]
+                .spacing(4),
+            )
+            .on_press(Message::ToggleChanges(seq))
+            .style(design::ghost)
+            .padding([1, 2]),
+        ]
+        .spacing(2);
+        if open {
+            for (index, file) in summary.files.iter().take(20).enumerate() {
+                let counts = if file.binary {
+                    "binary".to_owned()
+                } else if file.oversized {
+                    "oversized".to_owned()
+                } else {
+                    format!("+{} −{}", file.added, file.deleted)
+                };
+                card = card.push(
+                    button(
+                        row![
+                            label(short(&file.display, 70), MUTED)
+                                .size(10)
+                                .width(Length::Fill),
+                            label(counts, MUTED).size(10),
+                        ]
+                        .spacing(6),
+                    )
+                    .on_press(Message::OpenChanged(seq, index))
+                    .style(design::ghost)
+                    .padding([1, 2]),
+                );
+            }
+        }
+        Some(card.into())
+    }
+    /// The changed-files card's reserved height for a reply row.
+    fn changes_height(&self, row: &DisplayRow) -> f32 {
+        let Some((seq, summary)) = self.changes_for(row) else {
+            return 0.0;
+        };
+        let line = design::content_secondary(self.content_font_size).max(12.0) + 2.0;
+        if self.changes_expanded.contains(&seq) {
+            // Each row is a padded ghost button; reserve the padding as well as the text
+            // lines or the fixed row clips its last file.
+            line + summary.files.len().min(20) as f32 * (line + 4.0) + 6.0
+        } else {
+            line
         }
     }
     /// The selected session's current goal, from its own `goal` projection.
@@ -10547,11 +10721,7 @@ impl App {
             } else {
                 0.0
             };
-            let changes = if self.changes_line(row).is_some() {
-                design::content_secondary(self.content_font_size).max(12.0) + 2.0
-            } else {
-                0.0
-            };
+            let changes = self.changes_height(row);
             return chat_geometry::Geometry {
                 width,
                 body_height,
@@ -11273,8 +11443,8 @@ impl App {
                         if let Some(detail) = &usage_detail {
                             assembled = assembled.push(label(short(detail, 160), MUTED).size(10));
                         }
-                        if let Some(line) = self.changes_line(record) {
-                            assembled = assembled.push(label(short(&line, 120), MUTED).size(10));
+                        if let Some(card) = self.changes_card(record) {
+                            assembled = assembled.push(card);
                         }
                         assembled.align_x(iced::Alignment::End).into()
                     } else {
@@ -11285,8 +11455,8 @@ impl App {
                         if let Some(detail) = &usage_detail {
                             assembled = assembled.push(label(short(detail, 160), MUTED).size(10));
                         }
-                        if let Some(line) = self.changes_line(record) {
-                            assembled = assembled.push(label(short(&line, 120), MUTED).size(10));
+                        if let Some(card) = self.changes_card(record) {
+                            assembled = assembled.push(card);
                         }
                         container(assembled)
                             .padding([10, 14])
@@ -15479,6 +15649,64 @@ mod tests {
             Some(serde_json::json!({"kind":"weekly","weekly":{
                 "time":"09:00:00","time_zone":"UTC","weekdays":[2,4]}}))
         );
+    }
+    #[test]
+    fn opening_a_changed_file_reads_and_shows_its_diff() {
+        use dsh_native_transport::dto::{ChangesDiff, ChangesHunk, ChangesSummary};
+        let (mut app, mut receiver) = managed_app();
+        app.changes.insert(
+            2,
+            ChangesState::Ready(ChangesSummary {
+                turn: 1,
+                total: 1,
+                added: 1,
+                deleted: 1,
+                files: vec![dsh_native_transport::dto::ChangedFile {
+                    path: "src/main.rs".into(),
+                    display: "src/main.rs".into(),
+                    added: 1,
+                    deleted: 1,
+                    binary: false,
+                    oversized: false,
+                }],
+            }),
+        );
+        let _ = app.update(Message::OpenChanged(2, 0));
+        let mut reads = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if let Command::ChangesDiff { seq, index, .. } = command {
+                assert_eq!((seq, index), (2, 0));
+                reads += 1;
+            }
+        }
+        assert_eq!(reads, 1);
+        assert!(matches!(
+            app.changes_diffs.get(&(2, 0)),
+            Some(ChangesDiffState::Loading)
+        ));
+        let _ = app.update(Message::Worker(Event::ChangesDiffLoaded {
+            seq: 2,
+            index: 0,
+            result: Ok(ChangesDiff::Text {
+                path: "src/main.rs".into(),
+                display: "src/main.rs".into(),
+                before: true,
+                after: true,
+                coarse: false,
+                hunks: vec![ChangesHunk {
+                    old_start: 1,
+                    old_lines: 1,
+                    new_start: 1,
+                    new_lines: 1,
+                    lines: vec!["-old".into(), "+new".into()],
+                }],
+            }),
+        }));
+        let detail = app.detail.as_ref().expect("diff detail opened");
+        assert!(detail.heading.contains("src/main.rs"), "{}", detail.heading);
+        assert!(detail.source.contains("+new"), "{}", detail.source);
+        assert!(detail.source.contains("@@ -1,1 +1,1 @@"));
+        assert!(app.pending_diff.is_none());
     }
     #[test]
     fn schedule_history_loads_older_pages_with_the_cursor() {

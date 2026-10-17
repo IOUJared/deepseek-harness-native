@@ -200,6 +200,8 @@ struct Options {
     schedule_history: bool,
     /// Begin editing the first scheduled task.
     schedule_edit: bool,
+    /// Expand the seeded changed-file list.
+    changes_expanded: bool,
     /// Mark the goal's activation disarmed.
     goal_inactive: bool,
     /// Open the shortcuts disclosure, so its rows are captured.
@@ -316,6 +318,7 @@ fn options() -> Result<Options, &'static str> {
             "--schedule-delete",
             "--schedule-history",
             "--schedule-edit",
+            "--changes-expanded",
             "--goal-inactive",
             "--agent-seat-error",
             "--settings",
@@ -480,6 +483,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         schedule_edit: match values.remove("--schedule-edit") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        changes_expanded: match values.remove("--changes-expanded") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -888,6 +895,9 @@ impl Fixture {
         if options.schedule_edit {
             app.begin_schedule_edit();
         }
+        if options.changes_expanded {
+            app.expand_seeded_changes();
+        }
         if options.goal_inactive {
             app.disarmed_goal_activation();
         }
@@ -975,6 +985,7 @@ impl Fixture {
                 worker::Command::Goal { .. } => "Goal",
                 worker::Command::ScheduleCatalog => "ScheduleCatalog",
                 worker::Command::ChangesSummary { .. } => "ChangesSummary",
+                worker::Command::ChangesDiff { .. } => "ChangesDiff",
                 worker::Command::ScheduleDelete { .. } => "ScheduleDelete",
                 worker::Command::ScheduleHistory { .. } => "ScheduleHistory",
                 worker::Command::ScheduleUpdate { .. } => "ScheduleUpdate",

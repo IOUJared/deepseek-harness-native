@@ -79,6 +79,12 @@ pub enum Command {
         session: dsh_native_transport::dto::SessionId,
         seq: u64,
     },
+    /// Read one listed file's comparison.
+    ChangesDiff {
+        session: dsh_native_transport::dto::SessionId,
+        seq: u64,
+        index: usize,
+    },
     /// Read the Host's whole schedule catalog.
     ScheduleCatalog,
     /// Delete one schedule inside its original session binding.
@@ -217,6 +223,11 @@ pub enum Event {
     ChangesLoaded {
         seq: u64,
         result: Result<dsh_native_transport::dto::ChangesSummary, String>,
+    },
+    ChangesDiffLoaded {
+        seq: u64,
+        index: usize,
+        result: Result<dsh_native_transport::dto::ChangesDiff, String>,
     },
     SchedulesLoaded(Result<Vec<dsh_native_transport::dto::ScheduleCatalogItem>, String>),
     ScheduleDeleted {
@@ -868,6 +879,11 @@ fn rejected(command: Command) -> Event {
         Command::JobKill { .. } => Event::JobKilled(Err(error)),
         Command::ChangesSummary { seq, .. } => Event::ChangesLoaded {
             seq,
+            result: Err(error),
+        },
+        Command::ChangesDiff { seq, index, .. } => Event::ChangesDiffLoaded {
+            seq,
+            index,
             result: Err(error),
         },
         Command::ScheduleCatalog => Event::SchedulesLoaded(Err(error)),
@@ -2421,6 +2437,11 @@ async fn run(
                     Command::ChangesSummary{session,seq}=>Event::ChangesLoaded{
                         seq,
                         result:client.changes_summary(&session,seq).await.map_err(|error|format!("Changed files: {error}")),
+                    },
+                    Command::ChangesDiff{session,seq,index}=>Event::ChangesDiffLoaded{
+                        seq,
+                        index,
+                        result:client.changes_diff(&session,seq,index).await.map_err(|error|format!("Changed file: {error}")),
                     },
                     Command::ScheduleCatalog=>Event::SchedulesLoaded(client.schedule_catalog().await.map_err(|error|format!("Schedules: {error}"))),
                     Command::ScheduleDelete{session,id}=>{
