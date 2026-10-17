@@ -94,6 +94,110 @@ pub fn descriptor_mode<'a>(events: impl Iterator<Item = (&'a str, &'a Value)>) -
         .last()
 }
 
+/// The reference's per-row metrics (`SubagentHeaderLineage.tsx:250-270`): a four-bucket token
+/// total and the active duration, either of which may be absent.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Metrics {
+    pub tokens: Option<u64>,
+    pub duration_ms: Option<u64>,
+}
+
+/// Read `tokenUsage` and `subagentTiming` from one session's projections. `now_ms` is only read
+/// for a running child; an inactive one uses the recorded `through`. A partially written usage
+/// object yields no token total rather than a partial sum, as the reference's required fields do.
+pub fn metrics(projections: &BTreeMap<String, Value>, running: bool, now_ms: u64) -> Metrics {
+    let tokens = projections.get("tokenUsage").and_then(|usage| {
+        let mut total = 0u64;
+        for key in [
+            "uncachedInputTokens",
+            "outputTokens",
+            "cacheReadTokens",
+            "cacheWriteTokens",
+        ] {
+            total = total.checked_add(usage.get(key)?.as_u64()?)?;
+        }
+        Some(total)
+    });
+    let duration_ms = projections.get("subagentTiming").and_then(|timing| {
+        let settled = timing.get("settledMs")?.as_u64()?;
+        let Some(active) = timing.get("active") else {
+            return Some(settled);
+        };
+        let since = active.get("since")?.as_u64()?;
+        let end = if running {
+            now_ms
+        } else {
+            active.get("through")?.as_u64()?
+        };
+        Some(settled.saturating_add(end.saturating_sub(since)))
+    });
+    Metrics {
+        tokens,
+        duration_ms,
+    }
+}
+
+/// The reference's compact token form: whole below 1000, one decimal under 100K, then whole
+/// thousands, then millions (`SubagentHeaderLineage.tsx:57-65`).
+pub fn format_tokens(value: u64) -> String {
+    let scaled = |next: f64| -> String {
+        if next >= 100.0 {
+            format!("{}", next.round() as u64)
+        } else {
+            format!("{:.1}", (next * 10.0).round() / 10.0)
+        }
+    };
+    match value {
+        0..=999 => value.to_string(),
+        1_000..=999_999 => format!("{}K", scaled(value as f64 / 1_000.0)),
+        _ => format!("{}M", scaled(value as f64 / 1_000_000.0)),
+    }
+}
+
+/// The reference's compact duration ladder: seconds, minutes+seconds, hours+minutes+seconds,
+/// days(+hours), months(+days), years(+months) (`SubagentHeaderLineage.tsx:117-155`).
+pub fn format_duration(ms: u64) -> String {
+    let total_seconds = ms / 1_000;
+    let minutes = total_seconds / 60;
+    let hours = minutes / 60;
+    let days = hours / 24;
+    let seconds = total_seconds % 60;
+    let rest_minutes = minutes % 60;
+    let rest_hours = hours % 24;
+    if days >= 365 {
+        let years = days / 365;
+        let months = (days % 365) / 30;
+        return if months == 0 {
+            format!("~{years}y")
+        } else {
+            format!("~{years}y {months}mo")
+        };
+    }
+    if days >= 30 {
+        let months = days / 30;
+        let rest_days = days % 30;
+        return if rest_days == 0 {
+            format!("~{months}mo")
+        } else {
+            format!("~{months}mo {rest_days}d")
+        };
+    }
+    if days > 0 {
+        return if rest_hours == 0 {
+            format!("{days}d")
+        } else {
+            format!("{days}d {rest_hours}h")
+        };
+    }
+    if hours > 0 {
+        return format!("{hours}h {rest_minutes}m {seconds}s");
+    }
+    if minutes > 0 {
+        return format!("{minutes}m {seconds}s");
+    }
+    format!("{seconds}s")
+}
+
 /// One row of the catalog menu's tree: the entry, its indent level, whether it has children,
 /// and whether those children are showing.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -241,6 +345,69 @@ mod tests {
         ];
         assert_eq!(descriptor_mode(events.into_iter()), Some(Mode::Continuable));
         assert_eq!(descriptor_mode(std::iter::empty()), None);
+    }
+
+    #[test]
+    fn metrics_sum_the_four_token_buckets_and_the_active_duration() {
+        let projections = BTreeMap::from([
+            (
+                "tokenUsage".to_owned(),
+                json!({"uncachedInputTokens":1000,"outputTokens":250,"cacheReadTokens":2000,"cacheWriteTokens":50}),
+            ),
+            (
+                "subagentTiming".to_owned(),
+                json!({"settledMs":84000,"active":{"since":1000,"through":61000}}),
+            ),
+        ]);
+        assert_eq!(
+            metrics(&projections, false, 999_999),
+            Metrics {
+                tokens: Some(3300),
+                duration_ms: Some(84_000 + 60_000)
+            }
+        );
+        // Running uses the supplied now instead of `through`.
+        assert_eq!(
+            metrics(&projections, true, 31_000).duration_ms,
+            Some(84_000 + 30_000)
+        );
+        // A usage object missing one bucket yields no total rather than a partial sum.
+        let partial = BTreeMap::from([(
+            "tokenUsage".to_owned(),
+            json!({"uncachedInputTokens":1,"outputTokens":2,"cacheReadTokens":3}),
+        )]);
+        assert_eq!(metrics(&partial, false, 0).tokens, None);
+        // Timing without `active` is the settled duration alone.
+        let settled = BTreeMap::from([("subagentTiming".to_owned(), json!({"settledMs":5000}))]);
+        assert_eq!(metrics(&settled, true, 0).duration_ms, Some(5000));
+        assert_eq!(metrics(&BTreeMap::new(), true, 0), Metrics::default());
+    }
+
+    #[test]
+    fn tokens_and_durations_follow_the_reference_compact_forms() {
+        for (value, shown) in [
+            (0, "0"),
+            (999, "999"),
+            (1_000, "1.0K"),
+            (12_345, "12.3K"),
+            (99_950, "100.0K"),
+            (999_999, "1000K"),
+            (1_000_000, "1.0M"),
+            (2_500_000, "2.5M"),
+        ] {
+            assert_eq!(format_tokens(value), shown, "{value}");
+        }
+        for (ms, shown) in [
+            (0, "0s"),
+            (9_000, "9s"),
+            (65_000, "1m 5s"),
+            (3_661_000, "1h 1m 1s"),
+            (90_000_000, "1d 1h"),
+            (86_400_000 * 45, "~1mo 15d"),
+            (86_400_000 * 400, "~1y 1mo"),
+        ] {
+            assert_eq!(format_duration(ms), shown, "{ms}");
+        }
     }
 
     #[test]

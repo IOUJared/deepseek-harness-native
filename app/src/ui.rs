@@ -6501,6 +6501,25 @@ impl App {
         let entries = subagent_catalog::entries(&projections.values);
         (!entries.is_empty()).then_some(entries)
     }
+    fn subagent_title(&self, id: &str) -> Option<String> {
+        SessionId::new(id)
+            .ok()
+            .and_then(|id| self.sessions.get(&id))
+            .map(|summary| self.session_title(summary))
+            .filter(|title| !title.is_empty())
+    }
+    /// The reference's per-row metrics from a child summary's `tokenUsage`/`subagentTiming`
+    /// projections (`SubagentHeaderLineage.tsx:250-270`), if the list carries them.
+    fn subagent_metrics(&self, id: &str) -> subagent_catalog::Metrics {
+        let Some(projections) = SessionId::new(id)
+            .ok()
+            .and_then(|id| self.sessions.get(&id))
+            .and_then(|summary| summary.projections.as_ref())
+        else {
+            return subagent_catalog::Metrics::default();
+        };
+        subagent_catalog::metrics(&projections.values, self.subagent_running(id), now_millis())
+    }
     fn subagent_running(&self, id: &str) -> bool {
         SessionId::new(id)
             .ok()
@@ -6547,20 +6566,46 @@ impl App {
             } else {
                 MUTED
             };
+            // The reference's secondary line: the child's title (when it differs from the
+            // catalog label), its mode and its activity.
+            let activity = if running { "running" } else { "inactive" };
+            let mut secondary = Vec::new();
+            if let Some(title) = self.subagent_title(&entry.id)
+                && title != entry.label
+            {
+                secondary.push(title);
+            }
+            secondary.push(subagent_catalog::mode_label(entry.mode).to_owned());
+            secondary.push(activity.to_owned());
+            let content = column![
+                label(entry.label.clone(), label_ink).size(12),
+                label(secondary.join(" · "), MUTED).size(11),
+            ]
+            .spacing(1)
+            .width(Length::Fill);
+            let metrics = self.subagent_metrics(&entry.id);
+            let mut right = column![].spacing(1).align_x(iced::Alignment::End);
+            if let Some(tokens) = metrics.tokens {
+                right = right.push(
+                    label(
+                        format!("{} tok", subagent_catalog::format_tokens(tokens)),
+                        MUTED,
+                    )
+                    .size(11),
+                );
+            }
+            if let Some(duration) = metrics.duration_ms {
+                right =
+                    right.push(label(subagent_catalog::format_duration(duration), MUTED).size(11));
+            }
             let body = button(
-                row![
-                    Self::subagent_dot(running),
-                    label(entry.label.clone(), label_ink)
-                        .size(12)
-                        .width(Length::Fill),
-                    label(subagent_catalog::mode_label(entry.mode), MUTED).size(11),
-                ]
-                .spacing(8)
-                .align_y(iced::Alignment::Center),
+                row![Self::subagent_dot(running), content, right,]
+                    .spacing(8)
+                    .align_y(iced::Alignment::Center),
             )
             .on_press(Message::SubagentOpen(entry.id.clone()))
             .style(design::ghost)
-            .padding([5, 8])
+            .padding([6, 7])
             .width(Length::Fill);
             list = list.push(
                 row![Space::new().width(row.level as f32 * 12.0), toggle, body,]
@@ -6570,8 +6615,8 @@ impl App {
         }
         container(list)
             .id("native-subagent-menu")
-            .width(260)
-            .padding(8)
+            .width(336)
+            .padding(6)
             .style(|_| design::card(SURFACE, 10.0))
             .into()
     }
@@ -11372,6 +11417,15 @@ pub(crate) fn label<'a>(
 /// The reference's default maximum interval between the two Escape presses
 /// (`stopSequenceMs`, 500 ms; `shortcuts/README.md`).
 const STOP_SEQUENCE_WINDOW: Duration = Duration::from_millis(500);
+
+/// Wall-clock milliseconds for a running child's active duration. The projection's `since` and
+/// `through` are epoch milliseconds; a pre-epoch clock yields 0, which formats as "0s".
+fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 /// The message a stored binding should send. `Send` and `Newline` are absent on purpose: the
 /// composer's text input owns those keys, so a rebound key cannot meaningfully stand in for them

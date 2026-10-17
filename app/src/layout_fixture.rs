@@ -841,6 +841,12 @@ pub fn build(
                 values["subagentCatalog"] = json!([
                     {"id":"PUBLIC-grandchild-helper","createdAt":1002,"mode":"one-shot","label":"PUBLIC helper"}
                 ]);
+                // The reference's row metrics: a four-bucket token total and the settled
+                // active duration, the two projections the list carries when the Host serves
+                // them.
+                values["tokenUsage"] = json!({"uncachedInputTokens":6000,
+                    "outputTokens":345,"cacheReadTokens":6000,"cacheWriteTokens":0});
+                values["subagentTiming"] = json!({"settledMs":84000});
             }
             let child: SessionSummary = serde_json::from_value(json!({
                 "agentAvailable":true, "sessionId":id, "updatedAt":960,

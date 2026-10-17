@@ -13,7 +13,7 @@ searchable list and its refused-capture states (`shots/87-…` through `102-…`
 `103-…`); the running turn's **two-press Escape stop**; the header's **subagent catalog count and
 dropdown** (`shots/104-…`, `105-…`); the **one-shot child's read-only composer** (`shots/106-…`);
 the sidebar's **subagent rows and running-child count** (`shots/107-…`); the child header's
-**sibling switcher** (`shots/108-…`, `109-…`) with **nested catalog branches**
+**sibling switcher** (`shots/108-…`, `109-…`) with **nested catalog branches and row metrics**
 (`shots/110-…`, `111-…`); and **keys as data**, so the store's five commands drive the live chain
 instead of a hardcoded map.
 
@@ -28,12 +28,11 @@ same shape in the `Ctrl+/` trigger: it opened the account page and the open path
 disclosure, so the editor was never shown; the trigger's "captured" evidence had gone through the
 fixture's direct `set_settings_open`, not the press.
 
-**Next, in one step:** the catalog's last metrics — per-child token totals and active durations.
-The reference sums `tokenUsage` and `subagentTiming` from each session's projections
-(`SubagentHeaderLineage.tsx:60-100`); native's summaries do not carry those keys yet, so the first
-step is to confirm they arrive in the session list's `projections.values` (the same place
-`subagentCatalog` does) before any row renders them. The settings/rename editable menu is
-**toolkit-blocked**, recorded below, not a candidate.
+**Next, in one step:** the session row's **pending-interaction status** ("Waiting for approval",
+the reference's `status.waitingApproval`). Native shows a running row's "Working" label but no
+per-session approval/question state; the reference reads it from its session-status controller, so
+the next step is to find whether the list or a status feed carries that field before drawing a
+badge. The settings/rename editable menu is **toolkit-blocked**, recorded below, not a candidate.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -4908,3 +4907,45 @@ where the reference's recursion has no explicit level cap (its catalog is Host-o
 Two tests were added: `the_tree_expands_branches_indents_them_and_survives_a_cycle` (order, indent,
 expansion and a two-node cycle) and `a_catalog_branch_toggles_and_reads_grandchildren` (the
 grandchild catalog, the toggle, and the close-resets-expansion rule).
+
+### Round 268 — catalog row metrics
+
+**Each catalog row now carries the reference's two metrics.** `subagent_catalog::metrics`
+(`app/src/subagent_catalog.rs`) reads `tokenUsage` and `subagentTiming` from the child summary's
+`projections.values` — the same place `subagentCatalog` lives, confirming round 7's open question
+without a new wire read. The token total sums the four disjoint buckets
+(`uncachedInputTokens + outputTokens + cacheReadTokens + cacheWriteTokens`); a usage object missing
+a bucket yields **no** total rather than a partial sum. The duration is `settledMs` plus the active
+span: `now − since` for a running child, `through − since` for an inactive one, so an inactive row
+stays fixed. Tokens use the reference's compact form (whole below 1000, one decimal under 100K,
+`K`/`M` above) and duration its ladder (`9s`, `1m 5s`, `1h 1m 1s`, `1d 1h`, `~1mo 15d`).
+
+The row is now the reference's two lines: label, then a secondary line of the child's title (only
+when it differs from the catalog label), the mode and the activity, with the metrics right-aligned —
+`12.3K tok` and `1m 24s` for the running reviewer in
+`shots/111-subagent-nested-expanded.png`; the helper and scout show `one-shot · inactive` and no
+metrics. The menu takes the reference's 336px width. Both `shots/110` and `111` were recaptured
+with the metrics and report `status: passed`.
+
+**Deliberate differences.** The reference repeats the session title in the secondary line even when
+it equals the catalog label; native omits the duplicate. The exact-duration tooltip has no native
+counterpart (no tooltip system), so only the compact duration is drawn. Metrics appear only when the
+summary carries both projections; a list that omits them draws no metric column.
+
+**Battery (round 268).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1166 passed**, 1 ignored |
+| app, default | **0** | **1159 passed**, 1 ignored |
+| transport | **0** | 38 + 17 + 82 + 7 (unchanged, no transport edit) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+Two tests were added: `metrics_sum_the_four_token_buckets_and_the_active_duration` (both timing
+branches, the partial-usage refusal, the settled-only case and the empty default) and
+`tokens_and_durations_follow_the_reference_compact_forms` (eight token and seven duration
+boundaries). The fixture's reviewer summary now carries the two projections; the list-level claim is
+that they arrive in `projections.values`, seeded here rather than observed from a live Host.
