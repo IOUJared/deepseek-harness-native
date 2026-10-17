@@ -456,6 +456,19 @@ pub struct JobListFrame {
     pub jobs: Vec<JobView>,
 }
 
+/// One output chunk as the Host reports it (`packages/jobs/jobs/src/view.ts:49-58`): an absolute
+/// offset, the text as appended, an optional channel label, and whether bytes immediately before
+/// it were lost.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobChunk {
+    pub at: i64,
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
+    #[serde(rename = "gapBefore", skip_serializing_if = "Option::is_none")]
+    pub gap_before: Option<bool>,
+}
+
 /// The `job/kill` request: the session whose job list carries the job, and the job
 /// (`api/job-controller/src/types.ts:30-34`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -488,8 +501,8 @@ pub struct JobFollowRequest {
 }
 
 /// One `jobs/follow` frame: a job opening, its output, or a status change (`types.ts:72-89`).
-/// Chunks stay unprojected — `JobChunk`'s own fields are unread — so an evicted range can be
-/// shown as a gap (`lossy`) without inventing a shape.
+/// Chunks now carry their own fields (`view.ts:49-58`), including `gapBefore`, so an evicted range
+/// can be shown as a gap rather than joined silently.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum JobFollowFrame {
@@ -498,7 +511,7 @@ pub enum JobFollowFrame {
         from: i64,
     },
     Output {
-        chunks: Vec<serde_json::Value>,
+        chunks: Vec<JobChunk>,
         next: i64,
         #[serde(skip_serializing_if = "Option::is_none")]
         lossy: Option<bool>,
@@ -864,7 +877,7 @@ mod job_frame_tests {
             serde_json::from_value(json!({"type": "opened", "job": view(), "from": 0})).unwrap();
         assert!(matches!(opened, JobFollowFrame::Opened { from: 0, .. }));
         let output: JobFollowFrame = serde_json::from_value(
-            json!({"type": "output", "chunks": [{"text": "hi"}], "next": 2, "lossy": true}),
+            json!({"type": "output", "chunks": [{"at": 0, "text": "hi", "channel": "stdout"}], "next": 2, "lossy": true}),
         )
         .unwrap();
         match output {

@@ -3114,3 +3114,17 @@ vocabulary.**
      `JobChunk`'s fields are read, so the first version would render nothing until that read.
    That is the whole remainder of jobs, and every part of it now has either a neighbour in this
    repository or a quoted string from the reference.
+
+   **`JobChunk` is projected, so the output expansion's last unread input is gone.**
+   `JobChunk { at, text, channel?, gap_before? }` joins the dtos with the reference's own field
+   names (`packages/jobs/jobs/src/view.ts:49-58`: an absolute offset, the text as appended, an
+   optional channel label, and `gapBefore` for bytes lost before it), and
+   `JobFollowFrame::Output.chunks` is now `Vec<JobChunk>` instead of unprojected JSON — the
+   deliberate omission recorded in round 151 is closed because the read it was waiting on
+   happened.
+   Verified: transport exit 0, fixture **1114** exit 0, default **1107** exit 0, format-debt 0.
+   Two notes from the attempt: the existing test only needed its sample chunk to carry `at`, which
+   kept its assertions valid; and my first patch assumed the `json!` call was still laid out the
+   way I wrote it in round 151, when formatting had joined it — the **second** time an anchor has
+   failed on formatting rather than on content, which is why the anchors that work are the short
+   ones.
