@@ -2932,3 +2932,15 @@ keep the upward behaviour they were captured with.
      as the reference's spinner.
    That is the last piece the panel lacks, and it is now a two-line change plus a capture rather
    than a design question or a guess.
+
+   **The dots are drawn and captured, so no piece of the jobs row is left unread.** Each row now
+   leads with the reference's marker: `◐` in `ACCENT` for `running` (the documented stand-in for
+   the 14px animated spinner a static capture cannot show), `●` in `GOLD` for `stopping` and
+   `killed`, `●` in `DANGER` for `failed`, `●` in `MUTED` for `completed`, and `○` in `MUTED` for
+   anything unknown. `shots/81-jobs-row-dots-dp2.png` shows all four present in one panel:
+   half-filled accent for the running shell job, gold for the stopping build, muted for the
+   completed search and danger red for the failed lint.
+   That closes every unread input the jobs row had. What remains in the feature is not unread but
+   **unwired**: the `@Remote('kill')` two-click confirmation, and the follow stream the output
+   expansion needs — both of which need transport work whose shapes I have not read, and neither
+   of which I will invent to make the panel look finished.

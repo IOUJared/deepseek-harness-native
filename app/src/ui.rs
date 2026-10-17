@@ -10971,12 +10971,31 @@ fn job_row(job: &dsh_native_transport::dto::JobView) -> Element<'static, Message
         "completed" | "killed" => MUTED,
         _ => TEXT,
     };
+    // The reference's marker is one glyph in five colours, not five glyphs
+    // (`ui-primitives/src/StateDot.module.css`: success/warn/error/idle), with
+    // `running → ongoing` the one state it animates as a spinner — which a static capture cannot
+    // show, so the half-filled dot stands in and is recorded as a deviation, not as the spinner
+    // (`ui-jobs/src/client/JobListAction.tsx:86-96` for the mapping).
+    let (glyph, dot_ink) = match job.status.as_str() {
+        "running" => ("◐", ACCENT),
+        "stopping" | "killed" => ("●", design::GOLD),
+        "failed" => ("●", DANGER),
+        "completed" => ("●", MUTED),
+        _ => ("○", MUTED),
+    };
     container(
-        column![
-            label(job.label.clone(), ink).size(13),
-            label(format!("{} · {}", job.kind, job.status), MUTED).size(11),
+        row![
+            container(label(glyph, dot_ink).size(11))
+                .width(design::CRUMB_SIZE)
+                .align_x(iced::Alignment::Center),
+            column![
+                label(job.label.clone(), ink).size(13),
+                label(format!("{} · {}", job.kind, job.status), MUTED).size(11),
+            ]
+            .spacing(1),
         ]
-        .spacing(1),
+        .spacing(6)
+        .align_y(iced::Alignment::Center),
     )
     .width(Length::Fill)
     .into()
