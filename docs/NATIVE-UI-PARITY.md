@@ -2517,3 +2517,24 @@ state, which needs a Host that advertises that namespace.
    stream has.
    Transport suite **17 + 82 + 7 doctests**, exit 0; format-debt 0. Next: the worker loop that
    consumes the two streams, then the panel.
+
+   **The worker loop's placement, pinned — and it is the first delicate edit of this feature.**
+   Jobs is consumed inside the worker's live observation loop, not in the command dispatch, so
+   the insertion points are the three the follow loop uses and nothing else:
+   - **open**: beside `selected: Option<NativeStream<SessionFollowFrame>>` (`worker.rs:509`), a
+     `jobs: Option<NativeStream<JobListFrame>>` — opened in the same live block that calls
+     `mux.session_follow(...)` (`:1942`), since the mux is in scope only there and the jobs list
+     requires the selected session's id;
+   - **consume**: a select arm beside `event = next_selected(&mut selected) =>` (`:2261`), with
+     the **list** stream replacing the rows wholesale and the **follow** stream updating one row
+     and its buffer — the two semantics read in round 149, which is why they must not share an
+     arm written as if they were the same;
+   - **cancel**: clear the jobs stream wherever `selected` is cleared — the error and closed
+     arms at `:2261` already do this for the follow stream, so cancellation comes from the same
+     state discipline rather than a new mechanism.
+   What that means for the next session: this is a **`worker.rs` edit inside a long async loop**,
+   which is the most delicate change the feature needs and the first one in this document where
+   a mis-insertion would be hard to spot in review. It should be done with the file open rather
+   than by scripted insertion, and with the fixture capture following it.
+   No other part of jobs is unplanned; the panel comes after, and its row form, copy and states
+   are all recorded.
