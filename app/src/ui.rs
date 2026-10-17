@@ -6521,9 +6521,11 @@ impl App {
         }
         if settled > 0 {
             panel = panel.push(label(format!("Finished {settled}"), MUTED).size(11));
-            for job in self.jobs.iter().filter(|job| {
-                job.status != "running" && job.status != "stopping"
-            }) {
+            for job in self
+                .jobs
+                .iter()
+                .filter(|job| job.status != "running" && job.status != "stopping")
+            {
                 panel = panel.push(job_row(job));
             }
         }
