@@ -442,6 +442,33 @@ pub struct ScheduleDeliveryStamp {
     pub scheduled_at: String,
     pub delivered_at: String,
 }
+/// One retained delivery, without its message identity exposure beyond the page cursor.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduleDeliveryRecord {
+    pub scheduled_at: String,
+    pub delivered_at: String,
+    pub message_id: String,
+    #[serde(default)]
+    pub prompt: Option<String>,
+}
+/// One retained delivery-history page, newest first.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScheduleHistory {
+    pub id: String,
+    pub records: Vec<ScheduleDeliveryRecord>,
+    pub earlier_records_unavailable: bool,
+    pub earlier_records_pruned: bool,
+    pub retention_days: u64,
+    pub retention_records: u64,
+    pub next_before: Option<String>,
+}
+/// History success or a non-mutating task/cursor miss.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ScheduleHistoryOutcome {
+    History(ScheduleHistory),
+    Missing,
+}
 /// The delete outcome: deleted, already absent, or a non-mutating refusal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScheduleDeleteOutcome {

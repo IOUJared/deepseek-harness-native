@@ -5570,3 +5570,15 @@ One app test covers opening (one catalog read), the loaded page, the armed confi
 delete admission and the local removal on the ACK. The transport's two tests landed in round 286. A
 capture initially failed because the stop control was expected hidden while the header still draws
 it; the expectation was corrected, and the frames were retaken from a rebuilt, warning-free binary.
+
+### Round 288 — schedule delivery history (transport half)
+
+**`schedule/history` is a typed Rust transport call.** The request carries the session binding, task
+id, a 1–100 limit and an optional `before` cursor; the reply parses into `ScheduleHistory` (bounded
+records with `scheduledAt`/`deliveredAt`/message id/optional prompt, the unavailable/pruned flags,
+retention days/records and `nextBefore`) or `ScheduleHistoryOutcome::Missing` for a task/cursor
+lookup failure. A page with more records than the requested limit, or any other shape, is refused
+rather than truncated. One test covers the page, the miss, the over-limit refusal and an empty
+object; the transport gate is **47 + 17 + 82 + 7**.
+
+No history control exists in the schedules page yet; that is the next item.

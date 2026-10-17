@@ -202,6 +202,7 @@ enum Endpoint {
     GoalClear,
     ScheduleCatalog,
     ScheduleDelete,
+    ScheduleHistory,
 }
 impl Endpoint {
     fn name(self) -> &'static str {
@@ -224,6 +225,7 @@ impl Endpoint {
             Self::GoalClear => "goals/clear",
             Self::ScheduleCatalog => "schedule/catalog",
             Self::ScheduleDelete => "schedule/delete",
+            Self::ScheduleHistory => "schedule/history",
             Self::Page => "session/page",
             Self::AccountState => "account/getState",
             Self::WorkspaceCreate => "workspace/create",
@@ -805,6 +807,31 @@ impl NativeClient {
             .await?;
         schedule_delete_outcome(&value).ok_or(Error::InvalidDto)
     }
+    /// One bounded delivery-history page for a task in its original session binding.
+    pub async fn schedule_history(
+        &self,
+        session_id: &SessionId,
+        id: &str,
+        limit: u64,
+        before: Option<&str>,
+    ) -> Result<ScheduleHistoryOutcome> {
+        if id.is_empty()
+            || id.len() > 256
+            || limit == 0
+            || limit > 100
+            || before.is_some_and(|cursor| cursor.is_empty() || cursor.len() > 256)
+        {
+            return Err(Error::InvalidDto);
+        }
+        let request = serde_json::json!({"request": {
+            "sessionId": session_id.as_str(),
+            "id": id,
+            "limit": limit,
+            "before": before,
+        }});
+        let value: Value = self.invoke(Endpoint::ScheduleHistory, request).await?;
+        schedule_history_outcome(&value, limit).ok_or(Error::InvalidDto)
+    }
     pub async fn session_cancel(&self, session_id: &SessionId) -> Result<Accepted> {
         accepted(
             self.invoke(
@@ -1264,6 +1291,43 @@ fn validate_update_queue(request: &SessionUpdateQueueRequest) -> Result<()> {
     }
     Ok(())
 }
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HistoryWire {
+    id: String,
+    records: Vec<ScheduleDeliveryRecord>,
+    earlier_records_unavailable: bool,
+    earlier_records_pruned: bool,
+    retention: RetentionWire,
+    #[serde(default)]
+    next_before: Option<String>,
+}
+#[derive(serde::Deserialize)]
+struct RetentionWire {
+    days: u64,
+    records: u64,
+}
+fn schedule_history_outcome(value: &Value, limit: u64) -> Option<ScheduleHistoryOutcome> {
+    if let Ok(wire) = serde_json::from_value::<HistoryWire>(value.clone()) {
+        if wire.records.len() > limit as usize {
+            return None;
+        }
+        return Some(ScheduleHistoryOutcome::History(ScheduleHistory {
+            id: wire.id,
+            records: wire.records,
+            earlier_records_unavailable: wire.earlier_records_unavailable,
+            earlier_records_pruned: wire.earlier_records_pruned,
+            retention_days: wire.retention.days,
+            retention_records: wire.retention.records,
+            next_before: wire.next_before,
+        }));
+    }
+    value
+        .as_object()
+        .and_then(|object| object.get("code"))
+        .and_then(Value::as_str)
+        .map(|_| ScheduleHistoryOutcome::Missing)
+}
 /// The delete union (`types.ts:345-350`): `{deleted:true}`, `{deleted:false,code}`, or a
 /// non-mutating refusal carrying a code/message. Anything else is refused.
 fn schedule_delete_outcome(value: &Value) -> Option<ScheduleDeleteOutcome> {
@@ -1587,6 +1651,43 @@ mod schedule_tests {
         for bad in [json!({}), json!({"deleted":"yes"}), json!(null), json!(7)] {
             assert_eq!(schedule_delete_outcome(&bad), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn a_history_page_parses_or_reports_a_missing_task() {
+        use super::schedule_history_outcome;
+        use crate::dto::ScheduleHistoryOutcome;
+        let page = serde_json::json!({
+            "id":"PUBLIC-task",
+            "records":[{"scheduledAt":"2026-10-16T09:00:00Z",
+                "deliveredAt":"2026-10-16T09:00:01Z","messageId":"PUBLIC-m",
+                "prompt":"PUBLIC prompt"}],
+            "earlierRecordsUnavailable":true,"earlierRecordsPruned":false,
+            "retention":{"days":30,"records":100},"nextBefore":"PUBLIC-m"
+        });
+        let Some(ScheduleHistoryOutcome::History(history)) = schedule_history_outcome(&page, 20)
+        else {
+            panic!("expected a history page");
+        };
+        assert_eq!(history.records.len(), 1);
+        assert_eq!(history.retention_days, 30);
+        assert!(history.earlier_records_unavailable);
+        assert_eq!(history.next_before.as_deref(), Some("PUBLIC-m"));
+        assert_eq!(
+            schedule_history_outcome(
+                &serde_json::json!({"id":"PUBLIC-task","code":"schedule_not_found"}),
+                20
+            ),
+            Some(ScheduleHistoryOutcome::Missing)
+        );
+        assert_eq!(
+            schedule_history_outcome(
+                &serde_json::json!({"records":[1,2],"retention":{"days":1,"records":1}}),
+                1
+            ),
+            None
+        );
+        assert_eq!(schedule_history_outcome(&serde_json::json!({}), 20), None);
     }
 
     #[test]
