@@ -5258,11 +5258,14 @@ impl App {
                 // Only this session's reply for a command the App itself sent may clear
                 // the pending state; anything else is stale or foreign. The plan chip and
                 // the permission chip are the two senders, and both surface their outcome.
-                let plan_expected = self
-                    .plan_control()
-                    .mode
-                    .map(plan_control::toggle_line)
-                    .is_some_and(|expected| expected == line);
+                //
+                // The echoed line is matched against the two lines the plan chip can send,
+                // never against a line recomputed from the current projection: a leaving
+                // reply settles to `{active:false,pending:false}`, where no mode exists,
+                // and an entering reply flips the projection to active — so a recomputed
+                // expectation could never equal the line that was actually sent.
+                let plan_expected =
+                    self.plan_toggle_pending && matches!(line.as_str(), "/plan" | "/plan off");
                 let permission_expected = line.starts_with("/permission ");
                 if self.selected.as_ref() == Some(&session_id)
                     && (plan_expected || permission_expected)
@@ -6233,27 +6236,27 @@ impl App {
                     Err(message) => self.agent_seat_error = Some(message),
                 }
             }
-            Event::PermissionCatalog(result) => {
-                if let Ok(catalog) = result {
-                    self.permission_catalog = Some(catalog);
-                }
-            }
-            Event::AgentPresets(result) => {
-                if let Ok(roster) = result {
-                    self.agent_roster = Some(roster);
-                }
-            }
-            Event::PermissionSettings(result) => {
-                if let Ok(settings) = result {
-                    self.permission_settings = Some(settings);
-                }
-            }
+            Event::PermissionCatalog(result) => match result {
+                Ok(catalog) => self.permission_catalog = Some(catalog),
+                // A failed read must not present the design presets as the deployment's own.
+                Err(error) => self.status = format!("Permission catalog: {error}"),
+            },
+            Event::AgentPresets(result) => match result {
+                Ok(roster) => self.agent_roster = Some(roster),
+                Err(error) => self.status = format!("Agent presets: {error}"),
+            },
+            Event::PermissionSettings(result) => match result {
+                Ok(settings) => self.permission_settings = Some(settings),
+                Err(error) => self.status = format!("Permission settings: {error}"),
+            },
             Event::PermissionDefaultSet(result) => {
                 self.permission_default_saving = false;
                 // A successful write changes the descriptor, so the row re-reads it rather
-                // than assuming the new value; a refusal leaves the old one in place.
-                if result.is_ok() {
-                    self.command(Command::PermissionSettingsRead);
+                // than assuming the new value; a refusal leaves the old one in place and
+                // is reported, because the row has no error line of its own.
+                match result {
+                    Ok(()) => self.command(Command::PermissionSettingsRead),
+                    Err(error) => self.status = format!("Permission default: {error}"),
                 }
             }
             _ => {}
@@ -18559,6 +18562,48 @@ mod tests {
         assert!(
             app.status.is_empty(),
             "a foreign line leaves the status alone"
+        );
+    }
+    #[test]
+    fn a_plan_toggle_reply_clears_pending_after_the_projection_settles() {
+        use dsh_native_transport::dto::{CommandExecution, CommandId, CommandResult};
+        let (mut app, _receiver) = managed_app();
+        let selected = app.selected.clone().unwrap();
+        // The reply itself settles the projection to no plan state, so a line recomputed
+        // from the current projection could never match the line that was sent.
+        app.plan_toggle_pending = true;
+        let _ = app.update(Message::Worker(Event::CommandsExecuted {
+            session_id: selected,
+            line: "/plan off".into(),
+            result: Ok(Some(CommandExecution {
+                command_id: CommandId::new("PUBLIC-plan-command").unwrap(),
+                result: CommandResult::Success {
+                    text: Some("Plan mode off.".into()),
+                },
+            })),
+        }));
+        assert!(!app.plan_toggle_pending, "the chip becomes pressable again");
+        assert!(app.status.contains("Plan mode off"));
+    }
+    #[test]
+    fn permission_read_and_write_failures_are_reported() {
+        let (mut app, _receiver) = managed_app();
+        let _ = app.update(Message::Worker(Event::PermissionCatalog(Err(
+            "unavailable".into(),
+        ))));
+        assert!(
+            app.status.contains("Permission catalog") && app.status.contains("unavailable"),
+            "a failed catalog read is not silent"
+        );
+        app.status.clear();
+        app.permission_default_saving = true;
+        let _ = app.update(Message::Worker(Event::PermissionDefaultSet(Err(
+            "revision conflict".into(),
+        ))));
+        assert!(!app.permission_default_saving);
+        assert!(
+            app.status.contains("Permission default") && app.status.contains("revision conflict"),
+            "a refused default write reaches the status"
         );
     }
     #[test]

@@ -176,8 +176,8 @@ Measured with `python3 -B scripts/verify-native.py --suite test` and the format-
 
 | gate | result |
 | --- | --- |
-| app, default | **1208 passed**, 1 ignored |
-| app, `public-layout-fixture` | **1215 passed**, 1 ignored |
+| app, default | **1210 passed**, 1 ignored |
+| app, `public-layout-fixture` | **1217 passed**, 1 ignored |
 | transport | 56 + 17 + **86** + 7 |
 | core (`--lib`, through the suite) | **115 passed** |
 | JS runtime | **419 pass**, 0 fail |

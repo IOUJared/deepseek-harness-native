@@ -6658,3 +6658,32 @@ permission reply) pin the changes. The audit's stale prose about the kill arm is
 | JS runtime | **0** | **419 pass**, 0 fail |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+### Round 326 — the UI wiring audit fixes three silent states
+
+**A read-only wiring audit enumerated 200 `Message`, 71 `Event` and 59 `Command` variants and found
+three places where a documented control could not settle or report.**
+
+- The plan chip's in-flight flag could never clear. The reply matcher recomputed the toggle from the
+  **current** projection, but the command changes that projection: leaving settles to
+  `{active:false,pending:false}`, where no mode exists, and entering flips the projection to active.
+  The chip now matches the echoed line against the two lines it can send while pending, so the flag
+  clears and the chip becomes pressable again.
+- A refused permission-default write cleared the saving flag and re-read only on success, dropping
+  the worker's error — the row has no error line of its own. The refusal now reaches the status.
+- Failed permission-catalog, agent-roster and permission-settings reads were ignored, so the design
+  presets and fallback labels could be presented as the deployment's own. Each failure now reaches
+  the status.
+
+Two App tests pin the plan-reply clear and the permission read/write failures.
+
+**Battery (round 326).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1217 passed**, 1 ignored |
+| app, default | **0** | **1210 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 86 + 7 |
+| core (`--lib`) | **0** | **115 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
