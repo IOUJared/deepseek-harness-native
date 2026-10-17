@@ -3236,3 +3236,16 @@ Still deliberate, with reasons unchanged:
 
 The feature is complete at every layer the reference defines, and the remaining differences are
 the five above rather than missing work.
+
+   **The rebinding settling step is half done, and the read corrected an assumption.** I had
+   treated `ui-shortcuts/src/client/store.ts` as the binding store because the doc called it that.
+   It is not: it is the **overlay's own state** — `State = { open, query, focusRequest }` with
+   `open`/`close`/`search` actions over a `defineStore` handle (`store.ts:4-11`). So the thing a
+   rebinding persists *into* is a **different mechanism**, and `Editor.tsx`'s
+   `save({ type: 'set', id, binding })` sends to it from outside this file.
+   What that leaves, precisely: the overlay's state is known (three fields, three actions), the
+   editor's save call and its staleness retry are known (`Editor.tsx:57-71`), and the trigger is
+   known (`shortcuts.open`, `primary + Slash`, through a `shell.overlay`,
+   `ui-shortcuts/src/client/index.ts:42-52`). The **destination of `save`** is the one unread
+   thing, and it is likely a host service rather than client state — which is the next read, and
+   the last one before a binding store can be designed in this app.
