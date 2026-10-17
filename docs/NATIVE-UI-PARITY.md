@@ -3507,3 +3507,22 @@ the five above rather than missing work.
    That is every edit the change needs, each with the text it will be applied to. What it is *not*
    is written — the attempt above reverted to a clean tree with fifteen tests still passing, and
    the next round should apply these from the file rather than from this list alone.
+
+   **The patch map is complete: the last two bodies are read, verbatim.**
+   `resolve` (`:276-284`) is
+   `store.bindings().find(|(_, binding)| binding.is_some_and(|binding| matches(binding, key, modifiers))).map(|(id, _)| id)`
+   and becomes `store.all().find(|(_, list)| list.iter().any(|binding| matches(binding, key, modifiers))).map(|(id, _)| id)`.
+   `rows` (`:320-336`) holds the two remaining expressions:
+   `keys: store.binding(id).flatten().map(describe).unwrap_or_default()` and
+   `modified: store.binding(id).flatten() != store.default_of(id)` — which become
+   `keys: store.bindings(id).map(describe_all).unwrap_or_default()` and
+   `modified: store.bindings(id) != store.default_of(id)`, both sides now `Option<&[Binding]>`.
+   `modified_count`'s filter (`:362`) becomes `.all()` with `Some(*list) != store.default_of(id)`,
+   and `describe_all` is new beside `describe`: the list rendered as `" / "`-joined bindings.
+   The test sites are the one part not individually read: five were listed in the previous map
+   (`:423`, `:439`, `:450`, `:468`, `:660`) and two more use `store.binding("send")` from the
+   reset-all and conflict tests, so the **rename to `bindings` must be scoped to the test module**
+   — the round-196 lesson about unscoped transforms — and each comparison becomes a slice one,
+   with `Some(&[] as &[Binding])` for the cleared state.
+   With this, every anchor the multi-binding patch needs has been read from the file rather than
+   recalled, which is the one thing the last four attempts at it lacked.
