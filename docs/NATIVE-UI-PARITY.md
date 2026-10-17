@@ -3751,3 +3751,23 @@ it now rests on a gate that was run whole.
    What remains is the app's half: mapping `Invoke` onto the message each hardcoded key already
    sends, so the five paths run through the store. That is one `match`, and it is the only place
    where "the store is consulted" becomes behaviour rather than data.
+
+   **The app half's last unknown is closed, and it turns out to be a design choice, not a missing
+   function.** The five hardcoded keys are mapped by **`layout_shortcut(key, modifiers)`**, called
+   from `panel_shortcut` at the head of the key chain (`ui.rs:10748-10757`), which also upgrades a
+   `DismissPanel` into a ticket-bearing `HideDetails`. So the place is known exactly: whatever the
+   store decides has to arrive *before* or *inside* that mapping.
+   Two designs exist and neither is a one-line match:
+   - **resolve at press time** (the clean one): route keys as data — a message carrying the key and
+     modifiers — so `update` can consult the live store. That changes how *every* key reaches the
+     app, which is precisely the input behaviour the user asked to preserve, and the chain's own
+     comment warns against the other direction: data captured when the subscription was built "goes
+     stale the moment the panel opens".
+   - **resolve from captured data** (the small one): put the store's bindings into the
+     subscription's `with` tuple. Small, but stale — the same failure the comment records.
+   The third option, calling the resolver *after* `layout_shortcut` so the hardcoded keys keep
+   priority, is dead code: a rebound key would never be reached.
+   So the last capability is a **routing decision with a stated cost either way**, and that is the
+   right thing to hand to a fresh context rather than to guess at the end of this one. Everything
+   below that decision — store, catalog, derivation, invocation, resolver, trigger — is tested and
+   in place; the decision is whether keys become data.
