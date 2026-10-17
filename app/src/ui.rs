@@ -2930,7 +2930,10 @@ impl App {
                 // Whole-set replacement: a reconnect's first frame is already the truth.
                 self.jobs = rows;
             }
-            Message::Worker(Event::JobsFollow(frame)) => {
+            Message::Worker(Event::JobsFollow {
+                job: followed,
+                frame,
+            }) => {
                 use dsh_native_transport::dto::JobFollowFrame;
                 match frame {
                     // A job opening or changing state updates that row; output is not consumed
@@ -2942,14 +2945,20 @@ impl App {
                         }
                     }
                     JobFollowFrame::Output { chunks, lossy, .. } => {
-                        // **An `output` frame carries no job id** — the stream is per job
-                        // (`JobFollowRequest { jobId }`), so only the worker knows which row these
-                        // bytes belong to. The event must therefore carry the job id before this
-                        // buffer can be filled, which is why the worker's follow stream comes
-                        // first and why the open belongs beside the row's chevron rather than in
-                        // the selection arm. The gap copy is ready
-                        // (`locales.ts:75-76`: "… earlier output dropped …").
-                        let _ = (chunks, lossy);
+                        // The event carries the job id, because the frame itself does not: the
+                        // stream is per job, so the worker is the only party that knows which row
+                        // these bytes belong to. The gap copy is the reference's own
+                        // (`locales.ts:75-76`).
+                        let buffer = self.jobs_output.entry(followed.clone()).or_default();
+                        if lossy == Some(true) && !buffer.is_empty() {
+                            buffer.push_str("… earlier output dropped …\n");
+                        }
+                        for chunk in chunks {
+                            if chunk.gap_before == Some(true) && !buffer.is_empty() {
+                                buffer.push_str("… earlier output dropped …\n");
+                            }
+                            buffer.push_str(&chunk.text);
+                        }
                     }
                 }
             }

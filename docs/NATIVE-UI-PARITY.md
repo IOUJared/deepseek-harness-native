@@ -3145,3 +3145,18 @@ vocabulary.**
    says so rather than pretending.
    The other stand-in: the reference renders output in a code font, and this app has one UI font,
    so the buffer is that font at a smaller size.
+
+   **The app side of the expansion is complete, because the event now carries the job id.**
+   `Event::JobsFollow { job, frame }` — the variant's own comment says why: an `output` frame has
+   no job id and the stream is per job, so the worker that opened the stream is the only party
+   that can say which row the bytes belong to. The handler's `Output` arm now writes into
+   `jobs_output[job]`, prefixing the reference's gap line on a `lossy` frame or on a chunk whose
+   `gap_before` is set (`locales.ts:75-76`).
+   Verified: fixture **1114** exit 0, default **1107** exit 0, format-debt 0.
+   **What is left of the whole jobs feature is one thing: the worker opening the follow stream.**
+   Its shape is settled — a `job_output` local beside `jobs`; retirement in `Command::Select`
+   beside the list stream's; an open when the chevron expands a row (a `Command::JobOutput
+   { session, job }` sent from `Message::ToggleJobOutput`, since the stream is per job); and a
+   select arm publishing `Event::JobsFollow { job, frame }` through a `next_job_output` helper
+   mirroring `next_jobs`, including its `pending()` when the stream is absent. No discovery step
+   remains, only the loop edit that must be made with the file open.
