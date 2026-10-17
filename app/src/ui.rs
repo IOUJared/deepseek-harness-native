@@ -821,7 +821,8 @@ fn at_date_part(at: &str) -> Option<&str> {
     Some(date)
 }
 fn at_time_parts(at: &str) -> Option<(u8, u8)> {
-    let time = at.trim().split_once('T')?.1;
+    let text = at.trim();
+    let time = text.split_once('T').map(|(_, time)| time).unwrap_or(text);
     let mut parts = time.split(':');
     let hour = parts.next()?.parse::<u8>().ok()?;
     let minute = parts.next()?.parse::<u8>().ok()?;
@@ -3734,9 +3735,19 @@ impl App {
                 }
             }
             Message::AtPickerHour(hour) if self.schedule_edit.is_some() => {
-                if let Some(edit) = &mut self.schedule_edit
-                    && let Some((_, minute)) = at_time_parts(&edit.at).or(Some((9, 0)))
-                {
+                if let Some(edit) = &mut self.schedule_edit {
+                    let source = if matches!(edit.kind.as_str(), "daily" | "weekly") {
+                        edit.time.clone()
+                    } else {
+                        edit.at.clone()
+                    };
+                    let Some((_, minute)) = at_time_parts(&source).or(Some((9, 0))) else {
+                        return Task::none();
+                    };
+                    if matches!(edit.kind.as_str(), "daily" | "weekly") {
+                        edit.time = format!("{hour:02}:{minute:02}:00");
+                        return Task::none();
+                    }
                     let date = at_date_part(&edit.at)
                         .map(str::to_owned)
                         .unwrap_or_else(|| {
@@ -3754,9 +3765,20 @@ impl App {
                 }
             }
             Message::AtPickerMinute(minute) if self.schedule_edit.is_some() => {
-                if let Some(edit) = &mut self.schedule_edit
-                    && let Some((hour, _)) = at_time_parts(&edit.at).or(Some((9, 0)))
-                {
+                if let Some(edit) = &mut self.schedule_edit {
+                    let source = if matches!(edit.kind.as_str(), "daily" | "weekly") {
+                        edit.time.clone()
+                    } else {
+                        edit.at.clone()
+                    };
+                    let Some((hour, _)) = at_time_parts(&source).or(Some((9, 0))) else {
+                        return Task::none();
+                    };
+                    if matches!(edit.kind.as_str(), "daily" | "weekly") {
+                        edit.time = format!("{hour:02}:{minute:02}:00");
+                        self.at_picker = None;
+                        return Task::none();
+                    }
                     let date = at_date_part(&edit.at)
                         .map(str::to_owned)
                         .unwrap_or_else(|| {
@@ -12821,11 +12843,18 @@ impl App {
                     "daily" => {
                         fields = fields
                             .push(label("Timing · daily", MUTED).size(10))
-                            .push(field(
-                                "Local time (HH:MM:SS)",
-                                &edit.time,
-                                Message::ScheduleEditTime,
-                            ))
+                            .push(
+                                row![
+                                    field(
+                                        "Local time (HH:MM:SS)",
+                                        &edit.time,
+                                        Message::ScheduleEditTime,
+                                    ),
+                                    self.at_time_control(&edit.time),
+                                ]
+                                .spacing(4)
+                                .align_y(iced::Alignment::Center),
+                            )
                             .push(field(
                                 "Time zone (IANA)",
                                 &edit.zone,
@@ -12835,11 +12864,18 @@ impl App {
                     "weekly" => {
                         fields = fields
                             .push(label("Timing · weekly", MUTED).size(10))
-                            .push(field(
-                                "Local time (HH:MM:SS)",
-                                &edit.time,
-                                Message::ScheduleEditTime,
-                            ))
+                            .push(
+                                row![
+                                    field(
+                                        "Local time (HH:MM:SS)",
+                                        &edit.time,
+                                        Message::ScheduleEditTime,
+                                    ),
+                                    self.at_time_control(&edit.time),
+                                ]
+                                .spacing(4)
+                                .align_y(iced::Alignment::Center),
+                            )
                             .push(field(
                                 "Time zone (IANA)",
                                 &edit.zone,
@@ -16317,6 +16353,31 @@ mod tests {
             Some(serde_json::json!({"kind":"weekly","weekly":{
                 "time":"09:00:00","time_zone":"UTC","weekdays":[2,4]}}))
         );
+    }
+    #[test]
+    fn the_clock_writes_a_daily_time() {
+        let (mut app, _receiver) = managed_app();
+        app.schedule_edit = Some(ScheduleEdit {
+            session: app.selected.clone().unwrap(),
+            expected: serde_json::json!({"kind":"daily"}),
+            kind: "daily".into(),
+            title: "PUBLIC".into(),
+            prompt: "PUBLIC".into(),
+            time: "09:00:00".into(),
+            zone: "UTC".into(),
+            weekdays: String::new(),
+            every: String::new(),
+            cron: String::new(),
+            at: String::new(),
+        });
+        let _ = app.update(Message::AtPickerTime);
+        assert_eq!(app.at_picker, Some(AtPickerView::Time));
+        let _ = app.update(Message::AtPickerHour(14));
+        assert_eq!(app.schedule_edit.as_ref().unwrap().time, "14:00:00");
+        let _ = app.update(Message::AtPickerMinute(45));
+        assert_eq!(app.schedule_edit.as_ref().unwrap().time, "14:45:00");
+        assert!(app.at_picker.is_none());
+        assert!(app.schedule_edit.as_ref().unwrap().at.is_empty());
     }
     #[test]
     fn the_expected_record_keeps_the_displayed_scheduled_at() {

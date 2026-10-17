@@ -42,8 +42,9 @@ page** (catalog + delete + delivery history + title/instruction/timing edit) and
 **disarmed activation**, the timing-kind selector, an **expandable changed-file list with per-file
 diffs**, the **`@` file menu** and a **desktop-open action** now work end to end; the next items are
 the reference's **developer-tools gate and sidebar review tab**, then workspace open; the
-**one-shot date and clock pickers** now exist. Cross-session pending status is still unavailable from
-the present wires. The `@` menu is keyboard-navigable and lists sessions beside files.
+**date and clock pickers** now serve the one-shot and daily/weekly editors. Cross-session pending
+status is still unavailable from the present wires. The `@` menu is keyboard-navigable and lists
+sessions beside files.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -6036,6 +6037,31 @@ calendar). Only the calendar state is captured; the clock shares the same anchor
 | --- | --- | --- |
 | app, fixture | **0** | **1202 passed**, 1 ignored |
 | app, default | **0** | **1195 passed**, 1 ignored |
+| transport | **0** | 54 + 17 + 82 + 7 (unchanged this round) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+### Round 307 — the clock serves daily and weekly timing
+
+**Daily and weekly rows now have a Time… clock beside the time field.** The existing hour/minute
+popover reads a bare `HH:MM:SS` as well as an RFC 3339 instant; picking writes `edit.time` for
+daily/weekly (minutes from the current field, not the one-shot instant) and still writes the staged
+instant for one-shot rows. The time input and its trigger share one row, so the editor stays compact.
+`shots/135-schedules-edit.png` shows the inline **Time…** control; the report is `status: passed`.
+
+One test covers the daily clock (hour then minute writes `14:45:00`, `at` untouched).
+
+**Remainder.** The clock has no seconds (always `00`), the zone stays a text field, and the weekly
+weekday set is still comma-separated text. The one-shot calendar is unchanged.
+
+**Battery (round 307).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1203 passed**, 1 ignored |
+| app, default | **0** | **1196 passed**, 1 ignored |
 | transport | **0** | 54 + 17 + 82 + 7 (unchanged this round) |
 | core (`--lib`) | **0** | **112 passed** (unchanged) |
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
