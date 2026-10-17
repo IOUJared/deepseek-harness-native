@@ -2486,3 +2486,18 @@ state, which needs a Host that advertises that namespace.
    buffer — an evicted range must be shown as a gap rather than silently joined.
    The wire design is now complete and quoted: request keys, three frame variants with their
    fields, whole-set replacement for lists and per-job updates for follows.
+
+   **The jobs dtos landed, with two tests and one deliberate omission.** `transport/src/dto.rs`
+   now carries `JobView { id, kind, label, owner?, status }`, `JobListRequest { session_id }`,
+   `JobListFrame { jobs }`, `JobFollowRequest { session_id?, job_id, offset? }` and a tagged
+   `JobFollowFrame` with `opened`, `output { chunks, next, lossy? }` and `status`, each field
+   documented against the reference line it came from. The tests check the list frame as a
+   whole set — including that an **empty** set is a valid replacement rather than a missing
+   field — and that every follow variant round-trips by its own tag, with a view missing its
+   label refused rather than defaulted.
+   The omission is deliberate and recorded in the code: `output.chunks` stays
+   `Vec<serde_json::Value>` because `JobChunk`'s own fields are unread, and inventing them would
+   be the `/agent` mistake again. The panel's expansion is not built, so nothing needs them yet,
+   and the `lossy` flag is carried so an evicted range can be shown as a gap when it is.
+   Transport suite **17 + 82 + 7 doctests**, exit 0; format-debt 0. Next: the two `Kind` variants
+   and their methods in `mux.rs`, then the worker loop, then the panel.

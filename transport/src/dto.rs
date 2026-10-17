@@ -428,6 +428,67 @@ pub struct TurnWindow {
     pub min_messages: u64,
     pub min_turns: u64,
 }
+/// One background job as the Host reports it (`packages/jobs/jobs/src/view.ts:65-81`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobView {
+    pub id: String,
+    pub kind: String,
+    /// The producer-supplied one-line label.
+    pub label: String,
+    #[serde(rename = "owner", skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+    /// The lifecycle state: running, stopping, completed, killed or failed.
+    pub status: String,
+}
+
+/// The `jobs/list` request: a required session whose visible set the frame replaces wholesale
+/// (`packages/api/job-controller/src/types.ts:15-24`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobListRequest {
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+}
+
+/// One `jobs/list` frame: the complete set the session can see. **Whole-set replacement**, so a
+/// reconnect's first frame is already the truth (`types.ts:19-27`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobListFrame {
+    pub jobs: Vec<JobView>,
+}
+
+/// The `jobs/follow` request: an optional owning session, a required job, and an absolute byte
+/// offset to resume from (`types.ts:49-60`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobFollowRequest {
+    #[serde(rename = "sessionId", skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(rename = "jobId")]
+    pub job_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<u64>,
+}
+
+/// One `jobs/follow` frame: a job opening, its output, or a status change (`types.ts:72-89`).
+/// Chunks stay unprojected — `JobChunk`'s own fields are unread — so an evicted range can be
+/// shown as a gap (`lossy`) without inventing a shape.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum JobFollowFrame {
+    Opened {
+        job: JobView,
+        from: i64,
+    },
+    Output {
+        chunks: Vec<serde_json::Value>,
+        next: i64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        lossy: Option<bool>,
+    },
+    Status {
+        job: JobView,
+    },
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionFollowRequest {
@@ -753,4 +814,59 @@ pub struct FileUploadValue {
     #[serde(rename = "receiptId")]
     pub receipt_id: FileUploadReceiptId,
     pub file: FileAttachmentRef,
+}
+
+#[cfg(test)]
+mod job_frame_tests {
+    use super::{JobFollowFrame, JobListFrame, JobView};
+    use serde_json::json;
+
+    fn view() -> serde_json::Value {
+        json!({"id": "shell-1", "kind": "shell", "label": "Run tests", "status": "running"})
+    }
+
+    #[test]
+    fn a_list_frame_is_the_session_whole_set() {
+        let frame: JobListFrame =
+            serde_json::from_value(json!({"type": "rows", "jobs": [view()]})).unwrap();
+        assert_eq!(frame.jobs.len(), 1);
+        assert_eq!(frame.jobs[0].label, "Run tests");
+        assert_eq!(frame.jobs[0].status, "running");
+        assert_eq!(frame.jobs[0].owner, None);
+        // An empty set is a valid whole-set replacement, not a missing field.
+        let empty: JobListFrame =
+            serde_json::from_value(json!({"type": "rows", "jobs": []})).unwrap();
+        assert!(empty.jobs.is_empty());
+    }
+
+    #[test]
+    fn every_follow_variant_round_trips_by_its_own_tag() {
+        let opened: JobFollowFrame =
+            serde_json::from_value(json!({"type": "opened", "job": view(), "from": 0})).unwrap();
+        assert!(matches!(opened, JobFollowFrame::Opened { from: 0, .. }));
+        let output: JobFollowFrame = serde_json::from_value(
+            json!({"type": "output", "chunks": [{"text": "hi"}], "next": 2, "lossy": true}),
+        )
+        .unwrap();
+        match output {
+            JobFollowFrame::Output {
+                chunks,
+                next,
+                lossy,
+            } => {
+                assert_eq!(chunks.len(), 1);
+                assert_eq!(next, 2);
+                assert_eq!(lossy, Some(true));
+            }
+            other => panic!("expected output, got {other:?}"),
+        }
+        let status: JobFollowFrame =
+            serde_json::from_value(json!({"type": "status", "job": view()})).unwrap();
+        assert!(matches!(status, JobFollowFrame::Status { .. }));
+        // A view without a label is refused rather than defaulted.
+        assert!(
+            serde_json::from_value::<JobView>(json!({"id": "a", "kind": "k", "status": "running"}))
+                .is_err()
+        );
+    }
 }
