@@ -2776,3 +2776,19 @@ Since the round-145 update, all local and unpushed, gates green at each commit:
    from the header, either by asking `anchored_popup` for that placement if it supports one or by
    attaching the panel to a container that has the window's height beneath it. That is the next
    step, and it is now a two-line question rather than an open one.
+
+   **The cause is now derived rather than observed, and the arithmetic reproduces the measument.**
+   `anchored_popup` documents its own rule — "keeps the anchor's flow size; an open popup is
+   right-aligned **above** its actual bounds" (`app/src/anchored_popup.rs:7`) — and implements it
+   as `y: (anchor.y - size.height - 8.0).clamp(viewport.y, viewport.y + viewport.height - size.height)`
+   (`:306-307`). With the jobs action at `anchor.y = 43.9` and `size.height = 189.4`:
+   `43.9 − 189.4 − 8 = −153.5`, which clamps to `viewport.y` = **0** — the exact `y = 0` the
+   report measured. The three failing checks follow from that and nothing else.
+   So the widget cannot place this panel where it is needed: it is **designed to open upward**,
+   which is right for the composer's permission menu and the hero's preset seat (both of which
+   have room above, and both are captured) and wrong for a header anchor 44px from the top.
+   Two fixes exist and their risk differs: add a **downward variant** used only by jobs — additive,
+   and it cannot move the two surfaces that already pass — or change the shared widget's direction
+   logic, which would put both captured menus back through a capture to prove they had not moved.
+   The first is the one to take, and it is now a small, bounded piece of widget work rather than
+   a panel bug.
