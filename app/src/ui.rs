@@ -216,6 +216,10 @@ pub enum Message {
     EditorMenuAction(editor_menu::Action),
     /// The hero preset chip's own press: a user action, and the roster read's only trigger.
     AgentPresetSeat,
+    /// Opens or dismisses the jobs panel.
+    ToggleJobs,
+    /// Stops one job, after the reference's two-click confirmation.
+    KillJob(String),
     /// Chooses one advertised preset from the hero seat's list.
     AgentPresetPick(String),
     /// Opens or dismisses the permission chip's menu.
@@ -731,6 +735,8 @@ pub struct App {
     /// The session's background jobs, replaced wholesale by each list frame and updated per job
     /// by the follow stream. Empty means the Host reported none, which is a valid set.
     jobs: Vec<dsh_native_transport::dto::JobView>,
+    /// The jobs panel is open behind the counted header action.
+    jobs_open: bool,
     /// A write is in flight; the row is busy until its acknowledgement lands.
     permission_default_saving: bool,
     editor_undo: Vec<String>,
@@ -954,6 +960,7 @@ impl App {
                 agent_seat_open: false,
                 agent_seat_error: None,
                 jobs: Vec::new(),
+                jobs_open: false,
                 permission_default_saving: false,
                 editor_undo: Vec::new(),
                 editor_redo: Vec::new(),
@@ -2878,6 +2885,14 @@ impl App {
                         preset: id,
                     });
                 }
+            }
+            Message::ToggleJobs => {
+                self.jobs_open = !self.jobs_open;
+            }
+            Message::KillJob(id) => {
+                // The kill command exists in the reference (`@Remote('kill')`); it is not wired
+                // here yet, so this arm records the intent rather than inventing a transport.
+                let _ = id;
             }
             Message::Worker(Event::JobsRows(rows)) => {
                 // Whole-set replacement: a reconnect's first frame is already the truth.
@@ -5046,6 +5061,25 @@ impl App {
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn set_agent_seat_error(&mut self, message: &str) {
         self.agent_seat_error = Some(message.to_owned());
+    }
+    /// Fixture-only: seed background jobs, so the counted header action and its panel are
+    /// capturable without a running Host.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn set_jobs(&mut self) {
+        let row =
+            |id: &str, kind: &str, label: &str, status: &str| dsh_native_transport::dto::JobView {
+                id: id.to_owned(),
+                kind: kind.to_owned(),
+                label: label.to_owned(),
+                owner: None,
+                status: status.to_owned(),
+            };
+        self.jobs = vec![
+            row("shell-1", "shell", "Run the test suite", "running"),
+            row("build-2", "build", "Build the release binary", "stopping"),
+            row("grep-3", "search", "Search for parity notes", "completed"),
+            row("lint-4", "shell", "Lint the app crate", "failed"),
+        ];
     }
     pub(crate) fn set_agent_seat_open(&mut self) {
         self.agent_seat_open = true;
@@ -7295,6 +7329,29 @@ impl App {
                 .id("native-agent-preset")
                 .padding(design::CRUMB_PAD)
                 .max_width(design::CRUMB_MAX),
+            );
+        }
+        // `ui-jobs/src/client/index.ts:36-42`: background work follows the preset label at
+        // order 20, and its label is the live count (`locales.ts:8-11`).
+        if !self.jobs.is_empty() {
+            let running = self
+                .jobs
+                .iter()
+                .filter(|job| job.status == "running" || job.status == "stopping")
+                .count();
+            let text = if running > 0 {
+                format!("{running} background tasks running")
+            } else {
+                format!("{} background tasks", self.jobs.len())
+            };
+            crumbs = crumbs.push(
+                container(
+                    button(label(text, MUTED).size(design::CRUMB_SIZE))
+                        .on_press(Message::ToggleJobs)
+                        .style(design::ghost)
+                        .padding(design::CRUMB_PAD),
+                )
+                .id("native-jobs-action"),
             );
         }
         // The row's own box is the trail's intrinsic width, which is what a

@@ -2675,3 +2675,19 @@ Since the round-145 update, all local and unpushed, gates green at each commit:
    is the panel itself (item 12) and the follow stream, which only its expansion needs — the
    list stream is all the rows require, which is why the rows path could be finished first.
    Verified: fixture **1114** exit 0, default **1107** exit 0, format-debt 0.
+
+   **The jobs header action landed, and it is the first visible piece of the feature.** The
+   header band now carries the reference's counted action when the session has jobs — **"{n}
+   background tasks running"** while any are running or stopping, and "{n} background tasks"
+   otherwise, which is exactly the copy's own distinction (`ui-jobs/src/client/locales.ts:8-11`)
+   — placed after the preset label per the band's order (jobs 20, preset −10;
+   `ui-jobs/src/client/index.ts:36-42`). Verified with a seeded four-job fixture, two of them
+   running or stopping: the grab reads **"2 background tasks running"**
+   (`shots/78-jobs-header-action-dp2.png`).
+   The kill arm exists but **deliberately does nothing**, with a comment saying the reference's
+   `@Remote('kill')` is not wired here — the alternative would be another invented transport,
+   which is the mistake this document has already paid for once.
+   Verified: fixture **1114** exit 0, default **1107** exit 0, format-debt 0.
+   Still to come for jobs: the panel itself behind the action (sections, clear, per-row dot,
+   label, kind, status, duration), the two-click kill, and the follow stream that the expansion
+   needs. The action's own press already toggles a `jobs_open` flag, so the panel has its state.
