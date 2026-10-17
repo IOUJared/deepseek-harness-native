@@ -120,6 +120,13 @@ impl Store {
         }
     }
 
+    /// The default a reset would restore, for comparison and for the editor's own display.
+    pub fn default_of(&self, id: &str) -> Option<&Binding> {
+        self.entries
+            .get(id)
+            .and_then(|entry| entry.default.as_ref())
+    }
+
     /// A binding already held by another command, which the reference reports as a conflict.
     pub fn conflict(&self, id: &str, binding: &Binding) -> Option<&str> {
         self.entries
@@ -127,6 +134,100 @@ impl Store {
             .find(|(other, entry)| other.as_str() != id && entry.binding.as_ref() == Some(binding))
             .map(|(other, _)| other.as_str())
     }
+}
+
+/// The four groups in the reference's **product order**
+/// (`ui-shortcuts/src/client/Reference.tsx:179`).
+pub const GROUPS: [&str; 4] = ["application", "input", "menus", "approval"];
+
+/// The reference's own English copy, quoted rather than paraphrased
+/// (`ui-shortcuts/src/client/locales.ts:47-64`).
+pub const COPY_RESET: &str = "Restore default";
+pub const COPY_CLEAR: &str = "Remove";
+pub const COPY_MODIFIED: &str = "Modified";
+pub const COPY_RETRY_SAVE: &str = "Retry save";
+pub const COPY_MODIFIED_COUNT: &str = "{count} customized";
+pub const COPY_RESET_ALL: &str = "Restore all defaults";
+pub const COPY_RESET_TITLE: &str = "Restore all default shortcuts?";
+pub const COPY_RESET_DESCRIPTION: &str = "Restore the default shortcuts for this platform. All modified or removed shortcuts will be restored. Other platforms are unaffected.";
+pub const COPY_RESET_FAILED: &str =
+    "Could not restore defaults. Your shortcuts are unchanged. Please retry.";
+pub const COPY_CANCEL: &str = "Cancel";
+pub const COPY_OPEN_FROM_ANYWHERE: &str = "Open from anywhere";
+
+/// One drawable row: a command's id and label, the keys it answers to, its group, whether the
+/// reference marks it core, and whether the user has changed it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Row {
+    pub id: String,
+    pub label: String,
+    pub keys: String,
+    pub group: &'static str,
+    pub core: bool,
+    pub modified: bool,
+}
+
+/// Build the rows for a catalog: **core actions first, then other commands by id within each
+/// group** (`Reference.tsx:67`), groups in product order.
+pub fn rows(store: &Store, catalog: &[(String, String, bool)]) -> Vec<Row> {
+    let mut rows: Vec<Row> = catalog
+        .iter()
+        .map(|(id, label, core)| Row {
+            id: id.clone(),
+            label: label.clone(),
+            keys: store
+                .binding(id)
+                .flatten()
+                .map(describe)
+                .unwrap_or_default(),
+            // A command's group is the catalog's business; without one it reads as application.
+            group: "application",
+            core: *core,
+            modified: store.binding(id).flatten() != store.default_of(id),
+        })
+        .collect();
+    rows.sort_by(|left, right| {
+        let group = group_rank(left.group).cmp(&group_rank(right.group));
+        group
+            .then(right.core.cmp(&left.core))
+            .then(left.id.cmp(&right.id))
+    });
+    rows
+}
+
+/// The reference's search index for a row, as far as its labels are readable from here: the keys
+/// joined with `+` and joined without (`Reference.tsx:137`). The aliases and the `aria` variant
+/// need the catalog's own strings, which this app does not carry yet.
+pub fn search_index(row: &Row) -> Vec<String> {
+    vec![
+        row.keys.replace(' ', "+"),
+        // The reference's second form drops the separator as well as the spaces
+        // (`Reference.tsx:137`: `keys.filter(key => key !== '+').join('')`).
+        row.keys.replace([' ', '+'], ""),
+        row.id.clone(),
+    ]
+}
+
+/// How many commands the user has changed — the reference's "{{count}} customized" input.
+pub fn modified_count(store: &Store) -> usize {
+    store
+        .bindings()
+        .filter(|(id, binding)| *binding != store.default_of(id))
+        .count()
+}
+
+/// Render a binding the way a row shows it: modifiers then codes, joined with `+`.
+fn describe(binding: &Binding) -> String {
+    let mut parts = binding.modifiers.clone();
+    parts.push(binding.code.clone());
+    if let Some(second) = &binding.second_code {
+        parts.push(second.clone());
+    }
+    parts.join("+")
+}
+
+fn group_rank(group: &str) -> usize {
+    GROUPS.iter().position(|name| *name == group).unwrap_or(0)
 }
 
 /// The built-ins the reference fixes rather than reading from the catalog
@@ -236,6 +337,78 @@ mod tests {
             }
         );
         assert_eq!(store.revision(), 0);
+    }
+
+    #[test]
+    fn rows_put_core_first_then_id_within_a_group_in_product_order() {
+        let store = store();
+        let catalog = vec![
+            ("zebra".to_owned(), "Zebra".to_owned(), false),
+            ("send".to_owned(), "Send".to_owned(), true),
+            ("alpha".to_owned(), "Alpha".to_owned(), false),
+        ];
+        let rows = rows(&store, &catalog);
+        let ids: Vec<&str> = rows.iter().map(|row| row.id.as_str()).collect();
+        // Core first, then the rest by id — not catalog order.
+        assert_eq!(ids, vec!["send", "alpha", "zebra"]);
+        assert_eq!(GROUPS.len(), 4);
+    }
+
+    #[test]
+    fn a_row_describes_its_binding_and_counts_as_modified_only_when_it_differs() {
+        let mut store = store();
+        let catalog = vec![("palette".to_owned(), "Palette".to_owned(), true)];
+        let before = rows(&store, &catalog);
+        assert_eq!(before[0].keys, "primary+Slash");
+        assert!(!before[0].modified);
+        assert_eq!(modified_count(&store), 0);
+        store.apply(
+            Edit::Set {
+                id: "palette".to_owned(),
+                binding: Some(binding("KeyK")),
+            },
+            0,
+        );
+        let after = rows(&store, &catalog);
+        assert_eq!(after[0].keys, "primary+KeyK");
+        assert!(after[0].modified);
+        assert_eq!(modified_count(&store), 1);
+        // A clear counts as modified too: absent is not the default.
+        store.apply(
+            Edit::Set {
+                id: "palette".to_owned(),
+                binding: None,
+            },
+            1,
+        );
+        assert_eq!(modified_count(&store), 1);
+    }
+
+    #[test]
+    fn the_search_index_carries_both_joinings_and_the_id() {
+        let store = store();
+        let catalog = vec![("palette".to_owned(), "Palette".to_owned(), true)];
+        let row = rows(&store, &catalog).remove(0);
+        let index = search_index(&row);
+        assert!(index.contains(&"primary+Slash".to_owned()));
+        assert!(index.contains(&"primarySlash".to_owned()));
+        assert!(index.contains(&"palette".to_owned()));
+    }
+
+    #[test]
+    fn the_copy_is_the_reference_strings_verbatim() {
+        assert_eq!(COPY_RESET, "Restore default");
+        assert_eq!(COPY_CLEAR, "Remove");
+        assert_eq!(COPY_MODIFIED, "Modified");
+        assert_eq!(COPY_RETRY_SAVE, "Retry save");
+        assert_eq!(COPY_MODIFIED_COUNT, "{count} customized");
+        assert_eq!(COPY_RESET_ALL, "Restore all defaults");
+        assert_eq!(COPY_CANCEL, "Cancel");
+        assert_eq!(COPY_OPEN_FROM_ANYWHERE, "Open from anywhere");
+        assert!(
+            COPY_RESET_DESCRIPTION.starts_with("Restore the default shortcuts for this platform.")
+        );
+        assert!(COPY_RESET_FAILED.ends_with("Please retry."));
     }
 
     #[test]

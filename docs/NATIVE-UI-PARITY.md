@@ -3318,3 +3318,18 @@ the five above rather than missing work.
    That is every string, group order, per-row action, confirmation and search rule the native
    editor needs, all taken from the reference rather than paraphrased — which is exactly the
    position the jobs panel was in one round before it was drawn.
+
+   **The editor's data and copy are in code, with tests, and one test caught a real reading
+   error.** `keybindings` now carries the four groups in the reference's product order, the eleven
+   English strings quoted verbatim (`locales.ts:47-64`), a `Row` with its id, label, described
+   keys, group, core flag and modified flag, `rows()` ordering **core first then id within group**
+   (`Reference.tsx:67`), `search_index()`, and `modified_count()`.
+   Ten tests cover the ordering, the described keys (`primary+Slash`), the modified flag and count
+   (including that a **clear** counts as modified), the fixed three, the stale and unknown paths,
+   and the copy. One failed first and taught the rule it encodes: the reference's **second** search
+   form drops the separator as well as the spaces (`keys.filter(key => key !== '+').join('')`,
+   `:137`), so `primary+Slash` indexes as both `primary+Slash` and `primarySlash` — not as the
+   same string twice, which is what my first version produced.
+   Verified: fixture **1124** exit 0 (ten keybinding tests), default **1117** exit 0, format-debt 0.
+   What is left is the rendering: the settings row, the overlay, the per-row actions and the
+   confirmation, with every string and rule now in code.
