@@ -314,6 +314,8 @@ pub enum Message {
     ToggleChanges(u64),
     /// Opens one changed file's comparison.
     OpenChanged(u64, usize),
+    /// Expands or collapses the composer's todo dock.
+    ToggleTodoDock,
     /// Rates one assistant message positive.
     FeedbackLike(String),
     /// Rates one assistant message negative.
@@ -1065,6 +1067,8 @@ pub struct App {
     schedule_delete: Option<(SessionId, String)>,
     /// The task with a delete in flight.
     schedule_busy: Option<String>,
+    /// Whether the composer's todo dock is expanded.
+    todo_dock_open: bool,
     /// Per-message feedback by assistant message id.
     feedback: std::collections::BTreeMap<String, dsh_native_transport::dto::MessageFeedbackItem>,
     /// The open feedback dialog.
@@ -1398,6 +1402,7 @@ impl App {
                 schedules_error: None,
                 schedule_delete: None,
                 schedule_busy: None,
+                todo_dock_open: false,
                 feedback: Default::default(),
                 feedback_dialog: None,
                 file_references: Vec::new(),
@@ -3734,6 +3739,7 @@ impl App {
             Message::ScheduleEditCancel if self.schedules_open => {
                 self.schedule_edit = None;
             }
+            Message::ToggleTodoDock => self.todo_dock_open = !self.todo_dock_open,
             Message::FeedbackLike(message_id) => {
                 return self.feedback_press(message_id, "positive");
             }
@@ -7010,6 +7016,12 @@ impl App {
         );
     }
 
+    /// Fixture-only: expand the todo dock, which a real run starts by press.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn expand_todo_dock(&mut self) {
+        self.todo_dock_open = true;
+    }
+
     /// Fixture-only: seed a positive rating on the feedback preset's assistant message.
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn seed_feedback(&mut self) {
@@ -9294,6 +9306,74 @@ impl App {
         }
         Task::none()
     }
+    /// The reference's composer todo dock: a collapsed count row over the current list.
+    fn todo_dock(&self) -> Option<Element<'_, Message>> {
+        let items = self.transcript.work().plan_items();
+        if items.is_empty() {
+            return None;
+        }
+        let done = items
+            .iter()
+            .filter(|(_, status)| status == "completed")
+            .count();
+        let active = items
+            .iter()
+            .filter(|(_, status)| status == "in progress")
+            .count();
+        let pending = items.len() - done - active;
+        let mut progress = Vec::new();
+        if done > 0 {
+            progress.push(format!("{done} done"));
+        }
+        if active > 0 {
+            progress.push(format!("{active} active"));
+        }
+        if pending > 0 {
+            progress.push(format!("{pending} pending"));
+        }
+        let mut dock = column![
+            button(
+                row![
+                    label("☑", MUTED).size(11),
+                    label("Todos", TEXT).size(12),
+                    label(progress.join(" · "), MUTED).size(10),
+                    Space::new().width(Length::Fill),
+                    label(if self.todo_dock_open { "▾" } else { "▸" }, MUTED).size(10),
+                ]
+                .spacing(6)
+                .align_y(iced::Alignment::Center),
+            )
+            .on_press(Message::ToggleTodoDock)
+            .style(design::ghost)
+            .padding([4, 8])
+            .width(Length::Fill),
+        ]
+        .spacing(2);
+        if self.todo_dock_open {
+            for (content, status) in items {
+                let glyph = match status.as_str() {
+                    "completed" => "✓",
+                    "in progress" => "●",
+                    _ => "○",
+                };
+                dock = dock.push(
+                    row![
+                        label(glyph, if status == "completed" { ACCENT } else { MUTED }).size(10),
+                        label(short(content, 100), MUTED).size(10),
+                    ]
+                    .spacing(6)
+                    .padding([1, 8]),
+                );
+            }
+        }
+        Some(
+            container(dock)
+                .width(Length::Fill)
+                .padding([4, 6])
+                .style(|_| design::card(SURFACE, design::RADIUS_SM))
+                .into(),
+        )
+    }
     /// The feedback dialog: rating, optional category and note, then Submit or Cancel.
     fn feedback_view(&self) -> Element<'_, Message> {
         let Some(draft) = &self.feedback_dialog else {
@@ -10386,15 +10466,20 @@ impl App {
             chat_usage::Severity::Tight => TEXT,
             chat_usage::Severity::Critical => DANGER,
         };
-        let plan = self
-            .transcript
-            .work()
-            .plan()
-            .map(|(done, total, next)| match next {
-                Some(next) => format!("Plan · {done}/{total} · next: {next}"),
-                None if done == total => format!("Plan · {done}/{total} · complete"),
-                None => format!("Plan · {done}/{total}"),
-            });
+        // The todo dock carries the same standing plan with its items; the
+        // metadata chip is the fallback when the dock has no list to show.
+        let plan = if self.transcript.work().plan_items().is_empty() {
+            self.transcript
+                .work()
+                .plan()
+                .map(|(done, total, next)| match next {
+                    Some(next) => format!("Plan · {done}/{total} · next: {next}"),
+                    None if done == total => format!("Plan · {done}/{total} · complete"),
+                    None => format!("Plan · {done}/{total}"),
+                })
+        } else {
+            None
+        };
         let mut metadata = row![];
         // Plan mode's actionable control now rides the card's own control row as
         // the reference draws it (`PlanModeControl.module.css`), so the strip
@@ -10452,6 +10537,9 @@ impl App {
             .push(Space::new().width(Length::Fill))
             .push(label(hint, MUTED).size(10));
         let mut shell = column![];
+        if let Some(todos) = self.todo_dock() {
+            shell = shell.push(todos);
+        }
         if let Some(goal) = self.goal_bar() {
             shell = shell.push(goal);
         }
@@ -16772,6 +16860,36 @@ mod tests {
         assert_eq!(app.schedule_edit.as_ref().unwrap().time, "14:45:00");
         assert!(app.at_picker.is_none());
         assert!(app.schedule_edit.as_ref().unwrap().at.is_empty());
+    }
+    #[test]
+    fn the_todo_dock_reads_the_latest_write_and_toggles() {
+        use serde_json::json;
+        let mut store = crate::work_panel::Store::default();
+        store.ingest(
+            "todo/write",
+            &json!({"todos":[
+                {"content":"PUBLIC first","status":"completed"},
+                {"content":"PUBLIC second","status":"in_progress"},
+                {"content":"PUBLIC third","status":"pending"}
+            ]}),
+        );
+        assert_eq!(
+            store.plan_items(),
+            &[
+                ("PUBLIC first".to_owned(), "completed".to_owned()),
+                ("PUBLIC second".to_owned(), "in progress".to_owned()),
+                ("PUBLIC third".to_owned(), "pending".to_owned())
+            ]
+        );
+        store.ingest("todo/write", &json!({"todos":[]}));
+        assert!(store.plan_items().is_empty());
+        assert!(store.plan().is_none());
+        let (mut app, _receiver) = managed_app();
+        assert!(!app.todo_dock_open);
+        let _ = app.update(Message::ToggleTodoDock);
+        assert!(app.todo_dock_open);
+        let _ = app.update(Message::ToggleTodoDock);
+        assert!(!app.todo_dock_open);
     }
     #[test]
     fn feedback_puts_toggles_and_adopts_the_host_value() {

@@ -43,8 +43,8 @@ page** (catalog + delete + delivery history + title/instruction/timing edit) and
 diffs**, the **`@` file menu** and a **desktop-open action** now work end to end; the next items are
 the reference's **developer-tools gate and sidebar review tab**, then workspace open; the
 **date and clock pickers** now serve the one-shot and daily/weekly editors and are
-keyboard-navigable, and **assistant replies carry Like/Dislike feedback with a note/category
-dialog**. Cross-session pending
+keyboard-navigable, **assistant replies carry Like/Dislike feedback with a note/category dialog**,
+and the composer shows the **expandable todo dock**. Cross-session pending
 status is still unavailable from the present wires. The `@` menu is keyboard-navigable and lists
 sessions beside files.
 
@@ -6161,6 +6161,37 @@ remain unverified.
 | app, fixture | **0** | **1205 passed**, 1 ignored |
 | app, default | **0** | **1198 passed**, 1 ignored |
 | transport | **0** | **55 + 17 + 82 + 7** |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+### Round 311 — the composer todo dock
+
+**The current standing plan now sits above the input as the reference's collapse/expand dock.** The
+work store keeps the newest `todo/write` list in wire order and exposes it; the composer draws
+**☑ Todos** with per-status counts (`N done · N active · N pending`, zero segments omitted),
+collapsed by default, expanding to one row per item with a ✓/●/○ marker and its content. When the
+dock has a list, the separate metadata **Plan · d/t · next** chip is suppressed so the same plan is
+not stated twice; the chip remains the fallback when only the counts are retained.
+`shots/141-todo-dock.png` shows the expanded dock over the composer with the plan chip gone; the
+report is `status: passed`.
+
+One test covers the newest-write replacement, an empty write clearing the list and plan, and the
+app's toggle.
+
+**Deliberate limits.** Native uses text glyphs rather than the reference's StateDot component with
+per-status accessible labels; the dock does not link to the work panel, has no second list, and
+ignores the reference's wider-space separators. Only the latest write is shown, as the dock contract
+states.
+
+**Battery (round 311).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1206 passed**, 1 ignored |
+| app, default | **0** | **1199 passed**, 1 ignored |
+| transport | **0** | 55 + 17 + 82 + 7 (unchanged this round) |
 | core (`--lib`) | **0** | **112 passed** (unchanged) |
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |

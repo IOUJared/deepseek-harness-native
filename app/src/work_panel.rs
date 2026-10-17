@@ -61,6 +61,8 @@ pub struct Store {
     /// item ever written, this is the model's current standing plan: a later
     /// write replaces it, so an item the model dropped disappears.
     plan: Option<(usize, usize, Option<String>)>,
+    /// The newest write's whole list as `(content, status)` in wire order.
+    plan_items: Vec<(String, String)>,
 }
 impl Store {
     pub fn entries(&self, section: Section) -> &[Entry] {
@@ -85,6 +87,10 @@ impl Store {
         self.plan
             .as_ref()
             .map(|(done, total, next)| (*done, *total, next.as_deref()))
+    }
+    /// The newest write's items, for the composer's expandable todo dock.
+    pub fn plan_items(&self) -> &[(String, String)] {
+        &self.plan_items
     }
     /// Fold one retained wire event. Unknown or malformed payloads are ignored.
     pub fn ingest(&mut self, kind: &str, data: &Value) {
@@ -240,8 +246,14 @@ impl Store {
             folded.push((bounded(content, MAX_LINE_BYTES), status));
         }
         if folded.is_empty() {
+            self.plan = None;
+            self.plan_items.clear();
             return;
         }
+        self.plan_items = folded
+            .iter()
+            .map(|(content, status)| (content.clone(), (*status).to_owned()))
+            .collect();
         // The plan is the whole list as written, so the newest write replaces it.
         let completed = folded
             .iter()

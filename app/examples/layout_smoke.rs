@@ -206,6 +206,8 @@ struct Options {
     changes_expanded: bool,
     /// Show the seeded `@` file-reference menu.
     reference_menu: bool,
+    /// Expand the composer's todo dock.
+    todo_dock: bool,
     /// Mark the goal's activation disarmed.
     goal_inactive: bool,
     /// Open the shortcuts disclosure, so its rows are captured.
@@ -325,6 +327,7 @@ fn options() -> Result<Options, &'static str> {
             "--schedule-at",
             "--changes-expanded",
             "--reference-menu",
+            "--todo-dock",
             "--goal-inactive",
             "--agent-seat-error",
             "--settings",
@@ -501,6 +504,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         reference_menu: match values.remove("--reference-menu") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        todo_dock: match values.remove("--todo-dock") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -917,6 +924,9 @@ impl Fixture {
         }
         if options.reference_menu {
             app.seed_reference_menu();
+        }
+        if options.todo_dock {
+            app.expand_todo_dock();
         }
         if options.goal_inactive {
             app.disarmed_goal_activation();
