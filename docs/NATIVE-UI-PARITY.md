@@ -42,9 +42,9 @@ page** (catalog + delete + delivery history + title/instruction/timing edit) and
 **disarmed activation**, the timing-kind selector, an **expandable changed-file list with per-file
 diffs**, the **`@` file menu** and a **desktop-open action** now work end to end; the next items are
 the reference's **developer-tools gate and sidebar review tab**, then workspace open; the
-**date and clock pickers** now serve the one-shot and daily/weekly editors. Cross-session pending
-status is still unavailable from the present wires. The `@` menu is keyboard-navigable and lists
-sessions beside files.
+**date and clock pickers** now serve the one-shot and daily/weekly editors and are
+keyboard-navigable. Cross-session pending status is still unavailable from the present wires. The
+`@` menu is keyboard-navigable and lists sessions beside files.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -6062,6 +6062,32 @@ weekday set is still comma-separated text. The one-shot calendar is unchanged.
 | --- | --- | --- |
 | app, fixture | **0** | **1203 passed**, 1 ignored |
 | app, default | **0** | **1196 passed**, 1 ignored |
+| transport | **0** | 54 + 17 + 82 + 7 (unchanged this round) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+### Round 308 — keyboard navigation in the pickers
+
+**The open calendar or clock now owns the arrow keys, Enter and Escape.** A highlighted cursor
+starts on the staged day/time; Left/Right move a day (or an hour), Up/Down move a week (or a
+minute), crossing month and year boundaries with a clamped day, and Enter commits the cursor exactly
+as a click does. Escape closes the popover. A shortcut capture still wins: the picker checks that no
+capture is armed before claiming keys. The cursor — rather than only the staged value — is the
+highlighted cell. One test covers month/year rollover (`2026-10-31 → 2026-11-01`,
+`2026-01-01 → 2025-12-31`, leap February), the Enter commit for both pickers, and the clock writing
+`edit.time` on a daily row.
+
+**Remainder.** The pickers still work in UTC, have no seconds/year jump, and the cursor has no
+separate focus ring or screen-reader announcement beyond its color.
+
+**Battery (round 308).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1204 passed**, 1 ignored |
+| app, default | **0** | **1197 passed**, 1 ignored |
 | transport | **0** | 54 + 17 + 82 + 7 (unchanged this round) |
 | core (`--lib`) | **0** | **112 passed** (unchanged) |
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |

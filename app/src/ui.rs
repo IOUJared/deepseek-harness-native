@@ -762,8 +762,8 @@ struct WidthDrag {
 /// The open one-shot picker: a month calendar or a clock.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AtPickerView {
-    Date { year: i32, month: u32 },
-    Time,
+    Date { year: i32, month: u32, day: u32 },
+    Time { hour: u8, minute: u8 },
 }
 
 /// UTC civil date from the system clock, for a picker with no stored date.
@@ -785,6 +785,26 @@ fn civil_today() -> (i32, u32, u32) {
     let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
     if month <= 2 {
         year += 1;
+    }
+    (year, month, day as u32)
+}
+fn shift_day(year: i32, month: u32, day: u32, delta: i32) -> (i32, u32, u32) {
+    let (mut year, mut month, mut day) = (year, month, day as i32 + delta);
+    while day < 1 {
+        month -= 1;
+        if month < 1 {
+            month = 12;
+            year -= 1;
+        }
+        day += days_in_month(year, month) as i32;
+    }
+    while day > days_in_month(year, month) as i32 {
+        day -= days_in_month(year, month) as i32;
+        month += 1;
+        if month > 12 {
+            month = 1;
+            year += 1;
+        }
     }
     (year, month, day as u32)
 }
@@ -3693,34 +3713,45 @@ impl App {
                     .as_ref()
                     .map(|edit| edit.at.clone())
                     .unwrap_or_default();
-                let (year, month) = at_date_part(&at)
+                let (year, month, day) = at_date_part(&at)
                     .and_then(|date| {
                         let mut parts = date.split('-');
                         Some((
                             parts.next()?.parse::<i32>().ok()?,
                             parts.next()?.parse::<u32>().ok()?,
+                            parts.next()?.parse::<u32>().ok()?,
                         ))
                     })
-                    .unwrap_or_else(|| {
-                        let (year, month, _) = civil_today();
-                        (year, month)
-                    });
-                self.at_picker = Some(AtPickerView::Date { year, month });
+                    .unwrap_or_else(civil_today);
+                self.at_picker = Some(AtPickerView::Date { year, month, day });
             }
             Message::AtPickerTime if self.schedule_edit.is_some() => {
-                self.at_picker = Some(AtPickerView::Time);
+                let source = self
+                    .schedule_edit
+                    .as_ref()
+                    .map(|edit| {
+                        if matches!(edit.kind.as_str(), "daily" | "weekly") {
+                            edit.time.clone()
+                        } else {
+                            edit.at.clone()
+                        }
+                    })
+                    .unwrap_or_default();
+                let (hour, minute) = at_time_parts(&source).unwrap_or((9, 0));
+                self.at_picker = Some(AtPickerView::Time { hour, minute });
             }
             Message::AtPickerClose => self.at_picker = None,
             Message::AtPickerMonth(step) if self.schedule_edit.is_some() => {
-                if let Some(AtPickerView::Date { year, month }) = self.at_picker {
+                if let Some(AtPickerView::Date { year, month, day }) = self.at_picker {
                     let months = year * 12 + month as i32 - 1 + step;
                     let year = months.div_euclid(12);
                     let month = months.rem_euclid(12) as u32 + 1;
-                    self.at_picker = Some(AtPickerView::Date { year, month });
+                    let day = day.min(days_in_month(year, month));
+                    self.at_picker = Some(AtPickerView::Date { year, month, day });
                 }
             }
             Message::AtPickerDay(day) if self.schedule_edit.is_some() => {
-                if let Some(AtPickerView::Date { year, month }) = self.at_picker
+                if let Some(AtPickerView::Date { year, month, .. }) = self.at_picker
                     && (1..=days_in_month(year, month)).contains(&day)
                     && let Some(edit) = &mut self.schedule_edit
                 {
@@ -6470,6 +6501,65 @@ impl App {
     /// falling back to the default it was moved away from.
     fn key_pressed(&mut self, key: keyboard::Key, modifiers: keyboard::Modifiers) -> Task<Message> {
         use crate::keybindings::Invoke;
+        // The open date/clock popover owns arrows, Enter and Escape; it is modal over the page
+        // but not over a shortcut capture, which still records the pressed key.
+        if self.at_picker.is_some() && self.settings.capture_for.is_none() && modifiers.is_empty() {
+            use keyboard::key::Named;
+            match (&key, self.at_picker) {
+                (keyboard::Key::Named(Named::Escape), _) => {
+                    self.at_picker = None;
+                    return Task::none();
+                }
+                (
+                    keyboard::Key::Named(
+                        Named::ArrowLeft | Named::ArrowRight | Named::ArrowUp | Named::ArrowDown,
+                    ),
+                    Some(AtPickerView::Date { year, month, day }),
+                ) => {
+                    let delta = match key {
+                        keyboard::Key::Named(Named::ArrowLeft) => -1,
+                        keyboard::Key::Named(Named::ArrowRight) => 1,
+                        keyboard::Key::Named(Named::ArrowUp) => -7,
+                        _ => 7,
+                    };
+                    let (year, month, day) = shift_day(year, month, day, delta);
+                    self.at_picker = Some(AtPickerView::Date { year, month, day });
+                    return Task::none();
+                }
+                (
+                    keyboard::Key::Named(Named::ArrowLeft | Named::ArrowRight),
+                    Some(AtPickerView::Time { hour, minute }),
+                ) => {
+                    let hour = if matches!(key, keyboard::Key::Named(Named::ArrowLeft)) {
+                        (hour + 23) % 24
+                    } else {
+                        (hour + 1) % 24
+                    };
+                    self.at_picker = Some(AtPickerView::Time { hour, minute });
+                    return Task::none();
+                }
+                (
+                    keyboard::Key::Named(Named::ArrowUp | Named::ArrowDown),
+                    Some(AtPickerView::Time { hour, minute }),
+                ) => {
+                    let minute = if matches!(key, keyboard::Key::Named(Named::ArrowUp)) {
+                        (minute + 59) % 60
+                    } else {
+                        (minute + 1) % 60
+                    };
+                    self.at_picker = Some(AtPickerView::Time { hour, minute });
+                    return Task::none();
+                }
+                (keyboard::Key::Named(Named::Enter), Some(AtPickerView::Date { day, .. })) => {
+                    return self.update(Message::AtPickerDay(day));
+                }
+                (keyboard::Key::Named(Named::Enter), Some(AtPickerView::Time { hour, minute })) => {
+                    let _ = self.update(Message::AtPickerHour(hour));
+                    return self.update(Message::AtPickerMinute(minute));
+                }
+                _ => {}
+            }
+        }
         // A capture wins over routing: the press *becomes* a binding rather than invoking
         // anything, bounded to the armed row (`Editor.tsx:59-71`).
         if let Some(id) = self.settings.capture_for.clone() {
@@ -9119,15 +9209,20 @@ impl App {
             .on_press(Message::AtPickerTime)
             .style(design::ghost)
             .padding([2, 6]);
-        let popup =
-            matches!(self.at_picker, Some(AtPickerView::Time)).then(|| self.at_time_panel(at));
+        let popup = matches!(self.at_picker, Some(AtPickerView::Time { .. }))
+            .then(|| self.at_time_panel(at));
         anchored_popup::anchored_below(anchor.into(), popup, Message::AtPickerClose)
     }
     fn at_date_panel(&self, at: &str) -> Element<'_, Message> {
-        let Some(AtPickerView::Date { year, month }) = self.at_picker else {
+        let Some(AtPickerView::Date {
+            year,
+            month,
+            day: cursor_day,
+        }) = self.at_picker
+        else {
             return Space::new().into();
         };
-        let selected = at_date_part(at);
+        let _ = at;
         let first = first_weekday(year, month);
         let days = days_in_month(year, month);
         let mut weeks = column![].spacing(2);
@@ -9136,8 +9231,7 @@ impl App {
             week = week.push(Space::new().width(24));
         }
         for day in 1..=days {
-            let date = format!("{year:04}-{month:02}-{day:02}");
-            let current = selected == Some(date.as_str());
+            let current = day == cursor_day;
             week = week.push(
                 button(label(format!("{day}"), if current { ACCENT } else { MUTED }).size(9))
                     .on_press(Message::AtPickerDay(day))
@@ -9182,7 +9276,10 @@ impl App {
         .into()
     }
     fn at_time_panel(&self, at: &str) -> Element<'_, Message> {
-        let (hour, minute) = at_time_parts(at).unwrap_or((9, 0));
+        let (hour, minute) = match self.at_picker {
+            Some(AtPickerView::Time { hour, minute }) => (hour, minute),
+            _ => at_time_parts(at).unwrap_or((9, 0)),
+        };
         let mut hours = column![].spacing(2);
         for start in (0..24).step_by(8) {
             let mut line = row![].spacing(2);
@@ -16371,13 +16468,85 @@ mod tests {
             at: String::new(),
         });
         let _ = app.update(Message::AtPickerTime);
-        assert_eq!(app.at_picker, Some(AtPickerView::Time));
+        assert_eq!(
+            app.at_picker,
+            Some(AtPickerView::Time { hour: 9, minute: 0 })
+        );
         let _ = app.update(Message::AtPickerHour(14));
         assert_eq!(app.schedule_edit.as_ref().unwrap().time, "14:00:00");
         let _ = app.update(Message::AtPickerMinute(45));
         assert_eq!(app.schedule_edit.as_ref().unwrap().time, "14:45:00");
         assert!(app.at_picker.is_none());
         assert!(app.schedule_edit.as_ref().unwrap().at.is_empty());
+    }
+    #[test]
+    fn picker_arrows_move_across_months_and_enter_picks() {
+        assert_eq!(shift_day(2026, 10, 31, 1), (2026, 11, 1));
+        assert_eq!(shift_day(2026, 1, 1, -1), (2025, 12, 31));
+        assert_eq!(shift_day(2024, 2, 28, 1), (2024, 2, 29));
+        use keyboard::key::Named;
+        let (mut app, _receiver) = managed_app();
+        app.schedule_edit = Some(ScheduleEdit {
+            session: app.selected.clone().unwrap(),
+            expected: serde_json::json!({"kind":"daily"}),
+            kind: "daily".into(),
+            title: "PUBLIC".into(),
+            prompt: "PUBLIC".into(),
+            time: "09:00:00".into(),
+            zone: "UTC".into(),
+            weekdays: String::new(),
+            every: String::new(),
+            cron: String::new(),
+            at: "2026-10-31T09:00:00Z".into(),
+        });
+        app.at_picker = Some(AtPickerView::Date {
+            year: 2026,
+            month: 10,
+            day: 31,
+        });
+        let _ = app.update(Message::KeyPressed(
+            keyboard::Key::Named(Named::ArrowRight),
+            keyboard::Modifiers::default(),
+        ));
+        assert_eq!(
+            app.at_picker,
+            Some(AtPickerView::Date {
+                year: 2026,
+                month: 11,
+                day: 1
+            })
+        );
+        let _ = app.update(Message::KeyPressed(
+            keyboard::Key::Named(Named::Enter),
+            keyboard::Modifiers::default(),
+        ));
+        assert!(app.at_picker.is_none());
+        assert_eq!(
+            app.schedule_edit.as_ref().unwrap().at,
+            "2026-11-01T09:00:00Z"
+        );
+        app.at_picker = Some(AtPickerView::Time { hour: 9, minute: 0 });
+        let _ = app.update(Message::KeyPressed(
+            keyboard::Key::Named(Named::ArrowRight),
+            keyboard::Modifiers::default(),
+        ));
+        assert_eq!(
+            app.at_picker,
+            Some(AtPickerView::Time {
+                hour: 10,
+                minute: 0
+            })
+        );
+        let _ = app.update(Message::KeyPressed(
+            keyboard::Key::Named(Named::Enter),
+            keyboard::Modifiers::default(),
+        ));
+        assert!(app.at_picker.is_none());
+        assert_eq!(app.schedule_edit.as_ref().unwrap().time, "10:00:00");
+        assert_eq!(
+            app.schedule_edit.as_ref().unwrap().at,
+            "2026-11-01T09:00:00Z"
+        );
     }
     #[test]
     fn the_expected_record_keeps_the_displayed_scheduled_at() {
@@ -16429,7 +16598,8 @@ mod tests {
             app.at_picker,
             Some(AtPickerView::Date {
                 year: 2026,
-                month: 10
+                month: 10,
+                day: 17
             })
         );
         let _ = app.update(Message::AtPickerMonth(1));
@@ -16437,7 +16607,8 @@ mod tests {
             app.at_picker,
             Some(AtPickerView::Date {
                 year: 2026,
-                month: 11
+                month: 11,
+                day: 17
             })
         );
         let _ = app.update(Message::AtPickerDay(5));
