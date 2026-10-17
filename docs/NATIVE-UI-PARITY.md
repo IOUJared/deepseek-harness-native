@@ -1,3 +1,27 @@
+# Start here
+
+**What this is:** the record of a strict 1-to-1 clone of the DeepSeek Harness web UI into the native
+Rust/Iced app. Every claim below was verified with a captured exit status, and every screenshot is
+in `~/.local/share/dsh-macos-shell-reference/shots/` (mirrored, git-ignored, in `app/evidence/`).
+
+**Done, with captures:** permission select; agent-preset roster and selection; background jobs
+(transport → mux → worker → action → panel → dots → kill → output expansion); the shortcuts store,
+catalog, resolver, trigger and disclosure.
+
+**Next, in one step:** keys as **data** — a `Message::KeyPressed(key, modifiers)` routed by `update`
+through the chain with live state, so a stored binding can *replace* a hardcoded one. The cost of
+not doing it this way is in "Correct the claimed cost of inverting the key chain": a store-first
+subscription would swallow `Ctrl+V` and `Ctrl+C`. `catalog_rows` also has **tests but no caller** —
+see the final battery section.
+
+**Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
+the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
+policy. **One is Iced-blocked:** inline-code chips.
+
+**The rules this document earned, all in force:** capture every gating exit status; back every path
+claim with an implementation line; insert by locating the line, never by matching text from memory;
+and a wire name is read from the artifact that defines it — a working call outranks a descriptor.
+
 # Native UI parity — web reference
 
 Extracted measurements and web→native mapping for the first main-screen pass. Authoritative method: [native-ui-parity skill](<../.agents/skills/native-ui-parity/SKILL.md>). Build on this; do not re-derive by eye.
