@@ -3930,3 +3930,17 @@ Each is one line of work on this side once answered; none is blocked on further 
    reported "all attempts failed" and I could not diagnose it before this round ended — so the sort
    order is captured (`shots/` shows the sorted rows) and the count line is compiled but unproven,
    which is the same honest state the panel was in two rounds before it was finally captured.
+
+   **The count line is captured, and the script's failure was its own, not the app's.** The
+   **direct** fixture run — the invocation the capture script wraps — reports `passed: true` with
+   matching counts and preset state and exit 0, and writes the frame. `shots/89-shortcuts-count.png`
+   shows the result: `▼ Shortcuts` open, the **sorted** rows (Close, Find, Navigation, New line,
+   Send), **`Find in conversation` with no keys** because the fixture cleared it through
+   `Edit::Set { binding: None }`, and beneath the rows the reference's own **"1 customized"**
+   (`locales.ts:48`) above "Context & tool policy".
+   So round 233's "not verified" is now verified, and the lesson is the one from round 201 in
+   reverse: **the script's "all attempts failed" can come from its window-pick timing while the
+   fixture itself is healthy** — which is why running the binary directly is the first diagnostic,
+   not the last resort. `modified_count` and `COPY_MODIFIED_COUNT` are no longer on the
+   dead-but-tested list: they render.
+   Verified: fixture **1134** exit 0, default **1127** exit 0, format-debt 0.
