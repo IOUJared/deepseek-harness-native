@@ -3976,13 +3976,22 @@ impl App {
                 } else {
                     format!("@{path}")
                 };
-                let new = format!("{}{} ", &text[..text.len() - token_len], mention);
+                // A directory keeps the mention open so the next read lists its children;
+                // a file finishes the mention and leaves a space for the next word.
+                let new = if directory {
+                    format!("{}{}", &text[..text.len() - token_len], mention)
+                } else {
+                    format!("{}{} ", &text[..text.len() - token_len], mention)
+                };
                 self.editor = text_editor::Content::with_text(&new);
                 self.draft_serial = self.draft_serial.saturating_add(1);
                 self.touch_draft();
                 self.file_references.clear();
                 self.reference_token = None;
                 self.reference_pending = false;
+                if directory {
+                    self.refresh_reference_token();
+                }
                 return Self::focus_composer();
             }
             // A press that belongs to the composer but not to a control in it.
@@ -15854,6 +15863,21 @@ mod tests {
             Some(serde_json::json!({"kind":"weekly","weekly":{
                 "time":"09:00:00","time_zone":"UTC","weekdays":[2,4]}}))
         );
+    }
+    #[test]
+    fn picking_a_directory_keeps_the_mention_open_for_its_children() {
+        use dsh_native_transport::dto::FileReferenceCandidate;
+        let (mut app, _receiver) = managed_app();
+        app.editor = text_editor::Content::with_text("@src");
+        app.reference_token = Some(("src".into(), false));
+        app.file_references = vec![FileReferenceCandidate {
+            path: "src/ui".into(),
+            kind: "directory".into(),
+        }];
+        let _ = app.update(Message::ReferencePick("src/ui".into(), "directory".into()));
+        assert_eq!(app.editor.text(), "@src/ui/");
+        assert_eq!(app.reference_token, Some(("src/ui/".into(), false)));
+        assert!(app.file_references.is_empty());
     }
     #[test]
     fn the_reference_menu_moves_accepts_and_dismisses_from_the_keyboard() {

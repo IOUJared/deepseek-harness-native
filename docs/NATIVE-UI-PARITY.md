@@ -5926,3 +5926,24 @@ the end of the draft and has no directory drill-down. Live reads remain unverifi
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+### Round 303 — directory drill-down in the `@` menu
+
+**Picking a directory keeps the mention open instead of finishing it.** A file still inserts
+`@path ` (plain or quoted); a directory inserts `@path/` (or the open `@"path/` form) without the
+trailing space, clears the row list and immediately reads that directory's children, so the menu
+drills down exactly as the reference's trailing-slash candidates do. This supersedes the round-301/
+302 limit that said there was no drill-down. One test covers the inserted open mention and the
+recomputed token; the live child read remains unverified (the fixture bypasses it).
+
+**Battery (round 303).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1198 passed**, 1 ignored |
+| app, default | **0** | **1191 passed**, 1 ignored |
+| transport | **0** | 52 + 17 + 82 + 7 (unchanged this round) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
