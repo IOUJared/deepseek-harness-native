@@ -2582,3 +2582,17 @@ Since the round-145 update, all local and unpushed, gates green at each commit:
 - Remaining after jobs: the panel itself (counted header action, two sections, clear, per-row
   dot/label/kind/status/duration, expansion, two-click kill), the shortcuts editor (authorized,
   store first), and the session-log row's present state (needs a Host).
+
+   **The app-side half of jobs landed, so the delicate loop edit is now three lines.** Two events
+   carry the streams — `Event::JobsRows(Vec<JobView>)` for a list frame and
+   `Event::JobsFollow(JobFollowFrame)` for a follow frame — and the app holds
+   `jobs: Vec<JobView>`, empty meaning the Host reported none, which the frame semantics say is a
+   valid set rather than a missing one. The handlers keep the **two semantics separate and
+   visible**: `JobsRows` assigns (whole-set replacement), while `JobsFollow`'s `Opened` and
+   `Status` update the matching row or append an unknown one, and `Output` is **explicitly
+   ignored with a comment saying why** — the panel's expansion does not exist yet, and pretending
+   to consume output would be the silent-failure mode this document keeps catching.
+   Verified: fixture **1114** exit 0, default **1107** exit 0, format-debt 0.
+   What remains in the worker is exactly the three placements already pinned (open beside
+   `selected`, open through the mux, select and publish at `:2261`), each of which now ends in
+   publishing one of these two events rather than in app-side design.

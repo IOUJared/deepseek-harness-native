@@ -728,6 +728,9 @@ pub struct App {
     /// The Host's refusal of the last pick, shown on the seat rather than dropped: a
     /// `agentPreset/locked` message means the session had already started.
     agent_seat_error: Option<String>,
+    /// The session's background jobs, replaced wholesale by each list frame and updated per job
+    /// by the follow stream. Empty means the Host reported none, which is a valid set.
+    jobs: Vec<dsh_native_transport::dto::JobView>,
     /// A write is in flight; the row is busy until its acknowledgement lands.
     permission_default_saving: bool,
     editor_undo: Vec<String>,
@@ -950,6 +953,7 @@ impl App {
                 agent_roster: None,
                 agent_seat_open: false,
                 agent_seat_error: None,
+                jobs: Vec::new(),
                 permission_default_saving: false,
                 editor_undo: Vec::new(),
                 editor_redo: Vec::new(),
@@ -2873,6 +2877,24 @@ impl App {
                         session,
                         preset: id,
                     });
+                }
+            }
+            Message::Worker(Event::JobsRows(rows)) => {
+                // Whole-set replacement: a reconnect's first frame is already the truth.
+                self.jobs = rows;
+            }
+            Message::Worker(Event::JobsFollow(frame)) => {
+                use dsh_native_transport::dto::JobFollowFrame;
+                match frame {
+                    // A job opening or changing state updates that row; output is not consumed
+                    // until the panel's expansion exists, and saying so beats pretending.
+                    JobFollowFrame::Opened { job, .. } | JobFollowFrame::Status { job } => {
+                        match self.jobs.iter_mut().find(|row| row.id == job.id) {
+                            Some(row) => *row = job,
+                            None => self.jobs.push(job),
+                        }
+                    }
+                    JobFollowFrame::Output { .. } => {}
                 }
             }
             Message::Worker(Event::AgentPresetSelected(result)) => {

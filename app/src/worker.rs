@@ -149,6 +149,11 @@ pub enum Event {
     AgentPresets(Result<dsh_native_core::AgentPresetRoster, String>),
     /// The committed identity of an agent preset picked for a session that had not started.
     AgentPresetSelected(Result<String, String>),
+    /// The complete set of background jobs the session can see. Each list frame replaces
+    /// the set wholesale (`api/job-controller/src/types.ts:19-27`).
+    JobsRows(Vec<dsh_native_transport::dto::JobView>),
+    /// One job's opening, output or status change (`:72-89`).
+    JobsFollow(dsh_native_transport::dto::JobFollowFrame),
     /// The deployment's new-session permission default, for the settings row.
     PermissionSettings(Result<dsh_native_core::PermissionSettingsState, String>),
     /// The acknowledgement of a new-session default write.
