@@ -6481,7 +6481,8 @@ app). `docs/VERIFICATION.md` records the include rule and a dated drift note: th
 and 36 clippy findings under `-D warnings`, and the suite still denies only its three named lints.
 
 **Remainder.** `wayland-drops` is still red on the missing offline `as-raw-xcb-connection v1.0.1`
-cache entry. No UI, wire or capture changed in this round.
+cache entry; a full `--suite test` after the repair reports every other check passing, including
+`scroll_app_smoke`. No UI, wire or capture changed in this round.
 
 **Battery (round 320).**
 
