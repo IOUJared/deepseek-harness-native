@@ -38,9 +38,10 @@ point is the Host's canonical `/api/<namespace>/<method>` dispatcher, so adding 
 `dsh-native-transport` is in-bounds; what is out of bounds is rebuilding or forking the Host runtime
 in Rust. Keep coding without asking for permission. Queue edit/remove/steer, full-text content
 search, the goal bar (pause/resume/edit/clear), the per-turn usage detail and the **scheduled-tasks
-page** (catalog + delete + delivery history) and the goal's **disarmed activation** now work end
-to end; the next items are schedule timing edits and the date/time pickers, then workspace open and
-the deliverables diff. Cross-session pending status is still unavailable from the present wires.
+page** (catalog + delete + delivery history + title/instruction edit) and the goal's **disarmed
+activation** now work end to end; the next items are schedule **timing** edits and the date/time
+pickers, then workspace open and the deliverables diff. Cross-session pending status is still
+unavailable from the present wires.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -5647,3 +5648,33 @@ A malformed reply is refused. Two tests cover the update union and the flattened
 transport gate is **48 + 17 + 82 + 7**.
 
 No edit control exists in the page yet; that is the next item.
+
+### Round 292 — schedule title and instruction edit
+
+**A scheduled task can now be renamed and have its instruction replaced from the page.** Edit opens
+two inline fields (task name and instruction) with the values reconstructed from the catalog row's
+flattened record plus id/title/kind. Save sends `schedule/update` with that complete `expected`
+record and the trimmed title/prompt; the committed title updates the row locally, `Missing` announces
+and reloads the catalog, `Refused` announces and keeps the row, and a transport failure stays red.
+The editor requires both fields non-empty and is bounded at 120/4096 bytes; Cancel closes without a
+write. `shots/135-schedules-edit.png` shows the two-field editor; the report is `status: passed`.
+
+One app test covers the opened expected record, the renamed dispatch, the single admission and the
+committed title update.
+
+**Deliberate limits.** **Timing** edits are still not built: the reference's DatePicker, ClockPicker
+and the timing-kind selector are a separate slice. The page does not display the saved instruction
+after an edit (the row shows title/kind/time/status), and no history pagination or per-session marks
+exist yet. Actions remain text controls.
+
+**Battery (round 292).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1191 passed**, 1 ignored |
+| app, default | **0** | **1184 passed**, 1 ignored |
+| transport | **0** | **48 + 17 + 82 + 7** |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |

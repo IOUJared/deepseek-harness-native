@@ -87,6 +87,13 @@ pub enum Command {
         id: String,
         limit: u64,
     },
+    /// Compare-and-update one schedule's title and/or prompt.
+    ScheduleUpdate {
+        session: dsh_native_transport::dto::SessionId,
+        expected: serde_json::Value,
+        title: Option<String>,
+        prompt: Option<String>,
+    },
     /// One goal mutation for a session.
     Goal {
         session: dsh_native_transport::dto::SessionId,
@@ -210,6 +217,11 @@ pub enum Event {
         session: dsh_native_transport::dto::SessionId,
         id: String,
         result: Result<dsh_native_transport::dto::ScheduleHistoryOutcome, String>,
+    },
+    ScheduleUpdated {
+        session: dsh_native_transport::dto::SessionId,
+        id: String,
+        result: Result<dsh_native_transport::dto::ScheduleUpdateOutcome, String>,
     },
     /// The complete set of background jobs the session can see. Each list frame replaces
     /// the set wholesale (`api/job-controller/src/types.ts:19-27`).
@@ -847,6 +859,11 @@ fn rejected(command: Command) -> Event {
         Command::ScheduleDelete { session, id } => Event::ScheduleDeleted {
             session,
             id,
+            result: Err(error),
+        },
+        Command::ScheduleUpdate { session, .. } => Event::ScheduleUpdated {
+            session,
+            id: String::new(),
             result: Err(error),
         },
         Command::ScheduleHistory { session, id, .. } => Event::ScheduleHistoryLoaded {
@@ -2390,6 +2407,11 @@ async fn run(
                     Command::ScheduleDelete{session,id}=>{
                         let result=client.schedule_delete(&session,&id).await.map_err(|error|format!("Schedule delete: {error}"));
                         Event::ScheduleDeleted{session,id,result}
+                    },
+                    Command::ScheduleUpdate{session,expected,title,prompt}=>{
+                        let id=expected.get("id").and_then(serde_json::Value::as_str).unwrap_or("").to_owned();
+                        let result=client.schedule_update(&session,&expected,title.as_deref(),prompt.as_deref()).await.map_err(|error|format!("Schedule update: {error}"));
+                        Event::ScheduleUpdated{session,id,result}
                     },
                     Command::ScheduleHistory{session,id,limit}=>{
                         let result=client.schedule_history(&session,&id,limit,None).await.map_err(|error|format!("Schedule history: {error}"));

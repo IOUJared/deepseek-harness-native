@@ -198,6 +198,8 @@ struct Options {
     schedule_delete: bool,
     /// Open the first scheduled task's delivery history.
     schedule_history: bool,
+    /// Begin editing the first scheduled task.
+    schedule_edit: bool,
     /// Mark the goal's activation disarmed.
     goal_inactive: bool,
     /// Open the shortcuts disclosure, so its rows are captured.
@@ -313,6 +315,7 @@ fn options() -> Result<Options, &'static str> {
             "--goal-clear",
             "--schedule-delete",
             "--schedule-history",
+            "--schedule-edit",
             "--goal-inactive",
             "--agent-seat-error",
             "--settings",
@@ -473,6 +476,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         schedule_history: match values.remove("--schedule-history") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        schedule_edit: match values.remove("--schedule-edit") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -878,6 +885,9 @@ impl Fixture {
         if options.schedule_history {
             app.open_schedule_history();
         }
+        if options.schedule_edit {
+            app.begin_schedule_edit();
+        }
         if options.goal_inactive {
             app.disarmed_goal_activation();
         }
@@ -966,6 +976,7 @@ impl Fixture {
                 worker::Command::ScheduleCatalog => "ScheduleCatalog",
                 worker::Command::ScheduleDelete { .. } => "ScheduleDelete",
                 worker::Command::ScheduleHistory { .. } => "ScheduleHistory",
+                worker::Command::ScheduleUpdate { .. } => "ScheduleUpdate",
                 worker::Command::CommandsList(_) => "CommandsList",
                 worker::Command::CommandsExecute { .. } => "CommandsExecute",
                 worker::Command::TerminalRead(_) => "TerminalRead",

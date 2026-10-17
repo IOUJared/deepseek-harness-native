@@ -258,6 +258,16 @@ pub enum Message {
     ScheduleDeleteConfirm,
     /// Opens one task's delivery history.
     ScheduleHistory(SessionId, String),
+    /// Begins editing one task's title and instruction.
+    ScheduleEdit(SessionId, String),
+    /// Updates the schedule title draft.
+    ScheduleEditTitle(String),
+    /// Updates the schedule instruction draft.
+    ScheduleEditPrompt(String),
+    /// Saves the inline schedule edit.
+    ScheduleEditSave,
+    /// Cancels the inline schedule edit.
+    ScheduleEditCancel,
     /// Closes the open delivery history.
     ScheduleHistoryClose,
     /// Cancels the armed task delete.
@@ -806,6 +816,8 @@ pub struct App {
     schedule_delete: Option<(SessionId, String)>,
     /// The task with a delete in flight.
     schedule_busy: Option<String>,
+    /// The inline schedule editor: (session, expected record, title draft, prompt draft).
+    schedule_edit: Option<(SessionId, serde_json::Value, String, String)>,
     /// The selected goal's process-local activation: (session, goal id, revision, activation).
     goal_activation: Option<(
         SessionId,
@@ -1107,6 +1119,7 @@ impl App {
                 schedules_error: None,
                 schedule_delete: None,
                 schedule_busy: None,
+                schedule_edit: None,
                 goal_activation: None,
                 schedule_history: None,
                 schedule_history_page: None,
@@ -3253,6 +3266,66 @@ impl App {
                 self.schedule_delete = Some((session, id));
                 self.schedules_error = None;
             }
+            Message::ScheduleEdit(session, id) if self.schedules_open => {
+                let Some(item) = self
+                    .schedules
+                    .iter()
+                    .find(|item| item.id == id && item.session_id == session)
+                    .cloned()
+                else {
+                    self.schedules_error = Some("That task is no longer loaded.".into());
+                    return Task::none();
+                };
+                let mut expected = serde_json::Value::Object(item.record.clone());
+                if let Some(object) = expected.as_object_mut() {
+                    object.insert("id".into(), serde_json::json!(item.id));
+                    object.insert("title".into(), serde_json::json!(item.title));
+                    object.insert("kind".into(), serde_json::json!(item.kind));
+                }
+                let prompt = expected
+                    .get("prompt")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("")
+                    .to_owned();
+                self.schedule_history = None;
+                self.schedule_delete = None;
+                self.schedule_edit = Some((session, expected, item.title, prompt));
+                self.schedules_error = None;
+            }
+            Message::ScheduleEditTitle(value) if self.schedules_open => {
+                if let Some((_, _, title, _)) = &mut self.schedule_edit
+                    && value.len() <= 120
+                {
+                    *title = value;
+                }
+            }
+            Message::ScheduleEditPrompt(value) if self.schedules_open => {
+                if let Some((_, _, _, prompt)) = &mut self.schedule_edit
+                    && value.len() <= 4096
+                {
+                    *prompt = value;
+                }
+            }
+            Message::ScheduleEditCancel if self.schedules_open => {
+                self.schedule_edit = None;
+            }
+            Message::ScheduleEditSave if self.schedules_open => {
+                let Some((session, expected, title, prompt)) = self.schedule_edit.clone() else {
+                    return Task::none();
+                };
+                let title = title.trim().to_owned();
+                let prompt = prompt.trim().to_owned();
+                if title.is_empty() || prompt.is_empty() {
+                    return Task::none();
+                }
+                self.schedule_edit = None;
+                self.command(worker::Command::ScheduleUpdate {
+                    session,
+                    expected,
+                    title: Some(title),
+                    prompt: Some(prompt),
+                });
+            }
             Message::ScheduleHistory(session, id) if self.schedules_open => {
                 self.schedule_history = Some((session.clone(), id.clone()));
                 self.schedule_history_page = None;
@@ -4449,6 +4522,24 @@ impl App {
                     Err(error) => self.schedules_error = Some(error),
                 }
             }
+            Event::ScheduleUpdated { id, result, .. } => match result {
+                Ok(dsh_native_transport::dto::ScheduleUpdateOutcome::Updated { title, .. }) => {
+                    if let Some(item) = self.schedules.iter_mut().find(|item| item.id == id) {
+                        item.title = title;
+                    }
+                    self.schedules_error = None;
+                }
+                Ok(dsh_native_transport::dto::ScheduleUpdateOutcome::Missing) => {
+                    self.schedules_error = Some("That task changed or is gone; refreshing.".into());
+                    self.schedules_loading = true;
+                    self.command(worker::Command::ScheduleCatalog);
+                }
+                Ok(dsh_native_transport::dto::ScheduleUpdateOutcome::Refused) => {
+                    self.schedules_error =
+                        Some("The Host refused the edit; the task is unchanged.".into());
+                }
+                Err(error) => self.schedules_error = Some(error),
+            },
             Event::ScheduleHistoryLoaded {
                 session,
                 id,
@@ -5916,6 +6007,17 @@ impl App {
     pub(crate) fn mark_completion_unread(&mut self, id: &str) {
         if let Ok(id) = SessionId::new(id) {
             self.completion_unread.insert(id);
+        }
+    }
+
+    /// Fixture-only: begin editing the first scheduled task, which a real run starts by press.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn begin_schedule_edit(&mut self) {
+        if let Some(item) = self.schedules.first() {
+            let _ = self.update(Message::ScheduleEdit(
+                item.session_id.clone(),
+                item.id.clone(),
+            ));
         }
     }
 
@@ -11450,6 +11552,46 @@ impl App {
                 .schedule_history
                 .as_ref()
                 .is_some_and(|(session, id)| session == &item.session_id && id == &item.id);
+            if let Some((session, expected, title, prompt)) = &self.schedule_edit
+                && session == &item.session_id
+                && expected.get("id").and_then(serde_json::Value::as_str) == Some(item.id.as_str())
+            {
+                let save = !title.trim().is_empty() && !prompt.trim().is_empty();
+                body = body.push(
+                    container(
+                        column![
+                            label(short(&item.title, 80), TEXT).size(14),
+                            text_input("Task name", title)
+                                .on_input(Message::ScheduleEditTitle)
+                                .size(12)
+                                .padding(4)
+                                .width(Length::Fill),
+                            text_input("Instruction", prompt)
+                                .on_input(Message::ScheduleEditPrompt)
+                                .size(12)
+                                .padding(4)
+                                .width(Length::Fill),
+                            row![
+                                Space::new().width(Length::Fill),
+                                button(label("Save", if save { ACCENT } else { MUTED }).size(10))
+                                    .on_press_maybe(save.then_some(Message::ScheduleEditSave))
+                                    .style(design::ghost)
+                                    .padding([2, 6]),
+                                button(label("Cancel", MUTED).size(10))
+                                    .on_press(Message::ScheduleEditCancel)
+                                    .style(design::ghost)
+                                    .padding([2, 6]),
+                            ]
+                            .spacing(4),
+                        ]
+                        .spacing(4),
+                    )
+                    .width(Length::Fill)
+                    .padding([8, 10])
+                    .style(|_| design::card(SURFACE, 10.0)),
+                );
+                continue;
+            }
             if busy {
                 row = row.push(label("Working…", MUTED).size(10));
             } else if armed {
@@ -11469,6 +11611,13 @@ impl App {
             } else {
                 row = row.push(
                     row![
+                        button(label("Edit", MUTED).size(10))
+                            .on_press(Message::ScheduleEdit(
+                                item.session_id.clone(),
+                                item.id.clone(),
+                            ))
+                            .style(design::ghost)
+                            .padding([2, 6]),
                         button(
                             label(
                                 if history_open {
@@ -14709,6 +14858,7 @@ mod tests {
             status: "active".into(),
             scheduled_at: None,
             last_delivery: None,
+            record: serde_json::Map::new(),
         };
         let _ = app.update(Message::Worker(Event::SchedulesLoaded(Ok(vec![item]))));
         assert_eq!(app.schedules.len(), 1);
@@ -14734,6 +14884,57 @@ mod tests {
         }));
         assert!(app.schedules.is_empty());
         assert!(app.schedule_busy.is_none());
+    }
+    #[test]
+    fn schedule_edit_opens_with_the_record_and_updates_the_title() {
+        use dsh_native_transport::dto::{ScheduleCatalogItem, ScheduleUpdateOutcome};
+        let (mut app, mut receiver) = managed_app();
+        let session = app.selected.clone().unwrap();
+        app.schedules_open = true;
+        app.schedules = vec![ScheduleCatalogItem {
+            id: "PUBLIC-schedule".into(),
+            title: "PUBLIC task".into(),
+            kind: "daily".into(),
+            session_id: session.clone(),
+            status: "active".into(),
+            scheduled_at: None,
+            last_delivery: None,
+            record: serde_json::json!({"prompt":"PUBLIC instruction"})
+                .as_object()
+                .unwrap()
+                .clone(),
+        }];
+        let _ = app.update(Message::ScheduleEdit(
+            session.clone(),
+            "PUBLIC-schedule".into(),
+        ));
+        let Some((_, expected, title, prompt)) = &app.schedule_edit else {
+            panic!("edit opened");
+        };
+        assert_eq!(title, "PUBLIC task");
+        assert_eq!(prompt, "PUBLIC instruction");
+        assert_eq!(expected["id"], "PUBLIC-schedule");
+        assert_eq!(expected["kind"], "daily");
+        let _ = app.update(Message::ScheduleEditTitle("PUBLIC renamed".into()));
+        let _ = app.update(Message::ScheduleEditSave);
+        let mut updates = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if let Command::ScheduleUpdate { title, .. } = command {
+                assert_eq!(title.as_deref(), Some("PUBLIC renamed"));
+                updates += 1;
+            }
+        }
+        assert_eq!(updates, 1);
+        assert!(app.schedule_edit.is_none());
+        let _ = app.update(Message::Worker(Event::ScheduleUpdated {
+            session,
+            id: "PUBLIC-schedule".into(),
+            result: Ok(ScheduleUpdateOutcome::Updated {
+                title: "PUBLIC renamed".into(),
+                prompt: "PUBLIC instruction".into(),
+            }),
+        }));
+        assert_eq!(app.schedules[0].title, "PUBLIC renamed");
     }
     #[test]
     fn goal_activation_is_fenced_to_the_selected_goal() {
@@ -14781,6 +14982,7 @@ mod tests {
             status: "active".into(),
             scheduled_at: None,
             last_delivery: None,
+            record: serde_json::Map::new(),
         }];
         let _ = app.update(Message::ScheduleHistory(
             session.clone(),
