@@ -15,6 +15,10 @@ pub const PREVIEW_CHARS: usize = 200;
 pub struct Item {
     pub id: String,
     pub preview: String,
+    /// The row's text for an inline edit; text blocks joined with newlines.
+    pub text: String,
+    /// True when the row carries an image or file block; such a row cannot be edited.
+    pub has_non_text: bool,
 }
 
 /// One wire content array flattened to the reference's preview form. Non-text blocks become
@@ -46,11 +50,26 @@ fn preview(content: Option<&Value>) -> String {
 }
 
 fn item(id: Option<&str>, content: Option<&Value>, seq: u64, index: usize) -> Item {
+    let mut text = Vec::new();
+    let mut has_non_text = false;
+    for block in content.and_then(Value::as_array).into_iter().flatten() {
+        match block.get("type").and_then(Value::as_str) {
+            Some("text") => {
+                if let Some(value) = block.get("text").and_then(Value::as_str) {
+                    text.push(value);
+                }
+            }
+            Some(_) => has_non_text = true,
+            None => {}
+        }
+    }
     Item {
         id: id
             .filter(|id| !id.is_empty() && id.len() <= 512)
             .map_or_else(|| format!("queued-{seq}-{index}"), str::to_owned),
         preview: preview(content),
+        text: text.join("\n"),
+        has_non_text,
     }
 }
 

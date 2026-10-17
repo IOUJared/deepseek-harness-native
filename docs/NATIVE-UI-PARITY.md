@@ -36,10 +36,10 @@ fixture's direct `set_settings_open`, not the press.
 work in the Rust app, implemented in Rust, not left as a documented Web-only difference. The reuse
 point is the Host's canonical `/api/<namespace>/<method>` dispatcher, so adding typed endpoints to
 `dsh-native-transport` is in-bounds; what is out of bounds is rebuilding or forking the Host runtime
-in Rust. Keep coding without asking for permission. `session/updateQueue` is now landed in the
-transport; the next item is its worker/app/UI half in the queue dock, then session search, workspace
-open, goal/schedule mutations and the deliverables diff. Cross-session pending status is still
-unavailable from the present wires.
+in Rust. Keep coding without asking for permission. Queue edit/remove/steer now works end to end;
+the next item is full-text session search (`session/search`), then workspace open, goal/schedule
+mutations and the deliverables diff. Cross-session pending status is still unavailable from the
+present wires.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -5352,3 +5352,41 @@ before any RPC slot is used. Host refusals are named: `session/queue-item-not-fo
 Three tests cover the canonical serialization, the edit rules and the item-id bounds; the transport
 gate is **41 + 17 + 82 + 7** (originally 38 + 17 + 82 + 7). No worker/UI caller exists yet, so this
 round claims the endpoint only; the dock stays read-only until the next item.
+
+### Round 280 — queue edit, remove and steer work end to end
+
+**The queue dock is writable.** On top of the `session/updateQueue` transport endpoint, the app now
+carries a bounded `QueueUpdate` command/event (`app/src/queue_update.rs`, `worker.rs`), admits one
+mutation at a time, and draws per-row **Edit**, **Steer** and **Remove** controls. Edit replaces the
+preview with an inline text field and Save/Cancel; Save is disabled for whitespace-only text and the
+draft is bounded at the transport's 32 KiB. Non-text rows say "Edit unavailable" instead of opening
+an editor the Host would refuse. Steer is enabled only while the selected session is running; a
+refused press explains why. Remove uses a **two-step confirmation** ("Remove this queued message?" +
+red Remove + Cancel) because it destroys typed content, even though the reference removes in one
+press. A mutation in flight shows "Working…" and blocks a second one; a `QueueItemNotFound` or a
+Host refusal is announced under the dock in red and the item is left alone.
+
+`shots/123-queue-actions.png` shows both rows with their actions,
+`shots/124-queue-edit.png` the inline editor and `shots/125-queue-remove.png` the confirmation; all
+three report `status: passed`.
+
+**Deliberate differences.** The two-step remove is native's safety rule, not the reference's
+one-press action. There are no attachment thumbnails, no edit for image/file rows, no per-item
+"Sending…" for an unadmitted local submission (the dock shows the in-flight mutation instead), and
+the actions are text controls rather than drawn icons.
+
+**Battery (round 280).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1183 passed**, 1 ignored |
+| app, default | **0** | **1176 passed**, 1 ignored |
+| transport | **0** | **41 + 17 + 82 + 7** |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+Two app tests were added: the queue-failure classes and a single admission with the not-found
+announcement. The transport's three DTO/validation tests were landed with the endpoint (round 279).
+The `working-queue` fixture drives all three captures through the production message handlers.

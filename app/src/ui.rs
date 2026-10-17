@@ -230,6 +230,22 @@ pub enum Message {
     ToggleSubagentBranch(String),
     /// Expands or collapses the queue dock's multi-item list.
     ToggleQueue,
+    /// Begins editing one queued item's text.
+    QueueEdit(String),
+    /// Updates the inline queue-edit draft.
+    QueueEditInput(String),
+    /// Saves the inline queue edit.
+    QueueSave,
+    /// Cancels the inline queue edit.
+    QueueCancelEdit,
+    /// Arms the removal confirmation for one queued item.
+    QueueRemove(String),
+    /// Confirms the armed removal.
+    QueueRemoveConfirm,
+    /// Cancels the armed removal.
+    QueueRemoveCancel,
+    /// Steers one queued item into the running turn.
+    QueueSteer(String),
     /// Expands or collapses one turn-trigger notice.
     ToggleTrigger(u64),
     /// A key press as **data** for the live chain, with the state at the moment it arrives: an
@@ -727,6 +743,14 @@ pub struct App {
     queue_expanded: bool,
     /// Expanded turn-trigger notices, by record key.
     trigger_expanded: std::collections::BTreeSet<u64>,
+    /// The queue dock's inline edit: the item id and the draft text.
+    queue_edit: Option<(String, String)>,
+    /// The queue item whose removal waits for a second press.
+    queue_remove_armed: Option<String>,
+    /// The queue item with a mutation in flight.
+    queue_busy: Option<String>,
+    /// The last queue mutation's redacted failure, shown under the dock.
+    queue_error: Option<String>,
     /// Sessions that stopped outside the main view since they were last selected. The
     /// reference's `completionUnread` (`ui-session/src/client/index.ts:487-490`).
     completion_unread: std::collections::BTreeSet<SessionId>,
@@ -992,6 +1016,10 @@ impl App {
                 content_font_size,
                 busy_enter,
                 queue_expanded: false,
+                queue_edit: None,
+                queue_remove_armed: None,
+                queue_busy: None,
+                queue_error: None,
                 trigger_expanded: Default::default(),
                 completion_unread: Default::default(),
                 workspace_path,
@@ -3099,6 +3127,82 @@ impl App {
             Message::ToggleQueue if self.layout_controls_enabled() => {
                 self.queue_expanded = !self.queue_expanded;
             }
+            Message::QueueEdit(id) if self.layout_controls_enabled() => {
+                self.queue_remove_armed = None;
+                self.queue_error = None;
+                match self
+                    .transcript
+                    .queued()
+                    .into_iter()
+                    .find(|item| item.id == id)
+                {
+                    Some(item) if item.has_non_text => {
+                        self.queue_error =
+                            Some("Contains non-text content; editing is not supported yet".into());
+                    }
+                    Some(item) => self.queue_edit = Some((item.id, item.text)),
+                    None => {
+                        self.queue_error =
+                            Some("This message may have already started sending.".into());
+                    }
+                }
+            }
+            Message::QueueEditInput(text) if self.layout_controls_enabled() => {
+                if let Some((_, draft)) = &mut self.queue_edit {
+                    // The transport's ceiling is 32 KiB of UTF-8, not 32K characters.
+                    if text.len() <= 32 * 1024 {
+                        *draft = text;
+                    }
+                }
+            }
+            Message::QueueCancelEdit if self.layout_controls_enabled() => {
+                self.queue_edit = None;
+            }
+            Message::QueueSave if self.layout_controls_enabled() => {
+                let Some((id, text)) = self.queue_edit.clone() else {
+                    return Task::none();
+                };
+                if text.trim().is_empty() {
+                    return Task::none();
+                }
+                let action = dsh_native_transport::dto::QueueAction::Edit {
+                    content: vec![dsh_native_transport::dto::QueueTextBlock {
+                        block_type: "text".into(),
+                        text,
+                    }],
+                };
+                self.queue_edit = None;
+                self.submit_queue(id, action);
+            }
+            Message::QueueRemove(id) if self.layout_controls_enabled() => {
+                self.queue_edit = None;
+                self.queue_error = None;
+                self.queue_remove_armed = Some(id);
+            }
+            Message::QueueRemoveConfirm if self.layout_controls_enabled() => {
+                let Some(id) = self.queue_remove_armed.take() else {
+                    return Task::none();
+                };
+                self.submit_queue(id, dsh_native_transport::dto::QueueAction::Remove);
+            }
+            Message::QueueRemoveCancel if self.layout_controls_enabled() => {
+                self.queue_remove_armed = None;
+            }
+            Message::QueueSteer(id) if self.layout_controls_enabled() => {
+                let running = self
+                    .selected
+                    .as_ref()
+                    .and_then(|id| self.sessions.get(id))
+                    .is_some_and(|summary| summary.running);
+                if !running {
+                    self.queue_error =
+                        Some("Steering is available only while the agent is running".into());
+                    return Task::none();
+                }
+                self.queue_remove_armed = None;
+                self.queue_edit = None;
+                self.submit_queue(id, dsh_native_transport::dto::QueueAction::Steer);
+            }
             Message::ToggleTrigger(key) if self.layout_controls_enabled() => {
                 if !self.trigger_expanded.remove(&key) {
                     self.trigger_expanded.insert(key);
@@ -4074,6 +4178,19 @@ impl App {
                                     .into();
                         }
                     }
+                }
+            }
+            Event::QueueUpdated { submission, result } => {
+                if self.queue_busy.as_deref() == Some(submission.item_id.as_str()) {
+                    self.queue_busy = None;
+                }
+                match result {
+                    Ok(()) => {
+                        self.queue_error = None;
+                        self.queue_edit = None;
+                        self.queue_remove_armed = None;
+                    }
+                    Err(failure) => self.queue_error = Some(failure.message().into()),
                 }
             }
             Event::Renamed { submission, result } => {
@@ -5459,6 +5576,18 @@ impl App {
         if let Ok(id) = SessionId::new(id) {
             self.completion_unread.insert(id);
         }
+    }
+
+    /// Fixture-only: begin editing one queued item, which a real run starts by press.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn begin_queue_edit(&mut self, id: &str) {
+        let _ = self.update(Message::QueueEdit(id.into()));
+    }
+
+    /// Fixture-only: arm one queued item's removal, which a real run arms by press.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn arm_queue_remove(&mut self, id: &str) {
+        let _ = self.update(Message::QueueRemove(id.into()));
     }
 
     /// Fixture-only: expand one turn-trigger notice, which a real run expands by press.
@@ -7456,6 +7585,25 @@ impl App {
             pending: self.plan_toggle_pending,
         }
     }
+    /// Admit one queue mutation for the selected session. A second mutation is refused while
+    /// one is in flight; the dock shows the item's pending state instead.
+    fn submit_queue(&mut self, item_id: String, action: dsh_native_transport::dto::QueueAction) {
+        if self.queue_busy.is_some() {
+            return;
+        }
+        let Some(session) = self.selected.clone() else {
+            return;
+        };
+        self.queue_error = None;
+        self.queue_busy = Some(item_id.clone());
+        self.command(worker::Command::UpdateQueue(
+            crate::queue_update::Submission {
+                session,
+                item_id,
+                action,
+            },
+        ));
+    }
     /// The read-only queue strip above the composer, built from the same inbox splices the
     /// transcript retains. One item renders directly; several collapse under a count header,
     /// as the reference's dock does.
@@ -7481,19 +7629,134 @@ impl App {
                 .width(Length::Fill),
             );
         }
-        if items.len() == 1 || self.queue_expanded {
+        let running = self
+            .selected
+            .as_ref()
+            .and_then(|id| self.sessions.get(id))
+            .is_some_and(|summary| summary.running);
+        let visible = self.queue_edit.is_some()
+            || self.queue_remove_armed.is_some()
+            || self.queue_busy.is_some()
+            || self.queue_expanded
+            || items.len() == 1;
+        if visible {
             for item in &items {
+                let busy = self.queue_busy.as_deref() == Some(item.id.as_str());
+                if let Some((id, draft)) = &self.queue_edit
+                    && id == &item.id
+                {
+                    list = list.push(
+                        column![
+                            text_input("Edit queued message", draft)
+                                .on_input(Message::QueueEditInput)
+                                .on_submit(Message::QueueSave)
+                                .size(12)
+                                .padding(6)
+                                .width(Length::Fill),
+                            row![
+                                Space::new().width(Length::Fill),
+                                button(
+                                    label(
+                                        "Save",
+                                        if draft.trim().is_empty() {
+                                            MUTED
+                                        } else {
+                                            ACCENT
+                                        }
+                                    )
+                                    .size(10)
+                                )
+                                .on_press_maybe(
+                                    (!draft.trim().is_empty()).then_some(Message::QueueSave)
+                                )
+                                .style(design::ghost)
+                                .padding([2, 6]),
+                                button(label("Cancel", MUTED).size(10))
+                                    .on_press(Message::QueueCancelEdit)
+                                    .style(design::ghost)
+                                    .padding([2, 6]),
+                            ]
+                            .spacing(4),
+                        ]
+                        .spacing(4),
+                    );
+                    continue;
+                }
+                if self.queue_remove_armed.as_deref() == Some(item.id.as_str()) {
+                    list = list.push(
+                        column![
+                            label("Remove this queued message?", TEXT).size(11),
+                            row![
+                                Space::new().width(Length::Fill),
+                                button(label("Remove", DANGER).size(10))
+                                    .on_press(Message::QueueRemoveConfirm)
+                                    .style(design::danger)
+                                    .padding([2, 6]),
+                                button(label("Cancel", MUTED).size(10))
+                                    .on_press(Message::QueueRemoveCancel)
+                                    .style(design::ghost)
+                                    .padding([2, 6]),
+                            ]
+                            .spacing(4),
+                        ]
+                        .spacing(4),
+                    );
+                    continue;
+                }
+                let edit_action: Element<'_, Message> = if busy {
+                    label("Working…", MUTED).size(10).into()
+                } else if item.has_non_text {
+                    label("Edit unavailable", MUTED).size(10).into()
+                } else {
+                    button(label("Edit", MUTED).size(10))
+                        .on_press(Message::QueueEdit(item.id.clone()))
+                        .style(design::ghost)
+                        .padding([2, 6])
+                        .into()
+                };
+                let steer_action: Element<'_, Message> = if busy {
+                    Space::new().width(0).into()
+                } else {
+                    button(label("Steer", MUTED).size(10))
+                        .on_press_maybe(running.then_some(Message::QueueSteer(item.id.clone())))
+                        .style(design::ghost)
+                        .padding([2, 6])
+                        .into()
+                };
+                let remove_action: Element<'_, Message> = if busy {
+                    Space::new().width(0).into()
+                } else {
+                    button(label("Remove", MUTED).size(10))
+                        .on_press(Message::QueueRemove(item.id.clone()))
+                        .style(design::ghost)
+                        .padding([2, 6])
+                        .into()
+                };
                 list = list.push(
-                    row![
-                        label("Queue", MUTED).size(10),
-                        label(short(&item.preview, 160), TEXT)
-                            .size(12)
-                            .width(Length::Fill),
+                    column![
+                        row![
+                            label("Queue", MUTED).size(10),
+                            label(short(&item.preview, 160), TEXT)
+                                .size(12)
+                                .width(Length::Fill),
+                        ]
+                        .spacing(6)
+                        .align_y(iced::Alignment::Center),
+                        row![
+                            Space::new().width(Length::Fill),
+                            edit_action,
+                            steer_action,
+                            remove_action,
+                        ]
+                        .spacing(4)
+                        .align_y(iced::Alignment::Center),
                     ]
-                    .spacing(6)
-                    .align_y(iced::Alignment::Center),
+                    .spacing(3),
                 );
             }
+        }
+        if let Some(error) = &self.queue_error {
+            list = list.push(label(short(error, 120), DANGER).size(10));
         }
         Some(
             container(list)
@@ -13503,6 +13766,43 @@ mod tests {
             .bindings("native.find")
             .expect("the row keeps a binding");
         assert_eq!(crate::keybindings::display(&binding[0]), "Ctrl+G");
+    }
+    #[test]
+    fn a_queue_mutation_is_admitted_once_and_its_failure_is_announced() {
+        use dsh_native_transport::dto::QueueAction;
+        let (mut app, mut receiver) = managed_app();
+        let session = app.selected.clone().unwrap();
+        app.follow_ready = true;
+        app.submit_queue("PUBLIC-queued".into(), QueueAction::Steer);
+        assert_eq!(app.queue_busy.as_deref(), Some("PUBLIC-queued"));
+        let mut actions = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if let Command::UpdateQueue(submission) = command {
+                assert_eq!(submission.session, session);
+                assert_eq!(submission.item_id, "PUBLIC-queued");
+                actions += 1;
+            }
+        }
+        assert_eq!(actions, 1);
+        // A second mutation is refused while one is in flight.
+        app.submit_queue("PUBLIC-other".into(), QueueAction::Remove);
+        while let Ok(command) = receiver.try_recv() {
+            assert!(!matches!(command, Command::UpdateQueue(_)));
+        }
+        let item_id = "PUBLIC-queued".to_owned();
+        let _ = app.update(Message::Worker(Event::QueueUpdated {
+            submission: crate::queue_update::Submission {
+                session: app.selected.clone().unwrap(),
+                item_id: item_id.clone(),
+                action: QueueAction::Remove,
+            },
+            result: Err(crate::queue_update::Failure::NotFound),
+        }));
+        assert!(app.queue_busy.is_none());
+        assert_eq!(
+            app.queue_error.as_deref(),
+            Some("This message may have already started sending.")
+        );
     }
     #[test]
     fn a_background_stop_is_unread_until_its_session_is_selected() {

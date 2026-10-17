@@ -12,6 +12,7 @@ mod management;
 mod mcp;
 mod plugins;
 mod queue_dock;
+mod queue_update;
 mod reducer;
 mod rename;
 mod secret_input;

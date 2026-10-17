@@ -72,6 +72,8 @@ pub enum Command {
         session: dsh_native_transport::dto::SessionId,
         job: String,
     },
+    /// Mutate one pending queue item (edit, remove or steer).
+    UpdateQueue(crate::queue_update::Submission),
     JobKill {
         session: dsh_native_transport::dto::SessionId,
         job: String,
@@ -161,6 +163,10 @@ pub enum Event {
     AgentPresetSelected(Result<String, String>),
     /// The receipt of a job kill: `requested` or `already-finished`.
     JobKilled(Result<dsh_native_transport::dto::JobKillOutcome, String>),
+    QueueUpdated {
+        submission: crate::queue_update::Submission,
+        result: Result<(), crate::queue_update::Failure>,
+    },
     /// The complete set of background jobs the session can see. Each list frame replaces
     /// the set wholesale (`api/job-controller/src/types.ts:19-27`).
     JobsRows(Vec<dsh_native_transport::dto::JobView>),
@@ -793,6 +799,10 @@ fn rejected(command: Command) -> Event {
         Command::AgentPresetsRead => Event::AgentPresets(Err(error)),
         Command::AgentPresetSelect { .. } => Event::AgentPresetSelected(Err(error)),
         Command::JobKill { .. } => Event::JobKilled(Err(error)),
+        Command::UpdateQueue(submission) => Event::QueueUpdated {
+            submission,
+            result: Err(crate::queue_update::Failure::NotSent),
+        },
         Command::JobOutput { .. } => Event::Fault("Invalid native command state".into()),
         Command::PermissionDefaultSet { .. } => Event::PermissionDefaultSet(Err(error)),
         Command::Account(effect) => {
@@ -2310,6 +2320,15 @@ async fn run(
                     Command::Create{workspace,cwd}=>Event::Created(client.session_create(SessionCreateRequest{workspace_id:workspace,cwd,..Default::default()}).await.map_err(|e|format!("New session: {e}"))),
                     Command::AgentPresetSelect{session,preset}=>Event::AgentPresetSelected(client.agent_preset_select(&session,&preset).await.map_err(|error|format!("Agent preset: {error}"))),
                     Command::JobKill{session,job}=>Event::JobKilled(client.job_kill(session.as_str(),&job).await.map_err(|error|format!("Job kill: {error}"))),
+                    Command::UpdateQueue(submission)=>{
+                        let request=dsh_native_transport::dto::SessionUpdateQueueRequest{
+                            session_id:submission.session.clone(),
+                            item_id:submission.item_id.clone(),
+                            action:submission.action.clone(),
+                        };
+                        let result=client.session_update_queue(request).await.map(|_|()).map_err(crate::queue_update::failure);
+                        Event::QueueUpdated{submission,result}
+                    },
                     Command::OpenWorkspace(path)=>Event::WorkspaceOpened(client.workspace_create(path).await.map_err(|e|format!("Open workspace: {e}"))),
                     Command::Catalog(ticket)=>rejected(Command::Catalog(ticket)),
                     Command::Decision(_)=>Event::Fault("Decision bypassed worker admission".into()),

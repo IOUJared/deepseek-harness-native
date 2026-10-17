@@ -30,6 +30,8 @@ mod mcp;
 mod plugins;
 #[path = "../src/queue_dock.rs"]
 mod queue_dock;
+#[path = "../src/queue_update.rs"]
+mod queue_update;
 #[path = "../src/reducer.rs"]
 mod reducer;
 #[path = "../src/rename.rs"]
@@ -178,6 +180,10 @@ struct Options {
     trigger_expanded: bool,
     /// Seed a background stop's unread marker on the notes row.
     completion_unread: bool,
+    /// Begin editing the first queued item.
+    queue_edit: bool,
+    /// Arm the second queued item's removal confirmation.
+    queue_remove: bool,
     /// Open the shortcuts disclosure, so its rows are captured.
     shortcuts: bool,
 }
@@ -283,6 +289,8 @@ fn options() -> Result<Options, &'static str> {
             "--queue-expanded",
             "--trigger-expanded",
             "--completion-unread",
+            "--queue-edit",
+            "--queue-remove",
             "--agent-seat-error",
             "--settings",
             "--scrolled-away",
@@ -410,6 +418,14 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         completion_unread: match values.remove("--completion-unread") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        queue_edit: match values.remove("--queue-edit") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        queue_remove: match values.remove("--queue-remove") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -787,6 +803,12 @@ impl Fixture {
         if options.completion_unread {
             app.mark_completion_unread("PUBLIC-layout-notes");
         }
+        if options.queue_edit {
+            app.begin_queue_edit("PUBLIC-queued-one");
+        }
+        if options.queue_remove {
+            app.arm_queue_remove("PUBLIC-queued-two");
+        }
         if options.scrolled_away {
             app.set_scrolled_away(true);
         }
@@ -866,6 +888,7 @@ impl Fixture {
                 worker::Command::Manage(_) => "Manage",
                 worker::Command::Rename(_) => "Rename",
                 worker::Command::Fork(_) => "Fork",
+                worker::Command::UpdateQueue(_) => "UpdateQueue",
                 worker::Command::CommandsList(_) => "CommandsList",
                 worker::Command::CommandsExecute { .. } => "CommandsExecute",
                 worker::Command::TerminalRead(_) => "TerminalRead",
