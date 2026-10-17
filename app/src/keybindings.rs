@@ -136,6 +136,100 @@ impl Store {
     }
 }
 
+/// The DOM-style codes the reference captures and displays (`Editor.tsx:119`, and the codes in
+/// `fixed.ts`: `ArrowUp`, `Enter`, `Escape`). Iced reports a character or a named key, so this
+/// maps between them — including the punctuation names, which are the ones a binding for `/`
+/// depends on (`shortcuts.open` is `primary + Slash`).
+pub fn code_for(key: &iced::keyboard::Key) -> Option<String> {
+    use iced::keyboard::key::Named;
+    let named = |name: &str| Some(name.to_owned());
+    match key {
+        iced::keyboard::Key::Named(Named::Enter) => named("Enter"),
+        iced::keyboard::Key::Named(Named::Escape) => named("Escape"),
+        iced::keyboard::Key::Named(Named::Space) => named("Space"),
+        iced::keyboard::Key::Named(Named::Tab) => named("Tab"),
+        iced::keyboard::Key::Named(Named::Backspace) => named("Backspace"),
+        iced::keyboard::Key::Named(Named::Delete) => named("Delete"),
+        iced::keyboard::Key::Named(Named::ArrowUp) => named("ArrowUp"),
+        iced::keyboard::Key::Named(Named::ArrowDown) => named("ArrowDown"),
+        iced::keyboard::Key::Named(Named::ArrowLeft) => named("ArrowLeft"),
+        iced::keyboard::Key::Named(Named::ArrowRight) => named("ArrowRight"),
+        iced::keyboard::Key::Named(Named::Home) => named("Home"),
+        iced::keyboard::Key::Named(Named::End) => named("End"),
+        iced::keyboard::Key::Named(Named::PageUp) => named("PageUp"),
+        iced::keyboard::Key::Named(Named::PageDown) => named("PageDown"),
+        iced::keyboard::Key::Character(text) => match text.as_str() {
+            "/" => named("Slash"),
+            "." => named("Period"),
+            "," => named("Comma"),
+            ";" => named("Semicolon"),
+            "'" => named("Quote"),
+            "[" => named("BracketLeft"),
+            "]" => named("BracketRight"),
+            "-" => named("Minus"),
+            "=" => named("Equal"),
+            "`" => named("Backquote"),
+            "\\" => named("Backslash"),
+            other if other.chars().count() == 1 => {
+                let letter = other.to_uppercase();
+                Some(format!("Key{letter}"))
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// A binding from a key press: the code plus the modifiers the reference records. `primary` is
+/// the reference's own name for the platform's main modifier (`Editor.tsx:119`), which is what a
+/// default such as `primary + Slash` needs.
+pub fn binding_from(
+    key: &iced::keyboard::Key,
+    modifiers: iced::keyboard::Modifiers,
+) -> Option<Binding> {
+    let code = code_for(key)?;
+    let mut held = Vec::new();
+    if modifiers.control() || modifiers.command() {
+        held.push("primary".to_owned());
+    }
+    if modifiers.alt() {
+        held.push("alt".to_owned());
+    }
+    if modifiers.shift() {
+        held.push("shift".to_owned());
+    }
+    Some(Binding {
+        code,
+        second_code: None,
+        modifiers: held,
+    })
+}
+
+/// Render a binding for display: modifier glyphs then the code, joined with `+` — the reference's
+/// own "Ctrl+B" (`locales.ts:64` and the row's `keys`). A code loses its `Key` prefix for display,
+/// as a DOM code does.
+pub fn display(binding: &Binding) -> String {
+    let mut parts: Vec<String> = binding
+        .modifiers
+        .iter()
+        .map(|modifier| match modifier.as_str() {
+            "primary" => "Ctrl".to_owned(),
+            "alt" => "Alt".to_owned(),
+            "shift" => "Shift".to_owned(),
+            other => other.to_owned(),
+        })
+        .collect();
+    parts.push(display_code(&binding.code));
+    if let Some(second) = &binding.second_code {
+        parts.push(display_code(second));
+    }
+    parts.join("+")
+}
+
+fn display_code(code: &str) -> String {
+    code.strip_prefix("Key").unwrap_or(code).to_owned()
+}
+
 /// The four groups in the reference's **product order**
 /// (`ui-shortcuts/src/client/Reference.tsx:179`).
 pub const GROUPS: [&str; 4] = ["application", "input", "menus", "approval"];
@@ -409,6 +503,29 @@ mod tests {
             COPY_RESET_DESCRIPTION.starts_with("Restore the default shortcuts for this platform.")
         );
         assert!(COPY_RESET_FAILED.ends_with("Please retry."));
+    }
+
+    #[test]
+    fn a_key_press_becomes_the_reference_code_and_modifiers() {
+        use iced::keyboard::key::Named;
+        use iced::keyboard::{Key, Modifiers};
+        let ctrl = Modifiers::CTRL;
+        let binding = binding_from(&Key::Character("b".into()), ctrl).unwrap();
+        assert_eq!(binding.code, "KeyB");
+        assert_eq!(binding.modifiers, vec!["primary".to_owned()]);
+        assert_eq!(display(&binding), "Ctrl+B");
+        // The slash case the trigger depends on.
+        let slash = binding_from(&Key::Character("/".into()), ctrl).unwrap();
+        assert_eq!(slash.code, "Slash");
+        assert_eq!(display(&slash), "Ctrl+Slash");
+        // Named keys keep their own names, and shift is recorded rather than folded into the code.
+        let enter = binding_from(&Key::Named(Named::Enter), Modifiers::SHIFT).unwrap();
+        assert_eq!(enter.code, "Enter");
+        assert_eq!(display(&enter), "Shift+Enter");
+        let escape = binding_from(&Key::Named(Named::Escape), Modifiers::empty()).unwrap();
+        assert_eq!(display(&escape), "Escape");
+        let up = binding_from(&Key::Named(Named::ArrowUp), Modifiers::empty()).unwrap();
+        assert_eq!(display(&up), "ArrowUp");
     }
 
     #[test]

@@ -3409,3 +3409,18 @@ the five above rather than missing work.
    picture, read the check's own inputs before touching the picture** — twice now (the banner
    overlap, this mode name) the fix was one line in the *expectation*, and twice the alternative
    would have been to deform working UI.
+
+   **The capture step has its foundation: a key press becomes the reference's own code and
+   modifiers, and a binding renders the way a row shows it.** `code_for` maps Iced's named keys
+   and characters onto the DOM-style codes the reference captures and ships in `fixed.ts` —
+   `Enter`, `Escape`, `ArrowUp`, and the punctuation names, including the **`Slash`** that
+   `shortcuts.open` is defined against. `binding_from` records `primary` for either control or
+   command, plus `alt` and `shift`, which is the reference's own vocabulary (`Editor.tsx:119`).
+   `display` renders modifiers then the code as `Ctrl+B` / `Shift+Enter` / `Ctrl+Slash`, dropping
+   the `Key` prefix the way a DOM code does.
+   Verified: fixture **1125** exit 0 (eleven keybinding tests), default **1118** exit 0,
+   format-debt 0. The new test covers the character case, the slash case, a named key with shift,
+   escape and an arrow.
+   What the editor still needs is the *interaction*: routing a press into capture while the editor
+   is open, the per-row actions calling `Store::apply`, the confirmation, the overlay and the
+   `primary + /` trigger — each now with its data, copy and mapping already in tested code.
