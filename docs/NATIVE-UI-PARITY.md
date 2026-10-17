@@ -2556,3 +2556,29 @@ state, which needs a Host that advertises that namespace.
    Settling step: if the header band is revisited, look for team navigation inside `ui-subagent`
    or the conversation view's own code — not as a slot registration, which is where three rounds
    of greps have already looked.
+
+### Handoff addendum (round 155)
+
+Since the round-145 update, all local and unpushed, gates green at each commit:
+
+- **Jobs' transport half is built**: the wire types (`JobView`, `JobListRequest`/`Frame`,
+  `JobFollowRequest`, and a tagged `JobFollowFrame` with `opened`/`output`/`status`) with two
+  tests, and the mux half (`Kind::JobList`/`Kind::JobFollow`, their endpoint names, the two
+  methods, and their **opening-frame tags** — `rows` and `opened` — which the mux's sequence
+  check enforces). Transport suite **17 + 82 + 7 doctests**, exit 0.
+- **Jobs' worker loop is placed but not written (item 12)**: it belongs inside the live
+  observation loop at the three points the follow loop uses (`worker.rs:509` open beside
+  `selected`, `:1942` open through the mux, `:2261` select and publish, clearing on the error
+  path). **Flagged as the first delicate edit of this feature** — a long async loop where a
+  mis-insertion would be hard to spot — so it should be done with the file open rather than by
+  scripted insertion, and followed by a capture. The two stream semantics must not share an arm:
+  the list replaces rows wholesale, the follow updates one row.
+- **Team navigation is dismissed (item 13)**: it is a prose name in a comment, not a
+  registration — the third negative finding of its kind in this document.
+- Two design traps recorded before any code: the list frame is **whole-set replacement** (an
+  empty set is valid), and the follow's `lossy` marker means an evicted range must be shown as a
+  **gap** rather than silently joined. `JobChunk`'s fields remain unread and `chunks` stays
+  unprojected JSON rather than invented.
+- Remaining after jobs: the panel itself (counted header action, two sections, clear, per-row
+  dot/label/kind/status/duration, expansion, two-click kill), the shortcuts editor (authorized,
+  store first), and the session-log row's present state (needs a Host).
