@@ -2959,3 +2959,19 @@ keep the upward behaviour they were captured with.
    from a neighbouring name. Two observations worth keeping: the invention survived the compiler,
    the transport suite and two captures — only a *name-level* check could catch it; and the fix
    is one line, which is what makes checking cheap and inferring expensive.
+
+   **A fifth invented shape, caught the same way: the agent-select body.** `request_args` in this
+   transport wraps every typed request as `{"request": …}` (`transport/src/http.rs:1036-1040`),
+   which is why the jobs methods that use it are right. The select method added rounds earlier did
+   **not**: it sent a bare `{"agentId": …, "agentPreset": …}`. The generated host descriptor makes
+   the agent a **scope** — `scope: { context: 'agent', wire: 'agentId' }` — with `agentId` a
+   *lookup* parameter and `agentPreset` the only JSON one (`typert.host.js:77-118`), so a body
+   carrying `agentId` is an invented shape, and the same class as the invented endpoint names two
+   rounds ago.
+   The body is corrected to `request_args({"agentPreset": …})`. **One thing remains unread and is
+   stated rather than guessed:** how the *scope* itself travels — the generated client exposes an
+   `agent:`-prefixed variant (`typert.remote-client.d.ts:24`), which suggests a path-scoped route
+   this transport has no form for, while the transport's other session-scoped calls put the
+   session in the body (`{"request": {"sessionId": …}}`). Which of those the Host expects for an
+   agent scope is the next thing to read, and until it is read the select path is *corrected* but
+   not *proven*.
