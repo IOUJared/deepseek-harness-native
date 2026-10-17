@@ -39,10 +39,10 @@ point is the Host's canonical `/api/<namespace>/<method>` dispatcher, so adding 
 in Rust. Keep coding without asking for permission. Queue edit/remove/steer, full-text content
 search, the goal bar (pause/resume/edit/clear), the per-turn usage detail and the **scheduled-tasks
 page** (catalog + delete + delivery history + title/instruction/timing edit) and the goal's
-**disarmed activation**, the timing-kind selector and a **changed-files summary line** now work end
-to end; the next items are the reference's **changed-file list and diff viewer** (plus its date/time
-picker popovers), then workspace open. Cross-session pending status is still unavailable from the
-present wires.
+**disarmed activation**, the timing-kind selector and an **expandable changed-file list with
+per-file diffs** now work end to end; the next items are the reference's **open/review action and
+developer-tools gate**, its **date/time picker popovers**, then workspace open. Cross-session
+pending status is still unavailable from the present wires.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
