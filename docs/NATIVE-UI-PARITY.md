@@ -2845,3 +2845,38 @@ Since the round-145 update, all local and unpushed, gates green at each commit:
    the parent can see it (the downward variant, reverted once and now known to need both structs)
    or the parent's paint rule learns about window-top popups — a harness change outside this
    repository's fixture and outside what a round can decide.
+
+### Item 12 status (round 172) — background jobs, at a glance
+
+**Built and verified by tests:**
+- transport wire types with two unit tests (`dto.rs`): requests, a whole-set list frame, a tagged
+  follow frame with `opened`/`output`/`status`, `lossy` carried, `chunks` deliberately
+  unprojected because `JobChunk`'s fields are unread;
+- mux stream kinds (`Kind::JobList`/`JobFollow`) with their endpoint names, methods and opening
+  tags, so the mux's sequence check covers them;
+- worker open, select and publish (`next_jobs`, the conditional select arm, retirement beside
+  the panel follow), all gated on the follow loop's precedents;
+- app events and state, with **whole-set replacement** for list frames and per-job updates for
+  follow frames — the two semantics kept visibly separate.
+
+**Built and capture-verified:** the counted header action — "{n} background jobs running" /
+"{n} background jobs", the reference's own English singular/plural copy — at
+`shots/79-jobs-action-corrected-dp2.png`.
+
+**Built, compiled, not captured:** the panel (`jobs_panel_view`) with the reference's "Running"
+and "Finished {count}" sections and per-row label plus `kind · status`. Its capture is blocked by
+a **harness** limitation, not the panel: the parent qualifies paint, and a popup clamped to the
+window's top edge sits under the harness's own banner. The fixture was relaxed to exempt floating
+layers from frame containment (correct on its own terms, and it makes the fixture pass), but the
+parent still refuses.
+
+**Deliberately absent:** the row's state **dot** (its form is unread), **Clear** (its semantics
+are unread), **duration** (no timestamps in the projection), and the **kill** arm is inert with a
+comment, because `@Remote('kill')` is not wired and inventing a path is not an option.
+
+**The exact next action for the panel capture:** a **downward** popup placement. The recipe is
+recorded and the first attempt is diagnosed: thread a `below` flag through **both** `Anchored`
+and `Popup` (the overlay struct at `anchored_popup.rs:211` is the one that calls `popup_bounds`),
+branch `popup_bounds`' `y`, add the argument to the four `popup_bounds(` calls inside `mod tests`
+**only**, and leave the signature's callers otherwise untouched so the composer menu and hero seat
+keep the upward behaviour they were captured with.
