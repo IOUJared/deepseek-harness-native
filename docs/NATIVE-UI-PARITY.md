@@ -16,8 +16,9 @@ the sidebar's **subagent rows and running-child count** (`shots/107-…`); the c
 **sibling switcher** (`shots/108-…`, `109-…`) with **nested catalog branches and row metrics**
 (`shots/110-…`, `111-…`); the selected row's **pending-interaction status** (`shots/112-…`); the
 **busy-state Enter preference** with text steering (`shots/113-…`, `114-…`) and a read-only
-**queue dock** (`shots/115-…`, `116-…`); **branching at a reply** (`shots/117-…`); and **keys as
-data**, so the store's five commands drive the live chain instead of a hardcoded map.
+**queue dock** (`shots/115-…`, `116-…`); **branching at a reply** (`shots/117-…`); **turn-trigger
+notices** (`shots/118-…`, `119-…`); and **keys as data**, so the store's five commands drive the live
+chain instead of a hardcoded map.
 
 **Read this before trusting the list above.** Round 257 found that the editor's per-row actions,
 the permission default row and eight Host-event handlers were **unreachable behind two catch-all
@@ -35,8 +36,9 @@ one row (`QueueDock.tsx:230-360`, `updateQueue`). The reference calls the Host's
 `session/updateQueue` Remote with `{sessionId, itemId, action}`; native's transport has no such
 method today, so this is a transport-plus-app addition rather than a view change, and it must use
 that canonical Remote rather than invent a parallel command. The other open audit finding, `@`
-mentions, is sized below. The settings/rename editable menu is **toolkit-blocked**, recorded below,
-not a candidate.
+mentions, is likely **toolkit-blocked**: the reference inserts atomic reference chips, and Iced's
+`text_editor` has no decoration or token model (the same limit recorded for inline-code chips). The
+settings/rename editable menu is toolkit-blocked too. Do not half-build either.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -5132,3 +5134,43 @@ reviewed one-write flow (unchanged), not the reference's immediate branch.
 
 One test was added in `app/src/fork.rs`; the worker's `at_seq` is a one-line pass-through covered by
 the existing fork tests' request construction.
+
+### Round 273 — turn-trigger notices
+
+**A non-human source that began a turn now gets the reference's notice instead of disappearing.**
+`presentation::turn_trigger` (`app/src/transcript_presentation.rs`) maps the producers
+`ui-chat/src/client/chat/turn-trigger.ts:25-66` names — goal, agent-message, team-message,
+subagent-settled, webhook (with GitHub's provider title), schedule, tool-jobs and
+cordis-host-runner — to the reference's own titles. The reducer keeps such a `user/message` in Chat
+with a `Trigger` instead of a user bubble; the row draws an unboxed, expandable line
+("Continuing goal", clock, chevron). Expanding it shows "This notification triggered this response."
+and the recorded notification text, as `TurnTriggerNodeView.tsx` does. Every other non-human
+`user/message` inject (runtime-context, skill-catalog, time-context, the loop guard) still has
+`chat: false` and stays in Trajectory.
+
+`shots/118-turn-trigger.png` is the collapsed "▸ Continuing goal" line and
+`shots/119-turn-trigger-expanded.png` the expanded explanation and goal text above the synthetic
+answer; both reports are `status: passed`.
+
+**Deliberate difference.** The reference turns a context message into a trigger only when the Host
+has claimed it as the **waking** turn, and falls back to "Execution requested" for an unknown
+source. Native cannot tell a waking claim from an ordinary context inject on the retained records,
+so it maps only the producers it can name and hides the rest; a generic fallback would put context
+injects back into Chat, which the clean-chat rule forbids. The notice is a compact line, not the
+reference's section with a source-family icon.
+
+**Battery (round 273).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1177 passed**, 1 ignored |
+| app, default | **0** | **1170 passed**, 1 ignored |
+| transport | **0** | 38 + 17 + 82 + 7 (unchanged, no transport edit) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+Two tests were added: the title mapping (all eight kinds, GitHub's provider title, and three hidden
+kinds) and the reducer's goal-notice/context-inject split. The `turn-trigger` preset seeds the goal
+source; `--trigger-expanded` opens the body through the production toggle state.

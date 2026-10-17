@@ -56,6 +56,7 @@ pub const PRESETS: &[&str] = &[
     "model-metadata-expanded",
     "working-conversation",
     "working-queue",
+    "turn-trigger",
     "working-phase-6",
     "working-narrow",
     "chat-submitted",
@@ -208,6 +209,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "model-metadata-expanded"
         | "working-conversation"
         | "working-queue"
+        | "turn-trigger"
         | "working-phase-6"
         | "subagent-trail"
         | "subagent-catalog"
@@ -1024,6 +1026,17 @@ pub fn build(
                 json!({"type":"event","event":{"type":"assistant/message","seq":seq,"time":1000+seq,"surfaceOp":"append","data":{"turn":1,"step":1,"stream":[{"type":"text-chunks","time0":1000+seq,"index":0,"dt":[],"texts":[text]}]}}})
             }
         }).collect()
+    } else if preset == "turn-trigger" {
+        vec![
+            json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
+                "surfaceOp":"append","data":{"role":"user","id":"PUBLIC-trigger-message",
+                    "source":{"kind":"goal"},
+                    "content":[{"type":"text","text":"PUBLIC goal reminder · continue the recorded task without sending a prompt."}]}}}),
+            json!({"type":"event","event":{"type":"assistant/message","seq":1,"time":1001,
+                "surfaceOp":"append","data":{"turn":1,"step":1,
+                    "stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],
+                        "texts":["PUBLIC synthetic answer to the goal reminder."]}]}}}),
+        ]
     } else if preset == "conversation" || preset.starts_with("working-") {
         let records = vec![
             json!({"type":"event", "event":{"type":"user/message", "seq":0, "time":1000,

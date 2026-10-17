@@ -230,6 +230,8 @@ pub enum Message {
     ToggleSubagentBranch(String),
     /// Expands or collapses the queue dock's multi-item list.
     ToggleQueue,
+    /// Expands or collapses one turn-trigger notice.
+    ToggleTrigger(u64),
     /// A key press as **data** for the live chain, with the state at the moment it arrives: an
     /// armed capture consumes it, a focused field's links own it, or a stored binding invokes a
     /// command — so a rebound key replaces the hardcoded default instead of shadowing it.
@@ -723,6 +725,8 @@ pub struct App {
     busy_enter: crate::settings::BusyEnter,
     /// The queue dock's multi-item list is open.
     queue_expanded: bool,
+    /// Expanded turn-trigger notices, by record key.
+    trigger_expanded: std::collections::BTreeSet<u64>,
     workspace_path: String,
     workspace_controls: bool,
     filter: String,
@@ -985,6 +989,7 @@ impl App {
                 content_font_size,
                 busy_enter,
                 queue_expanded: false,
+                trigger_expanded: Default::default(),
                 workspace_path,
                 workspace_controls: false,
                 filter: String::new(),
@@ -3075,6 +3080,11 @@ impl App {
             }
             Message::ToggleQueue if self.layout_controls_enabled() => {
                 self.queue_expanded = !self.queue_expanded;
+            }
+            Message::ToggleTrigger(key) if self.layout_controls_enabled() => {
+                if !self.trigger_expanded.remove(&key) {
+                    self.trigger_expanded.insert(key);
+                }
             }
             Message::ToggleSubagentBranch(id) if self.layout_controls_enabled() => {
                 if !self.subagent_expanded.remove(&id) {
@@ -5422,6 +5432,12 @@ impl App {
             },
             0,
         );
+    }
+
+    /// Fixture-only: expand one turn-trigger notice, which a real run expands by press.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn expand_trigger(&mut self, key: u64) {
+        self.trigger_expanded.insert(key);
     }
 
     /// Fixture-only: open the queue dock's multi-item list, which a real run expands by press.
@@ -8922,6 +8938,7 @@ impl App {
             text,
             files: Vec::new(),
             references: Vec::new(),
+            trigger: None,
             time: 0,
             surface: false,
         });
@@ -9138,6 +9155,7 @@ impl App {
                     text,
                     files: Vec::new(),
                     references: Vec::new(),
+                    trigger: None,
                     time: 0,
                     surface: false,
                 },
@@ -9273,6 +9291,7 @@ impl App {
             text,
             files: Vec::new(),
             references: Vec::new(),
+            trigger: None,
             time: 0,
             surface: false,
         });
@@ -9466,6 +9485,40 @@ impl App {
                         ));
                 }
                 activity_column.into()
+            } else if let Some(trigger) = record.trigger {
+                // The reference's turn-trigger notice (`TurnTriggerNodeView.tsx`): an
+                // unboxed, expandable line naming the non-human producer, above the turn
+                // it began. Its body is the recorded notification, not model output.
+                let expanded = self.trigger_expanded.contains(&record.key);
+                let clock = local_hh_mm(record.time);
+                let mut header = row![
+                    label(if expanded { "▾" } else { "▸" }, MUTED).size(10),
+                    label(trigger.title, MUTED).size(11),
+                    Space::new().width(Length::Fill),
+                ]
+                .spacing(6)
+                .align_y(iced::Alignment::Center);
+                if let Some(clock) = clock {
+                    header = header.push(label(clock, MUTED).size(10));
+                }
+                let mut notice = column![
+                    button(header)
+                        .on_press(Message::ToggleTrigger(record.key))
+                        .style(design::ghost)
+                        .padding([4, 0])
+                        .width(Length::Fill),
+                ]
+                .spacing(2);
+                if expanded {
+                    notice = notice
+                        .push(label("This notification triggered this response.", MUTED).size(10))
+                        .push(label(short(&record.text, 600), TEXT).size(12));
+                }
+                container(notice)
+                    .padding([8, 14])
+                    .width(geometries[index].width)
+                    .style(|_| panel(BASE))
+                    .into()
             } else if human || assistant {
                 let geometry = geometries[index];
                 let reply = self.reply_parts(record.key);
@@ -12690,6 +12743,7 @@ mod tests {
             text: "fixture".into(),
             files: Vec::new(),
             references: Vec::new(),
+            trigger: None,
             time: 1000,
             surface: false,
         }

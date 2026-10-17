@@ -51,6 +51,37 @@ pub fn chat_visible(kind: &str, role: &str) -> bool {
 pub fn human_message(source: &Value) -> bool {
     matches!(source["kind"].as_str(), Some("user") | None)
 }
+/// A non-human source that can begin a turn, using the reference's own titles
+/// (`ui-chat/src/client/chat/turn-trigger.ts:25-66`, `locale.ts`). Only producers the
+/// reference attributes are listed; an unknown kind stays hidden, and only a context
+/// message the Host has actually claimed as a waking turn is a trigger there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Trigger {
+    pub title: &'static str,
+}
+
+pub fn turn_trigger(source: &Value) -> Option<Trigger> {
+    let kind = source["kind"].as_str()?;
+    let title = match kind {
+        "goal" => "Continuing goal",
+        "agent-message" => "Task message received",
+        "team-message" => "Team message received",
+        "subagent-settled" => "Subtask status updated",
+        "webhook" => {
+            if source["provider"].as_str() == Some("github") {
+                "GitHub event received"
+            } else {
+                "External event received"
+            }
+        }
+        "schedule" => "Automation task",
+        "tool-jobs" => "Background task updated",
+        "cordis-host-runner" => "Plugin status updated",
+        _ => return None,
+    };
+    Some(Trigger { title })
+}
+
 pub fn routine_inbox(data: &Value) -> bool {
     let Some(object) = data.as_object() else {
         return false;
@@ -184,6 +215,35 @@ mod tests {
             assert!(chat_visible(kind, kind), "{kind} must stay visible");
         }
     }
+    #[test]
+    fn turn_trigger_titles_match_the_reference_and_unknown_kinds_stay_hidden() {
+        for (kind, title) in [
+            ("goal", "Continuing goal"),
+            ("agent-message", "Task message received"),
+            ("team-message", "Team message received"),
+            ("subagent-settled", "Subtask status updated"),
+            ("webhook", "External event received"),
+            ("schedule", "Automation task"),
+            ("tool-jobs", "Background task updated"),
+            ("cordis-host-runner", "Plugin status updated"),
+        ] {
+            assert_eq!(
+                turn_trigger(&json!({"kind": kind})).map(|trigger| trigger.title),
+                Some(title),
+                "{kind}"
+            );
+        }
+        assert_eq!(
+            turn_trigger(&json!({"kind": "webhook", "provider": "github"}))
+                .map(|trigger| trigger.title),
+            Some("GitHub event received")
+        );
+        for hidden in ["runtime-context", "unknown", "repeat-tool-reminder"] {
+            assert_eq!(turn_trigger(&json!({"kind": hidden})), None, "{hidden}");
+        }
+        assert_eq!(turn_trigger(&Value::Null), None);
+    }
+
     #[test]
     fn only_known_routine_queue_splices_are_secondary() {
         for target in ["next-turn", "next-step"] {

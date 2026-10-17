@@ -60,6 +60,9 @@ pub struct DisplayRow {
     /// `Referenced session · labels` (`ui-chat/src/client/chat/MessageItem.tsx:225-229`,
     /// labels from `conversation-nodes/event-projection.ts:83-87`).
     pub references: Vec<String>,
+    /// A non-human source that began this turn, drawn as the reference's trigger
+    /// notice instead of a user bubble; `None` for human history.
+    pub trigger: Option<presentation::Trigger>,
     pub time: i64,
     pub surface: bool,
 }
@@ -716,14 +719,20 @@ impl Transcript {
                     _ => kind,
                 }
             };
+            let trigger = (kind == "user/message")
+                .then(|| presentation::turn_trigger(&event.data["source"]))
+                .flatten();
             let row = DisplayRow {
                 key: event.seq,
-                role: bounded(role, 128),
+                role: trigger.map_or_else(|| bounded(role, 128), |trigger| trigger.title.into()),
                 kind: bounded(kind, 128),
-                chat: presentation::chat_visible(kind, role),
+                // A recognized trigger is clean conversation content, drawn as a notice;
+                // every other non-human inject stays in Trajectory only.
+                chat: trigger.is_some() || presentation::chat_visible(kind, role),
                 text: bounded(&text, MAX_DISPLAY_BYTES),
                 files,
                 references: Vec::new(),
+                trigger,
                 time: event.time,
                 surface,
             };
@@ -1379,6 +1388,33 @@ mod tests {
             .collect::<String>();
         assert_eq!(printed, include_str!("../fixtures/chat-visibility.txt"));
         assert!(transcript.safe_to_send());
+    }
+    #[test]
+    fn a_goal_message_is_a_trigger_notice_and_injects_stay_out_of_chat() {
+        let goal = json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
+            "data":{"role":"user","id":"g1","source":{"kind":"goal"},
+                "content":[{"type":"text","text":"PUBLIC goal reminder"}]},"surfaceOp":"append"}});
+        let inject = json!({"type":"event","event":{"type":"user/message","seq":1,"time":1001,
+            "data":{"role":"user","id":"c1","source":{"kind":"runtime-context"},
+                "content":[{"type":"text","text":"PUBLIC runtime context"}]},"surfaceOp":"append"}});
+        let mut transcript = Transcript::new(1);
+        transcript
+            .apply(1, snapshot(vec![goal, inject], 1))
+            .unwrap();
+        let rows: Vec<_> = transcript.rows().iter().filter(|row| row.chat).collect();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].trigger.map(|trigger| trigger.title),
+            Some("Continuing goal")
+        );
+        assert_eq!(rows[0].role, "Continuing goal");
+        assert_eq!(rows[0].text, "PUBLIC goal reminder");
+        assert!(
+            !transcript
+                .rows()
+                .iter()
+                .any(|row| row.chat && row.text.contains("runtime context"))
+        );
     }
     #[test]
     fn alpha_golden_and_reconnect_prefix() {

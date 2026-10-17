@@ -174,6 +174,8 @@ struct Options {
     busy_enter: Option<String>,
     /// Expand the queue dock's multi-item list for capture.
     queue_expanded: bool,
+    /// Expand the first turn-trigger notice for capture.
+    trigger_expanded: bool,
     /// Open the shortcuts disclosure, so its rows are captured.
     shortcuts: bool,
 }
@@ -277,6 +279,7 @@ fn options() -> Result<Options, &'static str> {
             "--pending-approval",
             "--busy-enter",
             "--queue-expanded",
+            "--trigger-expanded",
             "--agent-seat-error",
             "--settings",
             "--scrolled-away",
@@ -396,6 +399,10 @@ fn options() -> Result<Options, &'static str> {
         },
         busy_enter: values.remove("--busy-enter"),
         queue_expanded: match values.remove("--queue-expanded") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        trigger_expanded: match values.remove("--trigger-expanded") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -766,6 +773,9 @@ impl Fixture {
         }
         if options.queue_expanded {
             app.expand_queue();
+        }
+        if options.trigger_expanded {
+            app.expand_trigger(0);
         }
         if options.scrolled_away {
             app.set_scrolled_away(true);
