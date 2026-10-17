@@ -1458,11 +1458,12 @@ async fn fork(
     submission: crate::fork::Submission,
 ) -> Event {
     use dsh_native_transport::Error;
-    // The request carries only the reviewed source and omits atSeq, which selects the
-    // latest completed-turn prefix. Only the ACK child id may become visible state.
+    // The request carries the reviewed source and its optional inclusive cut; an omitted
+    // atSeq selects the latest completed-turn prefix. Only the ACK child id may become
+    // visible state.
     let request = SessionForkRequest {
         session_id: submission.receipt.ticket.target.clone(),
-        at_seq: None,
+        at_seq: submission.cut(),
     };
     let result = client
         .session_fork(&request)
@@ -3219,7 +3220,7 @@ mod tests {
             allowed: true,
         };
         let mut fork = Fork::default();
-        fork.apply(Action::Open { view }, &context);
+        fork.apply(Action::Open { view, cut: None }, &context);
         let ticket = fork.ticket().unwrap();
         fork.apply(Action::Review(ticket), &context);
         let review = fork.review().unwrap().clone();

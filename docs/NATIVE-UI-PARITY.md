@@ -16,8 +16,8 @@ the sidebar's **subagent rows and running-child count** (`shots/107-…`); the c
 **sibling switcher** (`shots/108-…`, `109-…`) with **nested catalog branches and row metrics**
 (`shots/110-…`, `111-…`); the selected row's **pending-interaction status** (`shots/112-…`); the
 **busy-state Enter preference** with text steering (`shots/113-…`, `114-…`) and a read-only
-**queue dock** (`shots/115-…`, `116-…`); and **keys as data**, so the store's five commands drive the
-live chain instead of a hardcoded map.
+**queue dock** (`shots/115-…`, `116-…`); **branching at a reply** (`shots/117-…`); and **keys as
+data**, so the store's five commands drive the live chain instead of a hardcoded map.
 
 **Read this before trusting the list above.** Round 257 found that the editor's per-row actions,
 the permission default row and eight Host-event handlers were **unreachable behind two catch-all
@@ -31,11 +31,12 @@ disclosure, so the editor was never shown; the trigger's "captured" evidence had
 fixture's direct `set_settings_open`, not the press.
 
 **Next, in one step:** the queue dock's **per-item actions** — edit/save/cancel, remove, and steer
-one row (`QueueDock.tsx:230-360`, `updateQueue`). The dock now draws the reference's rows from the
-`inbox` projection (fallback: retained splices); first size the Host's queue-mutation method, since
-native has no queue command yet and must not invent one. The other open audit finding, `@` mentions,
-is sized below. The settings/rename editable menu is **toolkit-blocked**, recorded below, not a
-candidate.
+one row (`QueueDock.tsx:230-360`, `updateQueue`). The reference calls the Host's
+`session/updateQueue` Remote with `{sessionId, itemId, action}`; native's transport has no such
+method today, so this is a transport-plus-app addition rather than a view change, and it must use
+that canonical Remote rather than invent a parallel command. The other open audit finding, `@`
+mentions, is sized below. The settings/rename editable menu is **toolkit-blocked**, recorded below,
+not a candidate.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -5091,3 +5092,43 @@ Five tests were added in `app/src/queue_dock.rs`: splice order/removal, preview 
 and list bounds, malformed splices, and the projection row list. The physical captures were taken on
 DP-2 (the session's `/tmp` capture helper had been cleared, so it was rebuilt in this round; the
 saved frames are the app's own buffer and the DP-2 window grab).
+
+### Round 272 — branch at a reply
+
+**An assistant reply's footer now carries the reference's branch control.** `TurnTailNodeView.tsx:69`
+forks at `data.seq`; native draws `Branch` beside `Copy` and `Details`, and its press opens the
+existing one-review fork panel with the reply's record seq as an **inclusive cut**. The fork model
+now threads that cut through `Review` and `Submission` (`app/src/fork.rs`), and the worker sends it
+as `SessionForkRequest.at_seq` (`app/src/worker.rs`) — the field the transport DTO already carries
+(`transport/src/dto.rs:173-181`), so no wire change and no new path. The panel's copy names the
+branch point ("inclusive through seq N") instead of promising the latest completed turn.
+`shots/117-reply-branch.png` shows `Branch` in the assistant footer; its report is
+`status: passed`.
+
+**Tested / not captured.** `a_reviewed_cut_survives_the_confirm` covers the cut through
+Open → Review → Confirm → `Submission::cut`. The **panel frame itself is not capture-verified**:
+the fixture's layout observer validates the normal shell's tagged containers, and a fork-overlay
+frame reports `passed: false` with empty control rects because the observer has no fork-overlay
+route. The earlier attempt was reverted rather than leaving a red capture; the panel copy is
+source-read and its open path is the same `Message::Fork(Action::Open { .. })` the sidebar already
+uses for a cut-free fork.
+
+**Deliberate differences.** The reference uses a drawn branch icon; native uses the word `Branch`
+(no icon set). The cut is the assistant record's seq, while the reference forks at the turn tail's
+closing seq; both are inclusive source cuts, but they need not be the same number. The panel is a
+reviewed one-write flow (unchanged), not the reference's immediate branch.
+
+**Battery (round 272).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1175 passed**, 1 ignored |
+| app, default | **0** | **1168 passed**, 1 ignored |
+| transport | **0** | 38 + 17 + 82 + 7 (unchanged, no transport edit) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+One test was added in `app/src/fork.rs`; the worker's `at_seq` is a one-line pass-through covered by
+the existing fork tests' request construction.

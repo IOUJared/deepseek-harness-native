@@ -16,6 +16,9 @@ pub struct Receipt {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Review {
     pub ticket: Ticket,
+    /// The inclusive source seq to fork through, chosen at open time; `None` is the latest
+    /// completed turn.
+    pub cut: Option<i64>,
 }
 /// Redacted failure class the worker derives from the transport error. It carries no
 /// remote message and no child id, so it can never publish unacknowledged state.
@@ -65,9 +68,11 @@ pub struct Applied {
 /// Cloning an input is not permission to submit it. Every admission checks its current ticket.
 #[derive(Clone)]
 pub enum Action {
-    /// Open the one-review fork panel for the current source.
+    /// Open the one-review fork panel for the current source. `cut` forks through that
+    /// inclusive source seq (the reference's turn-tail branch); `None` takes the latest turn.
     Open {
         view: View,
+        cut: Option<i64>,
     },
     Close(Ticket),
     Review(Ticket),
@@ -83,6 +88,7 @@ pub struct Context {
 pub struct Submission {
     pub receipt: Receipt,
     source: SessionId,
+    cut: Option<i64>,
 }
 impl Submission {
     /// The fork's origin session. Only the tests that assert a receipt names its
@@ -91,9 +97,14 @@ impl Submission {
     pub fn source(&self) -> &SessionId {
         &self.source
     }
+    /// The inclusive cut this admitted fork was reviewed with.
+    pub fn cut(&self) -> Option<i64> {
+        self.cut
+    }
 }
 struct Panel {
     ticket: Ticket,
+    cut: Option<i64>,
 }
 
 pub struct Fork {
@@ -124,6 +135,10 @@ impl Fork {
     }
     pub fn review(&self) -> Option<&Review> {
         self.review.as_ref()
+    }
+    /// The cut chosen when this panel opened; `None` forks the latest completed turn.
+    pub fn cut(&self) -> Option<i64> {
+        self.panel.as_ref().and_then(|panel| panel.cut)
     }
     pub fn pending(&self) -> Option<&Receipt> {
         self.pending.as_ref()
@@ -178,7 +193,7 @@ impl Fork {
     pub fn apply(&mut self, action: Action, context: &Context) -> Option<Submission> {
         match action {
             Action::Close(ticket) if self.ticket().as_ref() == Some(&ticket) => self.dismiss(),
-            Action::Open { view }
+            Action::Open { view, cut }
                 if !self.exhausted && context.allowed && context.view.as_ref() == Some(&view) =>
             {
                 let Some(serial) = self.serial.checked_add(1) else {
@@ -194,6 +209,7 @@ impl Fork {
                         serial,
                         target: view.target,
                     },
+                    cut,
                 });
                 self.notice = if self.pending.is_some() {
                     Notice::Pending
@@ -205,7 +221,8 @@ impl Fork {
                 self.review = None;
             }
             Action::Review(ticket) if self.current(&ticket, context) && self.pending.is_none() => {
-                self.review = Some(Review { ticket });
+                let cut = self.panel.as_ref().and_then(|panel| panel.cut);
+                self.review = Some(Review { ticket, cut });
             }
             Action::Confirm(review)
                 if self.current(&review.ticket, context)
@@ -217,6 +234,7 @@ impl Fork {
                     return None;
                 };
                 let source = review.ticket.target.clone();
+                let cut = review.cut;
                 self.review = None;
                 self.attempt = attempt;
                 let receipt = Receipt {
@@ -225,7 +243,11 @@ impl Fork {
                 };
                 self.pending = Some(receipt.clone());
                 self.notice = Notice::Pending;
-                return Some(Submission { receipt, source });
+                return Some(Submission {
+                    receipt,
+                    source,
+                    cut,
+                });
             }
             _ => {}
         }
@@ -292,6 +314,7 @@ mod tests {
         fork.apply(
             Action::Open {
                 view: context().view.unwrap(),
+                cut: None,
             },
             &context(),
         );
@@ -309,6 +332,23 @@ mod tests {
     }
 
     #[test]
+    fn a_reviewed_cut_survives_the_confirm() {
+        let mut fork = Fork::default();
+        fork.apply(
+            Action::Open {
+                view: context().view.unwrap(),
+                cut: Some(42),
+            },
+            &context(),
+        );
+        let review = review(&mut fork);
+        assert_eq!(review.cut, Some(42));
+        let submission = fork
+            .apply(Action::Confirm(review), &context())
+            .expect("reviewed public fork");
+        assert_eq!(submission.cut(), Some(42));
+    }
+    #[test]
     fn open_requires_review_and_close_changes_nothing() {
         let mut fork = opened();
         assert_eq!(fork.notice(), &Notice::None);
@@ -322,6 +362,7 @@ mod tests {
         let mut fork = opened();
         let forged = Review {
             ticket: fork.ticket().unwrap(),
+            cut: None,
         };
         assert!(fork.apply(Action::Confirm(forged), &context()).is_none());
         assert!(fork.pending().is_none());
@@ -452,7 +493,7 @@ mod tests {
         );
         assert!(fork.review().is_none());
         assert!(
-            fork.apply(Action::Confirm(Review { ticket }), &denied)
+            fork.apply(Action::Confirm(Review { ticket, cut: None }), &denied)
                 .is_none()
         );
         assert!(fork.pending().is_none());
@@ -474,6 +515,7 @@ mod tests {
             // The consumed review is not re-armed: another Confirm needs a new review.
             let stale = Review {
                 ticket: submission.receipt.ticket.clone(),
+                cut: None,
             };
             assert!(fork.apply(Action::Confirm(stale), &context()).is_none());
             assert!(fork.pending().is_none());

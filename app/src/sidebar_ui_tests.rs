@@ -696,6 +696,7 @@ fn fork_row_action_requires_review_and_cancel_changes_nothing() {
     // Consent: Confirm is refused until this exact panel recorded a review.
     let forged = crate::fork::Review {
         ticket: ticket.clone(),
+        cut: None,
     };
     let _ = app.update(Message::Fork(crate::fork::Action::Confirm(forged)));
     assert!(app.fork.review().is_none());

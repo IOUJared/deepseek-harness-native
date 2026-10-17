@@ -180,7 +180,7 @@ impl App {
                 if context.allowed {
                     self.sidebar_organization.dismiss();
                     self.fork
-                        .apply(crate::fork::Action::Open { view }, &context);
+                        .apply(crate::fork::Action::Open { view, cut: None }, &context);
                 }
             }
             Action::Reload

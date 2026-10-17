@@ -6004,6 +6004,7 @@ impl App {
                     && view.generation == ticket.generation
                     && view.target == ticket.target
             });
+        let cut = self.fork.cut();
         let mut body = column![
             row![
                 label("Fork conversation", TEXT).size(22).width(Length::Fill),
@@ -6014,12 +6015,25 @@ impl App {
             .spacing(10),
             label(format!("From: {}", short(&source, 60)), MUTED).size(11),
             label(
-                "Creates a new child session from the latest completed turn. It never sends a chat message, renames the source, stops work or deletes history.",
+                if cut.is_some() {
+                    "Creates a new child session ending at the selected reply, inclusive. It never sends a chat message, renames the source, stops work or deletes history."
+                } else {
+                    "Creates a new child session from the latest completed turn. It never sends a chat message, renames the source, stops work or deletes history."
+                },
                 MUTED
             )
             .size(11),
         ]
         .spacing(10);
+        if let Some(cut) = cut {
+            body = body.push(
+                label(
+                    format!("Branch point: inclusive through seq {cut}."),
+                    ACCENT,
+                )
+                .size(11),
+            );
+        }
         if let Some(review) = self.fork.review() {
             body = body
                 .push(label("Confirm this fork", TEXT).size(13))
@@ -9518,6 +9532,23 @@ impl App {
                                     left: 0.0,
                                 }),
                             );
+                    }
+                    // The reference's turn tail carries a branch control beside copy
+                    // (`TurnTailNodeView.tsx:69` forks at `data.seq`). Native's reply
+                    // record key is its inclusive cut.
+                    if !human && let Ok(cut) = i64::try_from(record.key) {
+                        let fork = self.fork_context();
+                        if let Some(view) = fork.view.filter(|_| fork.allowed) {
+                            footer = footer.push(
+                                button(label("Branch", MUTED).size(10))
+                                    .on_press(Message::Fork(crate::fork::Action::Open {
+                                        view,
+                                        cut: Some(cut),
+                                    }))
+                                    .style(design::ghost)
+                                    .padding([1, 2]),
+                            );
+                        }
                     }
                     footer = footer.push(
                         button(label(ACTION_COPY, MUTED).size(glyph))
