@@ -3466,3 +3466,19 @@ the five above rather than missing work.
    captures rather than fires), the per-row buttons calling `apply`/`reset_all`, the confirmation,
    the overlay, and the trigger's call into this resolver — the part that touches the app's input
    handling, which the user asked to preserve, so it should be the last step and a small one.
+
+   **A model defect found before anything is built on it: a command holds a *list* of bindings, not
+   one.** Two independent sources say so. The reference's fixed rows carry an array —
+   `{ id: 'move', keys: ['↑','↓'], bindings: [{ code: 'ArrowUp', … }, { code: 'ArrowDown', … }] }`
+   (`ui-shortcuts/src/client/fixed.ts:12`) — and native's own disclosed list already prints
+   **"Enter / Ctrl+Enter"** for send, which is two bindings for one command. My `Entry` holds
+   `binding: Option<Binding>`, so it can express "cleared" and "set" but **not** the ordinary case
+   of a command with a primary and an alternate key.
+   Nothing is built on the single-binding shape yet — the store's tests, the resolver and the row
+   model all work on what is there — but the resolver would silently miss an alternate binding, so
+   the shape should be corrected **before** the editor is wired, not after. The change is small and
+   local to this module: `Entry.binding` becomes a list, `Edit::Set` carries an optional list (or
+   keeps one binding and gains an explicit "replace all" meaning), `matches` answers if *any*
+   binding answers, and `conflict` compares against every binding of every other command.
+   That is the next step, and it is the last design question in the store: every other operation,
+   rule and string the editor needs is already in tested code.
