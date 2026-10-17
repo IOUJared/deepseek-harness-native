@@ -3557,3 +3557,18 @@ the five above rather than missing work.
    The store and the model are complete: operations, copy, ordering, search index, code mapping,
    resolver, the reference's three fixed menu keys and this app's five. What remains is the wiring,
    and it is the only work left that touches input handling the user asked to preserve.
+
+   **The disclosure now renders from the app's own store, so the strings have one source.** Settings
+   carries a `keybindings: Store` seeded from `native_fixed()`, and the disclosure builds rows with
+   `keybindings::rows(&store, &catalog)` instead of the hardcoded table it used for two rounds. The
+   five labels live in a local catalog beside it — this app's own words for its own commands —
+   while the **keys** come from the bindings themselves, which makes the resolver and the
+   disclosure agree **by construction** rather than by a copied string.
+   The build needed one example-side declaration (the same `crate::keybindings` gap as the earlier
+   settings work, because the example compiles `settings.rs` from its own crate root), and the
+   format gate caught an unformatted file and **refused this commit once** — the round-164 rule
+   doing its job rather than being worked around.
+   Verified after formatting: fixture **1130** exit 0, default **1123** exit 0, format-debt 0, and
+   the `settings-general --shortcuts` capture reports **`passed: true`** with matching preset state
+   and control counts — the same frame as before, because the strings are identical by
+   construction (`shots/88-shortcuts-datadriven.png`).

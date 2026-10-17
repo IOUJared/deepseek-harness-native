@@ -18,6 +18,8 @@ mod exporter;
 mod fork;
 #[path = "../src/interactions.rs"]
 mod interactions;
+#[path = "../src/keybindings.rs"]
+mod keybindings;
 #[path = "../src/known.rs"]
 mod known;
 #[path = "../src/management.rs"]

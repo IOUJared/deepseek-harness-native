@@ -248,6 +248,9 @@ pub struct Settings {
     details_open: bool,
     /// Crate-visible so the fixture can open it without a press.
     pub(crate) shortcuts_open: bool,
+    /// The app's own bindings, seeded from the same list the input handling implements, so the
+    /// disclosure and the resolver share one source rather than a copy of the strings.
+    pub(crate) keybindings: crate::keybindings::Store,
     /// The permission default row's preset list is open.
     permission_open: bool,
     api_help_open: bool,
@@ -276,6 +279,7 @@ impl Default for Settings {
             info_generation: 0,
             details_open: false,
             shortcuts_open: false,
+            keybindings: crate::keybindings::Store::new(crate::keybindings::native_fixed()),
             permission_open: false,
             api_help_open: false,
             context_policy_open: false,
@@ -1073,21 +1077,34 @@ impl Settings {
             // row per command with its keys beside its label (`ui-shortcuts`' `Reference.tsx`,
             // whose groups are in product order at `:179` and whose rows carry label plus keys).
             // The store is not yet writable from this surface, so no row shows a modified marker.
-            const SHORTCUT_ROWS: [(&str, &str); 5] = [
-                ("Navigation", "Ctrl+B"),
-                ("Find in conversation", "Ctrl+F"),
-                ("Send non-empty text", "Enter / Ctrl+Enter"),
-                ("New line", "Shift+Enter"),
-                ("Close settings and panels", "Escape"),
+            // One source for both the strings and the keys: the store the resolver will read.
+            let catalog: Vec<(String, String, bool)> = vec![
+                ("fixed.navigation".to_owned(), "Navigation".to_owned(), true),
+                (
+                    "fixed.find".to_owned(),
+                    "Find in conversation".to_owned(),
+                    true,
+                ),
+                (
+                    "fixed.send".to_owned(),
+                    "Send non-empty text".to_owned(),
+                    true,
+                ),
+                ("fixed.newline".to_owned(), "New line".to_owned(), true),
+                (
+                    "fixed.close".to_owned(),
+                    "Close settings and panels".to_owned(),
+                    true,
+                ),
             ];
             // The reference's first group is `application` (`Reference.tsx:179`); its display
             // name is this app's own, since the group keys are internal to the reference.
             let mut rows = column![label("Application", MUTED).size(11)].spacing(4);
-            for (label_text, keys) in SHORTCUT_ROWS {
+            for entry in crate::keybindings::rows(&self.keybindings, &catalog) {
                 rows = rows.push(
                     row![
-                        label(label_text, TEXT).size(13).width(Length::Fill),
-                        label(keys, MUTED).size(11),
+                        label(entry.label, TEXT).size(13).width(Length::Fill),
+                        label(entry.keys, MUTED).size(11),
                     ]
                     .spacing(8)
                     .align_y(iced::Alignment::Center),
