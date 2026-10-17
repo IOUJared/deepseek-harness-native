@@ -3082,3 +3082,13 @@ vocabulary.**
    `shots/82-jobs-kill-controls-dp2.png` showing a `✕` on each of the four rows.
    **Not capture-verified:** the armed/confirmation state, which the fixture cannot reach until it
    arms a row — a one-line fixture flag, and the next step.
+
+   **The armed state is captured, so the kill has no unverified surface left.**
+   `shots/83-jobs-kill-armed-dp2.png` shows the panel's foot reading **"Stop task Run the test
+   suite"** and **"Click again to confirm"** in `GOLD` — the reference's own `kill.stop` and
+   `kill.confirm` strings with the label substituted (`ui-jobs/src/client/locales.ts:61-64`) —
+   with the four rows above it carrying their `✕` controls. The fixture arms the first row while
+   seeding jobs, because the unarmed rows already have their own capture at `shots/82-…`.
+   Verified: fixture **1114** exit 0, default **1107** exit 0, format-debt 0.
+   That closes the kill — transport, worker, two-click rule, refusal line and both visual states —
+   leaving only the output expansion, which needs the follow stream the row's chevron would open.

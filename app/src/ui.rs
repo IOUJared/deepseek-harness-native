@@ -5092,9 +5092,10 @@ impl App {
                 owner: None,
                 status: status.to_owned(),
             };
-        // The panel is opened in the fixture: the closed action state has its own capture, and
-        // the panel cannot be captured while it is shut.
+        // The panel is opened in the fixture, and the first row is armed: the closed action state
+        // and the unarmed rows both have their own captures.
         self.jobs_open = true;
+        self.jobs_armed = Some("shell-1".to_owned());
         self.jobs = vec![
             row("shell-1", "shell", "Run the test suite", "running"),
             row("build-2", "build", "Build the release binary", "stopping"),
