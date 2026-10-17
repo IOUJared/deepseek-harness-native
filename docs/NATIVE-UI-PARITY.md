@@ -2538,3 +2538,21 @@ state, which needs a Host that advertises that namespace.
    than by scripted insertion, and with the fixture capture following it.
    No other part of jobs is unplanned; the panel comes after, and its row form, copy and states
    are all recorded.
+
+13. **Team navigation is named by a comment, not registered as a row — so it is not a build
+   item.** The audit listed it because `ui-subagent`'s registration comment says its lineage row
+   "leads the band, directly after the title crumbs", "ahead of Team navigation (-20) and the
+   preset label (-10)" (`ui-subagent/src/client/index.ts:83-92`). Following that name: the only
+   packages registering `conversation.session.header.actions` are `ui-agent-preset`, `ui-jobs`,
+   `ui-subagent` and `ui-sidebar-terminal` — and the last one's registration is **commented out
+   in the reference itself**. There is no team package, and no `order: -20` registration in that
+   slot anywhere in `packages/client`; the only `-20` in a client index is the permission
+   settings row in a different slot entirely (`ui-permission-presets/src/client/index.ts:162`).
+   So "Team navigation" is either part of `ui-subagent` itself or a built-in of the conversation
+   view rather than a plugin row, and it cannot be treated as an item with a registration to
+   match. Recorded as a **negative finding**, the third of its kind after the wide-table
+   scrollbar and the Core dispatch: the name appears in prose, the thing does not appear in the
+   registrations.
+   Settling step: if the header band is revisited, look for team navigation inside `ui-subagent`
+   or the conversation view's own code — not as a slot registration, which is where three rounds
+   of greps have already looked.
