@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- [All-targets fixture repair](<docs/VERIFICATION.md>): `--suite clippy` compiles every app target, and twelve fixture examples had drifted from the App's shared module set (`crash_log`, `goal_ui`, `keybindings`, `queue_dock`, `queue_update`, `single_instance`), so the clippy gate failed on unresolved imports rather than lint findings. All twelve now mirror `layout_smoke`; the geometry probe wraps `ui.rs` and re-exports only the cache it drives, with its two calls updated to the current signature. The suite passes all three checks, and the docs now record that the 2026-10-11 "App 0" `-D warnings` figure is historical.
+
 - [Chooser reply validation](<docs/NATIVE-LIVE-VERIFICATION.md>): `directoryPicker/pick` now has a fake-wire test. It takes no arguments and answers one absolute path or `null` on cancel; missing, blank, non-string and oversized replies are refused as malformed rather than treated as a cancel. The native chooser remains unreachable on the app's browse-composed Host; this pins the contract the fallback falls back from.
 
 - [Scroll fixture repair](<docs/NATIVE-APP-SCROLL-INTEGRATION.md>): the `scroll_app_smoke` example had drifted from the App's module set (`crash_log`, `goal_ui`, `keybindings`, `queue_dock`, `queue_update` missing), so the suite's scroll gate failed with 82 compile errors before running anything. Its includes now mirror the shared App modules; the example compiles and runs 1214 passed / 1 ignored. Only `wayland-drops` remains red, on a missing offline crate cache entry rather than source.

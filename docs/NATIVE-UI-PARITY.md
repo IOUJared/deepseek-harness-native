@@ -6463,3 +6463,35 @@ pins the native-composition contract the app falls back from.
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
 
+### Round 320 — every fixture example compiles under all targets
+
+**`--suite clippy` compiles `app --all-targets --all-features`, and twelve fixture targets had
+drifted from the App.** Eleven composed smoke examples and `chat_geometry_probe` did not declare
+`crash_log`, `goal_ui`, `keybindings`, `queue_dock`, `queue_update` or `single_instance`, so the
+shared `ui.rs`/`worker.rs`/`reducer.rs` sources failed to resolve (`crate::queue_update`,
+`crate::keybindings`, `crate::design`, …). The suite reported compile errors, not lint findings.
+All twelve now declare the same shared set as `layout_smoke`; the geometry probe additionally
+includes `ui.rs` inside a wrapper and re-exports only `chat_geometry::Cache`, which keeps the
+cache's module ancestry identical to the App and updates its two stale `geometry(…)` calls to the
+current five-argument signature.
+
+`python3 -B scripts/verify-native.py --suite clippy` now passes all three checks (core, transport,
+app). `docs/VERIFICATION.md` records the include rule and a dated drift note: the 2026-10-11
+"App 0" `-D warnings` figure is historical, the bin currently reports 20 rustc dead-code warnings
+and 36 clippy findings under `-D warnings`, and the suite still denies only its three named lints.
+
+**Remainder.** `wayland-drops` is still red on the missing offline `as-raw-xcb-connection v1.0.1`
+cache entry. No UI, wire or capture changed in this round.
+
+**Battery (round 320).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1210 passed**, 1 ignored |
+| app, default | **0** | **1203 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 84 + 7 |
+| core (`--lib`) | **0** | **112 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| tree | — | clean before the commit |
