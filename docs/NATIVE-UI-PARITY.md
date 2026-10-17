@@ -4089,3 +4089,21 @@ own frames: `shots/87-…` (rows), `shots/89-…` (the count line with a cleared
    documented as legacy; it is not a blocker either way.
    Recorded because acting on round 242 as written would have spent a round renaming ids to fix a
    problem that did not exist — the correction needed a correction, and the test said so.
+
+   **The per-row Remove was attempted and reverted, and the round measured a real limit.** Two edits
+   went in — `Action::ClearShortcut(String)` beside `TogglePermissionDefault`, and a
+   `button(COPY_CLEAR)` on the Host command rows inside the `row![]` — and the first build failed
+   with "this method takes 1 argument but 2 arguments were supplied" because the button had landed
+   **after** the `row!` closed instead of inside it. The fix needed the row's current tail text; I
+   wrote it from the pre-formatting version, `cargo fmt` had already reshaped it, and the assertion
+   aborted with the broken edit still on disk. `git checkout` restored the file.
+   That is the **eighth structural edit reverted**, and unlike the previous seven it was not a
+   wrong idea: **the design is settled** (`Remove` sends `Edit::Set { binding: None }` through the
+   revision-guarded `apply`, `Reset` sends `Edit::Reset`, the count line and empty keys follow by
+   construction) and the *first* edit landed cleanly. What failed was **transcribing a formatted
+   widget tree from memory at the end of a spent context** — the same class as the six anchor misses,
+   now with four tool calls spent instead of one.
+   The lesson for the next attempt is narrower than "read first": **read the row's current tail
+   immediately before editing it, in the same call, and do not run `cargo fmt` between two scripts
+   that must agree on the text.** Both halves of that are mechanical, and both are why this round
+   ends with a clean tree instead of a wrong button.
