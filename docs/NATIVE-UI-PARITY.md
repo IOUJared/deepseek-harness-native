@@ -3333,3 +3333,17 @@ the five above rather than missing work.
    Verified: fixture **1124** exit 0 (ten keybinding tests), default **1117** exit 0, format-debt 0.
    What is left is the rendering: the settings row, the overlay, the per-row actions and the
    confirmation, with every string and rule now in code.
+
+   **The shortcuts disclosure draws rows now, in the reference's shape — and its capture is
+   unverified.** Where the row in Settings → General printed one blob of newline-joined text, it
+   now prints a group heading and **one row per command with its keys beside its label**, which is
+   how the reference's `Reference.tsx` draws them (`:179` groups in product order, rows carrying
+   label plus keys). The bindings are native's own five — `Ctrl+B` navigation, `Ctrl+F` find,
+   `Enter`/`Ctrl+Enter` send, `Shift+Enter` new line, `Escape` close — because the *content* is
+   this app's while the *shape* is the reference's.
+   Verified: fixture **1124** exit 0, default **1117** exit 0, format-debt 0. **Not verified:** the
+   rendered result, because the settings surface needs a fixture mode and flags I could not
+   reconstruct from the documents in front of me — `--settings true` with `general` and `settings`
+   modes both reported "all attempts failed". The next round should read the example's accepted
+   `--mode` values and flags rather than guess them, exactly as the earlier fixture rejections
+   demanded.

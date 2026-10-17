@@ -1068,7 +1068,31 @@ impl Settings {
         }
         body = body.push(self.info_button(Info::Shortcuts, "Shortcuts", self.shortcuts_open));
         if self.shortcuts_open {
-            body = body.push(label("Ctrl+B · navigation\nCtrl+F · find in conversation\nEnter · send non-empty text (Ctrl+Enter also works)\nShift+Enter · new line\nEscape · close settings and panels", TEXT));
+            // The same bindings, drawn the way the reference draws them: a group heading and one
+            // row per command with its keys beside its label (`ui-shortcuts`' `Reference.tsx`,
+            // whose groups are in product order at `:179` and whose rows carry label plus keys).
+            // The store is not yet writable from this surface, so no row shows a modified marker.
+            const SHORTCUT_ROWS: [(&str, &str); 5] = [
+                ("Navigation", "Ctrl+B"),
+                ("Find in conversation", "Ctrl+F"),
+                ("Send non-empty text", "Enter / Ctrl+Enter"),
+                ("New line", "Shift+Enter"),
+                ("Close settings and panels", "Escape"),
+            ];
+            // The reference's first group is `application` (`Reference.tsx:179`); its display
+            // name is this app's own, since the group keys are internal to the reference.
+            let mut rows = column![label("Application", MUTED).size(11)].spacing(4);
+            for (label_text, keys) in SHORTCUT_ROWS {
+                rows = rows.push(
+                    row![
+                        label(label_text, TEXT).size(13).width(Length::Fill),
+                        label(keys, MUTED).size(11),
+                    ]
+                    .spacing(8)
+                    .align_y(iced::Alignment::Center),
+                );
+            }
+            body = body.push(rows);
         }
         // Why the harness is configured this way, from the harness-design study;
         // live numbers stay in the composer, which reads the Host's own report.
