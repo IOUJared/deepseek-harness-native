@@ -539,6 +539,15 @@ async fn next_selected(
         None => std::future::pending().await,
     }
 }
+async fn next_jobs(
+    stream: &mut Option<NativeStream<dsh_native_transport::dto::JobListFrame>>,
+) -> Option<dsh_native_transport::Result<dsh_native_transport::dto::JobListFrame>> {
+    match stream {
+        Some(stream) => stream.next().await,
+        None => std::future::pending().await,
+    }
+}
+
 async fn next_terminal(
     stream: &mut Option<NativeStream<dsh_native_transport::terminal::TerminalFrame>>,
 ) -> Option<dsh_native_transport::Result<dsh_native_transport::terminal::TerminalFrame>> {
@@ -2282,6 +2291,7 @@ async fn run(
             },
             event=next_workspaces(&mut workspaces),if workspaces.is_some()=>match event {Some(Ok(event))=>if !publish(&events,Event::Workspace(event)){break Some("Native UI delivery queue overflow".into());},Some(Err(_))|None=>{drop_observations(&mut root,&mut workspaces,&mut selected,&mut terminal,&mut mux).await;observations_live=false;files.invalidate();selected_file_target=None;selected_target=None;for key in live_decisions.drain(..){decisions.cancel(&key.event_id);}if !publish(&events,Event::ObservationsLost){break Some("Native UI delivery queue overflow".into());}}},
             event=next_selected(&mut selected)=>match event {Some(Ok(frame))=>{if let SessionFollowFrame::Snapshot{header,..}=&frame {selected_file_target=file_receiver(header,selected_target.as_ref());if selected_file_target.is_none(){files.invalidate();}}if !publish(&events,Event::Selected{generation,frame}){break Some("Native UI delivery queue overflow".into());}},Some(Err(e))=>{files.invalidate();selected_file_target=None;selected=None;selected_target=None;if !publish(&events,Event::FollowError{generation,error:format!("Session stream: {e}")}){break Some("Native UI delivery queue overflow".into());}},None=>{files.invalidate();selected_file_target=None;selected=None;selected_target=None;if !publish(&events,Event::FollowError{generation,error:"Session stream closed; reload session".into()}){break Some("Native UI delivery queue overflow".into());}}},
+            jobs_event=next_jobs(&mut jobs),if jobs.is_some()=>match jobs_event {Some(Ok(frame))=>{if !publish(&events,Event::JobsRows(frame.jobs)){break Some("Native UI delivery queue overflow".into());}},Some(Err(e))=>{jobs=None;if !publish(&events,Event::FollowError{generation,error:format!("Jobs list: {e}")}){break Some("Native UI delivery queue overflow".into());}},None=>{jobs=None;}},
             event=next_terminal(&mut terminal),if terminal.is_some()=>match event {Some(Ok(frame))=>{if let Some(ticket)=terminal_ticket.clone()&& !publish(&events,Event::TerminalFrame{ticket,frame}){break Some("Native UI delivery queue overflow".into());}},Some(Err(_))|None=>{let ticket=terminal_ticket.take();terminal=None;if let Some(ticket)=ticket&& !publish(&events,Event::TerminalFollowEnded{ticket,failure:Some(crate::terminal::ReadFailure::Unavailable)}){break Some("Native UI delivery queue overflow".into());}}},
             event=core_rx.recv()=>match event {Some(event)=>{if let PublicEvent::Codex(metadata)=&event {codex.observe(*metadata);}if let PublicEvent::CloudflareAuth(status)=&event {cloudflare.observe(status.clone());cloudflare_worker::dispatch_cancel(&mut cloudflare,&backend,&mut tasks);}let exited=matches!(&event,PublicEvent::Exited(_));if !publish(&events,Event::Core(event)){break Some("Native UI delivery queue overflow".into());}if exited {break Some("Owned Core exited".into());}},None=>break Some("Core event stream closed".into())},
             download=next_download(&mut export_download),if export_download.is_some()=>{

@@ -2662,3 +2662,16 @@ Since the round-145 update, all local and unpushed, gates green at each commit:
    What remains is one group: `next_jobs` beside `next_selected` and the select arm at `:2261`
    that publishes `Event::JobsRows`/`Event::JobsFollow` — both already applied by the app.
    Until then the stream is opened and unread, which is a warning rather than a pretence.
+
+   **The jobs data path is complete end to end.** `next_jobs` mirrors `next_selected` — including
+   the `std::future::pending().await` when the stream is absent, which is what lets a select arm
+   poll it unconditionally — and the select arm was added in the macro's **conditional form**,
+   `jobs_event=next_jobs(&mut jobs),if jobs.is_some()`, exactly as the terminal panel does
+   (`worker.rs:2286`, `:2294`). It publishes `Event::JobsRows(frame.jobs)` on a frame, and on an
+   error or a closed stream it clears `jobs` and reports `Event::FollowError` the way the follow
+   stream does.
+   So jobs now travels **transport → mux → worker open → worker select → app events → app
+   state**, with the list replaced wholesale and the follow frames applied per job. What is left
+   is the panel itself (item 12) and the follow stream, which only its expansion needs — the
+   list stream is all the rows require, which is why the rows path could be finished first.
+   Verified: fixture **1114** exit 0, default **1107** exit 0, format-debt 0.
