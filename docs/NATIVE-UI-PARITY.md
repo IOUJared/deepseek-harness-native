@@ -3282,3 +3282,15 @@ the five above rather than missing work.
    conflict. Verified: fixture **1119** exit 0 (five new), default **1107** exit 0, format-debt 0.
    What remains of the feature is the editor itself — capture, the catalog view, the overlay and
    the `primary + /` trigger — now writing through a store whose behaviour is specified and tested.
+
+   **The fixed built-ins are read and modelled, so the editor's list has both halves.** The
+   reference fixes exactly three — `move` (↑/↓), `select` (Enter) and `dismiss` (Esc), all in the
+   `menus` group (`ui-shortcuts/src/client/fixed.ts:10-16`) — and prefixes their ids `fixed.` so an
+   editor can tell them from catalog commands. `keybindings::fixed()` carries the same three with
+   their display glyphs and codes, and a test asserts both the list and the consequence: an edit
+   naming a `fixed.` id falls outside the catalog and is refused as `Unknown` rather than silently
+   ignored.
+   That completes the editor's inputs — a **catalog** from the Host (already reachable through the
+   transport's `commands_list`) and a **fixed** list in the app — beside the store's tested
+   behaviour. What remains is the editor's rendering and its capture step, not its data.
+   Verified: fixture **1120** exit 0, default **1113** exit 0, format-debt 0.

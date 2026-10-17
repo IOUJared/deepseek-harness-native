@@ -129,6 +129,18 @@ impl Store {
     }
 }
 
+/// The built-ins the reference fixes rather than reading from the catalog
+/// (`ui-shortcuts/src/client/fixed.ts:10-16`): three menu keys, each with a display glyph and a
+/// code, in the `menus` group. Their ids are prefixed `fixed.` in the reference so an editor can
+/// tell them from catalog commands, and they cannot be rebound.
+pub fn fixed() -> [(&'static str, &'static str, &'static str); 3] {
+    [
+        ("fixed.move", "↑/↓", "ArrowUp/ArrowDown"),
+        ("fixed.select", "Enter", "Enter"),
+        ("fixed.dismiss", "Esc", "Escape"),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -224,6 +236,26 @@ mod tests {
             }
         );
         assert_eq!(store.revision(), 0);
+    }
+
+    #[test]
+    fn the_fixed_built_ins_are_the_reference_three() {
+        let fixed = fixed();
+        assert_eq!(fixed.len(), 3);
+        assert_eq!(fixed[0].0, "fixed.move");
+        assert_eq!(fixed[1].2, "Enter");
+        assert_eq!(fixed[2].2, "Escape");
+        // A fixed id is outside any catalog, so the store refuses an edit that names one.
+        let mut store = store();
+        assert!(matches!(
+            store.apply(
+                Edit::Reset {
+                    id: "fixed.select".to_owned()
+                },
+                0
+            ),
+            Outcome::Unknown { .. }
+        ));
     }
 
     #[test]
