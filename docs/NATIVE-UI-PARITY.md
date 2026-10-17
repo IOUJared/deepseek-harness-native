@@ -3092,3 +3092,25 @@ vocabulary.**
    Verified: fixture **1114** exit 0, default **1107** exit 0, format-debt 0.
    That closes the kill — transport, worker, two-click rule, refusal line and both visual states —
    leaving only the output expansion, which needs the follow stream the row's chevron would open.
+
+   **The output expansion: the plan, with the list stream's own anchors as the template.**
+   The app side is already in place — `Event::JobsFollow(JobFollowFrame)` exists, its handler
+   applies `Opened`/`Status` to one row and **explicitly ignores `Output`** with a comment saying
+   the expansion does not exist yet. So what is missing is one worker stream and one UI state:
+   - **worker** (three placements, exactly as the list stream has them): a
+     `job_output: Option<NativeStream<JobFollowFrame>>` local beside `jobs`; retirement beside the
+     list stream's retirement in the `Command::Select` arm; and a select arm beside the list's
+     `jobs_event=next_jobs(&mut jobs)` arm, publishing `Event::JobsFollow(frame)` — with
+     `next_job_output` mirroring `next_jobs` including its `pending()` when absent.
+     The *open* differs from the list's: the follow stream is per **job**, so it is opened when a
+     row expands, not when the session is selected — which means the open belongs beside
+     `Message::ToggleJobs`-style app input rather than in the selection arm, or as a command the
+     row's chevron sends.
+   - **UI**: the row's chevron becomes a control that expands one row at a time; the expanded area
+     renders the job's output buffer, with the reference's own copy for the two edge cases —
+     `output.gap` "… earlier output dropped …" when a frame's `lossy` flag is set, and
+     `output.error` "live output stream interrupted: {error}" when the stream fails
+     (`ui-jobs/src/client/locales.ts:75-76`). `output.chunks` stays unprojected JSON until
+     `JobChunk`'s fields are read, so the first version would render nothing until that read.
+   That is the whole remainder of jobs, and every part of it now has either a neighbour in this
+   repository or a quoted string from the reference.
