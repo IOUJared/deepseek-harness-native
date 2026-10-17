@@ -168,6 +168,8 @@ struct Options {
     subagent_expanded: bool,
     /// Register one pending approval, so the sidebar status is captured.
     pending_approval: bool,
+    /// Set the busy-state Enter preference (`queue` or `steer`).
+    busy_enter: Option<String>,
     /// Open the shortcuts disclosure, so its rows are captured.
     shortcuts: bool,
 }
@@ -269,6 +271,7 @@ fn options() -> Result<Options, &'static str> {
             "--subagent-menu",
             "--subagent-expanded",
             "--pending-approval",
+            "--busy-enter",
             "--agent-seat-error",
             "--settings",
             "--scrolled-away",
@@ -386,6 +389,7 @@ fn options() -> Result<Options, &'static str> {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
+        busy_enter: values.remove("--busy-enter"),
         commands: match values.remove("--commands") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
@@ -745,6 +749,11 @@ impl Fixture {
         }
         if options.pending_approval {
             app.seed_pending_approval();
+        }
+        if let Some(raw) = &options.busy_enter
+            && let Some(value) = ui::settings_busy_enter(raw)
+        {
+            app.set_busy_enter(value);
         }
         if options.scrolled_away {
             app.set_scrolled_away(true);

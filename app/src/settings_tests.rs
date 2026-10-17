@@ -240,6 +240,18 @@ fn disconnect_ignores_late_success_and_clears_draft() {
     assert_eq!(SaveResult::from_core(Ok(false)), SaveResult::Refused);
 }
 #[test]
+fn the_busy_enter_preference_has_two_values_and_only_steer_is_stored() {
+    assert_eq!(BusyEnter::parse("queue"), Some(BusyEnter::Queue));
+    assert_eq!(BusyEnter::parse(" steer "), Some(BusyEnter::Steer));
+    assert_eq!(BusyEnter::parse("steer-all"), None);
+    assert_eq!(BusyEnter::default(), BusyEnter::Queue);
+    assert_eq!(BusyEnter::Queue.stored(), None);
+    assert_eq!(BusyEnter::Steer.stored(), Some("steer"));
+    assert_eq!(BusyEnter::Queue.label(), "Queue");
+    assert_eq!(BusyEnter::Steer.label(), "Steer");
+    assert_eq!(BusyEnter::Queue.other(), BusyEnter::Steer);
+}
+#[test]
 fn category_navigation_is_local_and_clears_hidden_secret_edits() {
     let mut state = opened();
     edit(&mut state, "PUBLIC_UNSAVED");

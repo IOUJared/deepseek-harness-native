@@ -716,6 +716,9 @@ pub struct App {
     width_handle_glow: bool,
     /// The transcript content size, defaulting to the web's own default.
     content_font_size: f32,
+    /// What Enter/Send do while the agent is running: queue the next turn (default) or steer
+    /// the running one. Persisted in the layout namespace.
+    busy_enter: crate::settings::BusyEnter,
     workspace_path: String,
     workspace_controls: bool,
     filter: String,
@@ -901,6 +904,9 @@ impl App {
         let content_font_size = stored(draft_store::LAYOUT_CONTENT_SIZE)
             .and_then(draft_store::parse_layout_size)
             .map_or(design::CONTENT_FONT_DEFAULT, design::content_size);
+        let busy_enter = stored(draft_store::LAYOUT_BUSY_ENTER)
+            .and_then(crate::settings::BusyEnter::parse)
+            .unwrap_or_default();
         // Captured here, before `options` is consumed: a later field initializer
         // cannot borrow it. Smoke runs keep `None` so they never write a profile.
         let native_home = options
@@ -973,6 +979,7 @@ impl App {
                 hover_all_activities: false,
                 width_handle_glow: false,
                 content_font_size,
+                busy_enter,
                 workspace_path,
                 workspace_controls: false,
                 filter: String::new(),
@@ -1549,6 +1556,10 @@ impl App {
                 } else {
                     draft_store::format_layout_size(self.content_font_size)
                 },
+            ),
+            (
+                draft_store::LAYOUT_BUSY_ENTER,
+                self.busy_enter.stored().map(str::to_owned),
             ),
         ] {
             let Ok(entry) = SessionId::new(key) else {
@@ -2723,6 +2734,13 @@ impl App {
                 // whose wildcard would otherwise absorb them: a button whose arm sits after a
                 // catch-all compiles and does nothing, which is how this surface was once inert.
                 match &action {
+                    crate::settings::Action::BusyEnter(value) => {
+                        if self.busy_enter != *value {
+                            self.busy_enter = *value;
+                            self.save_layout_preference();
+                        }
+                        return Task::none();
+                    }
                     crate::settings::Action::CaptureShortcut(id) => {
                         self.settings.capture_for = Some(id.clone());
                         self.settings.capture_error = None;
@@ -3672,7 +3690,10 @@ impl App {
         ))
         .unwrap();
         let context = self.file_context();
-        let file_tickets = if self.files.has_file(&context) {
+        // The attachment admission is Queue-only (its own Host command), so a staged file
+        // keeps the busy preference on Queue; steering is the text-only path for now.
+        let has_files = self.files.has_file(&context);
+        let file_tickets = if has_files {
             match self.files.begin_prompt(&context, request_id.clone()) {
                 Some(tickets) => Some(tickets),
                 None => {
@@ -3683,10 +3704,21 @@ impl App {
         } else {
             None
         };
+        let running = self
+            .selected
+            .as_ref()
+            .and_then(|id| self.sessions.get(id))
+            .is_some_and(|summary| summary.running);
+        let mode = if running && !has_files && self.busy_enter == crate::settings::BusyEnter::Steer
+        {
+            PromptMode::Steer
+        } else {
+            PromptMode::Queue
+        };
         let request = SessionPromptRequest {
             request_id: request_id.clone(),
             session_id: session.clone(),
-            mode: PromptMode::Queue,
+            mode,
             content: if value.is_empty() {
                 Vec::new()
             } else {
@@ -5279,6 +5311,7 @@ impl App {
             models,
             loading: self.catalog_read.pending(),
             failed: self.model_controls.catalog_is_failed(),
+            busy_enter: self.busy_enter,
         }
     }
     /// The content-size delta for the body tier, and for the secondary tier that
@@ -5381,6 +5414,12 @@ impl App {
             },
             0,
         );
+    }
+
+    /// Fixture-only: set the busy-state Enter preference, which a real run changes in Settings.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn set_busy_enter(&mut self, value: crate::settings::BusyEnter) {
+        self.busy_enter = value;
     }
 
     /// Fixture-only: register one pending approval for the selected session, so the sidebar's
@@ -7632,9 +7671,22 @@ impl App {
             .push(
                 container(
                     button(
-                        text(if sending { "Sending…" } else { "Send ↑" })
-                            .font(FONT)
-                            .size(13),
+                        text(if sending {
+                            "Sending…"
+                        } else if self.busy_enter == crate::settings::BusyEnter::Steer
+                            && !self.files.has_file(&self.file_context())
+                            && self
+                                .selected
+                                .as_ref()
+                                .and_then(|id| self.sessions.get(id))
+                                .is_some_and(|summary| summary.running)
+                        {
+                            "Steer message ↑"
+                        } else {
+                            "Send ↑"
+                        })
+                        .font(FONT)
+                        .size(13),
                     )
                     .on_press_maybe(allowed.then_some(Message::Send))
                     .style(design::primary)
@@ -7691,10 +7743,19 @@ impl App {
             content: card.into(),
             on_press: Message::ComposerFocus,
         });
+        let steering = self.busy_enter == crate::settings::BusyEnter::Steer
+            && !self.files.has_file(&self.file_context())
+            && self
+                .selected
+                .as_ref()
+                .and_then(|id| self.sessions.get(id))
+                .is_some_and(|summary| summary.running);
         let hint = if self.options.smoke.is_some() {
             "Keyless preview · sending disabled"
         } else if self.compact() {
             "Shift+Enter · new line"
+        } else if steering {
+            "Enter to steer · Shift+Enter for a new line"
         } else {
             "Enter to send · Shift+Enter for a new line"
         };
@@ -11431,6 +11492,11 @@ const STOP_SEQUENCE_WINDOW: Duration = Duration::from_millis(500);
 
 /// Wall-clock milliseconds for a running child's active duration. The projection's `since` and
 /// `through` are epoch milliseconds; a pre-epoch clock yields 0, which formats as "0s".
+/// The busy-state Enter preference parser, exposed for the public fixture's flag.
+pub(crate) fn settings_busy_enter(raw: &str) -> Option<crate::settings::BusyEnter> {
+    crate::settings::BusyEnter::parse(raw)
+}
+
 fn now_millis() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -13230,6 +13296,40 @@ mod tests {
             .bindings("native.find")
             .expect("the row keeps a binding");
         assert_eq!(crate::keybindings::display(&binding[0]), "Ctrl+G");
+    }
+    #[test]
+    fn a_steer_preference_steers_a_send_while_the_session_runs() {
+        for (preference, expected) in [
+            (
+                crate::settings::BusyEnter::Steer,
+                dsh_native_transport::dto::PromptMode::Steer,
+            ),
+            (
+                crate::settings::BusyEnter::Queue,
+                dsh_native_transport::dto::PromptMode::Queue,
+            ),
+        ] {
+            let (mut app, mut receiver) = managed_app();
+            let session = app.selected.clone().unwrap();
+            app.sessions.get_mut(&session).unwrap().running = true;
+            app.follow_ready = true;
+            app.busy_enter = preference;
+            app.editor = text_editor::Content::with_text("PUBLIC queued message");
+            let _ = app.update(Message::Send);
+            let mut request = None;
+            while let Ok(command) = receiver.try_recv() {
+                if let Command::Prompt { request: sent, .. } = command {
+                    request = Some(sent);
+                    break;
+                }
+            }
+            let request =
+                request.unwrap_or_else(|| panic!("a running session accepts a second prompt"));
+            assert!(
+                matches!((request.mode, expected), (mode, expected) if std::mem::discriminant(&mode) == std::mem::discriminant(&expected)),
+                "{preference:?}"
+            );
+        }
     }
     #[test]
     fn the_header_lists_direct_children_and_opens_one() {

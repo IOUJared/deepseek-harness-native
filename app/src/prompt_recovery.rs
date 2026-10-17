@@ -83,9 +83,12 @@ impl Controller {
             || pending.text.len() > 32 * 1024
             || pending.request.session_id != pending.session
             || pending.epoch == 0
+            // Both prompt modes are admitted: recovery only reconciles the request id, and a
+            // steer is as idempotent as a queue on the Host.
             || !matches!(
                 pending.request.mode,
                 dsh_native_transport::dto::PromptMode::Queue
+                    | dsh_native_transport::dto::PromptMode::Steer
             )
             || !(pending.text.is_empty() && pending.request.content.is_empty()
                 || matches!(&pending.request.content[..],[dsh_native_transport::dto::PromptContentPart::Text{text}] if text==&pending.text))

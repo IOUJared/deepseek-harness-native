@@ -84,6 +84,45 @@ fn permission_display(current: &str, options: &[(String, String)]) -> String {
         .unwrap_or_else(|| current.to_owned())
 }
 
+/// What Enter and the Send button do while the agent is running.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BusyEnter {
+    /// Append the message to the next turn (the reference's default).
+    #[default]
+    Queue,
+    /// Steer the message into the running turn.
+    Steer,
+}
+impl BusyEnter {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Queue => "Queue",
+            Self::Steer => "Steer",
+        }
+    }
+    pub fn other(self) -> Self {
+        match self {
+            Self::Queue => Self::Steer,
+            Self::Steer => Self::Queue,
+        }
+    }
+    /// Parse the reserved layout value; unknown text falls back to the default at the caller.
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim() {
+            "queue" => Some(Self::Queue),
+            "steer" => Some(Self::Steer),
+            _ => None,
+        }
+    }
+    /// The stored form, or `None` for the default so the key is removed.
+    pub fn stored(self) -> Option<&'static str> {
+        match self {
+            Self::Queue => None,
+            Self::Steer => Some("steer"),
+        }
+    }
+}
+
 /// Backend-reported DeepSeek route facts for the Models page. Display only; the
 /// App owns the catalog read and the active selection.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -97,6 +136,8 @@ pub struct RouteFacts {
     /// The deployment's new-session permission default, or `None` when it exposes none —
     /// in which case the General page renders no row at all, as the reference does.
     pub permission: Option<PermissionDefault>,
+    /// The busy-state Enter preference (`settings.general.item` in the reference).
+    pub busy_enter: BusyEnter,
 }
 
 /// The General page's permission row: the deployment's new-session default, the revision a
@@ -209,6 +250,8 @@ pub enum Action {
     SessionLog(bool),
     /// Persists one new-session permission default; the App gates it on the descriptor.
     PermissionDefault(String),
+    /// Sets the busy-state Enter preference; the App owns and persists it.
+    BusyEnter(BusyEnter),
     Account(account::Action),
     Cloudflare(cloudflare::Action),
     Plugins(crate::plugins::Action),
@@ -1367,6 +1410,48 @@ impl Settings {
                 }
             }
         }
+        // The reference's busy-state Enter preference (`EnterBehaviorRow.tsx:30-47`): two
+        // options only, so a segmented pair stands in for its menu. Its description's
+        // Ctrl+Enter clause is deliberately absent: native keeps Ctrl+Enter as a send alias.
+        body = body
+            .push(label("Send behavior while busy", TEXT).size(13))
+            .push(label(
+                "What Enter and the Send button do while the agent is running.",
+                MUTED,
+            ))
+            .push(
+                row![
+                    button(
+                        label(
+                            "Queue",
+                            if route.busy_enter == BusyEnter::Queue {
+                                TEXT
+                            } else {
+                                MUTED
+                            }
+                        )
+                        .size(13)
+                    )
+                    .on_press(Action::BusyEnter(BusyEnter::Queue))
+                    .style(design::ghost)
+                    .padding([4, 8]),
+                    button(
+                        label(
+                            "Steer",
+                            if route.busy_enter == BusyEnter::Steer {
+                                TEXT
+                            } else {
+                                MUTED
+                            }
+                        )
+                        .size(13)
+                    )
+                    .on_press(Action::BusyEnter(BusyEnter::Steer))
+                    .style(design::ghost)
+                    .padding([4, 8]),
+                ]
+                .spacing(6),
+            );
         // The reference's `ui-settings-session-log` row is one labelled switch, not the plugin
         // namespace editor (`UploadRow.tsx:31-39`): title, description and the single boolean
         // the Host advertises. Nothing is drawn when the namespace or its field is absent.

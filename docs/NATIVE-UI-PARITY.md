@@ -14,8 +14,9 @@ searchable list and its refused-capture states (`shots/87-…` through `102-…`
 dropdown** (`shots/104-…`, `105-…`); the **one-shot child's read-only composer** (`shots/106-…`);
 the sidebar's **subagent rows and running-child count** (`shots/107-…`); the child header's
 **sibling switcher** (`shots/108-…`, `109-…`) with **nested catalog branches and row metrics**
-(`shots/110-…`, `111-…`); the selected row's **pending-interaction status** (`shots/112-…`); and
-**keys as data**, so the store's five commands drive the live chain instead of a hardcoded map.
+(`shots/110-…`, `111-…`); the selected row's **pending-interaction status** (`shots/112-…`); the
+**busy-state Enter preference** with text steering (`shots/113-…`, `114-…`); and **keys as data**, so
+the store's five commands drive the live chain instead of a hardcoded map.
 
 **Read this before trusting the list above.** Round 257 found that the editor's per-row actions,
 the permission default row and eight Host-event handlers were **unreachable behind two catch-all
@@ -28,12 +29,13 @@ same shape in the `Ctrl+/` trigger: it opened the account page and the open path
 disclosure, so the editor was never shown; the trigger's "captured" evidence had gone through the
 fixture's direct `set_settings_open`, not the press.
 
-**Next, in one step:** the **other sessions'** pending statuses and the completion-unread marker.
-Native now shows the selected session's pending decision; the reference's status controller covers
-every session it follows and keeps `completionUnread` for a stop observed in the background. That
-needs a per-session status source — the list DTO carries no such field today — so the next step is
-to size a status feed, not to draw a badge on data the app does not have. The settings/rename
-editable menu is **toolkit-blocked**, recorded below, not a candidate.
+**Next, in one step:** the **queue dock** — the reference's list of messages queued for the next
+turn, with its count header, previews and per-item edit/remove/steer actions
+(`ui-conversation/src/client/queue/QueueDock.tsx`). Native already admits a Queue prompt while the
+agent runs, but shows no dock and holds no queue item model. Size the Host's queue-mutation methods
+before drawing the dock; a read-only count is a smaller first slice. The two larger audit findings —
+queue-item mutation and `@` mentions — are sized below. The settings/rename editable menu is
+**toolkit-blocked**, recorded below, not a candidate.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -4988,3 +4990,63 @@ same gap blocks the reference's `completionUnread` marker. Neither is claimed.
 One test was added: `the_pending_status_uses_the_reference_copy` (empty, then an approval through
 the test-available `add` path, so both app profiles compile it). Capture 112 is the visible
 counterpart.
+
+### Round 270 — the busy-state Enter preference, and an audit of four unlisted gaps
+
+**The General page now carries the reference's busy-state send preference.** A
+"Send behavior while busy" row offers **Queue** (the default) and **Steer**; the value persists in
+the layout namespace under `layout.busyEnter` (`draft_store::LAYOUT_BUSY_ENTER`), and an absent key
+means Queue. While the selected session is running, a text-only send uses `PromptMode::Steer` when
+Steer is chosen, otherwise `PromptMode::Queue`; the Send control reads **"Steer message ↑"** and the
+composer hint **"Enter to steer · Shift+Enter for a new line"**. Prompt recovery now admits both
+modes (it reconciles the request id, and a steer is as idempotent as a queue). A staged attachment
+keeps the path on Queue, because the attachment admission is its own Queue-only command; the
+control and hint follow that gate, so the label never claims a steer that would queue.
+`shots/113-settings-busy-enter.png` is the row with Steer chosen and
+`shots/114-composer-steer.png` the running composer showing the steer label and hint; both reports
+are `status: passed`.
+
+**Deliberate difference.** The reference's description promises that Cmd/Ctrl+Enter performs the
+other behavior; native keeps Ctrl+Enter as the send alias the user confirmed, so its description
+drops that clause and the segmented pair replaces the reference's two-item menu.
+
+**Audit: four reference capabilities native lacked, sized.** A read-only pass over
+`ui-conversation` and `ui-chat` found four undocumented gaps. The first two are this round's
+item; the other two are recorded here rather than half-built:
+
+1. **Busy send behavior / steering — landed.** Reference
+   `ui-conversation/src/client/settings/EnterBehaviorRow.tsx:30-47` plus
+   `contract/composer-submission.ts`; native previously always sent Queue.
+2. **Steer one message — landed for text.** Reference `locales.ts:391` (`input.send.steer`) and
+   the steer path; native now sends `PromptMode::Steer` for a running turn. Steering **all
+   queued** messages from an empty draft is **not** built — it needs the queue item model.
+3. **Queue dock — L, open.** `ui-conversation/src/client/queue/QueueDock.tsx:185,300-310,393`:
+   a collapsible count header, per-item preview/edit/save/cancel/remove/steer, and a "Sending…"
+   row. Native has no dock and no queue-item store; the transcript only shows queued splices as
+   records. The Host's queue mutation methods must be read before drawing it.
+4. **`@` mentions — L, open.** `ui-conversation/src/client/input/facade.ts:173-176` and
+   `locales.ts:391` (`shortcut.mention`): type `@` to insert a file or session reference chip.
+   Native's completion only parses a leading `/` (`command_menu.rs:60-66`); chips need a
+   reference-lexicon source and an atomic token model in the editor, neither of which exists.
+
+Items the audit found already documented (and therefore not findings): permission chip, preset
+chip/seat, jobs and subagent rows, plan preview placement, the deliverables turn-tail diff,
+markdown images, inline code chips, the double-Escape stop, the attachment card gap, and the
+to-bottom control. Stats/usage pills, the turn-tail branch, and turn-trigger attribution were not
+verified either way and are not claimed.
+
+**Battery (round 270).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1169 passed**, 1 ignored |
+| app, default | **0** | **1162 passed**, 1 ignored |
+| transport | **0** | 38 + 17 + 82 + 7 (unchanged, no transport edit) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+Two tests were added: `the_busy_enter_preference_has_two_values_and_only_steer_is_stored` and
+`a_steer_preference_steers_a_send_while_the_session_runs` (both modes observed on the queued
+`Command::Prompt`). The fixture flag `--busy-enter queue|steer` drives both captures.
