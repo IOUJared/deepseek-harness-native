@@ -3045,3 +3045,15 @@ path claim with an implementation line; and insert by locating the line rather t
 A fourth was added this stretch and is the most transferable: **a wire name is read from the
 artifact that defines it, and a working call in this repository outranks a generated descriptor's
 vocabulary.**
+
+   **The kill's transport half landed, so the two-click confirmation now has something to call.**
+   `JobKillRequest { session_id, job_id }` and `JobKillOutcome { Requested, AlreadyFinished }`
+   join the dtos with the reference's own field names and kebab-case outcome
+   (`job-controller/src/types.ts:30-39`); `Endpoint::JobKill` maps to **`job/kill`** — the
+   descriptor's own singular name (`lib/typert.host.js:130`), read last round; and `job_kill`
+   sends the session and job through `request_args`, whose wrapping is the same mechanism the
+   select correction settled. `job_kill_outcome` accepts the receipt as a bare string or an object
+   and **refuses anything else**, with a test covering both accepted shapes and six refusals.
+   Verified: transport exit 0, fixture **1114** exit 0, default **1107** exit 0, format-debt 0.
+   What the kill still needs is the worker arm and the two-click UI — the confirmation copy is
+   already read ("Stop task {label}" / "Click again to confirm" / "Confirm stop" / "Stop failed").

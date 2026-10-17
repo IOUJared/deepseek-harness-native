@@ -181,6 +181,7 @@ enum Endpoint {
     EventResult,
     PluginInventory,
     AgentPresetSelect,
+    JobKill,
     PluginSettings,
     PluginMutate,
     TerminalCreate,
@@ -217,6 +218,7 @@ impl Endpoint {
             Self::EventResult => "$events/result",
             Self::PluginInventory => "pluginInventory/list",
             Self::AgentPresetSelect => "agentPresets/select",
+            Self::JobKill => "job/kill",
             Self::PluginSettings => "settings/describe",
             Self::PluginMutate => "settings/mutate",
             Self::TerminalCreate => "terminal/create",
@@ -687,6 +689,26 @@ impl NativeClient {
         )
     }
 
+    /// Ask the Host to stop one background job. The receipt distinguishes a request the registry
+    /// accepted from one that arrived after the job finished
+    /// (`api/job-controller/src/types.ts:30-39`, endpoint `job/kill` per
+    /// `lib/typert.host.js:130`).
+    pub async fn job_kill(
+        &self,
+        session_id: &str,
+        job_id: &str,
+    ) -> Result<crate::dto::JobKillOutcome> {
+        job_kill_outcome(
+            self.invoke(
+                Endpoint::JobKill,
+                request_args(crate::dto::JobKillRequest {
+                    session_id: session_id.to_owned(),
+                    job_id: job_id.to_owned(),
+                })?,
+            )
+            .await?,
+        )
+    }
     /// Metadata-only global Loader rows; no installation or enablement authority.
     pub async fn plugin_inventory(&self) -> Result<crate::plugin::PluginInventorySnapshot> {
         crate::plugin::project_inventory(self.invoke(Endpoint::PluginInventory, json!({})).await?)
@@ -1024,6 +1046,23 @@ fn accepted(value: Accepted) -> Result<Accepted> {
         Err(Error::InvalidDto)
     }
 }
+/// The kill receipt: a bare outcome string, or an object carrying one. Anything else is
+/// refused rather than guessed.
+fn job_kill_outcome(value: serde_json::Value) -> Result<crate::dto::JobKillOutcome> {
+    let outcome = match &value {
+        serde_json::Value::String(outcome) => outcome.as_str(),
+        value => value
+            .get("outcome")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default(),
+    };
+    match outcome {
+        "requested" => Ok(crate::dto::JobKillOutcome::Requested),
+        "already-finished" => Ok(crate::dto::JobKillOutcome::AlreadyFinished),
+        _ => Err(Error::InvalidDto),
+    }
+}
+
 /// The committed preset identity from an `agentPresets/select` reply: a bare string, or an
 /// object carrying one. Anything else is refused rather than guessed.
 fn agent_preset_of(value: serde_json::Value) -> Result<String> {
@@ -1127,5 +1166,33 @@ mod tests {
         assert!(agent_preset_of(json!({"agentPreset": ""})).is_err());
         assert!(agent_preset_of(json!({"agentPreset": 7})).is_err());
         assert!(agent_preset_of(json!({"agentPreset": "x".repeat(513)})).is_err());
+    }
+}
+
+#[cfg(test)]
+mod job_kill_tests {
+    use super::job_kill_outcome;
+    use crate::dto::JobKillOutcome;
+    use serde_json::json;
+
+    #[test]
+    fn a_kill_receipt_yields_one_of_the_two_outcomes_or_is_refused() {
+        // Both shapes the Host may use for the receipt.
+        assert_eq!(
+            job_kill_outcome(json!("requested")).unwrap(),
+            JobKillOutcome::Requested
+        );
+        assert_eq!(
+            job_kill_outcome(json!({"outcome": "already-finished"})).unwrap(),
+            JobKillOutcome::AlreadyFinished
+        );
+        // Everything else is refused rather than guessed, including the reference's own two
+        // words in the wrong shape.
+        assert!(job_kill_outcome(json!("")).is_err());
+        assert!(job_kill_outcome(json!({})).is_err());
+        assert!(job_kill_outcome(json!(7)).is_err());
+        assert!(job_kill_outcome(json!(null)).is_err());
+        assert!(job_kill_outcome(json!({"outcome": "requested-please"})).is_err());
+        assert!(job_kill_outcome(json!({"outcome": 7})).is_err());
     }
 }

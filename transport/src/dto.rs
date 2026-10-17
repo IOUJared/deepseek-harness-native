@@ -456,6 +456,25 @@ pub struct JobListFrame {
     pub jobs: Vec<JobView>,
 }
 
+/// The `job/kill` request: the session whose job list carries the job, and the job
+/// (`api/job-controller/src/types.ts:30-34`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobKillRequest {
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    #[serde(rename = "jobId")]
+    pub job_id: String,
+}
+
+/// The registry's receipt after accepting a human kill request (`types.ts:36-39`): the only two
+/// outcomes the reference distinguishes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum JobKillOutcome {
+    Requested,
+    AlreadyFinished,
+}
+
 /// The `jobs/follow` request: an optional owning session, a required job, and an absolute byte
 /// offset to resume from (`types.ts:49-60`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
