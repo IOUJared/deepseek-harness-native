@@ -1079,6 +1079,9 @@ pub struct App {
     todo_dock_open: bool,
     /// The in-app folder browser's current listing.
     directory_listing: Option<dsh_native_transport::dto::DirectoryListing>,
+    /// Whether the composed picker serves the browse capability; learned from a
+    /// pick failure or a successful listing, so the dead chooser is tried once.
+    directory_picker_browse: Option<bool>,
     /// Per-message feedback by assistant message id.
     feedback: std::collections::BTreeMap<String, dsh_native_transport::dto::MessageFeedbackItem>,
     /// The open feedback dialog.
@@ -1416,6 +1419,7 @@ impl App {
                 schedule_busy: None,
                 todo_dock_open: false,
                 directory_listing: None,
+                directory_picker_browse: None,
                 feedback: Default::default(),
                 feedback_dialog: None,
                 file_references: Vec::new(),
@@ -3768,7 +3772,17 @@ impl App {
             }
             Message::ToggleTodoDock => self.todo_dock_open = !self.todo_dock_open,
             Message::PickDirectory => {
-                self.command(worker::Command::PickDirectory);
+                // Core clears DISPLAY, so the Host composes the browse picker in this
+                // app's own environment. Once a pick has reported failure (or a listing
+                // has succeeded) the same control opens the in-app folder list instead
+                // of repeating a chooser call that cannot work here.
+                if self.directory_picker_browse == Some(true) {
+                    let path =
+                        (!self.workspace_path.is_empty()).then(|| self.workspace_path.clone());
+                    self.command(worker::Command::ListDirectory { path });
+                } else {
+                    self.command(worker::Command::PickDirectory);
+                }
             }
             Message::BrowseWorkspace(path) => {
                 self.command(worker::Command::ListDirectory { path });
@@ -5315,12 +5329,26 @@ impl App {
                 }
             }
             Event::DirectoryPicked(result) => match result {
-                Ok(Some(path)) => self.workspace_path = path,
-                Ok(None) => {}
-                Err(error) => self.status = error,
+                Ok(Some(path)) => {
+                    self.workspace_path = path;
+                    self.directory_picker_browse = Some(false);
+                }
+                Ok(None) => self.directory_picker_browse = Some(false),
+                Err(error) => {
+                    // A chooser that cannot run here still leaves the folder list
+                    // usable: remember the capability and open it, stating why.
+                    self.directory_picker_browse = Some(true);
+                    self.status = format!("{error} — listing folders instead");
+                    let path =
+                        (!self.workspace_path.is_empty()).then(|| self.workspace_path.clone());
+                    self.command(worker::Command::ListDirectory { path });
+                }
             },
             Event::DirectoryListed(result) => match result {
-                Ok(listing) => self.directory_listing = Some(listing),
+                Ok(listing) => {
+                    self.directory_listing = Some(listing);
+                    self.directory_picker_browse = Some(true);
+                }
                 Err(error) => {
                     self.directory_listing = None;
                     self.status = error;
@@ -17142,30 +17170,61 @@ mod tests {
                 .map(|listing| listing.entries.len()),
             Some(2)
         );
+        // A successful listing proves the browse capability, so the chooser is
+        // not tried again from the same control.
+        assert_eq!(app.directory_picker_browse, Some(true));
         let _ = app.update(Message::UseBrowsedDirectory);
         assert_eq!(app.workspace_path, "/PUBLIC");
     }
     #[test]
-    fn the_directory_picker_fills_the_workspace_path() {
+    fn the_directory_picker_falls_back_to_the_folder_list() {
         let (mut app, mut receiver) = managed_app();
         let _ = app.update(Message::PickDirectory);
-        let mut reads = 0;
+        let mut picks = 0;
+        let mut lists = 0;
         while let Ok(command) = receiver.try_recv() {
-            if matches!(command, Command::PickDirectory) {
-                reads += 1;
+            match command {
+                Command::PickDirectory => picks += 1,
+                Command::ListDirectory { .. } => lists += 1,
+                _ => {}
             }
         }
-        assert_eq!(reads, 1);
+        assert_eq!((picks, lists), (1, 0));
         let _ = app.update(Message::Worker(Event::DirectoryPicked(Ok(Some(
             "/PUBLIC-workspace".into(),
         )))));
         assert_eq!(app.workspace_path, "/PUBLIC-workspace");
+        assert_eq!(app.directory_picker_browse, Some(false));
         let _ = app.update(Message::Worker(Event::DirectoryPicked(Ok(None))));
         assert_eq!(app.workspace_path, "/PUBLIC-workspace");
+        assert_eq!(app.directory_picker_browse, Some(false));
+        // The chooser is unavailable in this app's browse composition: the
+        // failure is stated once and the same control opens the folder list.
         let _ = app.update(Message::Worker(Event::DirectoryPicked(Err(
             "Directory picker: unavailable".into(),
         ))));
         assert!(app.status.contains("unavailable"));
+        assert_eq!(app.directory_picker_browse, Some(true));
+        let mut lists = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if let Command::ListDirectory { path } = command {
+                assert_eq!(path.as_deref(), Some("/PUBLIC-workspace"));
+                lists += 1;
+            }
+        }
+        assert_eq!(lists, 1);
+        // Once the capability is known, no further chooser round trip is made.
+        let _ = app.update(Message::PickDirectory);
+        let mut picks = 0;
+        let mut lists = 0;
+        while let Ok(command) = receiver.try_recv() {
+            match command {
+                Command::PickDirectory => picks += 1,
+                Command::ListDirectory { .. } => lists += 1,
+                _ => {}
+            }
+        }
+        assert_eq!((picks, lists), (0, 1));
     }
     #[test]
     fn the_coding_view_toggle_is_local_state() {

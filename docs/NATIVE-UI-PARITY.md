@@ -6301,7 +6301,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Message feedback: ratings, categories, note | cloned (session `/feedback` remains a Host command) |
 | Right Sidebar: document preview and resource tabs | difference: full-page details panel, no PDF/Office renderers |
 | Workspace browser: grouped/animated rows, drag order, per-row menus | difference: workspace filter + navigation sheet |
-| Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory; the app's Host serves browse, so the in-app list is the live path and `pick` reports unavailable) |
+| Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory; the app's Host serves browse, so Browse… falls back to the in-app list and `pick` reports unavailable) |
 | Workflow-run surface | cloned (folded `tool-workflow/*` card; no interrupted detection) |
 | Dockkit layout presets | difference: native fixed layout with its own preferences |
 | Locales (zh/en) | difference: English-only |
@@ -6361,9 +6361,8 @@ drives both the absent and present shapes; transport grew from **82** to **83** 
 
 **The picker claim is narrower than it looked.** Core clears `DISPLAY`, so the Host's
 picker-auto resolver serves `browse`; `directoryPicker/pick` answers `directory-picker/unavailable`
-and only the in-app folder list is usable. The **Browse…** control therefore reports the documented
-failure in the app's own composition. The reference's browse surface is the in-app browser, so the
-open follow-up is to route **Browse…** to the folder list rather than the Host chooser.
+and only the in-app folder list is usable. Round 317 makes **Browse…** learn that and open the list
+instead of repeating the dead chooser call.
 
 **Not claimed.** No schedule task was created (that needs the agent tool), no feedback was attached
 to a real assistant message, no desktop file was opened, and no OAuth or model request ran. Those
@@ -6380,6 +6379,36 @@ does not compile (it includes `worker.rs` without `mod queue_update`).
 | app, fixture | **0** | **1210 passed**, 1 ignored (unchanged) |
 | app, default | **0** | **1203 passed**, 1 ignored (unchanged) |
 | transport | **0** | 56 + 17 + **83** + 7 |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+### Round 317 — the picker learns the composition
+
+**Browse… now lands on the folder list when the Host serves the browse picker.** The app records
+the picker capability in `directory_picker_browse`: a failed `directoryPicker/pick` states the error,
+switches the same control to `directoryPicker/list` for the typed path (or the Host home), and a
+successful listing also marks browse. Later presses open the list directly, with no repeated
+chooser round trip. A successful pick or a cancel keeps the native path; a listing failure leaves
+the capability unlearned and the error visible.
+
+The first press in a browse Host still performs one failing chooser call because no wire advertises
+the capability; the status says why the list opened. App tests cover the fallback dispatch, the
+remembered capability and the listing-marked capability; `shots/146-picker-fallback.png` shows the
+sheet after the change (`status: passed`) and is visually identical because the drawing does not
+depend on the capability. The reference's browse surface is this in-app browser.
+
+**Remainder.** No create-directory, no file browse and no Miller-column tree; the Host chooser's
+success/cancel path remains unverified under a native composition.
+
+**Battery (round 317).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1210 passed**, 1 ignored |
+| app, default | **0** | **1203 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 83 + 7 (unchanged) |
 | core (`--lib`) | **0** | **112 passed** (unchanged) |
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |

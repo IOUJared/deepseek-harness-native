@@ -73,9 +73,11 @@ answer was that cache, not the query semantics; a fresh session returned the fil
 4. **The Host chooser cannot work in this app's composition.** Core clears `DISPLAY`, so the
    picker-auto resolver serves **browse**; `directoryPicker/pick` answers
    `directory-picker/unavailable`. The in-app folder list is the usable path. This does not
-   invalidate the `pick` implementation, but the **Browse…** control's live outcome is the documented
-   failure status, and the reference's browse surface is the in-app browser. Routing **Browse…** to
-   the folder list is the open follow-up.
+   invalidate the `pick` implementation, but the **Browse…** control's live outcome was the
+   documented failure status. The app now learns the capability: a failed pick states the error and
+   opens the in-app list, a successful listing marks browse, and later **Browse…** presses go
+   straight to the list. A successful pick or cancel keeps the native path. The first press in a
+   browse Host still performs one failing chooser call because the wire advertises no capability.
 
 ## Still unverified
 
