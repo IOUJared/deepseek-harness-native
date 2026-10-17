@@ -6500,6 +6500,40 @@ impl App {
             });
         }
     }
+    /// The jobs panel: the live jobs under the reference's own "Running" heading and the rest
+    /// under "Finished {count}" (`ui-jobs/src/client/locales.ts:56-58`), each row carrying the
+    /// producer's label and its kind and status words. The reference's state dot and its Clear
+    /// action are both deliberately absent — the dot's form and Clear's semantics are unread, and
+    /// omitting them is the alternative to inventing them.
+    fn jobs_panel_view(&self) -> Element<'_, Message> {
+        let live: Vec<&dsh_native_transport::dto::JobView> = self
+            .jobs
+            .iter()
+            .filter(|job| job.status == "running" || job.status == "stopping")
+            .collect();
+        let settled = self.jobs.len() - live.len();
+        let mut panel = Column::new().spacing(4);
+        if !live.is_empty() {
+            panel = panel.push(label("Running", MUTED).size(11));
+            for job in live {
+                panel = panel.push(job_row(job));
+            }
+        }
+        if settled > 0 {
+            panel = panel.push(label(format!("Finished {settled}"), MUTED).size(11));
+            for job in self.jobs.iter().filter(|job| {
+                job.status != "running" && job.status != "stopping"
+            }) {
+                panel = panel.push(job_row(job));
+            }
+        }
+        container(panel)
+            .id("native-jobs-panel")
+            .width(260)
+            .padding(6)
+            .style(|_| design::card(SURFACE, 10.0))
+            .into()
+    }
     /// The presets the menu offers: the reference's design set, with the current one in
     /// full ink. The Host's own catalog would extend this list once the catalog read lands.
     fn permission_menu_view(&self, current: &str) -> Element<'_, Message> {
@@ -7360,13 +7394,20 @@ impl App {
             } else {
                 format!("{count} {noun}")
             };
+            let action = button(label(text, MUTED).size(design::CRUMB_SIZE))
+                .on_press(Message::ToggleJobs)
+                .style(design::ghost)
+                .padding(design::CRUMB_PAD);
+            // The panel is anchored to the action, the way the preset seat's list is anchored to
+            // its chip. Its sections and status words come from the reference's own English copy
+            // (`locales.ts:56-69`); a row's state dot is not drawn because `StateDot`'s form is
+            // unread, and the status word is the part the copy names.
             crumbs = crumbs.push(
-                container(
-                    button(label(text, MUTED).size(design::CRUMB_SIZE))
-                        .on_press(Message::ToggleJobs)
-                        .style(design::ghost)
-                        .padding(design::CRUMB_PAD),
-                )
+                container(anchored_popup::anchored(
+                    action.into(),
+                    self.jobs_open.then(|| self.jobs_panel_view()),
+                    Message::ToggleJobs,
+                ))
                 .id("native-jobs-action"),
             );
         }
@@ -10917,6 +10958,24 @@ impl<M: Clone, R: iced::advanced::Renderer> iced::advanced::Widget<M, Theme, R>
 /// (`ui-permission-presets/src/client/locales.ts:54`).
 const AUTO_BADGE: &str = "EXP";
 const FULL_ACCESS_RISK: &str = "Full access lets new sessions reduce confirmation steps and perform more actions directly, including sensitive operations, file changes, or external commands. Only use it when you trust subsequent tasks.";
+/// One job row: the producer's label, then its kind and status words. The label is primary and
+/// the pair secondary, which is the reference's own row structure without its unread dot.
+fn job_row(job: &dsh_native_transport::dto::JobView) -> Element<'static, Message> {
+    let ink = match job.status.as_str() {
+        "failed" => DANGER,
+        "completed" | "killed" => MUTED,
+        _ => TEXT,
+    };
+    container(
+        column![
+            label(job.label.clone(), ink).size(13),
+            label(format!("{} · {}", job.kind, job.status), MUTED).size(11),
+        ]
+        .spacing(1),
+    )
+    .width(Length::Fill)
+    .into()
+}
 /// The display name for a permission preset. The reference takes it from the Host's
 /// catalog and falls back to a locale key; native has no catalog here yet, so the three
 /// design presets carry their own names and anything host-configured shows its own key,

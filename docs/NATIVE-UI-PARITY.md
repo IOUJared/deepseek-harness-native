@@ -2708,3 +2708,19 @@ Since the round-145 update, all local and unpushed, gates green at each commit:
    Reading it also paid forward: `output.gap` is "… earlier output dropped …" and
    `output.error` is "live output stream interrupted: {error}" — the exact copy the follow
    stream's `lossy` flag needs, already waiting for the expansion work.
+
+   **The jobs panel is written, compiles, and its capture failed — so it is recorded as
+   unverified rather than claimed.** `jobs_panel_view` groups the session's jobs under the
+   reference's own headings ("Running" and "Finished {count}", `locales.ts:56-58`) and renders
+   each row as the producer's label with its `kind · status` as a secondary line, anchored to the
+   action the way the preset seat's list is anchored to its chip. Verified: fixture **1114** exit
+   0, default **1107** exit 0, format-debt 0 — all with the panel **closed**, which is the state
+   the fixture exercises.
+   Two things are deliberately absent and one is unresolved. Absent: the reference's **state dot**,
+   because `StateDot`'s form is unread, and its **Clear** action, because what Clear does is
+   unread; the status word is the part the copy names, so the row carries that instead. Unresolved:
+   with the fixture holding the panel **open**, the capture harness reported "all attempts failed"
+   and produced no frame, and I could not diagnose why within this round. Rather than leave the
+   fixture in a state that breaks the harness, the open state was reverted and the closed capture
+   re-verified — so the panel's *rendering* is written and compiled but **not** seen, and the next
+   attempt should run the fixture directly to see the failure the script swallows.

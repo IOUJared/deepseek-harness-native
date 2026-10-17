@@ -86,6 +86,7 @@ const KNOWN_IDS: &[&str] = &[
     "native-header-crumbs",
     "native-agent-preset",
     "native-jobs-action",
+    "native-jobs-panel",
     "native-file-open",
     "native-file-draft",
     "native-file-picker",
