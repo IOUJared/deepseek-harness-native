@@ -3176,3 +3176,20 @@ vocabulary.**
    attempt must find how commands reach the loop — the honest next read — rather than assume the
    command task can open a stream. That is the whole remaining task for jobs, and it is now
    narrowed from "four steps" to one question.
+
+   **The question is answered, and it moves the open by one arm rather than inventing a mechanism.**
+   The follow loop *already* receives commands: its `select!` has a
+   `command=async { tokio::select! { biased; command=priority.recv()=>command, command=commands.recv()=>command } }`
+   arm (`worker.rs:1948`), and `Command::Select` is handled **inside that arm** (`:1966`) — the very
+   place where `mux`, `publish(&events, …)` and `break` are in scope. So the follow stream's open
+   belongs there, beside the select arm, and *not* in the spawned command task that failed last
+   round. Nothing has to carry the request between tasks: the loop is one of the two consumers of
+   the same channel.
+   The corollary, which the compiler will enforce: the spawned task's `match command` must still
+   be exhaustive, so `Command::JobOutput { .. }` joins its "not for me" list at `:2288`
+   (`Event::Fault("Invalid native command state")`) — unreachable in practice, because the loop's
+   arm is polled and takes the command first, and honest about it either way.
+   That makes the remaining job four edits in two files, all in arms this document has already
+   read: the local and retirement beside the list stream's, the helper beside `next_jobs`, the
+   open and the publication in the loop's command arm, and the app's expand press sending the
+   command instead of only toggling a flag.
