@@ -3392,3 +3392,20 @@ the five above rather than missing work.
    The fix is in the fixture's per-mode metadata: declare the settings-open state so those three
    counts and the paint checks are expected rather than missing. Until that is written, the capture
    in `shots/86-…` stands on my inspection of the frame, and this document says so.
+
+   **Solved, and the answer was the mode name: `settings-general`, not `general` and not the
+   `--settings` flag.** The fixture derives its expectation from the mode itself —
+   `let settings_expected = preset.starts_with("settings-")` (`layout_fixture.rs:1671`) — so a
+   capture taken with `--mode chat-transcript --settings true` opened the settings *surface* while
+   the fixture still expected the surface behind it, which is exactly why `settingsCount` was 0
+   and `presetStatesMatch` false. With `--mode settings-general --shortcuts true` the run reports
+   **`passed: true`**, `expectedControlCountsMatch: true`, `presetStatesMatch: true`, and the
+   harness accepts it (`fixture exit=0 pick=0`); `shots/87-shortcuts-verified.png` is that frame,
+   with `allTextCollected` and `paintVisibilityQualified` false and — as established in round 171
+   — **not** part of `passed`.
+   That closes the shortcuts row: the disclosure draws the reference's row shape, the fixture opens
+   it and now agrees, and the three counts I spent two rounds on were a **mode name**.
+   The lesson, which generalises past this fixture: **when a self-check disagrees with a correct
+   picture, read the check's own inputs before touching the picture** — twice now (the banner
+   overlap, this mode name) the fix was one line in the *expectation*, and twice the alternative
+   would have been to deform working UI.
