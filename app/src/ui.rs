@@ -5210,6 +5210,12 @@ impl App {
 
     /// Fixture-only: seed the Host's advertised commands as the pairs the disclosure reads.
     #[cfg(feature = "public-layout-fixture")]
+    /// Fixture-only: arm the restore-all confirmation, so its copy is capturable.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn arm_reset_all(&mut self) {
+        self.settings.reset_all_armed = true;
+    }
+
     pub(crate) fn seed_commands(&mut self) {
         self.settings.commands = vec![
             ("session.compact".to_owned(), "session.compact".to_owned()),

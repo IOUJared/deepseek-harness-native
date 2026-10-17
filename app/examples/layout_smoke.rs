@@ -150,6 +150,8 @@ struct Options {
     customised: bool,
     /// Seed the Host's advertised commands, so the disclosure's second group is captured.
     commands: bool,
+    /// Arm the restore-all confirmation, so its copy is captured.
+    reset_all: bool,
     /// Open the shortcuts disclosure, so its rows are captured.
     shortcuts: bool,
 }
@@ -242,6 +244,7 @@ fn options() -> Result<Options, &'static str> {
             "--shortcuts",
             "--customised",
             "--commands",
+            "--reset-all",
             "--agent-seat-error",
             "--settings",
             "--scrolled-away",
@@ -323,6 +326,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         width_handle_glow: match values.remove("--width-handle-glow") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        reset_all: match values.remove("--reset-all") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -651,6 +658,9 @@ impl Fixture {
         }
         if options.commands {
             app.seed_commands();
+        }
+        if options.reset_all {
+            app.arm_reset_all();
         }
         if options.scrolled_away {
             app.set_scrolled_away(true);

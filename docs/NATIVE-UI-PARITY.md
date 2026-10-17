@@ -4218,3 +4218,22 @@ the disclosure open, routed through the tested decision and the production open 
    **Not captured:** the armed state. Seeing it needs a fixture that arms the flag — a one-line
    setter and a flag, the same shape as `--commands` — and that is the next step, since the armed
    branch is the one whose copy a reader should see.
+
+   **The armed confirmation is captured, and with it the whole editor surface in one frame.**
+   `shots/95-shortcuts-reset-all-armed.png` shows, together:
+   - the **sorted** fixed rows, each with **"Restore default"** and **"Remove"**;
+   - **"Modified"** in gold on the cleared `Find in conversation`, which has **no keys**;
+   - **"Restore all default shortcuts?"** and the description verbatim — *"Restore the default
+     shortcuts for this platform. All modified or removed shortcuts will be restored. Other
+     platforms are unaffected."* — with **"Cancel"** and a danger-coloured **"Restore all
+     defaults"**;
+   - **"1 customized"**;
+   - the **"Commands"** group with the Host's advertised commands and their own Remove/Restore pair.
+   The disclosure is now taller than the modal, and the scroll region shows a scrollbar at its right —
+   the reference's own surface behaves the same way at this length.
+   That is six copy constants shipped and captured (`COPY_RESET_ALL`, `COPY_RESET_TITLE`,
+   `COPY_RESET_DESCRIPTION`, `COPY_CANCEL`, `COPY_CLEAR`, `COPY_MODIFIED`, plus `COPY_MODIFIED_COUNT`
+   and `COPY_RESET`), and **one left deliberately unused**: `COPY_RESET_FAILED`, which needs a save
+   that can fail.
+   Verified: fixture **1134** exit 0, default **1127** exit 0, format-debt 0, direct capture
+   `passed: true`.
