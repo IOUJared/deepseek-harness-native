@@ -24,6 +24,7 @@ pub const PRESETS: &[&str] = &[
     "subagent-trail",
     "subagent-catalog",
     "subagent-readonly",
+    "subagent-sibling",
     "hero-workspace-selected",
     "wide-welcome",
     "narrow-welcome",
@@ -209,6 +210,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "subagent-trail"
         | "subagent-catalog"
         | "subagent-readonly"
+        | "subagent-sibling"
         | "hero-workspace-selected" => Some((Size::new(1040.0, 700.0), 1.0)),
         "working-narrow" => Some((Size::new(760.0, 560.0), 1.0)),
         "chat-submitted"
@@ -370,6 +372,17 @@ fn public_context_pressure_records(preset: &str) -> Option<Vec<Value>> {
 fn public_chat_records(preset: &str) -> Vec<Value> {
     if let Some(records) = public_context_pressure_records(preset) {
         return records;
+    }
+    if preset == "subagent-sibling" {
+        return vec![
+            json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
+                "surfaceOp":"append","data":{"id":"PUBLIC-user","role":"user",
+                    "source":{"kind":"user"},"content":[{"type":"text","text":"PUBLIC sibling conversation."}]}}}),
+            json!({"type":"event","event":{"type":"assistant/message","seq":1,"time":1001,
+                "surfaceOp":"append","data":{"turn":1,"step":1,
+                    "stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],
+                        "texts":["PUBLIC sibling answer."]}]}}}),
+        ];
     }
     if preset == "subagent-readonly" {
         // A one-shot child: its own durable descriptor, the conversation record, and no
@@ -804,6 +817,39 @@ pub fn build(
         app.selected = Some(child.session_id.clone());
         app.sessions.insert(child.session_id.clone(), child);
     }
+    if preset == "subagent-sibling" {
+        // A selected child with a parent catalog: the header's current crumb becomes the
+        // sibling switcher and lists both children.
+        let parent: SessionSummary = serde_json::from_value(json!({
+            "agentAvailable":true, "sessionId":"PUBLIC-layout-parent", "updatedAt":950,
+            "running":false, "blank":false, "cwd":"/PUBLIC-layout-fixture/workspace",
+            "projections":{"kind":"cached","asOfSeq":-1,
+                "values":{"title":"PUBLIC parent with subagents",
+                    "subagentCatalog":[
+                        {"id":"PUBLIC-child-reviewer","createdAt":1000,"mode":"continuable","label":"PUBLIC reviewer"},
+                        {"id":"PUBLIC-child-scout","createdAt":1001,"mode":"one-shot","label":"PUBLIC scout"}
+                    ]}}
+        }))
+        .expect("fixed PUBLIC parent metadata");
+        app.sessions.insert(parent.session_id.clone(), parent);
+        for (id, title, running) in [
+            ("PUBLIC-child-reviewer", "PUBLIC reviewer", true),
+            ("PUBLIC-child-scout", "PUBLIC scout", false),
+        ] {
+            let child: SessionSummary = serde_json::from_value(json!({
+                "agentAvailable":true, "sessionId":id, "updatedAt":960,
+                "running":running, "blank":false,
+                "parentSessionId":"PUBLIC-layout-parent", "origin":"subagent",
+                "cwd":"/PUBLIC-layout-fixture/workspace",
+                "projections":{"kind":"cached","asOfSeq":-1,
+                    "values":{"title":title}}
+            }))
+            .expect("fixed PUBLIC child metadata");
+            app.sessions.insert(child.session_id.clone(), child);
+        }
+        app.selected =
+            Some(dsh_native_transport::dto::SessionId::new("PUBLIC-child-reviewer").unwrap());
+    }
     if preset == "subagent-readonly" {
         // The child is selected so the composer's read-only replacement is what the frame shows.
         let parent: SessionSummary = serde_json::from_value(json!({
@@ -934,6 +980,7 @@ pub fn build(
             | "work-panel"
             | "subagent-catalog"
             | "subagent-readonly"
+            | "subagent-sibling"
     ) || preset.starts_with("context-")
         || preset.starts_with("plan-mode")
         || preset == "plan-chip"

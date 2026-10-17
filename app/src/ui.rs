@@ -6453,6 +6453,20 @@ impl App {
             "One-shot tasks do not accept follow-ups; review the full execution record here.",
         ))
     }
+    /// The parent's catalog when a child session is selected: the reference's sibling list
+    /// (`SubagentHeaderLineage.tsx:767-800`). `None` on a root, or when the parent summary
+    /// carries no catalog, so the header keeps a plain current crumb.
+    fn parent_catalog(&self) -> Option<Vec<subagent_catalog::Entry>> {
+        let selected = self.selected.as_ref()?;
+        let summary = self.sessions.get(selected)?;
+        if summary.origin.is_none() {
+            return None;
+        }
+        let parent = summary.parent_session_id.as_ref()?;
+        let projections = self.sessions.get(parent)?.projections.as_ref()?;
+        let entries = subagent_catalog::entries(&projections.values);
+        (!entries.is_empty()).then_some(entries)
+    }
     fn subagent_running(&self, id: &str) -> bool {
         SessionId::new(id)
             .ok()
@@ -6480,9 +6494,20 @@ impl App {
                 button(
                     row![
                         Self::subagent_dot(running),
-                        label(entry.label.clone(), TEXT)
-                            .size(12)
-                            .width(Length::Fill),
+                        label(
+                            entry.label.clone(),
+                            if self
+                                .selected
+                                .as_ref()
+                                .is_some_and(|id| id.as_str() == entry.id)
+                            {
+                                TEXT
+                            } else {
+                                MUTED
+                            },
+                        )
+                        .size(12)
+                        .width(Length::Fill),
                         label(subagent_catalog::mode_label(entry.mode), MUTED).size(11),
                     ]
                     .spacing(8)
@@ -7935,21 +7960,51 @@ impl App {
                 design::CRUMB_LINE
             };
             let ink = if current { TEXT } else { MUTED };
-            let text = label(title, ink)
-                .size(size)
-                .line_height(iced::Pixels(line))
-                .wrapping(iced::advanced::text::Wrapping::None);
-            let boxed = container(text)
+            // A selected child's current crumb is the reference's sibling switcher: the title
+            // in primary ink with a chevron, opening the parent's catalog. Roots and parents
+            // whose catalog is absent keep the plain crumb.
+            let crumb: Element<'_, Message> = if current
+                && subagent
+                && let Some(siblings) = self.parent_catalog()
+            {
+                let trigger = button(
+                    row![
+                        label(title, TEXT)
+                            .size(size)
+                            .line_height(iced::Pixels(line))
+                            .wrapping(iced::advanced::text::Wrapping::None),
+                        label("▾", MUTED).size(design::CRUMB_SIZE),
+                    ]
+                    .spacing(4)
+                    .align_y(iced::Alignment::Center),
+                )
+                .on_press(Message::ToggleSubagentMenu(!self.subagent_menu))
+                .style(design::ghost)
                 .padding(design::CRUMB_PAD)
-                .max_width(design::CRUMB_MAX);
-            let crumb: Element<'_, Message> = if current {
-                boxed.into()
+                .into();
+                anchored_popup::anchored_below(
+                    trigger,
+                    self.subagent_menu
+                        .then(|| self.subagent_menu_view(&siblings)),
+                    Message::ToggleSubagentMenu(false),
+                )
             } else {
-                button(boxed)
-                    .on_press(Message::Select(id))
-                    .style(design::ghost)
-                    .padding([0.0, 0.0])
-                    .into()
+                let text = label(title, ink)
+                    .size(size)
+                    .line_height(iced::Pixels(line))
+                    .wrapping(iced::advanced::text::Wrapping::None);
+                let boxed = container(text)
+                    .padding(design::CRUMB_PAD)
+                    .max_width(design::CRUMB_MAX);
+                if current {
+                    boxed.into()
+                } else {
+                    button(boxed)
+                        .on_press(Message::Select(id))
+                        .style(design::ghost)
+                        .padding([0.0, 0.0])
+                        .into()
+                }
             };
             crumbs = crumbs.push(crumb);
         }
@@ -13165,6 +13220,43 @@ mod tests {
         );
         assert_eq!(app.running_subagent_count(&parent), 1);
         assert_eq!(subagent_catalog::count_label(1, 1), "1 subagent running");
+    }
+    #[test]
+    fn a_child_header_reads_the_parents_sibling_catalog() {
+        let (mut app, _receiver) = managed_app();
+        let parent = app.selected.clone().unwrap();
+        app.sessions.get_mut(&parent).unwrap().projections = Some(
+            serde_json::from_value(serde_json::json!({
+                "kind":"cached","asOfSeq":-1,
+                "values":{"subagentCatalog":[
+                    {"id":"public-child-reviewer","createdAt":1,"mode":"continuable","label":"PUBLIC reviewer"},
+                    {"id":"public-child-scout","createdAt":2,"mode":"one-shot","label":"PUBLIC scout"}
+                ]}
+            }))
+            .unwrap(),
+        );
+        let child = SessionId::new("public-child-reviewer").unwrap();
+        app.sessions.insert(
+            child.clone(),
+            SessionSummary {
+                agent_available: true,
+                session_id: child.clone(),
+                updated_at: 0,
+                running: false,
+                blank: false,
+                parent_session_id: Some(parent.clone()),
+                origin: Some(dsh_native_transport::dto::SubagentOrigin::Subagent),
+                cwd: None,
+                projections: None,
+            },
+        );
+        app.selected = Some(child);
+        let siblings = app.parent_catalog().expect("the parent's catalog");
+        assert_eq!(siblings.len(), 2);
+        assert_eq!(siblings[0].label, "PUBLIC reviewer");
+        // A parent session has no sibling switcher of its own.
+        app.selected = Some(parent);
+        assert!(app.parent_catalog().is_none());
     }
     #[test]
     fn a_one_shot_child_replaces_the_composer_and_a_continuable_child_does_not() {

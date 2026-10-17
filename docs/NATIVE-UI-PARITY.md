@@ -12,8 +12,9 @@ searchable list and its refused-capture states (`shots/87-…` through `102-…`
 **session-log preference row** with its own read, write and saved/failed state (`shots/100-…`,
 `103-…`); the running turn's **two-press Escape stop**; the header's **subagent catalog count and
 dropdown** (`shots/104-…`, `105-…`); the **one-shot child's read-only composer** (`shots/106-…`);
-the sidebar's **subagent rows and running-child count** (`shots/107-…`); and **keys as data**, so
-the store's five commands drive the live chain instead of a hardcoded map.
+the sidebar's **subagent rows and running-child count** (`shots/107-…`); the child header's
+**sibling switcher** (`shots/108-…`, `109-…`); and **keys as data**, so the store's five commands
+drive the live chain instead of a hardcoded map.
 
 **Read this before trusting the list above.** Round 257 found that the editor's per-row actions,
 the permission default row and eight Host-event handlers were **unreachable behind two catch-all
@@ -26,12 +27,12 @@ same shape in the `Ctrl+/` trigger: it opened the account page and the open path
 disclosure, so the editor was never shown; the trigger's "captured" evidence had gone through the
 fixture's direct `set_settings_open`, not the press.
 
-**Next, in one step:** the child session's **sibling switcher** in the conversation header. The
-reference replaces the parent crumb with a titled switcher listing the siblings
-(`SubagentHeaderLineage.tsx:767-800`), and native can read the parent's `subagentCatalog` from that
-parent's `SessionSummary.projections` — the same data the sidebar count already uses — so this is
-another view/model slice, not a cross-session read. The settings/rename editable menu is
-**toolkit-blocked**, recorded below, not a candidate.
+**Next, in one step:** expand a catalog row to its **grandchildren**. Each child's
+`SessionSummary.projections` can carry its own `subagentCatalog`, the way the parent's does, so a
+nested branch is a view/model slice over summaries already listed — the same source as the parent's
+count. Per-child token totals and active durations still need the reference's `subagentTiming` and
+`tokenUsage` projections, which native does not carry; keep those separate. The settings/rename
+editable menu is **toolkit-blocked**, recorded below, not a candidate.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -4828,3 +4829,43 @@ One test was added: `the_sidebar_hides_child_sessions_and_counts_running_ones` (
 the child disappears, the count reads 1, and the copy is the singular form). The `subagent-catalog`
 preset's parent summary now also carries the catalog in `projections.values`, which is what the
 sidebar reads.
+
+### Round 266 — the child header's sibling switcher
+
+**A selected child's current crumb is now the reference's switcher.** When the selected session is
+a subagent child and its parent summary carries a `subagentCatalog`, the current crumb gains a
+chevron and becomes a button; opening it lists the parent's children with their activity dots,
+labels and mode labels. The current child's label is primary ink and its siblings are muted, and
+choosing a sibling selects it through `Message::SubagentOpen` (the same path as the root catalog).
+A root session, or a child whose parent summary carries no catalog, keeps the plain crumb.
+`shots/108-subagent-sibling.png` is the closed switcher and
+`shots/109-subagent-sibling-open.png` the open list with the current `PUBLIC reviewer` bright and
+`PUBLIC scout` dim; both reports are `status: passed`.
+
+The data is the parent's own `SessionSummary.projections.values.subagentCatalog`
+(`parent_catalog`, `app/src/ui.rs`), the same source as the sidebar's running-child count. No new
+wire read, command or field: this round is the view/model half the previous rounds' notes
+predicted.
+
+**Deliberate differences.** Native keeps the parent crumb before the switcher, so the trail reads
+"parent / child ▾"; the reference's lineage slot is a switcher carrying the current title and its
+own ancestry, and native's trail is a documented native shape. The menu heading
+"Subagent sessions" stays visible (the reference's equivalent is `tree.aria`), and the rows still
+carry no token totals, durations, nested expansion or "open in sidebar" action.
+
+**Battery (round 266).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1162 passed**, 1 ignored |
+| app, default | **0** | **1155 passed**, 1 ignored |
+| transport | **0** | 38 + 17 + 82 + 7 (unchanged, no transport edit) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+One test was added: `a_child_header_reads_the_parents_sibling_catalog` (two siblings from the
+parent summary, the current child, and `None` on the parent). The new `subagent-sibling` preset
+selects the reviewer child and seeds the parent catalog; `--subagent-menu` opens the switcher for
+capture.
