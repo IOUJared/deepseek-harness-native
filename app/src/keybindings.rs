@@ -259,6 +259,34 @@ fn display_code(code: &str) -> String {
     code.strip_prefix("Key").unwrap_or(code).to_owned()
 }
 
+/// Whether a captured binding still needs Command/Ctrl/Alt: the reference refuses a printable
+/// code held with no primary or alt modifier (`Editor.tsx` `describeBinding`'s
+/// `modifier-required`), while named keys such as Enter and Escape are valid alone. Shift is not
+/// enough, because it only changes the character a printable key produces.
+pub fn needs_modifier(binding: &Binding) -> bool {
+    let printable = binding.code.starts_with("Key")
+        || binding.code == "Space"
+        || matches!(
+            binding.code.as_str(),
+            "Slash"
+                | "Period"
+                | "Comma"
+                | "Semicolon"
+                | "Quote"
+                | "BracketLeft"
+                | "BracketRight"
+                | "Minus"
+                | "Equal"
+                | "Backquote"
+                | "Backslash"
+        );
+    printable
+        && !binding
+            .modifiers
+            .iter()
+            .any(|modifier| modifier == "primary" || modifier == "alt")
+}
+
 /// Whether a press answers a stored binding. The comparison is by **code and modifiers**, and a
 /// modifier the binding does not name must not be held: `primary + Slash` must not fire on
 /// `primary + shift + Slash`. The reference's own default for the trigger is exactly that pair
@@ -402,6 +430,12 @@ pub const COPY_MODIFIED: &str = "Modified";
 pub const COPY_RECORD: &str = "Press a shortcut";
 /// The reference's no-match line (`locales.ts` `empty`).
 pub const COPY_EMPTY: &str = "No matching shortcuts";
+/// The reference's conflict line (`locales.ts` `conflict`), with its curly quotes.
+pub const COPY_CONFLICT: &str = "Already used by “{commands}”";
+/// The reference's refused-key line (`locales.ts` `unsupported-key`).
+pub const COPY_UNSUPPORTED_KEY: &str = "This key is not supported.";
+/// The reference's modifier requirement (`locales.ts` `modifier-required`).
+pub const COPY_MODIFIER_REQUIRED: &str = "Include Command, Ctrl, or Alt in the combination.";
 pub const COPY_RETRY_SAVE: &str = "Retry save";
 pub const COPY_MODIFIED_COUNT: &str = "{count} customized";
 pub const COPY_RESET_ALL: &str = "Restore all defaults";
@@ -701,12 +735,47 @@ mod tests {
     }
 
     #[test]
+    fn a_printable_binding_needs_a_primary_or_alt_modifier() {
+        use iced::keyboard::{Key, Modifiers};
+        let plain = binding_from(&Key::Character("b".into()), Modifiers::empty()).unwrap();
+        assert!(needs_modifier(&plain));
+        let shifted = binding_from(&Key::Character("b".into()), Modifiers::SHIFT).unwrap();
+        assert!(
+            needs_modifier(&shifted),
+            "Shift is not a qualifying modifier"
+        );
+        let ctrl = binding_from(&Key::Character("b".into()), Modifiers::CTRL).unwrap();
+        assert!(!needs_modifier(&ctrl));
+        let alt = binding_from(&Key::Character("b".into()), Modifiers::ALT).unwrap();
+        assert!(!needs_modifier(&alt));
+        // Named keys the app already binds are valid alone, as the reference's fixed list shows.
+        for key in [
+            iced::keyboard::key::Named::Enter,
+            iced::keyboard::key::Named::Escape,
+            iced::keyboard::key::Named::Tab,
+            iced::keyboard::key::Named::ArrowUp,
+        ] {
+            let binding = binding_from(&Key::Named(key), Modifiers::empty()).unwrap();
+            assert!(!needs_modifier(&binding), "{key:?} is a named key");
+        }
+    }
+
+    #[test]
     fn the_copy_is_the_reference_strings_verbatim() {
         assert_eq!(COPY_RESET, "Restore default");
         assert_eq!(COPY_CLEAR, "Remove");
         assert_eq!(COPY_MODIFIED, "Modified");
         assert_eq!(COPY_RECORD, "Press a shortcut");
         assert_eq!(COPY_EMPTY, "No matching shortcuts");
+        assert_eq!(
+            COPY_CONFLICT, "Already used by “{commands}”",
+            "the reference's curly quotes are part of the copy"
+        );
+        assert_eq!(COPY_UNSUPPORTED_KEY, "This key is not supported.");
+        assert_eq!(
+            COPY_MODIFIER_REQUIRED,
+            "Include Command, Ctrl, or Alt in the combination."
+        );
         assert_eq!(COPY_RETRY_SAVE, "Retry save");
         assert_eq!(COPY_MODIFIED_COUNT, "{count} customized");
         assert_eq!(COPY_RESET_ALL, "Restore all defaults");

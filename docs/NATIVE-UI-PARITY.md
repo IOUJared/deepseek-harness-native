@@ -7,10 +7,10 @@ in `~/.local/share/dsh-macos-shell-reference/shots/` (mirrored, git-ignored, in 
 **Done, with captures:** permission select; agent-preset roster and selection; background jobs
 (transport → mux → worker → action → panel → dots → kill → output expansion); the shortcuts
 **editor** — store, catalog, resolver, trigger, sorted rows, "Modified", Remove, Restore default,
-the customized count, the Host commands group, the guarded restore-all, capture-a-key and its
-searchable list (`shots/87-…` through `99-…`); the General page's **session-log preference row**
-with its own read and write (`shots/100-…`); and **keys as data**, so the store's five commands
-drive the live chain instead of a hardcoded map.
+the customized count, the Host commands group, the guarded restore-all, capture-a-key, its
+searchable list and its refused-capture states (`shots/87-…` through `102-…`); the General page's
+**session-log preference row** with its own read and write (`shots/100-…`); and **keys as data**, so
+the store's five commands drive the live chain instead of a hardcoded map.
 
 **Read this before trusting the list above.** Round 257 found that the editor's per-row actions,
 the permission default row and eight Host-event handlers were **unreachable behind two catch-all
@@ -23,10 +23,11 @@ same shape in the `Ctrl+/` trigger: it opened the account page and the open path
 disclosure, so the editor was never shown; the trigger's "captured" evidence had gone through the
 fixture's direct `set_settings_open`, not the press.
 
-**Next, in one step:** the capture path still accepts a binding another command already holds;
-the reference refuses it with "Already used by …" and also names an unsupported key. The store
-already has `conflict` (`keybindings.rs`, with a test), so this is the editor's one remaining
-behavioural gap before the feature-sized Open items.
+**Next, in one step:** the reference's `response.stop` fixed input — two independent Escape
+presses within the validated interval (default 500 ms) cancel the running turn, but only while a
+turn is live, inside the conversation region and outside a modal or terminal
+(`ui-conversation/src/client/stop-shortcut.ts`, `stop-sequence.ts`). Native has the Stop button and
+the live turn state but no double-Escape route; the interval is the configured one, not invented.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -4558,3 +4559,47 @@ and `general_reads_its_namespace_only_while_open_and_enabled`. Captures 100 and 
 `allTextCollected: false`/`paintVisibilityQualified: false` pair is unchanged. The row's **write**
 is unit-tested at the controller boundary but no live Host run has acknowledged a session-log
 write; that remains the feature's live qualification gap.
+
+### Round 260 — refused captures name what the reference names
+
+**The capture path no longer saves whatever key arrives.** The reference refuses three cases before
+it writes (`Editor.tsx` `capture`/`describeBinding`): an unsupported code, a printable combination
+without Command/Ctrl/Alt, and a combination another command already holds. Native's live capture now
+does the same in that order (`ui.rs:5064-5110`):
+
+- pure modifier presses are ignored without a message, as the reference ignores them;
+- an unencodable key sets **"This key is not supported."** (`COPY_UNSUPPORTED_KEY`);
+- a printable code with only Shift or no modifier sets **"Include Command, Ctrl, or Alt in the
+  combination."** (`COPY_MODIFIER_REQUIRED`), with named keys such as Enter and Escape still valid
+  alone; `keybindings::needs_modifier` owns that rule and its test;
+- a combination held by another command sets **"Already used by “Navigation”"**
+  (`COPY_CONFLICT`, curly quotes included, `{commands}` replaced with the held command's label
+  from the same catalog the rows draw).
+
+A refusal keeps the arming, changes nothing in the store, and leaves the message until the next
+arming or a successful capture. `shots/102-shortcuts-capture-conflict.png` is the frame: the
+`Find in conversation` row armed with its recorder chip, `Navigation` still holding `Ctrl+B`, and
+the red conflict line above the groups. The fixture flag `--capture-conflict` does not inject the
+string — it arms the row and sends a real `Message::KeyPressed(Ctrl+B)` through the production
+chain, then the report passes with `capturedCommandCount: 0`.
+
+**Deliberate difference.** The reference raises the message as a toast and marks the recorder
+`aria-invalid`; its inline copy is screen-reader-only. Native has no toast overlay, so the message
+is a visible danger-coloured line in the disclosure. That is more visible than the reference, not
+less, and it disappears on the next capture. No key is saved when the reference would refuse one.
+
+**Battery (round 260).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1151 passed**, 1 ignored |
+| app, default | **0** | **1144 passed**, 1 ignored |
+| transport | **0** | 38 + 17 + 82 + 7 (unchanged, no transport edit) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+Two tests were added: `a_printable_binding_needs_a_primary_or_alt_modifier` and
+`a_refused_capture_keeps_the_arming_and_names_the_reason`; the copy test now pins the three new
+strings. `shots/102` exits 0 with `status: passed` and `layoutObservation.passed: true`.

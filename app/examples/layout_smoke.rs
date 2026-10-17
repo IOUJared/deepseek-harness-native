@@ -154,6 +154,8 @@ struct Options {
     reset_all: bool,
     /// Arm one shortcut row's recorder, so the capture-in-progress state is captured.
     capture: bool,
+    /// Arm one row and capture a key another command holds, so the refusal is captured.
+    capture_conflict: bool,
     /// Prefill the shortcuts search, so its filtered and empty states are captured.
     shortcuts_search: Option<String>,
     /// Seed the General page's session-log namespace, so its preference row is captured.
@@ -252,6 +254,7 @@ fn options() -> Result<Options, &'static str> {
             "--commands",
             "--reset-all",
             "--capture",
+            "--capture-conflict",
             "--shortcuts-search",
             "--session-log",
             "--agent-seat-error",
@@ -343,6 +346,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         capture: match values.remove("--capture") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        capture_conflict: match values.remove("--capture-conflict") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -682,6 +689,15 @@ impl Fixture {
         }
         if options.capture {
             app.arm_shortcut_capture();
+        }
+        if options.capture_conflict {
+            // The production chain, not a fixture-injected string: arm the row, then press the
+            // key Navigation already holds and let the reducer refuse it.
+            app.arm_shortcut_capture();
+            let _ = app.update(ui::Message::KeyPressed(
+                iced::keyboard::Key::Character("b".into()),
+                iced::keyboard::Modifiers::CTRL,
+            ));
         }
         if let Some(query) = &options.shortcuts_search {
             app.set_shortcuts_query(query);

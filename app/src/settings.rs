@@ -277,6 +277,9 @@ pub struct Settings {
     pub(crate) reset_all_armed: bool,
     /// The command whose next press becomes its binding (`Editor.tsx:59-71`); `None` routes normally.
     pub(crate) capture_for: Option<String>,
+    /// The reference reports a refused capture instead of saving it; native has no toast, so the
+    /// message stays inline until the next arming or successful capture.
+    pub(crate) capture_error: Option<String>,
     /// The permission default row's preset list is open.
     permission_open: bool,
     api_help_open: bool,
@@ -310,6 +313,7 @@ impl Default for Settings {
             commands: Vec::new(),
             reset_all_armed: false,
             capture_for: None,
+            capture_error: None,
             permission_open: false,
             api_help_open: false,
             context_policy_open: false,
@@ -1246,6 +1250,9 @@ impl Settings {
                 );
             }
             body = body.push(search);
+            if let Some(error) = &self.capture_error {
+                body = body.push(label(error.clone(), DANGER).size(11));
+            }
             let fixed: Vec<_> = crate::keybindings::rows(&self.keybindings, &catalog)
                 .into_iter()
                 .filter(|row| crate::keybindings::matches_search(row, &self.shortcuts_query))

@@ -2704,10 +2704,12 @@ impl App {
                 match &action {
                     crate::settings::Action::CaptureShortcut(id) => {
                         self.settings.capture_for = Some(id.clone());
+                        self.settings.capture_error = None;
                         return Task::none();
                     }
                     crate::settings::Action::ResetAllDefaults => {
                         self.settings.reset_all_armed = true;
+                        self.settings.capture_error = None;
                         return Task::none();
                     }
                     crate::settings::Action::ConfirmResetAll(confirmed) => {
@@ -2721,6 +2723,7 @@ impl App {
                         return Task::none();
                     }
                     crate::settings::Action::ResetShortcut(id) => {
+                        self.settings.capture_error = None;
                         let _ = self.settings.keybindings.apply(
                             crate::keybindings::Edit::Reset { id: id.clone() },
                             self.settings.keybindings.revision(),
@@ -2728,6 +2731,7 @@ impl App {
                         return Task::none();
                     }
                     crate::settings::Action::ClearShortcut(id) => {
+                        self.settings.capture_error = None;
                         // Synchronous and local: the store lives on Settings, so the edit
                         // needs no message and cannot race the revision it just read.
                         let _ = self.settings.keybindings.apply(
@@ -5054,16 +5058,53 @@ impl App {
         // A capture wins over routing: the press *becomes* a binding rather than invoking
         // anything, bounded to the armed row (`Editor.tsx:59-71`).
         if let Some(id) = self.settings.capture_for.clone() {
-            if let Some(binding) = crate::keybindings::binding_from(&key, modifiers) {
-                let _ = self.settings.keybindings.apply(
-                    crate::keybindings::Edit::Set {
-                        id,
-                        binding: Some(binding),
-                    },
-                    self.settings.keybindings.revision(),
-                );
-                self.settings.capture_for = None;
+            use keyboard::key::Named;
+            // A modifier press is not a candidate: the reference ignores it rather than calling
+            // it unsupported, so the arming stays ready for the character that follows.
+            if matches!(
+                key,
+                keyboard::Key::Named(
+                    Named::Alt
+                        | Named::AltGraph
+                        | Named::Control
+                        | Named::Shift
+                        | Named::Meta
+                        | Named::Hyper
+                        | Named::Super
+                )
+            ) {
+                return Task::none();
             }
+            let Some(binding) = crate::keybindings::binding_from(&key, modifiers) else {
+                self.settings.capture_error =
+                    Some(crate::keybindings::COPY_UNSUPPORTED_KEY.to_owned());
+                return Task::none();
+            };
+            if crate::keybindings::needs_modifier(&binding) {
+                self.settings.capture_error =
+                    Some(crate::keybindings::COPY_MODIFIER_REQUIRED.to_owned());
+                return Task::none();
+            }
+            if let Some(other) = self.settings.keybindings.conflict(&id, &binding) {
+                let label = crate::keybindings::native_catalog()
+                    .into_iter()
+                    .chain(crate::keybindings::catalog_rows(&self.settings.commands))
+                    .find(|(known, _, _)| known == other)
+                    .map(|(_, label, _)| label)
+                    .unwrap_or_else(|| other.to_owned());
+                self.settings.capture_error =
+                    Some(crate::keybindings::COPY_CONFLICT.replace("{commands}", &label));
+                return Task::none();
+            }
+            let _ = self.settings.keybindings.apply(
+                crate::keybindings::Edit::Set {
+                    id,
+                    binding: Some(binding),
+                },
+                self.settings.keybindings.revision(),
+            );
+            self.settings.capture_for = None;
+            self.settings.capture_error = None;
             return Task::none();
         }
         // The field-level links own these keys before any command is consulted, so a stored
@@ -12667,6 +12708,63 @@ mod tests {
         assert!(app.settings.is_open());
         assert_eq!(app.settings.page(), crate::settings::Page::General);
         assert!(app.settings.shortcuts_open);
+    }
+    #[test]
+    fn a_refused_capture_keeps_the_arming_and_names_the_reason() {
+        use keyboard::key::Named;
+        use keyboard::{Key, Modifiers};
+        let (mut app, _receiver) = app();
+        let _ = app.update(Message::Settings(crate::settings::Action::CaptureShortcut(
+            "native.find".to_owned(),
+        )));
+        // A modifier alone is ignored, not called unsupported.
+        let _ = app.update(Message::KeyPressed(
+            Key::Named(Named::Shift),
+            Modifiers::SHIFT,
+        ));
+        assert_eq!(app.settings.capture_for.as_deref(), Some("native.find"));
+        assert!(app.settings.capture_error.is_none());
+        // Another command already holds Ctrl+B: refuse, stay armed, name the holder.
+        let _ = app.update(Message::KeyPressed(
+            Key::Character("b".into()),
+            Modifiers::CTRL,
+        ));
+        assert_eq!(app.settings.capture_for.as_deref(), Some("native.find"));
+        assert_eq!(
+            app.settings.capture_error.as_deref(),
+            Some("Already used by “Navigation”")
+        );
+        // A printable key without Ctrl/Alt is refused with the reference's copy.
+        let _ = app.update(Message::KeyPressed(
+            Key::Character("x".into()),
+            Modifiers::empty(),
+        ));
+        assert_eq!(
+            app.settings.capture_error.as_deref(),
+            Some(crate::keybindings::COPY_MODIFIER_REQUIRED)
+        );
+        // A key the app cannot encode is named as unsupported.
+        let _ = app.update(Message::KeyPressed(
+            Key::Named(Named::F1),
+            Modifiers::empty(),
+        ));
+        assert_eq!(
+            app.settings.capture_error.as_deref(),
+            Some(crate::keybindings::COPY_UNSUPPORTED_KEY)
+        );
+        // A valid, free combination saves, disarms and clears the message.
+        let _ = app.update(Message::KeyPressed(
+            Key::Character("g".into()),
+            Modifiers::CTRL,
+        ));
+        assert!(app.settings.capture_for.is_none());
+        assert!(app.settings.capture_error.is_none());
+        let binding = app
+            .settings
+            .keybindings
+            .bindings("native.find")
+            .expect("the row keeps a binding");
+        assert_eq!(crate::keybindings::display(&binding[0]), "Ctrl+G");
     }
     #[test]
     fn the_shortcuts_search_is_local_bounded_and_clears() {
