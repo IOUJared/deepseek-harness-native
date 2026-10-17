@@ -2975,3 +2975,15 @@ keep the upward behaviour they were captured with.
    session in the body (`{"request": {"sessionId": …}}`). Which of those the Host expects for an
    agent scope is the next thing to read, and until it is read the select path is *corrected* but
    not *proven*.
+
+   **The scope question is settled by this repository's own working call, and it corrected the
+   correction.** Last round I reduced the select body to the descriptor's vocabulary
+   (`agentPreset` only) and left the scope unread. The answer was already in `http.rs`: the
+   transport's shipped `commands/list` call sends `{"request": {"sessionId": …}}` and its comment
+   names the *same* wire parameter the descriptor calls `agentId` (`:551-558`) — so an
+   agent-scoped call puts the **session** in the wrapped body under **`sessionId`**, and the
+   preset rides beside it. The select body now mirrors that call exactly.
+   That is also the second time the descriptor's vocabulary (`scope`, `wire`, `lookup`,
+   `agentId`) has pointed away from the transport's actual shape; the working call site wins, and
+   it is in this repository rather than a generated artifact.
+   Verified: transport exit 0, fixture **1114** exit 0, default **1107** exit 0, format-debt 0.

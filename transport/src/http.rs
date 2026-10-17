@@ -672,17 +672,16 @@ impl NativeClient {
         session_id: &SessionId,
         agent_preset: &str,
     ) -> Result<String> {
-        // The generated host descriptor makes the agent a **scope**, not a body field:
-        // `scope: { context: 'agent', wire: 'agentId' }`, with `agentId` a lookup parameter and
-        // `agentPreset` the only JSON one (`typert.host.js:77-118`). So the body carries the
-        // preset through this transport's own wrapper (`request_args`), and an earlier revision
-        // that sent a bare body with `agentId` in it was an invented shape of the same class as
-        // the invented endpoint names. How the scope itself travels is still unread.
-        let _ = session_id;
+        // An agent-scoped call sends the session in the wrapper body under `sessionId` — which is
+        // what this transport's own working `commands/list` call does, and its comment names the
+        // same wire parameter the descriptor calls `agentId`
+        // (`transport/src/http.rs:551-558`; `typert.host.js:77-118`). An earlier revision sent a
+        // bare body with `agentId` in it, which was invented from the descriptor's vocabulary
+        // rather than taken from the working call.
         agent_preset_of(
             self.invoke(
                 Endpoint::AgentPresetSelect,
-                request_args(json!({"agentPreset": agent_preset}))?,
+                request_args(json!({"sessionId": session_id, "agentPreset": agent_preset}))?,
             )
             .await?,
         )
