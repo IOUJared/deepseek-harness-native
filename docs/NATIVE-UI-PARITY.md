@@ -3975,3 +3975,17 @@ Each is one line of work on this side once answered; none is blocked on further 
       can seed `self.commands` (a one-line setter, the same shape as the others).
    That is the shape of the last dead item: **parameter, section, capture** — no new logic, because
    the function and its unbound-row behaviour are already tested.
+
+   **Correction to the paragraph above, visible in its own output: the field is a *projection*.** The
+   grep that found `Event::CommandsListed` also printed the field itself —
+   `commands: Option<Vec<command_menu::Candidate>>` (`ui.rs:795`) — so the app does **not** hold
+   `CommandDescriptor`s; it holds **`Candidate`s**, the slash menu's own type, projected from the
+   descriptors when the event arrives. My paragraph said "the descriptors" and that is wrong in the
+   type, which is exactly the kind of error the next reader would follow into a compile failure.
+   So the last dead item needs one more read before its edit: **`Candidate`'s fields** — whether it
+   carries the command's name and a label, which is all `catalog_rows` takes. If it does, the
+   three-piece edit stands unchanged; if it carries only a display string, then `catalog_rows`
+   should take the candidates directly instead, and the function (not the disclosure) is what
+   changes.
+   Recorded rather than assumed, because the difference between "the app has the data" and "the app
+   has a projection of the data" is the difference between one edit and two.
