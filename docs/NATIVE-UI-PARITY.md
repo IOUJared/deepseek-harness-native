@@ -3451,3 +3451,18 @@ the five above rather than missing work.
    written from memory and succeeded when the enum's exact lines were read first — one grep,
    one attempt, no correction. The store now carries every operation its surface's copy names:
    set, clear, reset one, reset all, the conflict lookup and the modified count.
+
+   **The trigger's core is in code: a press resolves to the command whose binding it answers.**
+   `matches` compares **code and modifiers**, and it refuses a press holding a modifier the binding
+   does not name — so `primary + Slash` does not fire on `primary + shift + Slash`, which is the
+   kind of near-miss a naive equality on the code alone would accept. `resolve` returns the first
+   command whose binding answers the press, or `None` when the key belongs to whatever has focus.
+   The reference's own trigger default is asserted directly: `shortcuts.open` as
+   `primary + Slash` (`ui-shortcuts/src/client/index.ts:42-52`), resolving from `/` with control
+   held, and rendering as `Ctrl+Slash`.
+   Verified: fixture **1128** exit 0 (fourteen keybinding tests), default **1121** exit 0,
+   format-debt 0.
+   That leaves the editor's *wiring*: routing a press into capture while it is open (so a rebind
+   captures rather than fires), the per-row buttons calling `apply`/`reset_all`, the confirmation,
+   the overlay, and the trigger's call into this resolver — the part that touches the app's input
+   handling, which the user asked to preserve, so it should be the last step and a small one.

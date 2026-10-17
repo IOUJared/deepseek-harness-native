@@ -255,6 +255,35 @@ fn display_code(code: &str) -> String {
     code.strip_prefix("Key").unwrap_or(code).to_owned()
 }
 
+/// Whether a press answers a stored binding. The comparison is by **code and modifiers**, and a
+/// modifier the binding does not name must not be held: `primary + Slash` must not fire on
+/// `primary + shift + Slash`. The reference's own default for the trigger is exactly that pair
+/// (`ui-shortcuts/src/client/index.ts:42-52`: `primary + Slash` on every desktop platform).
+pub fn matches(
+    binding: &Binding,
+    key: &iced::keyboard::Key,
+    modifiers: iced::keyboard::Modifiers,
+) -> bool {
+    let Some(pressed) = binding_from(key, modifiers) else {
+        return false;
+    };
+    binding.code == pressed.code && binding.modifiers == pressed.modifiers
+}
+
+/// The first command in the store whose binding answers this press — the lookup an input handler
+/// performs before deciding whether a key is the app's or the composer's. `None` means the press
+/// belongs to whatever has focus.
+pub fn resolve<'a>(
+    store: &'a Store,
+    key: &iced::keyboard::Key,
+    modifiers: iced::keyboard::Modifiers,
+) -> Option<&'a str> {
+    store
+        .bindings()
+        .find(|(_, binding)| binding.is_some_and(|binding| matches(binding, key, modifiers)))
+        .map(|(id, _)| id)
+}
+
 /// The four groups in the reference's **product order**
 /// (`ui-shortcuts/src/client/Reference.tsx:179`).
 pub const GROUPS: [&str; 4] = ["application", "input", "menus", "approval"];
@@ -551,6 +580,51 @@ mod tests {
         assert_eq!(display(&escape), "Escape");
         let up = binding_from(&Key::Named(Named::ArrowUp), Modifiers::empty()).unwrap();
         assert_eq!(display(&up), "ArrowUp");
+    }
+
+    #[test]
+    fn a_press_resolves_to_the_command_whose_binding_it_answers() {
+        use iced::keyboard::{Key, Modifiers};
+        let store = store();
+        // `palette` ships as `primary + Slash`, which is the reference's trigger default.
+        assert_eq!(
+            resolve(&store, &Key::Character("/".into()), Modifiers::CTRL),
+            Some("palette")
+        );
+        assert_eq!(
+            resolve(&store, &Key::Character("b".into()), Modifiers::CTRL),
+            None
+        );
+        // An unnamed modifier must not be held, or the trigger would fire on Ctrl+Shift+/.
+        assert_eq!(
+            resolve(
+                &store,
+                &Key::Character("/".into()),
+                Modifiers::CTRL | Modifiers::SHIFT
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn the_trigger_default_is_the_reference_pair() {
+        // The reference registers `shortcuts.open` as `primary + Slash` on every desktop platform
+        // (`ui-shortcuts/src/client/index.ts:42-52`), so the trigger's own binding is that pair.
+        let trigger = Binding {
+            code: "Slash".to_owned(),
+            second_code: None,
+            modifiers: vec!["primary".to_owned()],
+        };
+        assert_eq!(display(&trigger), "Ctrl+Slash");
+        let store = Store::new([("shortcuts.open".to_owned(), Some(trigger.clone()))]);
+        assert_eq!(
+            resolve(
+                &store,
+                &iced::keyboard::Key::Character("/".into()),
+                iced::keyboard::Modifiers::CTRL
+            ),
+            Some("shortcuts.open")
+        );
     }
 
     #[test]
