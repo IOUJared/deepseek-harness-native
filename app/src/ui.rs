@@ -220,6 +220,10 @@ pub enum Message {
     ToggleJobs,
     /// The reference's `shortcuts.open` trigger (`primary + Slash`).
     ShortcutsOpen,
+    /// A key the hardcoded map did not claim, handed to the live binding store: routing a key as
+    /// *data* is the only way to consult live bindings, since a subscription's captured data goes
+    /// stale the moment a panel opens (see the chain's own comment).
+    KeyFallback(iced::keyboard::Key, iced::keyboard::Modifiers),
     /// Stops one job, after the reference's two-click confirmation.
     KillJob(String),
     /// Expands or collapses one job's live output.
@@ -1154,7 +1158,11 @@ impl App {
                         .or_else(|| {
                             crate::keybindings::is_trigger(&key, modifiers)
                                 .then_some(Message::ShortcutsOpen)
-                        }),
+                        })
+                        // Nothing claimed it, so hand it to the store as data. The handler above
+                        // decides against live bindings, which is why the key travels rather than
+                        // a decision taken here.
+                        .or_else(|| Some(Message::KeyFallback(key.clone(), modifiers))),
                     _ => None,
                 }),
             animation,
@@ -2907,6 +2915,18 @@ impl App {
                         preset: id,
                     });
                 }
+            }
+            Message::KeyFallback(key, modifiers) => {
+                // Only keys the hardcoded map does not claim reach here, so nothing that worked
+                // before can change. The store decides, and a command this app cannot act on is
+                // ignored rather than approximated.
+                let invoke =
+                    crate::keybindings::resolve(&self.settings.keybindings, &key, modifiers)
+                        .and_then(crate::keybindings::invoke_for);
+                if let Some(message) = invoke_message(invoke) {
+                    return Task::done(message);
+                }
+                return Task::none();
             }
             Message::ShortcutsOpen => {
                 // The reference's `shortcuts.open` shows its own overlay; the equivalent here is
@@ -10726,6 +10746,19 @@ pub(crate) fn label<'a>(
         .shaping(text::Shaping::Advanced)
 }
 // Focus-local layout shortcuts only; never register or alter desktop bindings.
+/// The message a stored binding should send. `Send` and `Newline` are absent on purpose: the
+/// composer's text input owns those keys, so a rebound key cannot meaningfully stand in for them
+/// and pretending otherwise would move focus.
+fn invoke_message(invoke: Option<crate::keybindings::Invoke>) -> Option<Message> {
+    use crate::keybindings::Invoke;
+    match invoke? {
+        Invoke::Navigation => Some(Message::ToggleSidebar),
+        Invoke::Find => Some(Message::SearchOpen),
+        Invoke::Close => Some(Message::DismissPanel),
+        Invoke::Send | Invoke::Newline => None,
+    }
+}
+
 fn layout_shortcut(key: &keyboard::Key, modifiers: keyboard::Modifiers) -> Option<Message> {
     if modifiers.control()
         && !modifiers.alt()

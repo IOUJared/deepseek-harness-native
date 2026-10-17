@@ -3771,3 +3771,21 @@ it now rests on a gate that was run whole.
    right thing to hand to a fresh context rather than to guess at the end of this one. Everything
    below that decision — store, catalog, derivation, invocation, resolver, trigger — is tested and
    in place; the decision is whether keys become data.
+
+   **The store is now consulted by behaviour, not just by data — and the design question answered
+   itself with a third option.** Rather than invert the routing (round 225's two costly designs),
+   the key chain gained a **fallback**: anything the hardcoded map does not claim becomes
+   `Message::KeyFallback(key, modifiers)`, and the handler resolves it against the **live** store
+   in `self.settings.keybindings` — which is the only way to read live bindings, since a
+   subscription's captured data goes stale when a panel opens (the chain's own comment).
+   The boundaries are deliberate and stated:
+   - keys the map claims (`Ctrl+F`, `Ctrl+B`, `Escape`) are untouched, so nothing that worked
+     before can change and the `DismissPanel`→`HideDetails` ticket upgrade still happens on the
+     original path;
+   - `Invoke::Send` and `Invoke::Newline` map to **nothing**, because the composer's text input
+     owns those keys; a rebound key standing in for them would move focus, so the module answers
+     `None` and the app ignores it rather than approximating;
+   - a stored binding therefore **adds** a key today, and cannot yet **replace** a hardcoded one —
+     that inversion, with the ticket upgrade preserved, is the one remaining step, and it is now a
+     reorder plus a `HideDetails` arm rather than a redesign.
+   Verified: release build exit 0, fixture **1134** exit 0, default **1127** exit 0, format-debt 0.
