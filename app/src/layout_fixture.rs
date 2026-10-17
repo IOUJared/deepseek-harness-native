@@ -1146,10 +1146,11 @@ pub fn build(
                     scheduled_at: "2026-10-16T09:00:00Z".into(),
                     delivered_at: "2026-10-16T09:00:01Z".into(),
                 }),
-                record: serde_json::json!({"prompt":"PUBLIC daily instruction"})
-                    .as_object()
-                    .unwrap()
-                    .clone(),
+                record: serde_json::json!({"prompt":"PUBLIC daily instruction",
+                    "time":"09:00:00","timeZone":"UTC"})
+                .as_object()
+                .unwrap()
+                .clone(),
             },
             dsh_native_transport::dto::ScheduleCatalogItem {
                 id: "PUBLIC-schedule-paused".into(),
@@ -1159,10 +1160,11 @@ pub fn build(
                 status: "inactive".into(),
                 scheduled_at: None,
                 last_delivery: None,
-                record: serde_json::json!({"prompt":"PUBLIC weekly instruction"})
-                    .as_object()
-                    .unwrap()
-                    .clone(),
+                record: serde_json::json!({"prompt":"PUBLIC weekly instruction",
+                    "time":"17:30:00","timeZone":"UTC","weekdays":[1,3,5]})
+                .as_object()
+                .unwrap()
+                .clone(),
             },
         ];
     }

@@ -818,6 +818,7 @@ impl NativeClient {
         expected: &Value,
         title: Option<&str>,
         prompt: Option<&str>,
+        change: Option<&Value>,
     ) -> Result<ScheduleUpdateOutcome> {
         let Some(object) = expected.as_object() else {
             return Err(Error::InvalidDto);
@@ -830,7 +831,10 @@ impl NativeClient {
         }
         let title = title.map(str::trim).filter(|value| !value.is_empty());
         let prompt = prompt.map(str::trim).filter(|value| !value.is_empty());
-        if title.is_none() && prompt.is_none() {
+        if title.is_none() && prompt.is_none() && change.is_none() {
+            return Err(Error::InvalidDto);
+        }
+        if change.is_some_and(|value| !valid_timing_change(value)) {
             return Err(Error::InvalidDto);
         }
         if title.is_some_and(|value| value.len() > 120)
@@ -847,6 +851,9 @@ impl NativeClient {
         }
         if let Some(prompt) = prompt {
             request.insert("prompt".into(), json!(prompt));
+        }
+        if let Some(change) = change {
+            request.insert("change".into(), change.clone());
         }
         let value: Value = self
             .invoke(Endpoint::ScheduleUpdate, json!({"request": request}))
@@ -1390,6 +1397,77 @@ struct UpdateRecordWire {
     title: String,
     prompt: String,
 }
+/// The five timing-change shapes (`types.ts:402-407`), using the Host's snake_case input
+/// fields. Bounds only; the Host validates the wall-clock/cron grammar and time zone.
+fn valid_timing_change(value: &Value) -> bool {
+    let Some(object) = value.as_object() else {
+        return false;
+    };
+    let Some(kind) = object.get("kind").and_then(Value::as_str) else {
+        return false;
+    };
+    match kind {
+        "at" => object.get("at").is_some_and(|at| {
+            at.as_str()
+                .is_some_and(|text| !text.is_empty() && text.len() <= 64)
+                || at.as_object().is_some_and(|local| {
+                    local
+                        .get("date")
+                        .and_then(Value::as_str)
+                        .is_some_and(|v| !v.is_empty() && v.len() <= 32)
+                        && local
+                            .get("time")
+                            .and_then(Value::as_str)
+                            .is_some_and(|v| !v.is_empty() && v.len() <= 32)
+                        && local
+                            .get("time_zone")
+                            .and_then(Value::as_str)
+                            .is_some_and(|v| !v.is_empty() && v.len() <= 64)
+                })
+        }),
+        "every" => object
+            .get("every_seconds")
+            .and_then(Value::as_u64)
+            .is_some_and(|seconds| (60..=u64::MAX).contains(&seconds)),
+        "daily" => object.get("daily").is_some_and(|daily| {
+            daily
+                .get("time")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.is_empty() && value.len() <= 32)
+                && daily
+                    .get("time_zone")
+                    .and_then(Value::as_str)
+                    .is_some_and(|value| !value.is_empty() && value.len() <= 64)
+        }),
+        "weekly" => object.get("weekly").is_some_and(|weekly| {
+            weekly
+                .get("time")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.is_empty() && value.len() <= 32)
+                && weekly
+                    .get("time_zone")
+                    .and_then(Value::as_str)
+                    .is_some_and(|value| !value.is_empty() && value.len() <= 64)
+                && weekly
+                    .get("weekdays")
+                    .and_then(Value::as_array)
+                    .is_some_and(|days| {
+                        (1..=7).contains(&days.len())
+                            && days.iter().all(|day| matches!(day.as_u64(), Some(1..=7)))
+                    })
+        }),
+        "cron" => object.get("cron").is_some_and(|cron| {
+            cron.get("expression")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.is_empty() && value.len() <= 256)
+                && cron
+                    .get("time_zone")
+                    .and_then(Value::as_str)
+                    .is_some_and(|value| !value.is_empty() && value.len() <= 64)
+        }),
+        _ => false,
+    }
+}
 fn schedule_update_outcome(value: &Value) -> Option<ScheduleUpdateOutcome> {
     let wire: UpdateWire = serde_json::from_value(value.clone()).ok()?;
     match wire.updated {
@@ -1726,6 +1804,31 @@ mod schedule_tests {
         );
         for bad in [json!({}), json!({"deleted":"yes"}), json!(null), json!(7)] {
             assert_eq!(schedule_delete_outcome(&bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn timing_change_shapes_are_bounded_and_text_only() {
+        use super::valid_timing_change;
+        for good in [
+            serde_json::json!({"kind":"daily","daily":{"time":"09:00:00","time_zone":"UTC"}}),
+            serde_json::json!({"kind":"weekly","weekly":{"time":"09:00:00","time_zone":"UTC","weekdays":[1,3]}}),
+            serde_json::json!({"kind":"every","every_seconds":60}),
+            serde_json::json!({"kind":"cron","cron":{"expression":"0 9 * * *","time_zone":"UTC"}}),
+            serde_json::json!({"kind":"at","at":"2026-10-17T09:00:00Z"}),
+            serde_json::json!({"kind":"at","at":{"date":"2026-10-17","time":"09:00:00","time_zone":"UTC"}}),
+        ] {
+            assert!(valid_timing_change(&good), "{good}");
+        }
+        for bad in [
+            serde_json::json!({"kind":"unknown"}),
+            serde_json::json!({"kind":"every","every_seconds":59}),
+            serde_json::json!({"kind":"daily","daily":{"time":"","time_zone":"UTC"}}),
+            serde_json::json!({"kind":"weekly","weekly":{"time":"09:00:00","time_zone":"UTC","weekdays":[]}}),
+            serde_json::json!({"kind":"cron","cron":{"expression":"","time_zone":"UTC"}}),
+            serde_json::json!({"kind":"at","at":""}),
+        ] {
+            assert!(!valid_timing_change(&bad), "{bad}");
         }
     }
 

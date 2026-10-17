@@ -38,10 +38,10 @@ point is the Host's canonical `/api/<namespace>/<method>` dispatcher, so adding 
 `dsh-native-transport` is in-bounds; what is out of bounds is rebuilding or forking the Host runtime
 in Rust. Keep coding without asking for permission. Queue edit/remove/steer, full-text content
 search, the goal bar (pause/resume/edit/clear), the per-turn usage detail and the **scheduled-tasks
-page** (catalog + delete + delivery history + title/instruction edit) and the goal's **disarmed
-activation** now work end to end; the next items are schedule **timing** edits and the date/time
-pickers, then workspace open and the deliverables diff. Cross-session pending status is still
-unavailable from the present wires.
+page** (catalog + delete + delivery history + title/instruction/timing edit) and the goal's
+**disarmed activation** now work end to end; the next items are the reference's **date/time pickers
+and timing-kind selector**, then workspace open and the deliverables diff. Cross-session pending
+status is still unavailable from the present wires.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -5702,6 +5702,38 @@ the right-sidebar task tab.
 | app, fixture | **0** | **1192 passed**, 1 ignored |
 | app, default | **0** | **1185 passed**, 1 ignored |
 | transport | **0** | 48 + 17 + 82 + 7 (unchanged this round) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+### Round 294 — schedule timing edits
+
+**A scheduled task's timing can now be changed from the same editor.** The expected record's own
+kind decides which fields the editor shows: daily and weekly get local time + IANA zone (weekly also
+weekdays as `1,3,5`), every gets whole seconds (minimum 60), cron gets the five-field expression and
+zone, and one-shot rows get an RFC 3339 instant. Save sends the Host's snake_case `change` shape
+(`{kind:'daily',daily:{time,time_zone}}`, `every_seconds`, `weekly.weekdays`, `cron.expression`,
+`at`); invalid input is refused before the write with a red explanation and the editor stays open.
+The transport validates every shape's bounds; wall-clock/cron grammar and the zone itself remain the
+Host's validation. `shots/135-schedules-edit.png` now shows **Timing · daily** with time and zone
+fields; the report is `status: passed`.
+
+Two tests cover all five change shapes plus invalid inputs (duplicate weekday, zone missing, every
+below 60, unknown kind) and the daily edit path through the command.
+
+**Deliberate differences.** The reference uses DatePicker/ClockPicker popovers and a timing-kind
+selector; native uses labelled plain text fields and keeps the record's **kind** (no kind switch
+yet). A changed timing may therefore require typing the zone and correct grammar. The row still
+does not display the saved instruction or timing.
+
+**Battery (round 294).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1193 passed**, 1 ignored |
+| app, default | **0** | **1186 passed**, 1 ignored |
+| transport | **0** | **49 + 17 + 82 + 7** |
 | core (`--lib`) | **0** | **112 passed** (unchanged) |
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |

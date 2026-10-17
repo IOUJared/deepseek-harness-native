@@ -94,6 +94,7 @@ pub enum Command {
         expected: serde_json::Value,
         title: Option<String>,
         prompt: Option<String>,
+        change: Option<serde_json::Value>,
     },
     /// One goal mutation for a session.
     Goal {
@@ -2409,9 +2410,9 @@ async fn run(
                         let result=client.schedule_delete(&session,&id).await.map_err(|error|format!("Schedule delete: {error}"));
                         Event::ScheduleDeleted{session,id,result}
                     },
-                    Command::ScheduleUpdate{session,expected,title,prompt}=>{
+                    Command::ScheduleUpdate{session,expected,title,prompt,change}=>{
                         let id=expected.get("id").and_then(serde_json::Value::as_str).unwrap_or("").to_owned();
-                        let result=client.schedule_update(&session,&expected,title.as_deref(),prompt.as_deref()).await.map_err(|error|format!("Schedule update: {error}"));
+                        let result=client.schedule_update(&session,&expected,title.as_deref(),prompt.as_deref(),change.as_ref()).await.map_err(|error|format!("Schedule update: {error}"));
                         Event::ScheduleUpdated{session,id,result}
                     },
                     Command::ScheduleHistory{session,id,limit,before}=>{
