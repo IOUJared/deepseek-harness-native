@@ -4055,3 +4055,21 @@ No regression, and the counts are identical to round 228 — which is the right 
 add surfaces rather than alter tested behaviour. The three captures from those rounds stand on their
 own frames: `shots/87-…` (rows), `shots/89-…` (the count line with a cleared key), `shots/90-…`
 (the Host commands group).
+
+   **Correction: this app's five commands belong in the *catalog*, not the fixed list — and that
+   decision of mine is what makes the editor's actions seem pointless.** I tried to give the rows a
+   "remove" action and stopped at a real question: *what would it apply to?* My round-197 test
+   declares native's five ids `fixed.*` and asserts they fall **outside** any catalog and cannot be
+   rebound — modelled on the reference's `fixed.ts`, whose rows are `move` (↑/↓), `select` (Enter)
+   and `dismiss` (Esc). But those are the reference's **menu keys**, not its commands: its
+   *commands* — the ones its editor edits — live in the **client catalog** it passes to
+   `ShortcutReference` (`useCatalog`, `Reference.tsx:52`), with ids, labels, groups and **defaults**
+   (round 222). Native's five (`Ctrl+B`, `Ctrl+F`, Enter/Ctrl+Enter, Shift+Enter, Escape) are *app
+   commands*, so in the reference's terms they belong in the **catalog** and are **editable** — the
+   `fixed.` prefix and the non-rebindable test are my invention, applied to the wrong layer.
+   That is why the ten copy constants and the per-row actions have felt unwireable: **their subject
+   was defined away by my own test.** Correcting it means: native's five move into the catalog with
+   their defaults (which `native_fixed()` already supplies), the `fixed.*` prefix and the
+   outside-the-catalog assertion go, and — only then — a remove/reset action has something to act
+   on. The keys-as-data capability is still needed for a rebound key to *replace* a hardcoded one,
+   but the *editor* no longer waits on it to have rows worth editing.
