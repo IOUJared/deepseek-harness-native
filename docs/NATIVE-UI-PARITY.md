@@ -3526,3 +3526,17 @@ the five above rather than missing work.
    with `Some(&[] as &[Binding])` for the cleared state.
    With this, every anchor the multi-binding patch needs has been read from the file rather than
    recalled, which is the one thing the last four attempts at it lacked.
+
+   **Two older tests had encoded the bug, and the fix is what caught them.** With the list renderer
+   corrected to `display`, the row and search-index tests failed on their own expectations —
+   `"primary+Slash"` and `"primary+KeyK"` — because they had been written against the raw
+   join. They now expect **`"Ctrl+Slash"`**, **`"Ctrl+K"`** and the index forms
+   `"Ctrl+Slash"` / `"CtrlSlash"`, which is what a row actually shows. The `Key` prefix is dropped
+   by `display`, so `KeyK` reads as `K`, exactly as a DOM code does.
+   Verified: fixture **1129** exit 0 (fifteen keybinding tests), default **1122** exit 0,
+   format-debt 0.
+   Worth stating plainly: the *original* five tests passed while the renderer was wrong, because
+   they asserted the raw form. Only the test written for the change — the one that said what a row
+   must *show* — exposed it. That is the difference between a test that pins behaviour and a test
+   that pins implementation, and it is the third time this session a deliberately-written test has
+   been the thing that found the defect.

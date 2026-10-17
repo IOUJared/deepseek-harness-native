@@ -26,10 +26,12 @@ pub struct Binding {
 /// A command's binding: a default the reference ships, and whatever the user has set.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
-    pub default: Option<Binding>,
-    /// `None` means cleared, which is distinct from absent: the reference can clear a binding
-    /// without losing the default it resets to.
-    pub binding: Option<Binding>,
+    /// The bindings the reference ships for this command — a list, because `move` carries both
+    /// arrow keys (`fixed.ts:12`) and native's own list prints "Enter / Ctrl+Enter" for send.
+    pub default: Vec<Binding>,
+    /// Empty means cleared, which is distinct from absent: the reference can clear a binding
+    /// without losing the defaults it resets to.
+    pub bindings: Vec<Binding>,
 }
 
 /// What an editor asks the store to do (`ShortcutEdit`).
@@ -64,7 +66,7 @@ pub struct Store {
 
 impl Store {
     /// A store holding a catalog's defaults at revision zero.
-    pub fn new(defaults: impl IntoIterator<Item = (String, Option<Binding>)>) -> Self {
+    pub fn new(defaults: impl IntoIterator<Item = (String, Vec<Binding>)>) -> Self {
         Self {
             entries: defaults
                 .into_iter()
@@ -72,8 +74,8 @@ impl Store {
                     (
                         id,
                         Entry {
-                            default: default.clone(),
-                            binding: default,
+                            bindings: default.clone(),
+                            default,
                         },
                     )
                 })
@@ -86,15 +88,15 @@ impl Store {
         self.revision
     }
 
-    pub fn binding(&self, id: &str) -> Option<Option<&Binding>> {
-        self.entries.get(id).map(|entry| entry.binding.as_ref())
+    pub fn bindings(&self, id: &str) -> Option<&[Binding]> {
+        self.entries.get(id).map(|entry| entry.bindings.as_slice())
     }
 
     /// Every command the catalog carries, with its effective binding — the list an editor draws.
-    pub fn bindings(&self) -> impl Iterator<Item = (&str, Option<&Binding>)> {
+    pub fn all(&self) -> impl Iterator<Item = (&str, &[Binding])> {
         self.entries
             .iter()
-            .map(|(id, entry)| (id.as_str(), entry.binding.as_ref()))
+            .map(|(id, entry)| (id.as_str(), entry.bindings.as_slice()))
     }
 
     /// Apply an edit against the revision the editor reviewed. A mismatch changes nothing and
@@ -115,8 +117,10 @@ impl Store {
             return Outcome::Unknown { id };
         };
         match edit {
-            Edit::Set { binding, .. } => entry.binding = binding,
-            Edit::Reset { .. } => entry.binding = entry.default.clone(),
+            Edit::Set { binding, .. } => {
+                entry.bindings = binding.into_iter().collect();
+            }
+            Edit::Reset { .. } => entry.bindings = entry.default.clone(),
             Edit::ResetAll => unreachable!("handled before the catalog lookup"),
         }
         self.revision += 1;
@@ -137,7 +141,7 @@ impl Store {
             };
         }
         for entry in self.entries.values_mut() {
-            entry.binding = entry.default.clone();
+            entry.bindings = entry.default.clone();
         }
         self.revision += 1;
         Outcome::Saved {
@@ -146,17 +150,17 @@ impl Store {
     }
 
     /// The default a reset would restore, for comparison and for the editor's own display.
-    pub fn default_of(&self, id: &str) -> Option<&Binding> {
-        self.entries
-            .get(id)
-            .and_then(|entry| entry.default.as_ref())
+    pub fn default_of(&self, id: &str) -> Option<&[Binding]> {
+        self.entries.get(id).map(|entry| entry.default.as_slice())
     }
 
     /// A binding already held by another command, which the reference reports as a conflict.
     pub fn conflict(&self, id: &str, binding: &Binding) -> Option<&str> {
         self.entries
             .iter()
-            .find(|(other, entry)| other.as_str() != id && entry.binding.as_ref() == Some(binding))
+            .find(|(other, entry)| {
+                other.as_str() != id && entry.bindings.iter().any(|held| held == binding)
+            })
             .map(|(other, _)| other.as_str())
     }
 }
@@ -279,8 +283,8 @@ pub fn resolve<'a>(
     modifiers: iced::keyboard::Modifiers,
 ) -> Option<&'a str> {
     store
-        .bindings()
-        .find(|(_, binding)| binding.is_some_and(|binding| matches(binding, key, modifiers)))
+        .all()
+        .find(|(_, list)| list.iter().any(|binding| matches(binding, key, modifiers)))
         .map(|(id, _)| id)
 }
 
@@ -323,15 +327,11 @@ pub fn rows(store: &Store, catalog: &[(String, String, bool)]) -> Vec<Row> {
         .map(|(id, label, core)| Row {
             id: id.clone(),
             label: label.clone(),
-            keys: store
-                .binding(id)
-                .flatten()
-                .map(describe)
-                .unwrap_or_default(),
+            keys: store.bindings(id).map(describe_all).unwrap_or_default(),
             // A command's group is the catalog's business; without one it reads as application.
             group: "application",
             core: *core,
-            modified: store.binding(id).flatten() != store.default_of(id),
+            modified: store.bindings(id) != store.default_of(id),
         })
         .collect();
     rows.sort_by(|left, right| {
@@ -359,12 +359,20 @@ pub fn search_index(row: &Row) -> Vec<String> {
 /// How many commands the user has changed — the reference's "{{count}} customized" input.
 pub fn modified_count(store: &Store) -> usize {
     store
-        .bindings()
-        .filter(|(id, binding)| *binding != store.default_of(id))
+        .all()
+        .filter(|(id, list)| Some(*list) != store.default_of(id))
         .count()
 }
 
 /// Render a binding the way a row shows it: modifiers then codes, joined with `+`.
+/// Render a command's whole list for a row: the reference prints "Enter / Ctrl+Enter" for a
+/// command with a primary and an alternate binding, so the separator is its own.
+fn describe_all(bindings: &[Binding]) -> String {
+    // `display`, not `describe`: a row shows `Ctrl+B`, and only `display` maps the reference's
+    // internal `primary` onto the platform's `Ctrl`.
+    bindings.iter().map(display).collect::<Vec<_>>().join(" / ")
+}
+
 fn describe(binding: &Binding) -> String {
     let mut parts = binding.modifiers.clone();
     parts.push(binding.code.clone());
@@ -404,8 +412,8 @@ mod tests {
 
     fn store() -> Store {
         Store::new([
-            ("send".to_owned(), Some(binding("Enter"))),
-            ("palette".to_owned(), Some(binding("Slash"))),
+            ("send".to_owned(), vec![binding("Enter")]),
+            ("palette".to_owned(), vec![binding("Slash")]),
         ])
     }
 
@@ -420,7 +428,10 @@ mod tests {
             0,
         );
         assert_eq!(outcome, Outcome::Saved { revision: 1 });
-        assert_eq!(store.binding("palette"), Some(Some(&binding("KeyK"))));
+        assert_eq!(
+            store.bindings("palette"),
+            Some([binding("KeyK")].as_slice())
+        );
     }
 
     #[test]
@@ -436,7 +447,7 @@ mod tests {
             ),
             Outcome::Saved { .. }
         ));
-        assert_eq!(store.binding("palette"), Some(None));
+        assert_eq!(store.bindings("palette"), Some(&[] as &[Binding]));
         // The clear is not the reset: the default is still there to return to.
         assert!(matches!(
             store.apply(
@@ -447,7 +458,10 @@ mod tests {
             ),
             Outcome::Saved { .. }
         ));
-        assert_eq!(store.binding("palette"), Some(Some(&binding("Slash"))));
+        assert_eq!(
+            store.bindings("palette"),
+            Some([binding("Slash")].as_slice())
+        );
     }
 
     #[test]
@@ -465,7 +479,10 @@ mod tests {
                 retry: edit
             }
         );
-        assert_eq!(store.binding("palette"), Some(Some(&binding("Slash"))));
+        assert_eq!(
+            store.bindings("palette"),
+            Some([binding("Slash")].as_slice())
+        );
         assert_eq!(store.revision(), 0);
     }
 
@@ -507,7 +524,7 @@ mod tests {
         let mut store = store();
         let catalog = vec![("palette".to_owned(), "Palette".to_owned(), true)];
         let before = rows(&store, &catalog);
-        assert_eq!(before[0].keys, "primary+Slash");
+        assert_eq!(before[0].keys, "Ctrl+Slash");
         assert!(!before[0].modified);
         assert_eq!(modified_count(&store), 0);
         store.apply(
@@ -518,7 +535,7 @@ mod tests {
             0,
         );
         let after = rows(&store, &catalog);
-        assert_eq!(after[0].keys, "primary+KeyK");
+        assert_eq!(after[0].keys, "Ctrl+K");
         assert!(after[0].modified);
         assert_eq!(modified_count(&store), 1);
         // A clear counts as modified too: absent is not the default.
@@ -538,8 +555,8 @@ mod tests {
         let catalog = vec![("palette".to_owned(), "Palette".to_owned(), true)];
         let row = rows(&store, &catalog).remove(0);
         let index = search_index(&row);
-        assert!(index.contains(&"primary+Slash".to_owned()));
-        assert!(index.contains(&"primarySlash".to_owned()));
+        assert!(index.contains(&"Ctrl+Slash".to_owned()));
+        assert!(index.contains(&"CtrlSlash".to_owned()));
         assert!(index.contains(&"palette".to_owned()));
     }
 
@@ -583,6 +600,77 @@ mod tests {
     }
 
     #[test]
+    fn a_command_with_a_primary_and_an_alternate_answers_both() {
+        use iced::keyboard::{Key, Modifiers};
+        // `send` ships with Enter and Ctrl+Enter, and `move` with both arrows: one command, a list
+        // of bindings (`fixed.ts:12`; native's own list prints "Enter / Ctrl+Enter").
+        let store = Store::new([(
+            "send".to_owned(),
+            vec![
+                Binding {
+                    code: "Enter".to_owned(),
+                    second_code: None,
+                    modifiers: Vec::new(),
+                },
+                Binding {
+                    code: "Enter".to_owned(),
+                    second_code: None,
+                    modifiers: vec!["primary".to_owned()],
+                },
+            ],
+        )]);
+        // Either binding answers the press, which a single-binding store could not express.
+        assert_eq!(
+            resolve(
+                &store,
+                &Key::Named(iced::keyboard::key::Named::Enter),
+                Modifiers::empty()
+            ),
+            Some("send")
+        );
+        assert_eq!(
+            resolve(
+                &store,
+                &Key::Named(iced::keyboard::key::Named::Enter),
+                Modifiers::CTRL
+            ),
+            Some("send")
+        );
+        // A third form that is not in the list does not.
+        assert_eq!(
+            resolve(
+                &store,
+                &Key::Named(iced::keyboard::key::Named::Enter),
+                Modifiers::SHIFT
+            ),
+            None
+        );
+        // The row renders the whole list, as native's own disclosure already does.
+        let catalog = vec![("send".to_owned(), "Send".to_owned(), true)];
+        let row = rows(&store, &catalog).remove(0);
+        assert_eq!(row.keys, "Enter / Ctrl+Enter");
+        // A conflict is found against the *alternate* binding too, not only the first.
+        let other = Binding {
+            code: "Enter".to_owned(),
+            second_code: None,
+            modifiers: vec!["primary".to_owned()],
+        };
+        assert_eq!(store.conflict("send", &other), None);
+        let store_two = Store::new([
+            ("send".to_owned(), vec![binding("KeyJ")]),
+            (
+                "palette".to_owned(),
+                vec![Binding {
+                    code: "Enter".to_owned(),
+                    second_code: None,
+                    modifiers: vec!["primary".to_owned()],
+                }],
+            ),
+        ]);
+        assert_eq!(store_two.conflict("send", &other), Some("palette"));
+    }
+
+    #[test]
     fn a_press_resolves_to_the_command_whose_binding_it_answers() {
         use iced::keyboard::{Key, Modifiers};
         let store = store();
@@ -616,7 +704,7 @@ mod tests {
             modifiers: vec!["primary".to_owned()],
         };
         assert_eq!(display(&trigger), "Ctrl+Slash");
-        let store = Store::new([("shortcuts.open".to_owned(), Some(trigger.clone()))]);
+        let store = Store::new([("shortcuts.open".to_owned(), vec![trigger.clone()])]);
         assert_eq!(
             resolve(
                 &store,
@@ -657,8 +745,11 @@ mod tests {
         // At the reviewed revision it restores both the cleared and the replaced binding.
         assert_eq!(store.reset_all(2), Outcome::Saved { revision: 3 });
         assert_eq!(modified_count(&store), 0);
-        assert_eq!(store.binding("palette"), Some(Some(&binding("Slash"))));
-        assert_eq!(store.binding("send"), Some(Some(&binding("Enter"))));
+        assert_eq!(
+            store.bindings("palette"),
+            Some([binding("Slash")].as_slice())
+        );
+        assert_eq!(store.bindings("send"), Some([binding("Enter")].as_slice()));
     }
 
     #[test]
