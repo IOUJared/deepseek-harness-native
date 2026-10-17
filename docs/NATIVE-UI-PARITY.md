@@ -4168,3 +4168,37 @@ own frames: `shots/87-…` (rows), `shots/89-…` (the count line with a cleared
    action or handler.
    Verified: fixture **1134** exit 0, default **1127** exit 0, format-debt 0, direct capture
    `passed: true`.
+
+### Battery after the editor's per-row actions (round 249)
+
+Four editor features landed since the last battery — Remove, Restore default, the "Modified" marker,
+and the Host commands group — so every gate was run again, statuses captured:
+
+| gate | status | result |
+|---|---|---|
+| app, fixture | **0** | **1134 passed**, 1 ignored |
+| app, default | **0** | **1127 passed**, 1 ignored |
+| transport | **0** | 4 targets (17 + 82 + 7) |
+| core (`--lib`) | **0** | **112 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | **0 dirty** |
+
+**The shortcuts editor now has:** the store (set/clear/reset/reset-all under a revision guard,
+conflict lookup, modified count, multi-binding lists), the catalog (this app's five plus the Host's
+advertised commands, plainly paired), the disclosure (sorted as the reference sorts, with keys,
+"Modified", Remove, Restore default and the count line), and the trigger (`Ctrl+/` → Settings with
+the disclosure open, routed through the tested decision and the production open path).
+
+**What remains of the reference's editor, precisely:**
+
+1. **capture a key on press while a row is armed** — the mechanism is tested (`binding_from`), the
+   *flow* is not built, and it is the one change that alters what a press *means* while the surface
+   is open;
+2. **Reset all defaults with its confirmation** — five copy constants are quoted and tested for it
+   (`COPY_RESET_ALL`, `COPY_RESET_TITLE`, `COPY_RESET_DESCRIPTION`, `COPY_CANCEL`,
+   `COPY_RESET_FAILED`), and the reference gates it behind a dialog; a destructive action without
+   that guard would violate the user's own "keep confirmations visible" rule, which is why it was
+   **not** half-built here;
+3. **keys as data**, so a stored binding can *replace* a hardcoded one — settled at round 227, cost
+   measured, and the only piece that touches input handling the user asked to preserve.
