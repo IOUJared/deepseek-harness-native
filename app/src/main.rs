@@ -5,6 +5,7 @@ mod design;
 mod export_file;
 mod exporter;
 mod fork;
+mod goal_ui;
 mod interactions;
 mod keybindings;
 mod known;

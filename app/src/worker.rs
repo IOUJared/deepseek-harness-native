@@ -74,6 +74,11 @@ pub enum Command {
     },
     /// Mutate one pending queue item (edit, remove or steer).
     UpdateQueue(crate::queue_update::Submission),
+    /// One goal mutation for a session.
+    Goal {
+        session: dsh_native_transport::dto::SessionId,
+        operation: crate::goal_ui::Operation,
+    },
     /// Full-text search at one generation/serial fence.
     Search {
         generation: u64,
@@ -177,6 +182,10 @@ pub enum Event {
         generation: u64,
         serial: u64,
         result: Result<dsh_native_transport::dto::SessionSearchValue, String>,
+    },
+    GoalUpdated {
+        session: dsh_native_transport::dto::SessionId,
+        result: Result<(), String>,
     },
     /// The complete set of background jobs the session can see. Each list frame replaces
     /// the set wholesale (`api/job-controller/src/types.ts:19-27`).
@@ -810,6 +819,10 @@ fn rejected(command: Command) -> Event {
         Command::AgentPresetsRead => Event::AgentPresets(Err(error)),
         Command::AgentPresetSelect { .. } => Event::AgentPresetSelected(Err(error)),
         Command::JobKill { .. } => Event::JobKilled(Err(error)),
+        Command::Goal { session, .. } => Event::GoalUpdated {
+            session,
+            result: Err(error),
+        },
         Command::Search {
             generation, serial, ..
         } => Event::Searched {
@@ -2338,6 +2351,16 @@ async fn run(
                     Command::Create{workspace,cwd}=>Event::Created(client.session_create(SessionCreateRequest{workspace_id:workspace,cwd,..Default::default()}).await.map_err(|e|format!("New session: {e}"))),
                     Command::AgentPresetSelect{session,preset}=>Event::AgentPresetSelected(client.agent_preset_select(&session,&preset).await.map_err(|error|format!("Agent preset: {error}"))),
                     Command::JobKill{session,job}=>Event::JobKilled(client.job_kill(session.as_str(),&job).await.map_err(|error|format!("Job kill: {error}"))),
+                    Command::Goal{session,operation}=>{
+                        use crate::goal_ui::Operation;
+                        let result=match operation{
+                            Operation::Edit{reference,objective}=>client.goal_edit(&session,&reference,&objective).await.map(|_|()),
+                            Operation::Pause(reference)=>client.goal_pause(&session,&reference).await.map(|_|()),
+                            Operation::Resume(reference)=>client.goal_resume(&session,&reference).await.map(|_|()),
+                            Operation::Clear(reference)=>client.goal_clear(&session,&reference).await.map(|_|()),
+                        }.map_err(|error|format!("Goal: {error}"));
+                        Event::GoalUpdated{session,result}
+                    },
                     Command::Search{generation,serial,query}=>Event::Searched{
                         generation,
                         serial,

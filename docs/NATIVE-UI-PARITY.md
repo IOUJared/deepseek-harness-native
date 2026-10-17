@@ -36,10 +36,10 @@ fixture's direct `set_settings_open`, not the press.
 work in the Rust app, implemented in Rust, not left as a documented Web-only difference. The reuse
 point is the Host's canonical `/api/<namespace>/<method>` dispatcher, so adding typed endpoints to
 `dsh-native-transport` is in-bounds; what is out of bounds is rebuilding or forking the Host runtime
-in Rust. Keep coding without asking for permission. Queue edit/remove/steer and full-text content
-search now work end to end; the next item is workspace open (`session/openWorkspacePath`), then
-goal/schedule mutations and the deliverables diff. Cross-session pending status is still unavailable
-from the present wires.
+in Rust. Keep coding without asking for permission. Queue edit/remove/steer, full-text content
+search and the goal bar (pause/resume/edit/clear) now work end to end; the next item is workspace
+open (`session/openWorkspacePath`), then schedules and the deliverables diff. Cross-session pending
+status is still unavailable from the present wires.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -5453,3 +5453,40 @@ tests cover ref validation and the view's wire shape; the transport gate is **44
 
 No GoalBar caller exists yet; the composer dock still has no goal strip. The app half is the next
 item.
+
+### Round 284 — the goal bar
+
+**The composer now carries the reference's goal strip.** `goal_ui::parse` reads the selected
+session's `goal` projection (bounded id/revision/objective; a malformed value draws nothing); the
+bar shows the phase label ("Ongoing Goal", "Paused Goal", "Blocked Goal"), the truncated objective
+and **Pause** or **Resume**, **Edit** and **Clear**. Edit opens an inline objective field (trimmed,
+non-empty, ≤4096 bytes) with Save/Cancel; Clear uses a **two-step confirmation** because it destroys
+the goal. One mutation is admitted at a time; `Working…` marks the in-flight state and a redacted
+failure is shown under the bar. Complete goals draw nothing. The bar sits above the queue dock and
+the composer card.
+
+`shots/127-goal-bar.png`, `shots/128-goal-edit.png` and `shots/129-goal-clear.png` show the active
+bar, the editor and the confirmation; all report `status: passed`.
+
+**Deliberate differences.** The projection carries durable `phase` only, not the process-local
+`activation`, so native cannot show the reference's "Inactive Goal" disarmed label; active goals
+read "Ongoing Goal". Clear is two-step (native's safety rule) where the reference clears on one
+press. The actions are text controls, not drawn icons; the round budget is displayed nowhere and
+cannot be edited from the bar, as in the reference's strip.
+
+**Battery (round 284).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1186 passed**, 1 ignored |
+| app, default | **0** | **1179 passed**, 1 ignored |
+| transport | **0** | **44 + 17 + 82 + 7** |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+Two app tests were added: the projection parser and the single-admission/failure path; the transport
+landed with its two DTO/ref tests in round 283. A duplicate example match arm produced a warning
+after the first build and was removed before the green suites; the captures predate that inert
+source-only change and show the same rendering.

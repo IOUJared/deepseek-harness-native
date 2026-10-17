@@ -58,6 +58,7 @@ pub const PRESETS: &[&str] = &[
     "working-queue",
     "turn-trigger",
     "token-usage",
+    "goal-bar",
     "working-phase-6",
     "working-narrow",
     "chat-submitted",
@@ -212,6 +213,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "working-queue"
         | "turn-trigger"
         | "token-usage"
+        | "goal-bar"
         | "working-phase-6"
         | "subagent-trail"
         | "subagent-catalog"
@@ -1050,6 +1052,16 @@ pub fn build(
                     "stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],
                         "texts":["PUBLIC synthetic answer to the goal reminder."]}]}}}),
         ]
+    } else if preset == "goal-bar" {
+        vec![
+            json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
+                "surfaceOp":"append","data":{"role":"user","id":"PUBLIC-goal-message",
+                    "source":{"kind":"user"},"content":[{"type":"text","text":"PUBLIC conversation under an ongoing goal."}]}}}),
+            json!({"type":"event","event":{"type":"assistant/message","seq":1,"time":1001,
+                "surfaceOp":"append","data":{"turn":1,"step":1,
+                    "stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],
+                        "texts":["PUBLIC synthetic answer with a goal projection."]}]}}}),
+        ]
     } else if preset == "conversation" || preset.starts_with("working-") {
         let records = vec![
             json!({"type":"event", "event":{"type":"user/message", "seq":0, "time":1000,
@@ -1082,6 +1094,11 @@ pub fn build(
         "plan-mode" => json!({"plan":{"active":true,"pending":false}}),
         "plan-mode-applying" => json!({"plan":{"active":true,"pending":true}}),
         "plan-mode-leaving" => json!({"plan":{"active":false,"pending":true}}),
+        "goal-bar" => json!({"goal":{"goal":{
+            "id":"PUBLIC-goal","revision":2,
+            "objective":"PUBLIC goal objective · finish the recorded clone task",
+            "phase":"active","maxGoalRounds":64
+        },"roundsStarted":1,"createdAt":1000,"updatedAt":2000}}),
         "token-usage" => json!({"tokenUsage":{
             "uncachedInputTokens":6000,"outputTokens":345,
             "cacheReadTokens":6000,"cacheWriteTokens":0

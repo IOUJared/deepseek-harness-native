@@ -420,7 +420,7 @@ pub struct QueueTextBlock {
     pub text: String,
 }
 /// One goal revision identity (`packages/goal/goal/src/types.ts:18-26`).
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GoalRef {
     pub id: String,

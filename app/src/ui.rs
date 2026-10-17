@@ -246,6 +246,24 @@ pub enum Message {
     QueueRemoveCancel,
     /// Steers one queued item into the running turn.
     QueueSteer(String),
+    /// Begins editing the current goal objective.
+    GoalEdit,
+    /// Updates the inline goal draft.
+    GoalEditInput(String),
+    /// Saves the inline goal edit.
+    GoalSave,
+    /// Cancels the inline goal edit.
+    GoalCancel,
+    /// Pauses the active goal.
+    GoalPause,
+    /// Resumes the paused/blocked goal.
+    GoalResume,
+    /// Arms the goal clear confirmation.
+    GoalClear,
+    /// Confirms the armed goal clear.
+    GoalClearConfirm,
+    /// Cancels the armed goal clear.
+    GoalClearCancel,
     /// Expands or collapses one turn-trigger notice.
     ToggleTrigger(u64),
     /// A key press as **data** for the live chain, with the state at the moment it arrives: an
@@ -758,6 +776,14 @@ pub struct App {
     queue_busy: Option<String>,
     /// The last queue mutation's redacted failure, shown under the dock.
     queue_error: Option<String>,
+    /// The inline goal editor: the exact revision and the draft objective.
+    goal_edit: Option<(dsh_native_transport::dto::GoalRef, String)>,
+    /// The goal revision whose clear waits for a second press.
+    goal_clear: Option<dsh_native_transport::dto::GoalRef>,
+    /// A goal mutation is in flight.
+    goal_busy: bool,
+    /// The last goal mutation's redacted failure.
+    goal_error: Option<String>,
     /// The latest full-text search page, fenced by query and serial.
     search_results: Option<SearchMatches>,
     /// The serial of the latest dispatched content search; older replies are ignored.
@@ -1033,6 +1059,10 @@ impl App {
                 queue_remove_armed: None,
                 queue_busy: None,
                 queue_error: None,
+                goal_edit: None,
+                goal_clear: None,
+                goal_busy: false,
+                goal_error: None,
                 search_results: None,
                 content_search_serial: 0,
                 search_error: None,
@@ -3143,6 +3173,63 @@ impl App {
             Message::ToggleQueue if self.layout_controls_enabled() => {
                 self.queue_expanded = !self.queue_expanded;
             }
+            Message::GoalEdit if self.layout_controls_enabled() => {
+                if let Some(goal) = self.goal() {
+                    self.goal_clear = None;
+                    self.goal_error = None;
+                    self.goal_edit = Some((goal.reference, goal.objective));
+                }
+            }
+            Message::GoalEditInput(text) if self.layout_controls_enabled() => {
+                if let Some((_, draft)) = &mut self.goal_edit {
+                    if text.len() <= 4096 {
+                        *draft = text;
+                    }
+                }
+            }
+            Message::GoalCancel if self.layout_controls_enabled() => {
+                self.goal_edit = None;
+            }
+            Message::GoalSave if self.layout_controls_enabled() => {
+                let Some((reference, objective)) = self.goal_edit.clone() else {
+                    return Task::none();
+                };
+                let objective = objective.trim().to_owned();
+                if objective.is_empty() {
+                    return Task::none();
+                }
+                self.goal_edit = None;
+                self.submit_goal(crate::goal_ui::Operation::Edit {
+                    reference,
+                    objective,
+                });
+            }
+            Message::GoalPause if self.layout_controls_enabled() => {
+                if let Some(goal) = self.goal() {
+                    self.submit_goal(crate::goal_ui::Operation::Pause(goal.reference));
+                }
+            }
+            Message::GoalResume if self.layout_controls_enabled() => {
+                if let Some(goal) = self.goal() {
+                    self.submit_goal(crate::goal_ui::Operation::Resume(goal.reference));
+                }
+            }
+            Message::GoalClear if self.layout_controls_enabled() => {
+                if let Some(goal) = self.goal() {
+                    self.goal_edit = None;
+                    self.goal_error = None;
+                    self.goal_clear = Some(goal.reference);
+                }
+            }
+            Message::GoalClearConfirm if self.layout_controls_enabled() => {
+                let Some(reference) = self.goal_clear.take() else {
+                    return Task::none();
+                };
+                self.submit_goal(crate::goal_ui::Operation::Clear(reference));
+            }
+            Message::GoalClearCancel if self.layout_controls_enabled() => {
+                self.goal_clear = None;
+            }
             Message::QueueEdit(id) if self.layout_controls_enabled() => {
                 self.queue_remove_armed = None;
                 self.queue_error = None;
@@ -4237,6 +4324,19 @@ impl App {
                             self.search_results = None;
                             self.search_error = Some(error);
                         }
+                    }
+                }
+            }
+            Event::GoalUpdated { session, result } => {
+                if self.selected.as_ref() == Some(&session) {
+                    self.goal_busy = false;
+                    match result {
+                        Ok(()) => {
+                            self.goal_edit = None;
+                            self.goal_clear = None;
+                            self.goal_error = None;
+                        }
+                        Err(error) => self.goal_error = Some(error),
                     }
                 }
             }
@@ -5636,6 +5736,18 @@ impl App {
         if let Ok(id) = SessionId::new(id) {
             self.completion_unread.insert(id);
         }
+    }
+
+    /// Fixture-only: begin editing the current goal's objective.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn begin_goal_edit(&mut self) {
+        let _ = self.update(Message::GoalEdit);
+    }
+
+    /// Fixture-only: arm the current goal's clear confirmation.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn arm_goal_clear(&mut self) {
+        let _ = self.update(Message::GoalClear);
     }
 
     /// Fixture-only: seed one content-search page, which a real run reaches through
@@ -7673,6 +7785,25 @@ impl App {
             pending: self.plan_toggle_pending,
         }
     }
+    /// The selected session's current goal, from its own `goal` projection.
+    fn goal(&self) -> Option<crate::goal_ui::Goal> {
+        self.transcript
+            .projections()
+            .get("goal")
+            .and_then(crate::goal_ui::parse)
+    }
+    /// Admit one goal mutation; a second is refused while one is in flight.
+    fn submit_goal(&mut self, operation: crate::goal_ui::Operation) {
+        if self.goal_busy {
+            return;
+        }
+        let Some(session) = self.selected.clone() else {
+            return;
+        };
+        self.goal_error = None;
+        self.goal_busy = true;
+        self.command(worker::Command::Goal { session, operation });
+    }
     /// Admit one queue mutation for the selected session. A second mutation is refused while
     /// one is in flight; the dock shows the item's pending state instead.
     fn submit_queue(&mut self, item_id: String, action: dsh_native_transport::dto::QueueAction) {
@@ -7691,6 +7822,125 @@ impl App {
                 action,
             },
         ));
+    }
+    /// The current goal strip above the composer (`ui-goal/src/client/GoalBar.tsx`): phase,
+    /// objective, pause/resume, an inline objective edit and a two-step clear. Complete goals
+    /// and sessions without a goal draw nothing.
+    fn goal_bar(&self) -> Option<Element<'_, Message>> {
+        let goal = self.goal()?;
+        if goal.phase == dsh_native_transport::dto::GoalPhase::Complete {
+            return None;
+        }
+        let mut bar = column![].spacing(4);
+        if let Some((_, draft)) = &self.goal_edit {
+            bar = bar
+                .push(
+                    text_input("Goal objective", draft)
+                        .on_input(Message::GoalEditInput)
+                        .on_submit(Message::GoalSave)
+                        .size(12)
+                        .padding(6)
+                        .width(Length::Fill),
+                )
+                .push(
+                    row![
+                        Space::new().width(Length::Fill),
+                        button(
+                            label(
+                                "Save",
+                                if draft.trim().is_empty() {
+                                    MUTED
+                                } else {
+                                    ACCENT
+                                }
+                            )
+                            .size(10)
+                        )
+                        .on_press_maybe((!draft.trim().is_empty()).then_some(Message::GoalSave))
+                        .style(design::ghost)
+                        .padding([2, 6]),
+                        button(label("Cancel", MUTED).size(10))
+                            .on_press(Message::GoalCancel)
+                            .style(design::ghost)
+                            .padding([2, 6]),
+                    ]
+                    .spacing(4),
+                );
+        } else if self.goal_clear.is_some() {
+            bar = bar.push(label("Clear this goal?", TEXT).size(11)).push(
+                row![
+                    Space::new().width(Length::Fill),
+                    button(label("Clear", DANGER).size(10))
+                        .on_press(Message::GoalClearConfirm)
+                        .style(design::danger)
+                        .padding([2, 6]),
+                    button(label("Cancel", MUTED).size(10))
+                        .on_press(Message::GoalClearCancel)
+                        .style(design::ghost)
+                        .padding([2, 6]),
+                ]
+                .spacing(4),
+            );
+        } else {
+            let mut actions = row![].spacing(4);
+            if self.goal_busy {
+                actions = actions.push(label("Working…", MUTED).size(10));
+            } else {
+                if goal.phase == dsh_native_transport::dto::GoalPhase::Active {
+                    actions = actions.push(
+                        button(label("Pause", MUTED).size(10))
+                            .on_press(Message::GoalPause)
+                            .style(design::ghost)
+                            .padding([2, 6]),
+                    );
+                } else {
+                    actions = actions.push(
+                        button(label("Resume", MUTED).size(10))
+                            .on_press(Message::GoalResume)
+                            .style(design::ghost)
+                            .padding([2, 6]),
+                    );
+                }
+                actions = actions
+                    .push(
+                        button(label("Edit", MUTED).size(10))
+                            .on_press(Message::GoalEdit)
+                            .style(design::ghost)
+                            .padding([2, 6]),
+                    )
+                    .push(
+                        button(label("Clear", MUTED).size(10))
+                            .on_press(Message::GoalClear)
+                            .style(design::ghost)
+                            .padding([2, 6]),
+                    );
+            }
+            bar = bar.push(
+                row![
+                    label(crate::goal_ui::phase_label(goal.phase), MUTED).size(10),
+                    label(short(&goal.objective, 80), TEXT)
+                        .size(12)
+                        .width(Length::Fill),
+                    actions,
+                ]
+                .spacing(6)
+                .align_y(iced::Alignment::Center),
+            );
+            if let Some(blocked) = &goal.blocked {
+                bar = bar.push(label(short(blocked, 100), MUTED).size(10));
+            }
+        }
+        if let Some(error) = &self.goal_error {
+            bar = bar.push(label(short(error, 100), DANGER).size(10));
+        }
+        Some(
+            container(bar)
+                .id("native-goal-bar")
+                .width(Length::Fill)
+                .padding([6, 8])
+                .style(|_| design::card(SURFACE, 10.0))
+                .into(),
+        )
     }
     /// The read-only queue strip above the composer, built from the same inbox splices the
     /// transcript retains. One item renders directly; several collapse under a count header,
@@ -8301,6 +8551,9 @@ impl App {
             .push(Space::new().width(Length::Fill))
             .push(label(hint, MUTED).size(10));
         let mut shell = column![];
+        if let Some(goal) = self.goal_bar() {
+            shell = shell.push(goal);
+        }
         if let Some(dock) = self.queue_dock() {
             shell = shell.push(dock);
         }
@@ -13911,6 +14164,37 @@ mod tests {
             .bindings("native.find")
             .expect("the row keeps a binding");
         assert_eq!(crate::keybindings::display(&binding[0]), "Ctrl+G");
+    }
+    #[test]
+    fn goal_operations_are_admitted_once_and_the_failure_is_announced() {
+        use dsh_native_transport::dto::{GoalPhase, GoalRef};
+        let (mut app, mut receiver) = managed_app();
+        let session = app.selected.clone().unwrap();
+        let reference = GoalRef {
+            id: "PUBLIC-goal".into(),
+            revision: 2,
+        };
+        app.submit_goal(crate::goal_ui::Operation::Pause(reference.clone()));
+        assert!(app.goal_busy);
+        let mut operations = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if let Command::Goal { session: sent, .. } = command {
+                assert_eq!(sent, session);
+                operations += 1;
+            }
+        }
+        assert_eq!(operations, 1);
+        app.submit_goal(crate::goal_ui::Operation::Resume(reference));
+        while let Ok(command) = receiver.try_recv() {
+            assert!(!matches!(command, Command::Goal { .. }));
+        }
+        let _ = app.update(Message::Worker(Event::GoalUpdated {
+            session,
+            result: Err("Goal: remote-failure".into()),
+        }));
+        assert!(!app.goal_busy);
+        assert_eq!(app.goal_error.as_deref(), Some("Goal: remote-failure"));
+        assert_eq!(GoalPhase::Active, GoalPhase::Active);
     }
     #[test]
     fn content_search_is_fenced_and_stale_pages_are_ignored() {

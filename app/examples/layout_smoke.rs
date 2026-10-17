@@ -16,6 +16,8 @@ mod export_file;
 mod exporter;
 #[path = "../src/fork.rs"]
 mod fork;
+#[path = "../src/goal_ui.rs"]
+mod goal_ui;
 #[path = "../src/interactions.rs"]
 mod interactions;
 #[path = "../src/keybindings.rs"]
@@ -186,6 +188,10 @@ struct Options {
     queue_remove: bool,
     /// Seed a content-search page under the session rows.
     search_results: bool,
+    /// Begin editing the goal objective.
+    goal_edit: bool,
+    /// Arm the goal clear confirmation.
+    goal_clear: bool,
     /// Open the shortcuts disclosure, so its rows are captured.
     shortcuts: bool,
 }
@@ -294,6 +300,8 @@ fn options() -> Result<Options, &'static str> {
             "--queue-edit",
             "--queue-remove",
             "--search-results",
+            "--goal-edit",
+            "--goal-clear",
             "--agent-seat-error",
             "--settings",
             "--scrolled-away",
@@ -433,6 +441,14 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         search_results: match values.remove("--search-results") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        goal_edit: match values.remove("--goal-edit") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        goal_clear: match values.remove("--goal-clear") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -819,6 +835,12 @@ impl Fixture {
         if options.search_results {
             app.seed_search_results();
         }
+        if options.goal_edit {
+            app.begin_goal_edit();
+        }
+        if options.goal_clear {
+            app.arm_goal_clear();
+        }
         if options.scrolled_away {
             app.set_scrolled_away(true);
         }
@@ -900,6 +922,7 @@ impl Fixture {
                 worker::Command::Fork(_) => "Fork",
                 worker::Command::UpdateQueue(_) => "UpdateQueue",
                 worker::Command::Search { .. } => "Search",
+                worker::Command::Goal { .. } => "Goal",
                 worker::Command::CommandsList(_) => "CommandsList",
                 worker::Command::CommandsExecute { .. } => "CommandsExecute",
                 worker::Command::TerminalRead(_) => "TerminalRead",
