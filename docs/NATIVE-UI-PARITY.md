@@ -3267,3 +3267,18 @@ the five above rather than missing work.
    `save`" question: not client state at all, but a **revision-checked host-side save over a
    command catalog**. Nothing about the store now needs to be guessed; the reading step the doc
    prescribed is finished.
+
+   **The rebinding store's first piece landed as pure, tested logic — no input handling touched.**
+   `app/src/keybindings.rs` holds the contract the reference's editor defines:
+   `Binding { code, second_code, modifiers }` (the editor's own `pending` shape, `:119`);
+   `Edit::Set { id, binding: Option<Binding> }` and `Edit::Reset { id }`, where a null binding is
+   the clear; and `Store::apply(edit, reviewed_revision)` returning `Saved { revision }`,
+   `Stale { revision, retry }` or `Unknown { id }` — the staleness rule implemented as the
+   reference has it, changing nothing and handing the edit back for a retry. `conflict(id,
+   binding)` names the other command holding a binding, and `Store::new` keeps each command's
+   **default** beside its current binding so a reset is not a clear.
+   Five unit tests cover the set, the clear-versus-reset distinction, the stale path (including
+   that it leaves both the binding and the revision untouched), an id outside the catalog, and a
+   conflict. Verified: fixture **1119** exit 0 (five new), default **1107** exit 0, format-debt 0.
+   What remains of the feature is the editor itself — capture, the catalog view, the overlay and
+   the `primary + /` trigger — now writing through a store whose behaviour is specified and tested.

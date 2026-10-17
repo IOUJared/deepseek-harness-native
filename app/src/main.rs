@@ -6,6 +6,7 @@ mod export_file;
 mod exporter;
 mod fork;
 mod interactions;
+mod keybindings;
 mod known;
 mod management;
 mod mcp;
