@@ -3374,3 +3374,21 @@ the five above rather than missing work.
    observation field failed — most likely a known-id or metadata expectation that the new rows
    change — rather than to adjust the drawing.
    Verified: fixture **1124** exit 0, default **1117** exit 0, format-debt 0.
+
+   **The observation failure is diagnosed, and it is not the drawing.** The report from the
+   shortcuts run reads:
+   `passed=false`, with `allTextCollected=false`, `paintVisibilityQualified=false`,
+   `expectedControlCountsMatch=false`, `presetStatesMatch=false` — and **`settingsCount=0`,
+   `sendCount=0`, `stopCount=0`**, while frame size, origin and viewport containment all hold
+   (`/tmp/dsh-shots/shortcutrows3.json`).
+   Those three zeros explain the rest: **the settings modal replaces the header and the composer**,
+   so the fixture's `native-settings-entry`, send and stop controls are genuinely absent from the
+   frame — and the fixture's own `settingsEntryExpected` / `settingsStateMatchesPreset` metadata
+   (`layout_smoke.rs:468`, `:500`) still describes the surface *behind* the modal. The check is
+   therefore right about what it measures and wrong about what to expect in this state, which is a
+   **fixture expectation** rather than a defect — the same shape as the round-171 banner overlap,
+   and the third time this session that a fixture's expectation, not the app's pixels, was the
+   thing to correct.
+   The fix is in the fixture's per-mode metadata: declare the settings-open state so those three
+   counts and the paint checks are expected rather than missing. Until that is written, the capture
+   in `shots/86-…` stands on my inspection of the frame, and this document says so.
