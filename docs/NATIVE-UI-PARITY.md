@@ -2627,3 +2627,23 @@ Since the round-145 update, all local and unpushed, gates green at each commit:
    The remaining two halves — opening the stream where the follow is dispatched and selecting on
    it at `:2261` — need one read of the dispatch site to know whether the session id comes from
    the follow request's address or from `selected_target`, and that read is the next step.
+
+   **The worker loop edit was attempted and reverted, and my own notes had predicted it.**
+   Two rounds ago this document said the edit "should be done with the file open rather than by
+   scripted insertion, since a mis-insertion would be hard to spot in review". I attempted it by
+   script anyway, and the prediction was exact:
+   - the first insertion placed the jobs open **outside** its match arm, because the arm was a
+     one-line `Some(Ok(stream))=>{…},` and appending after it is not the same as appending
+     inside it;
+   - the repair then deleted seven lines assuming my insert was seven lines, which took the
+     **outer match's `None` arm** with it, so the session follow became non-exhaustive.
+   Neither mistake would have been subtle in a diff — which is the point: the failure mode was
+   visible and I still walked into it twice, because I was editing a 400-line async loop by line
+   arithmetic while holding the shape in my head rather than in front of me.
+   `git checkout -- app/src/worker.rs` restored the committed state, and both suites are green at
+   the revert: fixture **1114** exit 0, default **1107** exit 0, tree clean.
+   The instructions stand and are now stronger: **the remaining worker placements — the jobs open
+   inside `Some(Ok(stream))`'s arm and the select arm at `:2261` — must be written with the file
+   open**, not scripted. Everything they need is recorded: the arm's exact current text, the
+   `selected_target` local, the terminal stream's retirement comment, the `next_selected` helper
+   to mirror, and the two events the app already applies.
