@@ -6,15 +6,16 @@ in `~/.local/share/dsh-macos-shell-reference/shots/` (mirrored, git-ignored, in 
 
 **Done, with captures:** permission select; agent-preset roster and selection; background jobs
 (transport → mux → worker → action → panel → dots → kill → output expansion); and the shortcuts
-store, catalog, resolver, trigger and **editor's per-row actions** — sorted rows, "Modified",
-Remove, Restore default, the customized count, the Host commands group and the **guarded
-restore-all** (`shots/87-…` through `95-…`).
+**editor complete in behaviour** — store, catalog, resolver, trigger, sorted rows, "Modified",
+Remove, Restore default, the customized count, the Host commands group, the guarded restore-all and
+**capture-a-key** (`shots/87-…` through `96-…`).
 
-**Next, in one step:** **capturing a key on press** — arming a row, then recording the next press
-through `keybindings::binding_from` (already tested) and applying it through the revision-guarded
-store. After that, **keys as data** (round 227's design) so a stored binding can *replace* a
-hardcoded one; a store-first subscription would swallow `Ctrl+V` instead, which is why it is not
-done that way.
+**Next, in one step:** **keys as data** (round 227's design) — a `Message::KeyPressed(key,
+modifiers)` routed by `update` through the whole chain with live state, so a stored binding can
+*replace* a hardcoded one. A store-first subscription would swallow `Ctrl+V`; that is why it is not
+done that way, and the fallback route already carries unclaimed presses as data today. Two smaller
+follow-ups: a fixture flag to capture the armed *capture* state, and renaming the stale `fixed.`
+prefix on this app's five ids (round 242/243).
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -4306,3 +4307,26 @@ user's four items (round 230), and the Iced-blocked chip.
    `passed: true` (`shots/96-shortcuts-capture.png`, with the Capture controls in place).
    **Not captured:** a capture *in progress* (armed), which needs a fixture flag like the others; the
    branch is compiled and its pure half (`binding_from`) is tested with nine cases.
+
+### The goal's final round (256)
+
+The goal's 256 rounds are spent. **The objective is not complete**, so it was left **active** rather
+than marked complete or blocked — nothing external stops it, and the remaining work is doable in a
+fresh context:
+
+1. **keys as data** — so a stored binding *replaces* a hardcoded one (design and cost at round 227;
+   the fallback route already carries unclaimed presses as data, so the remaining change is unifying
+   the chain under one `KeyPressed` message);
+2. a fixture flag to capture the armed **capture** state (its branch compiles, its pure half is
+   tested);
+3. renaming the stale **`fixed.`** prefix on this app's five ids (rounds 242–243 established it is
+   cosmetic);
+4. the **user's four items** (round 230: reference screenshot, window-edge drag, close-timing run,
+   image fetch policy);
+5. the **Iced-blocked** inline-code chip.
+
+**What the rounds produced:** 341 commits, 35 numbered captures, 20 keybinding tests, a 4,300-line
+document, and — beyond the features — a record of **twelve self-corrections and nine reverted
+structural edits** with the rules they produced. The most transferable of those: a wire name is read
+from the artifact that defines it; a claim in my own notes is still an assumption until checked; and
+a gate whose status is read from text rather than an exit code is not a gate.
