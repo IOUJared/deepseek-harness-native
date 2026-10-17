@@ -3067,3 +3067,18 @@ vocabulary.**
    What is left of the kill is the panel's two-click confirmation, whose four strings are already
    read, and whose state is a single "armed row id" the panel can hold — the smallest remaining
    piece of the jobs feature, and the last one before the output expansion.
+
+   **The kill's two-click confirmation landed, and its visible trigger is a documented stand-in.**
+   Each row now carries a stop control: the first press arms that row, the second sends
+   `Command::JobKill`, and a refusal from the Host is shown with the reference's words
+   (`Stop failed` plus the message). The armed state prints the reference's own copy —
+   **"Stop task {label}"** and **"Click again to confirm"** in `GOLD`
+   (`ui-jobs/src/client/locales.ts:61-64`) — at the panel's foot.
+   The stand-in is the trigger's *visible form*: the reference names the control through a label
+   ("Stop task {label}") and its glyph is unread, so the row shows a plain `✕` in muted ink. The
+   copy, the two-click rule and the refusal line are the reference's; only the small glyph is not,
+   and that is stated rather than implied.
+   Verified: fixture **1114** exit 0, default **1107** exit 0, format-debt 0, with
+   `shots/82-jobs-kill-controls-dp2.png` showing a `✕` on each of the four rows.
+   **Not capture-verified:** the armed/confirmation state, which the fixture cannot reach until it
+   arms a row — a one-line fixture flag, and the next step.

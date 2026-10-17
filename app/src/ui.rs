@@ -737,6 +737,11 @@ pub struct App {
     jobs: Vec<dsh_native_transport::dto::JobView>,
     /// The jobs panel is open behind the counted header action.
     jobs_open: bool,
+    /// The job whose stop is armed: the reference confirms a kill on a second click
+    /// (`ui-jobs/src/client/locales.ts:61-64`).
+    jobs_armed: Option<String>,
+    /// The Host's answer to the last kill, shown with the reference's own copy.
+    jobs_kill_error: Option<String>,
     /// A write is in flight; the row is busy until its acknowledgement lands.
     permission_default_saving: bool,
     editor_undo: Vec<String>,
@@ -961,6 +966,8 @@ impl App {
                 agent_seat_error: None,
                 jobs: Vec::new(),
                 jobs_open: false,
+                jobs_armed: None,
+                jobs_kill_error: None,
                 permission_default_saving: false,
                 editor_undo: Vec::new(),
                 editor_redo: Vec::new(),
@@ -2890,9 +2897,20 @@ impl App {
                 self.jobs_open = !self.jobs_open;
             }
             Message::KillJob(id) => {
-                // The kill command exists in the reference (`@Remote('kill')`); it is not wired
-                // here yet, so this arm records the intent rather than inventing a transport.
-                let _ = id;
+                // Two clicks, as the reference's own copy requires: the second one asks the Host.
+                if self.jobs_armed.as_deref() == Some(id.as_str()) {
+                    self.jobs_armed = None;
+                    if let Some(session) = self.selected.clone() {
+                        self.command(Command::JobKill { session, job: id });
+                    }
+                } else {
+                    self.jobs_armed = Some(id);
+                    self.jobs_kill_error = None;
+                }
+            }
+            Message::Worker(Event::JobKilled(result)) => {
+                // A refusal keeps the panel as it was and says so; a receipt needs no words.
+                self.jobs_kill_error = result.err();
             }
             Message::Worker(Event::JobsRows(rows)) => {
                 // Whole-set replacement: a reconnect's first frame is already the truth.
@@ -6531,6 +6549,20 @@ impl App {
             {
                 panel = panel.push(job_row(job));
             }
+        }
+        if let Some(armed) = &self.jobs_armed {
+            let job_label = self
+                .jobs
+                .iter()
+                .find(|job| &job.id == armed)
+                .map(|job| job.label.clone())
+                .unwrap_or_default();
+            panel = panel
+                .push(label(format!("Stop task {job_label}"), MUTED).size(11))
+                .push(label("Click again to confirm", design::GOLD).size(11));
+        }
+        if let Some(error) = &self.jobs_kill_error {
+            panel = panel.push(label(format!("Stop failed: {error}"), DANGER).size(11));
         }
         container(panel)
             .id("native-jobs-panel")
@@ -10992,7 +11024,15 @@ fn job_row(job: &dsh_native_transport::dto::JobView) -> Element<'static, Message
                 label(job.label.clone(), ink).size(13),
                 label(format!("{} · {}", job.kind, job.status), MUTED).size(11),
             ]
-            .spacing(1),
+            .spacing(1)
+            .width(Length::Fill),
+            // The reference names the control through a label ("Stop task {label}") and confirms
+            // on a second click; the visible form of the control is unread, so a plain glyph
+            // stands in and the confirmation copy is the reference's own.
+            button(label("✕", MUTED).size(11))
+                .on_press(Message::KillJob(job.id.clone()))
+                .style(design::ghost)
+                .padding([2, 4]),
         ]
         .spacing(6)
         .align_y(iced::Alignment::Center),
