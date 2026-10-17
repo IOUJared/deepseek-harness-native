@@ -190,6 +190,8 @@ pub enum Action {
     TogglePermissionDefault,
     /// Clears one shortcut's binding — the reference's "Remove" (`locales.ts:47`).
     ClearShortcut(String),
+    /// Restores one shortcut's default — the reference's "Restore default" (`locales.ts:47`).
+    ResetShortcut(String),
     /// Persists one new-session permission default; the App gates it on the descriptor.
     PermissionDefault(String),
     Account(account::Action),
@@ -1093,6 +1095,10 @@ impl Settings {
                 rows = rows.push(
                     row![
                         label(entry.label, TEXT).size(13).width(Length::Fill),
+                        button(label(crate::keybindings::COPY_RESET, MUTED).size(11))
+                            .on_press(Action::ResetShortcut(entry.id.clone()))
+                            .style(design::ghost)
+                            .padding([0, 4]),
                         button(label(crate::keybindings::COPY_CLEAR, MUTED).size(11))
                             .on_press(Action::ClearShortcut(entry.id.clone()))
                             .style(design::ghost)
@@ -1126,6 +1132,10 @@ impl Settings {
                     rows = rows.push(
                         row![
                             label(entry.label, TEXT).size(13).width(Length::Fill),
+                            button(label(crate::keybindings::COPY_RESET, MUTED).size(11))
+                                .on_press(Action::ResetShortcut(entry.id.clone()))
+                                .style(design::ghost)
+                                .padding([0, 4]),
                             button(label(crate::keybindings::COPY_CLEAR, MUTED).size(11))
                                 .on_press(Action::ClearShortcut(entry.id.clone()))
                                 .style(design::ghost)

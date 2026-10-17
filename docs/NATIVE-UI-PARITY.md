@@ -4138,3 +4138,19 @@ own frames: `shots/87-…` (rows), `shots/89-…` (the count line with a cleared
    sibling's every occurrence — turned two reverted rounds into one working commit.
    Verified: fixture **1134** exit 0, default **1127** exit 0, format-debt 0, direct capture
    `passed: true`.
+
+   **Restore default is wired the same way, and the pattern is now a template.** `Action::ResetShortcut(String)`
+   beside the clear action, a `COPY_RESET` button beside every Remove control (inserted by locating the
+   Remove buttons in the file, not from memory), and the App arm beside the clear arm calling
+   `apply(Edit::Reset { id }, revision)`. `shots/92-shortcuts-reset.png` shows **"Restore default"** and
+   **"Remove"** on every fixed row and both Host commands, with the count line reading **"1 customized"**
+   above the Host group.
+   On a fixed row the two actions are now a complete pair, both revision-guarded and both feeding the
+   count: **Remove** clears the binding (empty keys, count +1), **Restore default** returns the seeded
+   list (keys back, count back). On a Host row both are no-ops until those commands carry bindings —
+   stated, not implied.
+   The three-part shape — **action, found-anchor button, App arm beside the sibling** — took two rounds
+   to discover, two reverts to learn, and then two features in two rounds. That is the honest curve of
+   this stretch: the reverts were the tuition.
+   Verified: fixture **1134** exit 0, default **1127** exit 0, format-debt 0, direct capture
+   `passed: true`.

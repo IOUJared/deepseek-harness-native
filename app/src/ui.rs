@@ -3037,6 +3037,13 @@ impl App {
                     self.command(Command::PermissionSettingsRead);
                 }
             }
+            Message::Settings(crate::settings::Action::ResetShortcut(id)) => {
+                // Restores the default list this command was seeded with; same synchronous path.
+                let _ = self.settings.keybindings.apply(
+                    crate::keybindings::Edit::Reset { id },
+                    self.settings.keybindings.revision(),
+                );
+            }
             Message::Settings(crate::settings::Action::ClearShortcut(id)) => {
                 // Synchronous and local: the store lives on Settings, so the edit needs no message.
                 let _ = self.settings.keybindings.apply(
