@@ -825,6 +825,9 @@ pub struct App {
     records_expanded: bool,
     sidebar_motion: design::SidebarMotion,
     working_phase: u8,
+    /// The first Escape of the reference's two-press stop sequence: its deadline, the session and
+    /// the generation the press addressed. `None` when no first press is pending.
+    stop_sequence: Option<(Instant, SessionId, u64)>,
     chat_geometry: chat_geometry::Cache,
     reply_content: conversation_content::Cache,
     thoughts_expanded: std::collections::BTreeSet<u64>,
@@ -1041,6 +1044,7 @@ impl App {
                 records_expanded: false,
                 sidebar_motion: design::SidebarMotion::new(design::SIDEBAR),
                 working_phase: 0,
+                stop_sequence: None,
                 chat_geometry: Default::default(),
                 reply_content: Default::default(),
                 thoughts_expanded: Default::default(),
@@ -5049,6 +5053,48 @@ impl App {
             .paste_allowed(ticket, self.transport_epoch, self.settings_enabled())
             .then_some(ticket)
     }
+    /// Whether a bare Escape belongs to the running turn's stop sequence instead of the close
+    /// command: a live selected turn, the composer surface visible, and no rename/fork overlay.
+    /// That is the reference's eligible region (`stop-shortcut.ts`), minus what native cannot
+    /// observe (the focused DOM target).
+    fn stop_escape_eligible(&self) -> bool {
+        self.stop_allowed()
+            && self.composer_visible()
+            && !self.rename.is_open()
+            && !self.fork.is_open()
+            && self
+                .selected
+                .as_ref()
+                .and_then(|id| self.sessions.get(id))
+                .is_some_and(|session| session.running)
+    }
+    /// Two independent Escape presses addressed to the same live turn stop it; one only arms.
+    /// A mismatch or expiry starts a new first press, as the reference's `StopSequence` does.
+    fn stop_sequence_press(
+        &mut self,
+        key: &keyboard::Key,
+        modifiers: keyboard::Modifiers,
+    ) -> Option<Task<Message>> {
+        if !modifiers.is_empty()
+            || !matches!(key, keyboard::Key::Named(keyboard::key::Named::Escape))
+            || !self.stop_escape_eligible()
+        {
+            self.stop_sequence = None;
+            return None;
+        }
+        let now = Instant::now();
+        if let Some((deadline, session, generation)) = self.stop_sequence.take()
+            && now <= deadline
+            && self.selected.as_ref() == Some(&session)
+            && generation == self.generation
+        {
+            return Some(self.update(Message::Stop));
+        }
+        if let Some(session) = self.selected.clone() {
+            self.stop_sequence = Some((now + STOP_SEQUENCE_WINDOW, session, self.generation));
+        }
+        Some(Task::none())
+    }
     /// The live key chain. Order is the contract: an armed capture changes what the next press
     /// means; a focused field's own links keep copy and paste; the global trigger is fixed; then
     /// the stored bindings decide, and a key no current binding holds does nothing rather than
@@ -5106,6 +5152,11 @@ impl App {
             self.settings.capture_for = None;
             self.settings.capture_error = None;
             return Task::none();
+        }
+        // A running turn's two-press Escape wins over the close command while the conversation
+        // surface is visible; the first press is consumed exactly as the reference consumes it.
+        if let Some(task) = self.stop_sequence_press(&key, modifiers) {
+            return task;
         }
         // The field-level links own these keys before any command is consulted, so a stored
         // binding cannot swallow Ctrl+C or Ctrl+V from the field that needs it.
@@ -10973,6 +11024,10 @@ pub(crate) fn label<'a>(
         .shaping(text::Shaping::Advanced)
 }
 // Focus-local layout shortcuts only; never register or alter desktop bindings.
+/// The reference's default maximum interval between the two Escape presses
+/// (`stopSequenceMs`, 500 ms; `shortcuts/README.md`).
+const STOP_SEQUENCE_WINDOW: Duration = Duration::from_millis(500);
+
 /// The message a stored binding should send. `Send` and `Newline` are absent on purpose: the
 /// composer's text input owns those keys, so a rebound key cannot meaningfully stand in for them
 /// and pretending otherwise would move focus.
@@ -12765,6 +12820,62 @@ mod tests {
             .bindings("native.find")
             .expect("the row keeps a binding");
         assert_eq!(crate::keybindings::display(&binding[0]), "Ctrl+G");
+    }
+    #[test]
+    fn two_escape_presses_stop_a_running_turn_and_one_only_arms() {
+        use keyboard::key::Named;
+        use keyboard::{Key, Modifiers};
+        let escape = || Message::KeyPressed(Key::Named(Named::Escape), Modifiers::empty());
+        let (mut app, mut receiver) = managed_app();
+        let session = app.selected.clone().unwrap();
+        app.sessions.get_mut(&session).unwrap().running = true;
+        let _ = app.update(escape());
+        assert!(
+            receiver.try_recv().is_err(),
+            "the first press only arms the sequence"
+        );
+        let _ = app.update(escape());
+        assert!(matches!(
+            receiver.try_recv(),
+            Ok(Command::Cancel { session: cancelled, .. }) if cancelled == session
+        ));
+        assert!(app.stop_sequence.is_none());
+        assert!(app.cancel_pending);
+    }
+    #[test]
+    fn an_expired_first_escape_does_not_stop_and_starts_over() {
+        use keyboard::key::Named;
+        use keyboard::{Key, Modifiers};
+        let (mut app, mut receiver) = managed_app();
+        let session = app.selected.clone().unwrap();
+        app.sessions.get_mut(&session).unwrap().running = true;
+        app.stop_sequence = Some((
+            Instant::now() - Duration::from_millis(1),
+            session,
+            app.generation,
+        ));
+        let _ = app.update(Message::KeyPressed(
+            Key::Named(Named::Escape),
+            Modifiers::empty(),
+        ));
+        assert!(receiver.try_recv().is_err(), "an expired press never stops");
+        assert!(app.stop_sequence.is_some(), "it starts a new first press");
+    }
+    #[test]
+    fn escape_outside_the_conversation_surface_still_dismisses() {
+        use keyboard::key::Named;
+        use keyboard::{Key, Modifiers};
+        let (mut app, mut receiver) = managed_app();
+        let session = app.selected.clone().unwrap();
+        app.sessions.get_mut(&session).unwrap().running = true;
+        app.work_open = true;
+        let _ = app.update(Message::KeyPressed(
+            Key::Named(Named::Escape),
+            Modifiers::empty(),
+        ));
+        assert!(!app.work_open, "the cover's Escape still closes it");
+        assert!(app.stop_sequence.is_none(), "no stop sequence was armed");
+        assert!(receiver.try_recv().is_err());
     }
     #[test]
     fn the_shortcuts_search_is_local_bounded_and_clears() {

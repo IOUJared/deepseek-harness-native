@@ -9,8 +9,9 @@ in `~/.local/share/dsh-macos-shell-reference/shots/` (mirrored, git-ignored, in 
 **editor** — store, catalog, resolver, trigger, sorted rows, "Modified", Remove, Restore default,
 the customized count, the Host commands group, the guarded restore-all, capture-a-key, its
 searchable list and its refused-capture states (`shots/87-…` through `102-…`); the General page's
-**session-log preference row** with its own read and write (`shots/100-…`); and **keys as data**, so
-the store's five commands drive the live chain instead of a hardcoded map.
+**session-log preference row** with its own read and write (`shots/100-…`); the running turn's
+**two-press Escape stop**; and **keys as data**, so the store's five commands drive the live chain
+instead of a hardcoded map.
 
 **Read this before trusting the list above.** Round 257 found that the editor's per-row actions,
 the permission default row and eight Host-event handlers were **unreachable behind two catch-all
@@ -23,11 +24,11 @@ same shape in the `Ctrl+/` trigger: it opened the account page and the open path
 disclosure, so the editor was never shown; the trigger's "captured" evidence had gone through the
 fixture's direct `set_settings_open`, not the press.
 
-**Next, in one step:** the reference's `response.stop` fixed input — two independent Escape
-presses within the validated interval (default 500 ms) cancel the running turn, but only while a
-turn is live, inside the conversation region and outside a modal or terminal
-(`ui-conversation/src/client/stop-shortcut.ts`, `stop-sequence.ts`). Native has the Stop button and
-the live turn state but no double-Escape route; the interval is the configured one, not invented.
+**Next, in one step:** the editable Undo/Redo/Cut/Copy/Paste/Select-all menu is installed on the
+composer only; the reference installs it on every editable field, and native's settings and rename
+inputs have no such menu (the gap is recorded at "the same menu is not yet offered on the settings
+and rename text inputs"). That is the next field-sized surface, ahead of the feature-sized Open
+items.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -4603,3 +4604,43 @@ less, and it disappears on the next capture. No key is saved when the reference 
 Two tests were added: `a_printable_binding_needs_a_primary_or_alt_modifier` and
 `a_refused_capture_keeps_the_arming_and_names_the_reason`; the copy test now pins the three new
 strings. `shots/102` exits 0 with `status: passed` and `layoutObservation.passed: true`.
+
+### Round 261 — two Escape presses stop the running turn
+
+**The reference's `response.stop` is now native.** While the selected session is running, the
+conversation surface is visible and no settings/management/decision/exporter/sidebar surface or
+rename/fork overlay is open, a bare Escape is consumed as the first press of the fixed stop
+sequence. A second bare Escape within **500 ms** (`STOP_SEQUENCE_WINDOW`, the reference's default
+`stopSequenceMs`) addressed to the same session and App generation calls the existing Stop path;
+the Stop button and the double-Escape now share one cancellation. An expired or mismatched press
+starts a new first press instead of stopping (`ui.rs` `stop_sequence_press`). Outside that surface a
+single Escape still closes the top cover or runs the store's close command exactly as before.
+
+The reference validates `gesture.code === 'Escape'`, no modifiers, the same live turn, the same
+session binding and the same region between the two presses, and resets on any ineligible press
+(`ui-conversation/src/client/stop-shortcut.ts`, `stop-sequence.ts`). Native can validate code,
+modifiers, session and generation; it cannot observe the focused DOM region, so it uses
+`composer_visible()` as the region gate. The first press is consumed, as the reference consumes it;
+it does not also dismiss a panel.
+
+**Deliberate differences.** The interval is the reference's default, not a Host-configured
+`shortcuts.stopSequenceMs` (native has no shortcuts config form to carry it), and the editor does
+not list `response.stop` as a fixed row — native has no read-only fixed-catalog section yet. There
+is **no capture** for this change because there is no visible state to photograph: the sequence is
+timing and key routing, and the visible outcome is the existing Stop path.
+
+**Battery (round 261).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1154 passed**, 1 ignored |
+| app, default | **0** | **1147 passed**, 1 ignored |
+| transport | **0** | 38 + 17 + 82 + 7 (unchanged, no transport edit) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+Three tests pin it: `two_escape_presses_stop_a_running_turn_and_one_only_arms`,
+`an_expired_first_escape_does_not_stop_and_starts_over`, and
+`escape_outside_the_conversation_surface_still_dismisses`.
