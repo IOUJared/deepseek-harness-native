@@ -12,7 +12,8 @@ searchable list and its refused-capture states (`shots/87-…` through `102-…`
 **session-log preference row** with its own read, write and saved/failed state (`shots/100-…`,
 `103-…`); the running turn's **two-press Escape stop**; the header's **subagent catalog count and
 dropdown** (`shots/104-…`, `105-…`); the **one-shot child's read-only composer** (`shots/106-…`);
-and **keys as data**, so the store's five commands drive the live chain instead of a hardcoded map.
+the sidebar's **subagent rows and running-child count** (`shots/107-…`); and **keys as data**, so
+the store's five commands drive the live chain instead of a hardcoded map.
 
 **Read this before trusting the list above.** Round 257 found that the editor's per-row actions,
 the permission default row and eight Host-event handlers were **unreachable behind two catch-all
@@ -25,11 +26,11 @@ same shape in the `Ctrl+/` trigger: it opened the account page and the open path
 disclosure, so the editor was never shown; the trigger's "captured" evidence had gone through the
 fixture's direct `set_settings_open`, not the press.
 
-**Next, in one step:** group child sessions under their parent in the sidebar/workspace browser.
-The reference's workspace tree reads each parent summary's `subagentCatalog`
-(`ui-workspace/src/client/tree.ts:391`), and native's `SessionSummary` already carries
-`projections.values`, so this is a view/model slice over data the list page already returns — not
-the cross-session read the lineage's nested expansion needs. The settings/rename editable menu is
+**Next, in one step:** the child session's **sibling switcher** in the conversation header. The
+reference replaces the parent crumb with a titled switcher listing the siblings
+(`SubagentHeaderLineage.tsx:767-800`), and native can read the parent's `subagentCatalog` from that
+parent's `SessionSummary.projections` — the same data the sidebar count already uses — so this is
+another view/model slice, not a cross-session read. The settings/rename editable menu is
 **toolkit-blocked**, recorded below, not a candidate.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
@@ -4791,3 +4792,39 @@ wrapping behaviour because the row has no `nowrap`.
 Two tests were added: `the_descriptor_mode_is_the_newest_valid_child_descriptor` and
 `a_one_shot_child_replaces_the_composer_and_a_continuable_child_does_not`. The new
 `subagent-readonly` preset seeds a selected one-shot child with its descriptor and both messages.
+
+### Round 265 — subagent children leave the session list
+
+**The sidebar now follows the reference's visibility rule.** Subagent-origin sessions are no longer
+top-level rows: the reference hides them in `sessionVisible` and reaches them through the parent's
+header catalog (`ui-workspace/src/client/tree.ts:240-244`). The parent row gains the reference's
+secondary status **"N subagent running" / "N subagents running"** in foam, computed from the
+parent summary's own `subagentCatalog` projection and each child's running state — the reference's
+`runningChildCount` (`tree.ts:382-386`). `shots/107-subagent-sidebar.png` shows four conversations
+instead of six, the selected parent reading "1 subagent running", and the header count action still
+present. The children remain selectable through the header dropdown, and their own conversations
+still render.
+
+**Deliberate difference left explicit.** When a **child** is selected, no sidebar row is
+highlighted: the child has no row by design, and marking the parent active merely because a hidden
+child is open would claim a relationship the reference draws through its child-session switcher
+instead. The crumb trail and the child's conversation identify it until that switcher lands.
+`shots/104`/`105` predate this rule and necessarily show the children as flat rows; `107` is the
+current sidebar.
+
+**Battery (round 265).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1161 passed**, 1 ignored |
+| app, default | **0** | **1154 passed**, 1 ignored |
+| transport | **0** | 38 + 17 + 82 + 7 (unchanged, no transport edit) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+One test was added: `the_sidebar_hides_child_sessions_and_counts_running_ones` (the parent stays,
+the child disappears, the count reads 1, and the copy is the singular form). The `subagent-catalog`
+preset's parent summary now also carries the catalog in `projections.values`, which is what the
+sidebar reads.

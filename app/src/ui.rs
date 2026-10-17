@@ -8068,7 +8068,10 @@ impl App {
         let filter = self.filter.to_lowercase();
         let mut membership = workspace_membership::Membership::new(ids);
         self.sessions.values().filter(move |s| {
-            self.sidebar_organization.trashed(&s.session_id) == self.show_trash
+            // The reference keeps subagent children out of the session list; they are reached
+            // through their parent's header catalog (`ui-workspace/src/client/tree.ts:240-244`).
+            s.origin.is_none()
+                && self.sidebar_organization.trashed(&s.session_id) == self.show_trash
                 && (self.show_trash
                     || self.management.registry.archived(&s.session_id) == self.show_archived)
                 && (self.show_trash
@@ -8085,6 +8088,22 @@ impl App {
                     || s.session_id.as_str().to_lowercase().contains(&filter)
                     || self.session_title(s).to_lowercase().contains(&filter))
         })
+    }
+    /// Direct children of a parent that are running, read from the parent summary's own
+    /// `subagentCatalog` projection and each child's session state — the reference's
+    /// `runningChildCount` (`ui-workspace/src/client/tree.ts:382-386`).
+    fn running_subagent_count(&self, parent: &SessionId) -> usize {
+        let Some(projections) = self
+            .sessions
+            .get(parent)
+            .and_then(|summary| summary.projections.as_ref())
+        else {
+            return 0;
+        };
+        subagent_catalog::entries(&projections.values)
+            .iter()
+            .filter(|entry| self.subagent_running(&entry.id))
+            .count()
     }
     fn navigation_sessions(&self) -> Vec<&SessionSummary> {
         let ids = self.navigation_workspace_ids();
@@ -8140,6 +8159,16 @@ impl App {
             .width(Length::Fill);
             if !session.agent_available {
                 identity = identity.push(label("Resume · queued input may run", MUTED).size(11));
+            }
+            let running_children = self.running_subagent_count(&session.session_id);
+            if running_children > 0 {
+                identity = identity.push(
+                    label(
+                        subagent_catalog::count_label(running_children, running_children),
+                        design::FOAM,
+                    )
+                    .size(11),
+                );
             }
             if let Some(status) = self.working_label(session) {
                 identity = identity.push(
@@ -13096,6 +13125,46 @@ mod tests {
         let _ = app.update(Message::SubagentOpen("public-child-reviewer".into()));
         assert!(!app.subagent_menu, "opening a child closes the dropdown");
         assert_eq!(app.selected.as_ref(), Some(&child));
+    }
+    #[test]
+    fn the_sidebar_hides_child_sessions_and_counts_running_ones() {
+        let (mut app, _receiver) = managed_app();
+        let parent = app.selected.clone().unwrap();
+        let child = SessionId::new("public-child-reviewer").unwrap();
+        app.sessions.insert(
+            child.clone(),
+            SessionSummary {
+                agent_available: true,
+                session_id: child.clone(),
+                updated_at: 0,
+                running: true,
+                blank: false,
+                parent_session_id: Some(parent.clone()),
+                origin: Some(dsh_native_transport::dto::SubagentOrigin::Subagent),
+                cwd: None,
+                projections: None,
+            },
+        );
+        app.sessions.get_mut(&parent).unwrap().projections = Some(
+            serde_json::from_value(serde_json::json!({
+                "kind":"cached","asOfSeq":-1,
+                "values":{"subagentCatalog":[
+                    {"id":"public-child-reviewer","createdAt":1,"mode":"continuable","label":"PUBLIC reviewer"}
+                ]}
+            }))
+            .unwrap(),
+        );
+        let visible: Vec<_> = app
+            .navigation_candidates()
+            .map(|session| session.session_id.clone())
+            .collect();
+        assert!(visible.contains(&parent), "the parent keeps its row");
+        assert!(
+            !visible.contains(&child),
+            "a child is reached through the parent catalog, not the list"
+        );
+        assert_eq!(app.running_subagent_count(&parent), 1);
+        assert_eq!(subagent_catalog::count_label(1, 1), "1 subagent running");
     }
     #[test]
     fn a_one_shot_child_replaces_the_composer_and_a_continuable_child_does_not() {

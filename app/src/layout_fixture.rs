@@ -833,7 +833,11 @@ pub fn build(
             "agentAvailable":true, "sessionId":"PUBLIC-layout-parent", "updatedAt":950,
             "running":false, "blank":false, "cwd":"/PUBLIC-layout-fixture/workspace",
             "projections":{"kind":"cached","asOfSeq":-1,
-                "values":{"title":"PUBLIC parent with subagents"}}
+                "values":{"title":"PUBLIC parent with subagents",
+                    "subagentCatalog":[
+                        {"id":"PUBLIC-child-reviewer","createdAt":1000,"mode":"continuable","label":"PUBLIC reviewer"},
+                        {"id":"PUBLIC-child-scout","createdAt":1001,"mode":"one-shot","label":"PUBLIC scout"}
+                    ]}}
         }))
         .expect("fixed PUBLIC parent metadata");
         app.selected = Some(parent.session_id.clone());
