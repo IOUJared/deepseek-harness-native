@@ -3789,3 +3789,21 @@ it now rests on a gate that was run whole.
      that inversion, with the ticket upgrade preserved, is the one remaining step, and it is now a
      reorder plus a `HideDetails` arm rather than a redesign.
    Verified: release build exit 0, fixture **1134** exit 0, default **1127** exit 0, format-debt 0.
+
+   **Correction: the last step is *not* a reorder plus one arm, and I said it was.** The chain is
+   `panel_shortcut → settings_paste_message → clipboard_field_shortcut → trigger → fallback`
+   (`ui.rs:1129-1160`). Putting the store **first** — the only way a rebound key could *replace* a
+   hardcoded one — would make it claim **every** key, including `Ctrl+V` and `Ctrl+C`, which the
+   paste and clipboard links handle *after* `panel_shortcut`. A key the store does not bind would
+   reach the fallback, resolve to `None`, and be dropped — **breaking paste**, which the app
+   deliberately routes here because the tagged fields answer it live.
+   So the inversion needs the **re-dispatch path**: a `Message::KeyPressed(key, modifiers)` that
+   `update` routes through the whole chain with live state (store first, then paste, then
+   clipboard, then the hardcoded map), so a key's fate is decided in one place with today's
+   bindings rather than in a subscription-built closure. That is the design round 225 named as
+   "keys become data", and it is genuinely the shape required — not a shortcut I was hoping for.
+   The current state is therefore the honest ceiling of the additive approach: the store can **add**
+   a key, all existing keys behave exactly as before, and nothing is at risk. **Replacing** a
+   hardcoded key waits for the re-dispatch, which is a real change with a real test surface (the
+   fixture suite's key-order assertions) and deserves the fresh context the handoff asked for.
+   Verified: tree clean, format-debt 0, fixture **1134**, default **1127**.
