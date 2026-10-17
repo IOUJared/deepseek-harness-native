@@ -112,6 +112,7 @@ pub const PRESETS: &[&str] = &[
     "information",
     "information-expanded",
     "work-panel",
+    "schedules",
     "context-pressure",
     "context-pressure-risk",
     "context-management",
@@ -264,6 +265,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "information"
         | "information-expanded"
         | "work-panel"
+        | "schedules"
         | "context-pressure"
         | "context-pressure-risk"
         | "context-management"
@@ -1007,6 +1009,7 @@ pub fn build(
             | "chat-edited"
             | "chat-search-narrow"
             | "work-panel"
+            | "schedules"
             | "subagent-catalog"
             | "subagent-readonly"
             | "subagent-sibling"
@@ -1127,6 +1130,33 @@ pub fn build(
         let ticket = app.reply_parts(7).unwrap().ticket.unwrap();
         drop(app.update(Message::ToggleThoughts(ticket)));
         assert!(app.thoughts_expanded.contains(&7));
+    }
+    if preset == "schedules" {
+        app.schedules_open = true;
+        app.schedules_loading = false;
+        app.schedules = vec![
+            dsh_native_transport::dto::ScheduleCatalogItem {
+                id: "PUBLIC-schedule-daily".into(),
+                title: "PUBLIC daily reminder".into(),
+                kind: "daily".into(),
+                session_id: app.selected.clone().expect("selected fixture session"),
+                status: "active".into(),
+                scheduled_at: Some("2026-10-17T09:00:00Z".into()),
+                last_delivery: Some(dsh_native_transport::dto::ScheduleDeliveryStamp {
+                    scheduled_at: "2026-10-16T09:00:00Z".into(),
+                    delivered_at: "2026-10-16T09:00:01Z".into(),
+                }),
+            },
+            dsh_native_transport::dto::ScheduleCatalogItem {
+                id: "PUBLIC-schedule-paused".into(),
+                title: "PUBLIC inactive reminder".into(),
+                kind: "weekly".into(),
+                session_id: app.selected.clone().expect("selected fixture session"),
+                status: "inactive".into(),
+                scheduled_at: None,
+                last_delivery: None,
+            },
+        ];
     }
     if preset == "chat-thoughts" {
         let ticket = app.reply_parts(1).unwrap().ticket.unwrap();
@@ -1911,6 +1941,7 @@ pub fn metadata(app: &App, preset: &str) -> Value {
     let settings_expected = preset.starts_with("settings-");
     let info_expected = matches!(preset, "information" | "information-expanded");
     let work_expected = preset == "work-panel";
+    let schedules_expected = preset == "schedules";
     let context_expected = preset.starts_with("context-management");
     let plan_expected = preset == "plan-chip";
     let plan_projected = app.transcript.work().plan().is_some();
@@ -1923,7 +1954,8 @@ pub fn metadata(app: &App, preset: &str) -> Value {
     // A one-shot child still owns the composer pane, but the reference replaces the input
     // and its controls with a read-only frame: the pane is expected, the controls are not.
     let composer_replaced = preset == "subagent-readonly";
-    let composer_expected = !settings_expected
+    let composer_expected = !schedules_expected
+        && !settings_expected
         && !picker_expected
         && !sidebar_expected
         && !info_expected
@@ -2000,6 +2032,7 @@ pub fn metadata(app: &App, preset: &str) -> Value {
         "fileDraftReady":app.files.ready().is_some(),
         "fileDraftBlocksSend":!app.files.can_send(&app.file_context()),
         "workPanelStateMatchesPreset":app.work_open == work_expected,
+        "schedulesPanelStateMatchesPreset":app.schedules_open == schedules_expected,
         "contextManagementSimulated":context_expected,
         "contextTrajectoryShown":context_expected && app.records_expanded,
         "planChipSimulated":plan_expected,

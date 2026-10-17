@@ -246,6 +246,18 @@ pub enum Message {
     QueueRemoveCancel,
     /// Steers one queued item into the running turn.
     QueueSteer(String),
+    /// Opens the scheduled-tasks page and reads the catalog.
+    OpenSchedules,
+    /// Closes the scheduled-tasks page.
+    CloseSchedules,
+    /// Re-reads the scheduled-tasks catalog.
+    RefreshSchedules,
+    /// Arms one task's delete confirmation.
+    ScheduleDelete(SessionId, String),
+    /// Confirms the armed task delete.
+    ScheduleDeleteConfirm,
+    /// Cancels the armed task delete.
+    ScheduleDeleteCancel,
     /// Begins editing the current goal objective.
     GoalEdit,
     /// Updates the inline goal draft.
@@ -780,6 +792,16 @@ pub struct App {
     queue_busy: Option<String>,
     /// The last queue mutation's redacted failure, shown under the dock.
     queue_error: Option<String>,
+    /// The scheduled-tasks page is open in the main pane.
+    schedules_open: bool,
+    /// The last catalog page, in Host order.
+    schedules: Vec<dsh_native_transport::dto::ScheduleCatalogItem>,
+    schedules_loading: bool,
+    schedules_error: Option<String>,
+    /// The task whose delete waits for a second press: (session binding, id).
+    schedule_delete: Option<(SessionId, String)>,
+    /// The task with a delete in flight.
+    schedule_busy: Option<String>,
     /// The inline goal editor: the exact revision and the draft objective.
     goal_edit: Option<(dsh_native_transport::dto::GoalRef, String)>,
     /// The goal revision whose clear waits for a second press.
@@ -1063,6 +1085,12 @@ impl App {
                 queue_remove_armed: None,
                 queue_busy: None,
                 queue_error: None,
+                schedules_open: false,
+                schedules: Vec::new(),
+                schedules_loading: false,
+                schedules_error: None,
+                schedule_delete: None,
+                schedule_busy: None,
                 goal_edit: None,
                 goal_clear: None,
                 goal_busy: false,
@@ -1834,6 +1862,7 @@ impl App {
             && !self.capabilities
             && !self.conversation_menu
             && !self.work_open
+            && !self.schedules_open
             && !self.terminal.is_open()
             && !self.mcp.is_open()
             && self.detail.is_none()
@@ -2785,6 +2814,10 @@ impl App {
             Message::DismissPanel if self.layout_controls_enabled() && self.conversation_menu => {
                 self.conversation_menu = false;
             }
+            Message::DismissPanel if self.layout_controls_enabled() && self.schedules_open => {
+                self.schedules_open = false;
+                self.schedule_delete = None;
+            }
             Message::DismissPanel if self.layout_controls_enabled() && self.work_open => {
                 self.work_open = false;
             }
@@ -3177,6 +3210,37 @@ impl App {
             }
             Message::ToggleQueue if self.layout_controls_enabled() => {
                 self.queue_expanded = !self.queue_expanded;
+            }
+            Message::OpenSchedules if self.layout_controls_enabled() => {
+                self.schedules_open = true;
+                self.schedules_loading = true;
+                self.schedules_error = None;
+                self.schedule_delete = None;
+                self.command(worker::Command::ScheduleCatalog);
+            }
+            Message::CloseSchedules if self.layout_controls_enabled() => {
+                self.schedules_open = false;
+                self.schedule_delete = None;
+                self.schedule_busy = None;
+            }
+            Message::RefreshSchedules if self.schedules_open => {
+                self.schedules_loading = true;
+                self.schedules_error = None;
+                self.command(worker::Command::ScheduleCatalog);
+            }
+            Message::ScheduleDelete(session, id) if self.schedules_open => {
+                self.schedule_delete = Some((session, id));
+                self.schedules_error = None;
+            }
+            Message::ScheduleDeleteConfirm if self.schedules_open => {
+                let Some((session, id)) = self.schedule_delete.take() else {
+                    return Task::none();
+                };
+                self.schedule_busy = Some(id.clone());
+                self.command(worker::Command::ScheduleDelete { session, id });
+            }
+            Message::ScheduleDeleteCancel if self.schedules_open => {
+                self.schedule_delete = None;
             }
             Message::GoalEdit if self.layout_controls_enabled() => {
                 if let Some(goal) = self.goal() {
@@ -4335,6 +4399,40 @@ impl App {
                             self.search_error = Some(error);
                         }
                     }
+                }
+            }
+            Event::SchedulesLoaded(result) => {
+                self.schedules_loading = false;
+                match result {
+                    Ok(items) => {
+                        self.schedules = items;
+                        self.schedules_error = None;
+                    }
+                    Err(error) => self.schedules_error = Some(error),
+                }
+            }
+            Event::ScheduleDeleted { id, result, .. } => {
+                if self.schedule_busy.as_deref() == Some(id.as_str()) {
+                    self.schedule_busy = None;
+                }
+                match result {
+                    Ok(dsh_native_transport::dto::ScheduleDeleteOutcome::Deleted) => {
+                        self.schedules.retain(|item| item.id != id);
+                        self.schedules_error = None;
+                    }
+                    Ok(dsh_native_transport::dto::ScheduleDeleteOutcome::Missing) => {
+                        self.schedules_error =
+                            Some("That task is no longer on the Host; refreshing.".into());
+                        self.schedules_loading = true;
+                        self.command(worker::Command::ScheduleCatalog);
+                    }
+                    Ok(dsh_native_transport::dto::ScheduleDeleteOutcome::Refused) => {
+                        self.schedules_error =
+                            Some("The Host refused the delete; the task is unchanged.".into());
+                        self.schedules_loading = true;
+                        self.command(worker::Command::ScheduleCatalog);
+                    }
+                    Err(error) => self.schedules_error = Some(error),
                 }
             }
             Event::GoalUpdated { session, result } => {
@@ -5748,6 +5846,14 @@ impl App {
         }
     }
 
+    /// Fixture-only: arm the first scheduled task's delete, which a real run arms by press.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn arm_schedule_delete(&mut self) {
+        if let Some(item) = self.schedules.first() {
+            self.schedule_delete = Some((item.session_id.clone(), item.id.clone()));
+        }
+    }
+
     /// Fixture-only: begin editing the current goal's objective.
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn begin_goal_edit(&mut self) {
@@ -6683,6 +6789,7 @@ impl App {
             && !self.conversation_menu
             && !self.capabilities
             && !self.work_open
+            && !self.schedules_open
             && !self.terminal.is_open()
             && !self.mcp.is_open()
             && self.detail.is_none()
@@ -6715,6 +6822,8 @@ impl App {
                 (self.capabilities_view(), false)
             } else if self.work_open {
                 (self.work_panel_view(), false)
+            } else if self.schedules_open {
+                (self.schedules_view(), false)
             } else if self.terminal.is_open() {
                 (self.terminal_view(), false)
             } else if self.mcp.is_open() {
@@ -8773,6 +8882,15 @@ impl App {
         navigation = navigation
             .push(Space::new().height(design::PANEL_LIST_GAP))
             .push(workspaces)
+            .push(Space::new().height(design::PANEL_LIST_GAP))
+            .push(
+                button(label("Scheduled tasks", MUTED).size(14))
+                    .on_press(Message::OpenSchedules)
+                    .style(|theme, status| design::navigation_row(theme, status, false))
+                    .padding(design::PANEL_ROW_PAD)
+                    .height(design::PANEL_ROW_HEIGHT)
+                    .width(Length::Fill),
+            )
             .push(Space::new().height(design::PANEL_GAP))
             .push(self.workspace_navigation())
             .push(Space::new().height(design::PANEL_GAP))
@@ -11089,6 +11207,115 @@ impl App {
         )
         .direction(design::scrollbar())
         .style(design::scrollable_style)
+        .height(Length::Fill)
+        .into()
+    }
+    /// The scheduled-tasks page: the Host's whole catalog across sessions, with a two-step
+    /// delete. Creation and timing edits stay with the model's schedule tool (as in the
+    /// reference), so this page lists and deletes only.
+    fn schedules_view(&self) -> Element<'_, Message> {
+        let header = row![
+            label("Scheduled tasks", TEXT).size(22).width(Length::Fill),
+            button(label("Refresh", MUTED).size(11))
+                .on_press(Message::RefreshSchedules)
+                .style(design::ghost)
+                .padding([4, 8]),
+            button(label("Close", MUTED).size(11))
+                .on_press(Message::CloseSchedules)
+                .style(design::ghost)
+                .padding([4, 8]),
+        ]
+        .spacing(6)
+        .align_y(iced::Alignment::Center);
+        let mut body = column![
+            header,
+            label(
+                "Tasks recorded on the Host across sessions. Created by the model's schedule tool; this page lists and deletes them.",
+                MUTED
+            )
+            .size(11),
+        ]
+        .spacing(12);
+        if self.schedules_loading && self.schedules.is_empty() {
+            body = body.push(label("Loading scheduled tasks…", MUTED).size(12));
+        }
+        if let Some(error) = &self.schedules_error {
+            body = body.push(label(short(error, 160), DANGER).size(11));
+        }
+        if self.schedules.is_empty() && !self.schedules_loading && self.schedules_error.is_none() {
+            body = body.push(label("No scheduled tasks.", MUTED).size(12));
+        }
+        for item in &self.schedules {
+            let busy = self.schedule_busy.as_deref() == Some(item.id.as_str());
+            let armed = self
+                .schedule_delete
+                .as_ref()
+                .is_some_and(|(session, id)| session == &item.session_id && id == &item.id);
+            let meta = format!(
+                "{} · {} · {}",
+                item.kind,
+                item.scheduled_at.as_deref().unwrap_or("no next time"),
+                item.status
+            );
+            let mut row = column![
+                label(short(&item.title, 80), TEXT).size(14),
+                label(short(&meta, 140), MUTED).size(10),
+            ]
+            .spacing(2);
+            if let Some(delivery) = &item.last_delivery {
+                row = row.push(
+                    label(
+                        format!("Last delivered {}", short(&delivery.delivered_at, 40)),
+                        MUTED,
+                    )
+                    .size(10),
+                );
+            }
+            if busy {
+                row = row.push(label("Working…", MUTED).size(10));
+            } else if armed {
+                row = row.push(label("Delete this task?", TEXT).size(11)).push(
+                    row![
+                        button(label("Delete", DANGER).size(10))
+                            .on_press(Message::ScheduleDeleteConfirm)
+                            .style(design::danger)
+                            .padding([2, 6]),
+                        button(label("Cancel", MUTED).size(10))
+                            .on_press(Message::ScheduleDeleteCancel)
+                            .style(design::ghost)
+                            .padding([2, 6]),
+                    ]
+                    .spacing(4),
+                );
+            } else {
+                row = row.push(
+                    row![
+                        button(label("Delete", MUTED).size(10))
+                            .on_press(Message::ScheduleDelete(
+                                item.session_id.clone(),
+                                item.id.clone(),
+                            ))
+                            .style(design::ghost)
+                            .padding([2, 6]),
+                    ]
+                    .spacing(4),
+                );
+            }
+            body = body.push(
+                container(row)
+                    .width(Length::Fill)
+                    .padding([8, 10])
+                    .style(|_| design::card(SURFACE, 10.0)),
+            );
+        }
+        container(
+            scrollable(body)
+                .direction(design::scrollbar())
+                .style(design::scrollable_style)
+                .height(Length::Fill),
+        )
+        .padding(24)
+        .width(Length::Fill)
         .height(Length::Fill)
         .into()
     }
@@ -14213,6 +14440,54 @@ mod tests {
             .bindings("native.find")
             .expect("the row keeps a binding");
         assert_eq!(crate::keybindings::display(&binding[0]), "Ctrl+G");
+    }
+    #[test]
+    fn schedules_open_read_and_delete_with_the_armed_confirmation() {
+        use dsh_native_transport::dto::{ScheduleCatalogItem, ScheduleDeleteOutcome};
+        let (mut app, mut receiver) = managed_app();
+        let _ = app.update(Message::OpenSchedules);
+        assert!(app.schedules_open);
+        let mut reads = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if matches!(command, Command::ScheduleCatalog) {
+                reads += 1;
+            }
+        }
+        assert_eq!(reads, 1);
+        let session = app.selected.clone().unwrap();
+        let item = ScheduleCatalogItem {
+            id: "PUBLIC-schedule".into(),
+            title: "PUBLIC task".into(),
+            kind: "daily".into(),
+            session_id: session.clone(),
+            status: "active".into(),
+            scheduled_at: None,
+            last_delivery: None,
+        };
+        let _ = app.update(Message::Worker(Event::SchedulesLoaded(Ok(vec![item]))));
+        assert_eq!(app.schedules.len(), 1);
+        let _ = app.update(Message::ScheduleDelete(
+            session.clone(),
+            "PUBLIC-schedule".into(),
+        ));
+        let _ = app.update(Message::ScheduleDeleteConfirm);
+        let mut deletes = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if let Command::ScheduleDelete { session: sent, id } = command {
+                assert_eq!(sent, session);
+                assert_eq!(id, "PUBLIC-schedule");
+                deletes += 1;
+            }
+        }
+        assert_eq!(deletes, 1);
+        assert_eq!(app.schedule_busy.as_deref(), Some("PUBLIC-schedule"));
+        let _ = app.update(Message::Worker(Event::ScheduleDeleted {
+            session,
+            id: "PUBLIC-schedule".into(),
+            result: Ok(ScheduleDeleteOutcome::Deleted),
+        }));
+        assert!(app.schedules.is_empty());
+        assert!(app.schedule_busy.is_none());
     }
     #[test]
     fn goal_operations_are_admitted_once_and_the_failure_is_announced() {

@@ -74,6 +74,13 @@ pub enum Command {
     },
     /// Mutate one pending queue item (edit, remove or steer).
     UpdateQueue(crate::queue_update::Submission),
+    /// Read the Host's whole schedule catalog.
+    ScheduleCatalog,
+    /// Delete one schedule inside its original session binding.
+    ScheduleDelete {
+        session: dsh_native_transport::dto::SessionId,
+        id: String,
+    },
     /// One goal mutation for a session.
     Goal {
         session: dsh_native_transport::dto::SessionId,
@@ -186,6 +193,12 @@ pub enum Event {
     GoalUpdated {
         session: dsh_native_transport::dto::SessionId,
         result: Result<(), String>,
+    },
+    SchedulesLoaded(Result<Vec<dsh_native_transport::dto::ScheduleCatalogItem>, String>),
+    ScheduleDeleted {
+        session: dsh_native_transport::dto::SessionId,
+        id: String,
+        result: Result<dsh_native_transport::dto::ScheduleDeleteOutcome, String>,
     },
     /// The complete set of background jobs the session can see. Each list frame replaces
     /// the set wholesale (`api/job-controller/src/types.ts:19-27`).
@@ -819,6 +832,12 @@ fn rejected(command: Command) -> Event {
         Command::AgentPresetsRead => Event::AgentPresets(Err(error)),
         Command::AgentPresetSelect { .. } => Event::AgentPresetSelected(Err(error)),
         Command::JobKill { .. } => Event::JobKilled(Err(error)),
+        Command::ScheduleCatalog => Event::SchedulesLoaded(Err(error)),
+        Command::ScheduleDelete { session, id } => Event::ScheduleDeleted {
+            session,
+            id,
+            result: Err(error),
+        },
         Command::Goal { session, .. } => Event::GoalUpdated {
             session,
             result: Err(error),
@@ -2351,6 +2370,11 @@ async fn run(
                     Command::Create{workspace,cwd}=>Event::Created(client.session_create(SessionCreateRequest{workspace_id:workspace,cwd,..Default::default()}).await.map_err(|e|format!("New session: {e}"))),
                     Command::AgentPresetSelect{session,preset}=>Event::AgentPresetSelected(client.agent_preset_select(&session,&preset).await.map_err(|error|format!("Agent preset: {error}"))),
                     Command::JobKill{session,job}=>Event::JobKilled(client.job_kill(session.as_str(),&job).await.map_err(|error|format!("Job kill: {error}"))),
+                    Command::ScheduleCatalog=>Event::SchedulesLoaded(client.schedule_catalog().await.map_err(|error|format!("Schedules: {error}"))),
+                    Command::ScheduleDelete{session,id}=>{
+                        let result=client.schedule_delete(&session,&id).await.map_err(|error|format!("Schedule delete: {error}"));
+                        Event::ScheduleDeleted{session,id,result}
+                    },
                     Command::Goal{session,operation}=>{
                         use crate::goal_ui::Operation;
                         let result=match operation{

@@ -194,6 +194,8 @@ struct Options {
     goal_edit: bool,
     /// Arm the goal clear confirmation.
     goal_clear: bool,
+    /// Arm the first scheduled task's delete confirmation.
+    schedule_delete: bool,
     /// Open the shortcuts disclosure, so its rows are captured.
     shortcuts: bool,
 }
@@ -305,6 +307,7 @@ fn options() -> Result<Options, &'static str> {
             "--search-results",
             "--goal-edit",
             "--goal-clear",
+            "--schedule-delete",
             "--agent-seat-error",
             "--settings",
             "--scrolled-away",
@@ -456,6 +459,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         goal_clear: match values.remove("--goal-clear") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        schedule_delete: match values.remove("--schedule-delete") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -851,6 +858,9 @@ impl Fixture {
         if options.goal_clear {
             app.arm_goal_clear();
         }
+        if options.schedule_delete {
+            app.arm_schedule_delete();
+        }
         if options.scrolled_away {
             app.set_scrolled_away(true);
         }
@@ -933,6 +943,8 @@ impl Fixture {
                 worker::Command::UpdateQueue(_) => "UpdateQueue",
                 worker::Command::Search { .. } => "Search",
                 worker::Command::Goal { .. } => "Goal",
+                worker::Command::ScheduleCatalog => "ScheduleCatalog",
+                worker::Command::ScheduleDelete { .. } => "ScheduleDelete",
                 worker::Command::CommandsList(_) => "CommandsList",
                 worker::Command::CommandsExecute { .. } => "CommandsExecute",
                 worker::Command::TerminalRead(_) => "TerminalRead",

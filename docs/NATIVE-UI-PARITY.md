@@ -37,9 +37,9 @@ work in the Rust app, implemented in Rust, not left as a documented Web-only dif
 point is the Host's canonical `/api/<namespace>/<method>` dispatcher, so adding typed endpoints to
 `dsh-native-transport` is in-bounds; what is out of bounds is rebuilding or forking the Host runtime
 in Rust. Keep coding without asking for permission. Queue edit/remove/steer, full-text content
-search, the goal bar (pause/resume/edit/clear) and the per-turn usage detail now work end to end;
-the next item is the **scheduled-tasks page** (`schedule/catalog|update|delete|history` plus the
-timing pickers), then workspace open and the deliverables diff. Cross-session pending status is
+search, the goal bar (pause/resume/edit/clear), the per-turn usage detail and the **scheduled-tasks
+page** (catalog + delete) now work end to end; the next items are schedule timing edit/history and
+the timing pickers, then workspace open and the deliverables diff. Cross-session pending status is
 still unavailable from the present wires.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
@@ -5534,3 +5534,39 @@ and delivery stamp; the transport gate is **46 + 17 + 82 + 7**.
 
 No schedules page or delete control exists yet; the work panel still lists records read-only. The
 app half is the next item.
+
+### Round 287 — the scheduled-tasks page
+
+**The sidebar now opens a Scheduled tasks page listing the Host's whole catalog.** The page reads
+`schedule/catalog` when opened and on Refresh, shows each task's title, kind, next time and status,
+and its last delivery when recorded. Delete is a **two-step confirmation** (native's safety rule)
+that sends the canonical `{sessionId, id}` request; `Deleted` removes the row, `Missing` and
+`Refused` announce the refusal and reload the catalog, and a transport failure stays red. Empty,
+loading and error states are bounded. The page sits in the main pane like Work records, keeping the
+sidebar; the header's Stop remains for a running session, as in the other panel captures.
+
+`shots/131-schedules.png` shows the active and inactive rows and
+`shots/132-schedules-delete.png` the armed delete; both report `status: passed`.
+
+**Deliberate limits.** Creation stays with the model's schedule tool (the reference page also does
+not create), and **timing edits and delivery history are not built yet** — the reference's
+ScheduleTaskTab, DatePicker/ClockPicker and DeliveryHistory are the next slice. There are no
+per-session schedule marks, row hover cards, schedule turn cards or right-sidebar task tab. Actions
+are text controls, not drawn icons.
+
+**Battery (round 287).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1188 passed**, 1 ignored |
+| app, default | **0** | **1181 passed**, 1 ignored |
+| transport | **0** | **46 + 17 + 82 + 7** |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+One app test covers opening (one catalog read), the loaded page, the armed confirmation, the single
+delete admission and the local removal on the ACK. The transport's two tests landed in round 286. A
+capture initially failed because the stop control was expected hidden while the header still draws
+it; the expectation was corrected, and the frames were retaken from a rebuilt, warning-free binary.
