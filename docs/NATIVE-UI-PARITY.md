@@ -2741,3 +2741,21 @@ Since the round-145 update, all local and unpushed, gates green at each commit:
    The diagnosis edit was reverted, the fixture's closed-state capture re-verified
    (`fixture exit=0 pick=0`), and all three gates are green: format-debt 0, fixture **1114**
    exit 0, default **1107** exit 0.
+
+   **The hypothesis is replaced by the report's own numbers.** The failed observation from the
+   panel-open run carries its fields, and exactly three are false:
+   `allTextCollected`, `knownRenderedControlsWithinFrame`, and `paintVisibilityQualified` — while
+   `frameMatchesRequestedSize`, `frameOriginMatchesOutsideBanner`,
+   `frameWithinMeasuredWindowViewport`, `expectedControlCountsMatch`, `presetStatesMatch` and the
+   control counts all hold (`/tmp/dsh-shots/diag.json`). The frame itself measures 1040×900 at
+   y=32.
+   So the guess last round — "a header-anchored overlay violates the fixture's expectations" — is
+   close but not what the data says. The precise statement is: with the panel open, a
+   **known-id container renders outside the frame**, **some text is not collected**, and **paint
+   visibility is not qualified**. That is the signature of a layer extending beyond the window or
+   being clipped by it, not of a rule about headers.
+   The next step is therefore a measurement, not a rewrite: run the fixture directly again, read
+   `knownContainerRects` for the panel's own id, and see whether it sits outside the 1040×900
+   frame or under the banner — then either narrow the panel or move its anchor, and re-run until
+   those three fields flip. Recording the numbers rather than the theory is the point; the theory
+   would have sent the next attempt after the wrong fix.
