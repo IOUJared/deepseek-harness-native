@@ -14,8 +14,8 @@ searchable list and its refused-capture states (`shots/87-…` through `102-…`
 dropdown** (`shots/104-…`, `105-…`); the **one-shot child's read-only composer** (`shots/106-…`);
 the sidebar's **subagent rows and running-child count** (`shots/107-…`); the child header's
 **sibling switcher** (`shots/108-…`, `109-…`) with **nested catalog branches and row metrics**
-(`shots/110-…`, `111-…`); and **keys as data**, so the store's five commands drive the live chain
-instead of a hardcoded map.
+(`shots/110-…`, `111-…`); the selected row's **pending-interaction status** (`shots/112-…`); and
+**keys as data**, so the store's five commands drive the live chain instead of a hardcoded map.
 
 **Read this before trusting the list above.** Round 257 found that the editor's per-row actions,
 the permission default row and eight Host-event handlers were **unreachable behind two catch-all
@@ -28,11 +28,12 @@ same shape in the `Ctrl+/` trigger: it opened the account page and the open path
 disclosure, so the editor was never shown; the trigger's "captured" evidence had gone through the
 fixture's direct `set_settings_open`, not the press.
 
-**Next, in one step:** the session row's **pending-interaction status** ("Waiting for approval",
-the reference's `status.waitingApproval`). Native shows a running row's "Working" label but no
-per-session approval/question state; the reference reads it from its session-status controller, so
-the next step is to find whether the list or a status feed carries that field before drawing a
-badge. The settings/rename editable menu is **toolkit-blocked**, recorded below, not a candidate.
+**Next, in one step:** the **other sessions'** pending statuses and the completion-unread marker.
+Native now shows the selected session's pending decision; the reference's status controller covers
+every session it follows and keeps `completionUnread` for a stop observed in the background. That
+needs a per-session status source — the list DTO carries no such field today — so the next step is
+to size a status feed, not to draw a badge on data the app does not have. The settings/rename
+editable menu is **toolkit-blocked**, recorded below, not a candidate.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -4949,3 +4950,41 @@ branches, the partial-usage refusal, the settled-only case and the empty default
 `tokens_and_durations_follow_the_reference_compact_forms` (eight token and seven duration
 boundaries). The fixture's reviewer summary now carries the two projections; the list-level claim is
 that they arrive in `projections.values`, seeded here rather than observed from a live Host.
+
+### Round 269 — a pending decision is the selected row's status
+
+**The selected session's row now outranks "Working" with the reference's pending-interaction
+status.** The reference's ladder puts `pendingInteraction` first and shows
+"Waiting for approval" / "Waiting for answer" (`ui-workspace/src/client/rows/Rows.tsx:348-370`,
+`locales.ts`); native's `Decisions::pending_label` maps its own `Approval`, `Question` and
+`Unsupported` payloads to the same copy ("Waiting for input" is native's fallback for a payload it
+cannot classify), and the sidebar draws it in gold. A running session with a pending decision
+therefore reads the decision, not "Working", and the running child count still follows underneath.
+`shots/112-sidebar-pending-approval.png` shows the selected row reading "Waiting for approval" beside
+the review banner; the report is `status: passed`.
+
+The fixture seeds one real pending approval through `Decisions::seed_approval` (behind the fixture
+feature, with the private ids kept inside `interactions.rs`) and the `--pending-approval` flag; the
+seeded decision also drives the app's existing review banner, so the frame is one state, not a
+painted label.
+
+**Limitation, stated.** Native's `Decisions` holds the **followed** session's requests; there is no
+per-session status feed. So the badge is exact for the selected row and absent for other rows,
+where the reference's status controller can show a pending approval on any observed session. The
+same gap blocks the reference's `completionUnread` marker. Neither is claimed.
+
+**Battery (round 269).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1167 passed**, 1 ignored |
+| app, default | **0** | **1160 passed**, 1 ignored |
+| transport | **0** | 38 + 17 + 82 + 7 (unchanged, no transport edit) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+One test was added: `the_pending_status_uses_the_reference_copy` (empty, then an approval through
+the test-available `add` path, so both app profiles compile it). Capture 112 is the visible
+counterpart.

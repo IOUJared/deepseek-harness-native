@@ -5383,6 +5383,13 @@ impl App {
         );
     }
 
+    /// Fixture-only: register one pending approval for the selected session, so the sidebar's
+    /// "Waiting for approval" status is capturable without a Host request.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn seed_pending_approval(&mut self) {
+        self.decisions.seed_approval(self.transport_epoch);
+    }
+
     /// Fixture-only: open the header's subagent catalog dropdown, which a real run opens by
     /// pressing the count action.
     #[cfg(feature = "public-layout-fixture")]
@@ -8309,6 +8316,10 @@ impl App {
             if !session.agent_available {
                 identity = identity.push(label("Resume · queued input may run", MUTED).size(11));
             }
+            let pending = active.then_some(self.decisions.pending_label()).flatten();
+            if let Some(status) = pending {
+                identity = identity.push(label(status, design::GOLD).size(11));
+            }
             let running_children = self.running_subagent_count(&session.session_id);
             if running_children > 0 {
                 identity = identity.push(
@@ -8319,7 +8330,7 @@ impl App {
                     .size(11),
                 );
             }
-            if let Some(status) = self.working_label(session) {
+            if let Some(status) = self.working_label(session).filter(|_| pending.is_none()) {
                 identity = identity.push(
                     label(
                         status,

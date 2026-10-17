@@ -312,7 +312,31 @@ impl Decisions {
     pub fn len(&self) -> usize {
         self.pending.len()
     }
-    #[cfg(test)]
+    /// The status line for the next pending decision, using the reference's own copy
+    /// (`status.waitingApproval` / `status.waitingAnswer`). `None` when nothing awaits input.
+    pub fn pending_label(&self) -> Option<&'static str> {
+        match &self.pending.values().next()?.payload {
+            Payload::Approval(_) => Some("Waiting for approval"),
+            Payload::Question(_) => Some("Waiting for answer"),
+            Payload::Unsupported { .. } => Some("Waiting for input"),
+        }
+    }
+    /// Fixture-only: register one synthetic approval, so the sidebar status can be captured
+    /// without a Host request. Private ids stay inside this module.
+    #[cfg(feature = "public-layout-fixture")]
+    pub fn seed_approval(&mut self, epoch: u64) {
+        let event_id =
+            RemoteEventId::new("PUBLIC-pending-approval").expect("fixed PUBLIC event id");
+        let agent = AgentId::new("PUBLIC-agent").expect("fixed PUBLIC agent id");
+        let _ = self.add(
+            epoch,
+            event_id,
+            agent,
+            WaterfallKind::Approval,
+            serde_json::json!({"toolName":"shell","reason":"PUBLIC synthetic approval"}),
+        );
+    }
+    #[cfg(any(test, feature = "public-layout-fixture"))]
     pub fn add(
         &mut self,
         epoch: u64,
@@ -880,6 +904,19 @@ fn answer(pending: &Pending) -> Result<QuestionAnswer, &'static str> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_pending_status_uses_the_reference_copy() {
+        let mut decisions = super::Decisions::default();
+        assert_eq!(decisions.pending_label(), None);
+        let _ = decisions.add(
+            1,
+            RemoteEventId::new("status-test").unwrap(),
+            AgentId::new("status-agent").unwrap(),
+            WaterfallKind::Approval,
+            serde_json::json!({"toolName":"shell"}),
+        );
+        assert_eq!(decisions.pending_label(), Some("Waiting for approval"));
+    }
     use super::*;
     use serde_json::json;
     pub(super) fn fixture(name: &str) -> Value {

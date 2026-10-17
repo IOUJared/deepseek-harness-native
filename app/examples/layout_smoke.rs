@@ -166,6 +166,8 @@ struct Options {
     subagent_menu: bool,
     /// Pre-expand the catalog's first branch, so a grandchild row is captured.
     subagent_expanded: bool,
+    /// Register one pending approval, so the sidebar status is captured.
+    pending_approval: bool,
     /// Open the shortcuts disclosure, so its rows are captured.
     shortcuts: bool,
 }
@@ -266,6 +268,7 @@ fn options() -> Result<Options, &'static str> {
             "--session-log-saved",
             "--subagent-menu",
             "--subagent-expanded",
+            "--pending-approval",
             "--agent-seat-error",
             "--settings",
             "--scrolled-away",
@@ -376,6 +379,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         subagent_expanded: match values.remove("--subagent-expanded") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        pending_approval: match values.remove("--pending-approval") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -735,6 +742,9 @@ impl Fixture {
         }
         if options.subagent_expanded {
             app.expand_subagent_branch("PUBLIC-child-reviewer");
+        }
+        if options.pending_approval {
+            app.seed_pending_approval();
         }
         if options.scrolled_away {
             app.set_scrolled_away(true);
