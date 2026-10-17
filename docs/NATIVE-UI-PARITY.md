@@ -4073,3 +4073,19 @@ own frames: `shots/87-…` (rows), `shots/89-…` (the count line with a cleared
    outside-the-catalog assertion go, and — only then — a remove/reset action has something to act
    on. The keys-as-data capability is still needed for a rebound key to *replace* a hardcoded one,
    but the *editor* no longer waits on it to have rows worth editing.
+
+   **Round 242's correction was itself too pessimistic: native's five are *already* catalog entries.**
+   I checked the non-rebindable assertion before acting on it. It is about **`fixed.select`**
+   (`keybindings.rs`, in `the_fixed_built_ins_are_the_reference_three`) — one of the *reference's
+   three menu keys* — and **nothing asserts** that `fixed.navigation`, `fixed.find`, `fixed.send`,
+   `fixed.newline` or `fixed.close` are outside the catalog or unrebindable. Those five flow through
+   `native_fixed()` → `native_catalog()` → `Store::new`, carry defaults and labels and `core: true`,
+   and `Store::apply` edits any id it holds. **Their subject was never defined away.** What remains
+   wrong is smaller than I said: the **`fixed.` prefix** on their ids, which in the reference means
+   "not editable" and here is merely stale naming.
+   So the editor's per-row actions *can* be built: a `Remove` sends `Edit::Set { binding: None }` for
+   that id, a `Reset` sends `Edit::Reset`, and both go through the revision-guarded `apply` — the
+   copy constants waiting on them have real subjects. The prefix can be renamed separately, or
+   documented as legacy; it is not a blocker either way.
+   Recorded because acting on round 242 as written would have spent a round renaming ids to fix a
+   problem that did not exist — the correction needed a correction, and the test said so.
