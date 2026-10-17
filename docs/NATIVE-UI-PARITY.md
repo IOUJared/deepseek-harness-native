@@ -2808,3 +2808,21 @@ Since the round-145 update, all local and unpushed, gates green at each commit:
    four `popup_bounds(` uses inside `mod tests` — leaving the signature untouched. Everything else
    stays as it is, so the composer menu and the hero seat keep the upward behaviour they were
    captured with.
+
+   **The measurement says the panel is at the window top, and the thing covering it is the
+   fixture's banner — which is a test artifact, not the product.** The frame begins at y=32
+   because `measuredAppFrameBounds` excludes the 0–32 band the fixture paints for its own banner
+   ("PUBLIC LOCAL FIXTURE …" at the top of every capture). The widget clamped the panel's y to
+   `viewport.y` = 0, which is the **window's** top edge, not a place behind product chrome. In a
+   real window with no fixture banner, a header-anchored popup laid at y=0 is flush with the top
+   of the window and visible.
+   So the fixture failed on `knownRenderedControlsWithinFrame`, `allTextCollected` and
+   `paintVisibilityQualified` because **its own banner overlaps a window-top popup** — an
+   expectation about a test artifact, not a defect in the panel or in the widget. That does not
+   make the capture worthless: it means the *fixture* is the thing that has to decide.
+   Two honest options, and neither needs the two-struct widget change I attempted and reverted:
+   teach the fixture that a header-anchored popup may overlap its banner (a fixture expectation,
+   which is where the mismatch actually lives), or place the panel below its action so the
+   capture shows it in the clear (a UI choice with a real-window cost: it would leave the popup
+   hanging over the conversation rather than flush at the top). **The first is the smaller and
+   more truthful change**, and the widget's upward behaviour stays as the two captured menus have it.
