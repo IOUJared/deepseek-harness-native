@@ -36,7 +36,8 @@ fixture's direct `set_settings_open`, not the press.
 work in the Rust app, implemented in Rust, not left as a documented Web-only difference. The reuse
 point is the Host's canonical `/api/<namespace>/<method>` dispatcher, so adding typed endpoints to
 `dsh-native-transport` is in-bounds; what is out of bounds is rebuilding or forking the Host runtime
-in Rust. **All closeable reference surfaces found by the final audit are cloned.** The chat,
+in Rust. **Most reference surfaces found by the final audit are cloned; the workflow-run chat node
+remains open.** The chat,
 composer (slash commands, `@` files and sessions with keyboard navigation and drill-down, attachments,
 queue edit/remove/steer, goal bar, todo dock, context policy, usage), sidebar (sessions, search,
 pin/archive/trash, workspace list/filter and navigation sheet), schedules (catalog, delete, history,
@@ -45,7 +46,8 @@ approvals and questions, jobs, subagents, deliverables (summary, file list, per-
 open), message feedback (rating, categories, note dialog), settings (general, API, Cloudflare,
 Codex, plugins, shortcuts) and workspace open (Host chooser and in-app folder list) work end to end.
 
-**Deliberate differences, not open work:** the reference's right Sidebar (document preview, review
+**Deliberate differences and one open item:** the workflow-run chat node is not implemented yet and
+is the next item; the reference's right Sidebar (document preview, review
 tabs) is replaced by the full-page details panel and the scheduled-tasks page; sessions are grouped
 by time rather than the animated workspace browser (workspace filtering and the navigation sheet
 remain); the developer-tools gate is a local **Show coding view** preference instead of the Host's
@@ -6301,7 +6303,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Right Sidebar: document preview and resource tabs | difference: full-page details panel, no PDF/Office renderers |
 | Workspace browser: grouped/animated rows, drag order, per-row menus | difference: workspace filter + navigation sheet |
 | Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory) |
-| Workflow-run surface | not mounted by the native client |
+| Workflow-run surface | **open** — the next item; events are read but no chat node is drawn |
 | Dockkit layout presets | difference: native fixed layout with its own preferences |
 | Locales (zh/en) | difference: English-only |
 
