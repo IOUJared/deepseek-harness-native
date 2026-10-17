@@ -5440,3 +5440,16 @@ A regression caught during this round: a broad rename of the transcript-search s
 content-search serial broke `SearchInput`/`SearchNext`/`SearchClose`; the full suites failed and the
 four transcript call sites were restored to `self.search_serial` before the green run. The captures
 were retaken from a rebuilt release binary after that fix.
+
+### Round 283 — the goal API (transport half)
+
+**The canonical `goals/*` methods are now typed Rust transport calls.** `GoalRef`, `GoalView`,
+`GoalPhase`, `GoalActivation`, `GoalBlockReason` and `EditGoalRequest` follow
+`packages/goal/goal/src/types.ts:18-107`; `goal_get`, `goal_edit`, `goal_pause`, `goal_resume` and
+`goal_clear` use the generated Remote argument names (`agentId`, `ref`, `request`) and the same BFF
+envelope as the session methods. A ref id is non-empty and ≤256 bytes with a positive revision; an
+objective is trimmed, non-empty and ≤4096 bytes. `goal_get` maps an absent value to `None`. Two
+tests cover ref validation and the view's wire shape; the transport gate is **44 + 17 + 82 + 7**.
+
+No GoalBar caller exists yet; the composer dock still has no goal strip. The app half is the next
+item.

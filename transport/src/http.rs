@@ -195,6 +195,11 @@ enum Endpoint {
     CommandsExecute,
     UpdateQueue,
     Search,
+    GoalGet,
+    GoalEdit,
+    GoalPause,
+    GoalResume,
+    GoalClear,
 }
 impl Endpoint {
     fn name(self) -> &'static str {
@@ -210,6 +215,11 @@ impl Endpoint {
             Self::Cancel => "session/cancel",
             Self::UpdateQueue => "session/updateQueue",
             Self::Search => "session/search",
+            Self::GoalGet => "goals/get",
+            Self::GoalEdit => "goals/edit",
+            Self::GoalPause => "goals/pause",
+            Self::GoalResume => "goals/resume",
+            Self::GoalClear => "goals/clear",
             Self::Page => "session/page",
             Self::AccountState => "account/getState",
             Self::WorkspaceCreate => "workspace/create",
@@ -696,6 +706,68 @@ impl NativeClient {
         }
         Ok(value)
     }
+    /// Read the Session's current goal view, or `None` when no goal is current.
+    pub async fn goal_get(&self, session_id: &SessionId) -> Result<Option<GoalView>> {
+        self.invoke(Endpoint::GoalGet, json!({"agentId": session_id.as_str()}))
+            .await
+    }
+    /// Replace a goal's objective under its exact revision.
+    pub async fn goal_edit(
+        &self,
+        session_id: &SessionId,
+        reference: &GoalRef,
+        objective: &str,
+    ) -> Result<GoalView> {
+        validate_goal_ref(reference)?;
+        let objective = objective.trim();
+        if objective.is_empty() || objective.len() > 4096 {
+            return Err(Error::InvalidDto);
+        }
+        self.invoke(
+            Endpoint::GoalEdit,
+            json!({
+                "agentId": session_id.as_str(),
+                "ref": reference,
+                "request": EditGoalRequest { objective: objective.to_owned() },
+            }),
+        )
+        .await
+    }
+    /// Pause an active goal and disarm continuation.
+    pub async fn goal_pause(
+        &self,
+        session_id: &SessionId,
+        reference: &GoalRef,
+    ) -> Result<GoalView> {
+        validate_goal_ref(reference)?;
+        self.invoke(
+            Endpoint::GoalPause,
+            json!({"agentId": session_id.as_str(), "ref": reference}),
+        )
+        .await
+    }
+    /// Resume a paused or blocked goal while its round budget allows.
+    pub async fn goal_resume(
+        &self,
+        session_id: &SessionId,
+        reference: &GoalRef,
+    ) -> Result<GoalView> {
+        validate_goal_ref(reference)?;
+        self.invoke(
+            Endpoint::GoalResume,
+            json!({"agentId": session_id.as_str(), "ref": reference}),
+        )
+        .await
+    }
+    /// Clear the current goal under its exact revision; the receipt is the cleared ref.
+    pub async fn goal_clear(&self, session_id: &SessionId, reference: &GoalRef) -> Result<GoalRef> {
+        validate_goal_ref(reference)?;
+        self.invoke(
+            Endpoint::GoalClear,
+            json!({"agentId": session_id.as_str(), "ref": reference}),
+        )
+        .await
+    }
     pub async fn session_cancel(&self, session_id: &SessionId) -> Result<Accepted> {
         accepted(
             self.invoke(
@@ -1155,6 +1227,12 @@ fn validate_update_queue(request: &SessionUpdateQueueRequest) -> Result<()> {
     }
     Ok(())
 }
+fn validate_goal_ref(reference: &GoalRef) -> Result<()> {
+    if reference.id.is_empty() || reference.id.len() > 256 || reference.revision == 0 {
+        return Err(Error::InvalidDto);
+    }
+    Ok(())
+}
 pub(crate) fn request_args(value: impl Serialize) -> Result<Value> {
     serde_json::to_value(value)
         .map(|request| json!({"request":request}))
@@ -1383,5 +1461,54 @@ mod update_queue_tests {
             request.item_id = bad.into();
             assert!(validate_update_queue(&request).is_err(), "{bad:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod goal_tests {
+    use super::validate_goal_ref;
+    use crate::dto::{GoalActivation, GoalPhase, GoalRef, GoalView};
+
+    #[test]
+    fn goal_refs_are_positive_and_bounded() {
+        for (id, revision, ok) in [
+            ("PUBLIC-goal", 1, true),
+            ("PUBLIC-goal", 0, false),
+            ("", 1, false),
+            (&"x".repeat(257), 1, false),
+        ] {
+            let reference = GoalRef {
+                id: id.into(),
+                revision,
+            };
+            assert_eq!(
+                validate_goal_ref(&reference).is_ok(),
+                ok,
+                "{id:?}/{revision}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_goal_view_round_trips_its_wire_shape() {
+        let view = GoalView {
+            id: "PUBLIC-goal".into(),
+            revision: 2,
+            objective: "PUBLIC objective".into(),
+            phase: GoalPhase::Paused,
+            blocked_reason: None,
+            max_goal_rounds: 64,
+            rounds_started: 3,
+            created_at: 1000,
+            updated_at: 2000,
+            activation: GoalActivation::Disarmed,
+        };
+        let value = serde_json::to_value(&view).unwrap();
+        assert_eq!(value["phase"], "paused");
+        assert_eq!(value["blockedReason"], serde_json::Value::Null);
+        assert_eq!(
+            serde_json::from_value::<GoalView>(value).unwrap().revision,
+            2
+        );
     }
 }

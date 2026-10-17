@@ -419,6 +419,57 @@ pub struct QueueTextBlock {
     pub block_type: String,
     pub text: String,
 }
+/// One goal revision identity (`packages/goal/goal/src/types.ts:18-26`).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GoalRef {
+    pub id: String,
+    pub revision: u64,
+}
+/// Durable continuation phase (`types.ts:39-44`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GoalPhase {
+    Active,
+    Paused,
+    Blocked,
+    Complete,
+}
+/// Process-local continuation eligibility (`types.ts:70-72`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GoalActivation {
+    Armed,
+    Disarmed,
+}
+/// A blocked goal's machine and human explanation.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GoalBlockReason {
+    pub code: String,
+    pub message: String,
+}
+/// The goal view every mutation returns (`types.ts:90-107`).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GoalView {
+    pub id: String,
+    pub revision: u64,
+    pub objective: String,
+    pub phase: GoalPhase,
+    pub blocked_reason: Option<GoalBlockReason>,
+    pub max_goal_rounds: u64,
+    pub rounds_started: u64,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub activation: GoalActivation,
+}
+/// Fields changed by one goal edit; a bounded objective only.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EditGoalRequest {
+    pub objective: String,
+}
 /// One full-text Session search request (`api/session-controller/src/types.ts:297-305`).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
