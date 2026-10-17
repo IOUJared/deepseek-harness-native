@@ -2898,3 +2898,19 @@ keep the upward behaviour they were captured with.
    Verified: fixture **1114** exit 0, default **1107** exit 0, format-debt 0. The fixture also
    keeps the floating-layer exemption, which is correct on its own terms, and opens the panel in
    its `--jobs` mode because a shut panel cannot be captured.
+
+   **The row dot's form, read: five states, and the running one is a spinner.** `StateDot` takes
+   `'done' | 'warning' | 'ongoing' | 'error' | 'idle'` (`ui-primitives/src/StateDot.tsx:9`) and
+   branches on it: **`ongoing` renders a 14px SVG spinner** — a track circle and an arc animated by
+   `css.spinnerMotion` (`:51-64`) — while every other state renders a **10px dot**
+   (`edge = size ?? (state === 'ongoing' ? 14 : 10)`, `:50`). So the row's marker is not one
+   glyph but two treatments plus five colours.
+   Two consequences for this app, stated before any code:
+   - a **14px animated spinner** is not something a static Iced fixture can capture honestly, so
+     the running state needs a documented **static stand-in** (a half-filled circle glyph, or the
+     status word the row already carries) rather than a fake animation;
+   - the marker's **colours** and the **status→state mapping** are still unread
+     (`StateDot.module.css` and `dotState(job.status)`'s body), and they are the last two reads
+     this row needs before it can be drawn faithfully.
+   That is the honest state of the one piece the panel still lacks, and it is two small reads away
+   rather than a design question.
