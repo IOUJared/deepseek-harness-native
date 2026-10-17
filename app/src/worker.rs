@@ -66,6 +66,11 @@ pub enum Command {
         session: dsh_native_transport::dto::SessionId,
         preset: String,
     },
+    /// Ask the Host to stop one background job.
+    JobKill {
+        session: dsh_native_transport::dto::SessionId,
+        job: String,
+    },
     /// Read the deployment's new-session permission default for the settings row.
     PermissionSettingsRead,
     /// Persist the new-session default preset at the descriptor's own revision.
@@ -149,6 +154,8 @@ pub enum Event {
     AgentPresets(Result<dsh_native_core::AgentPresetRoster, String>),
     /// The committed identity of an agent preset picked for a session that had not started.
     AgentPresetSelected(Result<String, String>),
+    /// The receipt of a job kill: `requested` or `already-finished`.
+    JobKilled(Result<dsh_native_transport::dto::JobKillOutcome, String>),
     /// The complete set of background jobs the session can see. Each list frame replaces
     /// the set wholesale (`api/job-controller/src/types.ts:19-27`).
     JobsRows(Vec<dsh_native_transport::dto::JobView>),
@@ -766,6 +773,7 @@ fn rejected(command: Command) -> Event {
         Command::PermissionSettingsRead => Event::PermissionSettings(Err(error)),
         Command::AgentPresetsRead => Event::AgentPresets(Err(error)),
         Command::AgentPresetSelect { .. } => Event::AgentPresetSelected(Err(error)),
+        Command::JobKill { .. } => Event::JobKilled(Err(error)),
         Command::PermissionDefaultSet { .. } => Event::PermissionDefaultSet(Err(error)),
         Command::Account(effect) => {
             let ticket = effect.ticket();
@@ -2260,6 +2268,7 @@ async fn run(
                     Command::PermissionDefaultSet{..}=>Event::Fault("Permission default bypassed priority dispatch".into()),
                     Command::Create{workspace,cwd}=>Event::Created(client.session_create(SessionCreateRequest{workspace_id:workspace,cwd,..Default::default()}).await.map_err(|e|format!("New session: {e}"))),
                     Command::AgentPresetSelect{session,preset}=>Event::AgentPresetSelected(client.agent_preset_select(&session,&preset).await.map_err(|error|format!("Agent preset: {error}"))),
+                    Command::JobKill{session,job}=>Event::JobKilled(client.job_kill(session.as_str(),&job).await.map_err(|error|format!("Job kill: {error}"))),
                     Command::OpenWorkspace(path)=>Event::WorkspaceOpened(client.workspace_create(path).await.map_err(|e|format!("Open workspace: {e}"))),
                     Command::Catalog(ticket)=>rejected(Command::Catalog(ticket)),
                     Command::Decision(_)=>Event::Fault("Decision bypassed worker admission".into()),

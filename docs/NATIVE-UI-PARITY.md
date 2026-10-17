@@ -3057,3 +3057,13 @@ vocabulary.**
    Verified: transport exit 0, fixture **1114** exit 0, default **1107** exit 0, format-debt 0.
    What the kill still needs is the worker arm and the two-click UI — the confirmation copy is
    already read ("Stop task {label}" / "Click again to confirm" / "Confirm stop" / "Stop failed").
+
+   **The kill's worker half landed, so only the two-click UI remains.** `Event::JobKilled(
+   Result<JobKillOutcome, String>)` and `Command::JobKill { session, job }` exist, and the late
+   dispatch arm calls `client.job_kill(session.as_str(), &job)` beside the select arm — the same
+   shape, the same spawn context and the same error formatting — with `rejected()` and the
+   fixture's classifier answering the new variant as they do for every other command.
+   Verified: fixture **1114** exit 0, default **1107** exit 0, format-debt 0.
+   What is left of the kill is the panel's two-click confirmation, whose four strings are already
+   read, and whose state is a single "armed row id" the panel can hold — the smallest remaining
+   piece of the jobs feature, and the last one before the output expansion.

@@ -687,6 +687,7 @@ impl Fixture {
                 worker::Command::PermissionCatalogRead => "PermissionCatalogRead",
                 worker::Command::AgentPresetsRead => "AgentPresetsRead",
                 worker::Command::AgentPresetSelect { .. } => "AgentPresetSelect",
+                worker::Command::JobKill { .. } => "JobKill",
                 worker::Command::PermissionSettingsRead => "PermissionSettingsRead",
                 worker::Command::PermissionDefaultSet { .. } => "PermissionDefaultSet",
                 worker::Command::PluginSave { .. } => "PluginSave",
