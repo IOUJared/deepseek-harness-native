@@ -6414,3 +6414,30 @@ success/cancel path remains unverified under a native composition.
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
 
+### Round 318 — the scroll fixture compiles again
+
+**The suite's `scroll_app_smoke` extra was red because its module list had drifted from the App.**
+The example includes `ui.rs` and `worker.rs` by path but was missing `crash_log`, `goal_ui`,
+`keybindings`, `queue_dock` and `queue_update`; `worker.rs`'s `crate::queue_update::Failure`
+reference alone accounted for the first errors, and the example reported 82. The five declarations
+now mirror `layout_smoke`'s shared set. `cargo test --locked --offline --features
+public-layout-fixture --example scroll_app_smoke` compiles and runs **1214 passed, 1 ignored**
+(the ignored one is the opt-in scroll qualification, not a skipped regression).
+
+**Remainder.** `wayland-drops` is still red because the offline cache lacks
+`as-raw-xcb-connection v1.0.1`; that is an environment fix, not a source defect. No UI or wire
+behavior changed in this round, so there is no new capture.
+
+**Battery (round 318).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1210 passed**, 1 ignored |
+| app, default | **0** | **1203 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 83 + 7 |
+| core (`--lib`) | **0** | **112 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| scroll example | **0** | **1214 passed**, 1 ignored |
+| tree | — | clean before the commit |
+

@@ -107,13 +107,13 @@ Measured with `python3 -B scripts/verify-native.py --suite test` and the format-
 | release `layout_smoke` build | warning-free |
 | DP-2 capture | `shots/145-live-wire-navigation.png`, `status: passed` |
 
-The same suite reports two **pre-existing, unrelated** failures: `wayland-drops` cannot fetch
-`as-raw-xcb-connection v1.0.1` in `--offline` mode, and the `scroll_app_smoke` example does not
-compile because it includes `app/src/worker.rs` without declaring `mod queue_update`. Neither is
-part of the six recorded gates, and neither touches this change. The release app **bin** reports 20
-dead-code warnings in app code that this transport change does not touch; the fixture example used
-for captures builds warning-free. `shots/145` is a paint check of the unchanged navigation sheet, not
-wire evidence — the wire is proven by the live Host and the fake-wire test.
+The suite's `scroll_app_smoke` extra was repaired after this pass: its module list had drifted from
+the App and did not compile; it now runs 1214 passed / 1 ignored. `wayland-drops` still cannot fetch
+`as-raw-xcb-connection v1.0.1` in `--offline` mode and remains an environment limit. Neither touches
+this change. The release app **bin** reports 20 dead-code warnings in app code that this transport
+change does not touch; the fixture example used for captures builds warning-free. `shots/145` is a
+paint check of the unchanged navigation sheet, not wire evidence — the wire is proven by the live
+Host and the fake-wire test.
 
 ## Reproduce
 

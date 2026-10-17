@@ -6,6 +6,8 @@
 mod codex;
 #[path = "../src/config.rs"]
 mod config;
+#[path = "../src/crash_log.rs"]
+mod crash_log;
 #[path = "../src/design.rs"]
 mod design;
 #[path = "../src/export_file.rs"]
@@ -14,8 +16,12 @@ mod export_file;
 mod exporter;
 #[path = "../src/fork.rs"]
 mod fork;
+#[path = "../src/goal_ui.rs"]
+mod goal_ui;
 #[path = "../src/interactions.rs"]
 mod interactions;
+#[path = "../src/keybindings.rs"]
+mod keybindings;
 #[path = "../src/known.rs"]
 mod known;
 #[path = "../src/management.rs"]
@@ -24,6 +30,10 @@ mod management;
 mod mcp;
 #[path = "../src/plugins.rs"]
 mod plugins;
+#[path = "../src/queue_dock.rs"]
+mod queue_dock;
+#[path = "../src/queue_update.rs"]
+mod queue_update;
 #[path = "../src/reducer.rs"]
 mod reducer;
 #[path = "../src/rename.rs"]
