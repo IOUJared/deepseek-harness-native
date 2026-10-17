@@ -836,17 +836,32 @@ pub fn build(
             ("PUBLIC-child-reviewer", "PUBLIC reviewer", true),
             ("PUBLIC-child-scout", "PUBLIC scout", false),
         ] {
+            let mut values = json!({"title": title});
+            if id == "PUBLIC-child-reviewer" {
+                values["subagentCatalog"] = json!([
+                    {"id":"PUBLIC-grandchild-helper","createdAt":1002,"mode":"one-shot","label":"PUBLIC helper"}
+                ]);
+            }
             let child: SessionSummary = serde_json::from_value(json!({
                 "agentAvailable":true, "sessionId":id, "updatedAt":960,
                 "running":running, "blank":false,
                 "parentSessionId":"PUBLIC-layout-parent", "origin":"subagent",
                 "cwd":"/PUBLIC-layout-fixture/workspace",
-                "projections":{"kind":"cached","asOfSeq":-1,
-                    "values":{"title":title}}
+                "projections":{"kind":"cached","asOfSeq":-1, "values":values}
             }))
             .expect("fixed PUBLIC child metadata");
             app.sessions.insert(child.session_id.clone(), child);
         }
+        let helper: SessionSummary = serde_json::from_value(json!({
+            "agentAvailable":true, "sessionId":"PUBLIC-grandchild-helper", "updatedAt":970,
+            "running":false, "blank":false,
+            "parentSessionId":"PUBLIC-child-reviewer", "origin":"subagent",
+            "cwd":"/PUBLIC-layout-fixture/workspace",
+            "projections":{"kind":"cached","asOfSeq":-1,
+                "values":{"title":"PUBLIC helper"}}
+        }))
+        .expect("fixed PUBLIC grandchild metadata");
+        app.sessions.insert(helper.session_id.clone(), helper);
         app.selected =
             Some(dsh_native_transport::dto::SessionId::new("PUBLIC-child-reviewer").unwrap());
     }

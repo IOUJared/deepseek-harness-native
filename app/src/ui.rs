@@ -226,6 +226,8 @@ pub enum Message {
     ToggleSubagentMenu(bool),
     /// Opens one child session from that catalog.
     SubagentOpen(String),
+    /// Expands or collapses one catalog row's own children.
+    ToggleSubagentBranch(String),
     /// A key press as **data** for the live chain, with the state at the moment it arrives: an
     /// armed capture consumes it, a focused field's links own it, or a stored binding invokes a
     /// command — so a rebound key replaces the hardcoded default instead of shadowing it.
@@ -727,6 +729,8 @@ pub struct App {
     editor_menu: bool,
     /// The header's subagent catalog dropdown is open.
     subagent_menu: bool,
+    /// Expanded catalog branches, by child session id; reset when the dropdown closes.
+    subagent_expanded: std::collections::BTreeSet<String>,
     /// The permission chip's menu, opened by its own press.
     permission_menu: bool,
     /// The preset awaiting the reference's risk confirmation, and whether its
@@ -979,6 +983,7 @@ impl App {
                 editor: text_editor::Content::new(),
                 editor_menu: false,
                 subagent_menu: false,
+                subagent_expanded: Default::default(),
                 permission_menu: false,
                 permission_confirm: None,
                 permission_acknowledged: false,
@@ -3041,6 +3046,14 @@ impl App {
             }
             Message::ToggleSubagentMenu(open) if self.layout_controls_enabled() => {
                 self.subagent_menu = open;
+                if !open {
+                    self.subagent_expanded.clear();
+                }
+            }
+            Message::ToggleSubagentBranch(id) if self.layout_controls_enabled() => {
+                if !self.subagent_expanded.remove(&id) {
+                    self.subagent_expanded.insert(id);
+                }
             }
             Message::SubagentOpen(id) if self.layout_controls_enabled() => {
                 self.subagent_menu = false;
@@ -5377,6 +5390,13 @@ impl App {
         self.subagent_menu = open;
     }
 
+    /// Fixture-only: pre-expand one catalog branch, which a real run opens by pressing its
+    /// chevron.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn expand_subagent_branch(&mut self, id: &str) {
+        self.subagent_expanded.insert(id.to_owned());
+    }
+
     /// Fixture-only: open the shortcuts disclosure, so its rows are capturable.
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn set_shortcuts_open(&mut self, open: bool) {
@@ -6456,6 +6476,20 @@ impl App {
     /// The parent's catalog when a child session is selected: the reference's sibling list
     /// (`SubagentHeaderLineage.tsx:767-800`). `None` on a root, or when the parent summary
     /// carries no catalog, so the header keeps a plain current crumb.
+    /// One session's own catalog, for a nested branch. Absent when the summary carries no
+    /// projection or no rows.
+    fn catalog_for(&self, id: &str) -> Vec<subagent_catalog::Entry> {
+        let Some(summary) = SessionId::new(id)
+            .ok()
+            .and_then(|id| self.sessions.get(&id))
+        else {
+            return Vec::new();
+        };
+        let Some(projections) = summary.projections.as_ref() else {
+            return Vec::new();
+        };
+        subagent_catalog::entries(&projections.values)
+    }
     fn parent_catalog(&self) -> Option<Vec<subagent_catalog::Entry>> {
         let selected = self.selected.as_ref()?;
         let summary = self.sessions.get(selected)?;
@@ -6487,41 +6521,56 @@ impl App {
             .into()
     }
     fn subagent_menu_view(&self, entries: &[subagent_catalog::Entry]) -> Element<'_, Message> {
+        let rows = subagent_catalog::tree_rows(entries, &self.subagent_expanded, |id| {
+            self.catalog_for(id)
+        });
         let mut list = column![label("Subagent sessions", MUTED).size(11)].spacing(4);
-        for entry in entries {
+        for row in rows {
+            let entry = &row.entry;
             let running = self.subagent_running(&entry.id);
-            list = list.push(
-                button(
-                    row![
-                        Self::subagent_dot(running),
-                        label(
-                            entry.label.clone(),
-                            if self
-                                .selected
-                                .as_ref()
-                                .is_some_and(|id| id.as_str() == entry.id)
-                            {
-                                TEXT
-                            } else {
-                                MUTED
-                            },
-                        )
+            // A branch toggle keeps its column even when absent, so sibling labels align.
+            let toggle: Element<'_, Message> = if row.has_children {
+                button(label(if row.expanded { "▾" } else { "▸" }, MUTED).size(11))
+                    .on_press(Message::ToggleSubagentBranch(entry.id.clone()))
+                    .style(design::ghost)
+                    .padding([0, 2])
+                    .into()
+            } else {
+                container(Space::new().width(15)).into()
+            };
+            let label_ink = if self
+                .selected
+                .as_ref()
+                .is_some_and(|id| id.as_str() == entry.id)
+            {
+                TEXT
+            } else {
+                MUTED
+            };
+            let body = button(
+                row![
+                    Self::subagent_dot(running),
+                    label(entry.label.clone(), label_ink)
                         .size(12)
                         .width(Length::Fill),
-                        label(subagent_catalog::mode_label(entry.mode), MUTED).size(11),
-                    ]
-                    .spacing(8)
+                    label(subagent_catalog::mode_label(entry.mode), MUTED).size(11),
+                ]
+                .spacing(8)
+                .align_y(iced::Alignment::Center),
+            )
+            .on_press(Message::SubagentOpen(entry.id.clone()))
+            .style(design::ghost)
+            .padding([5, 8])
+            .width(Length::Fill);
+            list = list.push(
+                row![Space::new().width(row.level as f32 * 12.0), toggle, body,]
+                    .spacing(4)
                     .align_y(iced::Alignment::Center),
-                )
-                .on_press(Message::SubagentOpen(entry.id.clone()))
-                .style(design::ghost)
-                .padding([5, 8])
-                .width(Length::Fill),
             );
         }
         container(list)
             .id("native-subagent-menu")
-            .width(240)
+            .width(260)
             .padding(8)
             .style(|_| design::card(SURFACE, 10.0))
             .into()
@@ -13220,6 +13269,67 @@ mod tests {
         );
         assert_eq!(app.running_subagent_count(&parent), 1);
         assert_eq!(subagent_catalog::count_label(1, 1), "1 subagent running");
+    }
+    #[test]
+    fn a_catalog_branch_toggles_and_reads_grandchildren() {
+        let (mut app, _receiver) = managed_app();
+        let reviewer = SessionId::new("public-child-reviewer").unwrap();
+        let helper = SessionId::new("public-grandchild-helper").unwrap();
+        app.sessions.insert(
+            reviewer.clone(),
+            SessionSummary {
+                agent_available: true,
+                session_id: reviewer.clone(),
+                updated_at: 0,
+                running: false,
+                blank: false,
+                parent_session_id: app.selected.clone(),
+                origin: Some(dsh_native_transport::dto::SubagentOrigin::Subagent),
+                cwd: None,
+                projections: Some(
+                    serde_json::from_value(serde_json::json!({
+                        "kind":"cached","asOfSeq":-1,
+                        "values":{"subagentCatalog":[
+                            {"id":"public-grandchild-helper","createdAt":1,"mode":"one-shot","label":"PUBLIC helper"}
+                        ]}
+                    }))
+                    .unwrap(),
+                ),
+            },
+        );
+        app.sessions.insert(
+            helper.clone(),
+            SessionSummary {
+                agent_available: true,
+                session_id: helper,
+                updated_at: 0,
+                running: false,
+                blank: false,
+                parent_session_id: Some(reviewer.clone()),
+                origin: Some(dsh_native_transport::dto::SubagentOrigin::Subagent),
+                cwd: None,
+                projections: None,
+            },
+        );
+        let grandchildren = app.catalog_for("public-child-reviewer");
+        assert_eq!(grandchildren.len(), 1);
+        assert_eq!(grandchildren[0].label, "PUBLIC helper");
+        assert!(app.catalog_for("public-grandchild-helper").is_empty());
+        let _ = app.update(Message::ToggleSubagentMenu(true));
+        let _ = app.update(Message::ToggleSubagentBranch(
+            "public-child-reviewer".into(),
+        ));
+        assert!(app.subagent_expanded.contains("public-child-reviewer"));
+        let _ = app.update(Message::ToggleSubagentBranch(
+            "public-child-reviewer".into(),
+        ));
+        assert!(app.subagent_expanded.is_empty());
+        // Closing the dropdown resets every expanded branch, as the reference does.
+        let _ = app.update(Message::ToggleSubagentBranch(
+            "public-child-reviewer".into(),
+        ));
+        let _ = app.update(Message::ToggleSubagentMenu(false));
+        assert!(app.subagent_expanded.is_empty());
     }
     #[test]
     fn a_child_header_reads_the_parents_sibling_catalog() {

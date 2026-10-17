@@ -13,8 +13,9 @@ searchable list and its refused-capture states (`shots/87-…` through `102-…`
 `103-…`); the running turn's **two-press Escape stop**; the header's **subagent catalog count and
 dropdown** (`shots/104-…`, `105-…`); the **one-shot child's read-only composer** (`shots/106-…`);
 the sidebar's **subagent rows and running-child count** (`shots/107-…`); the child header's
-**sibling switcher** (`shots/108-…`, `109-…`); and **keys as data**, so the store's five commands
-drive the live chain instead of a hardcoded map.
+**sibling switcher** (`shots/108-…`, `109-…`) with **nested catalog branches**
+(`shots/110-…`, `111-…`); and **keys as data**, so the store's five commands drive the live chain
+instead of a hardcoded map.
 
 **Read this before trusting the list above.** Round 257 found that the editor's per-row actions,
 the permission default row and eight Host-event handlers were **unreachable behind two catch-all
@@ -27,12 +28,12 @@ same shape in the `Ctrl+/` trigger: it opened the account page and the open path
 disclosure, so the editor was never shown; the trigger's "captured" evidence had gone through the
 fixture's direct `set_settings_open`, not the press.
 
-**Next, in one step:** expand a catalog row to its **grandchildren**. Each child's
-`SessionSummary.projections` can carry its own `subagentCatalog`, the way the parent's does, so a
-nested branch is a view/model slice over summaries already listed — the same source as the parent's
-count. Per-child token totals and active durations still need the reference's `subagentTiming` and
-`tokenUsage` projections, which native does not carry; keep those separate. The settings/rename
-editable menu is **toolkit-blocked**, recorded below, not a candidate.
+**Next, in one step:** the catalog's last metrics — per-child token totals and active durations.
+The reference sums `tokenUsage` and `subagentTiming` from each session's projections
+(`SubagentHeaderLineage.tsx:60-100`); native's summaries do not carry those keys yet, so the first
+step is to confirm they arrive in the session list's `projections.values` (the same place
+`subagentCatalog` does) before any row renders them. The settings/rename editable menu is
+**toolkit-blocked**, recorded below, not a candidate.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -4869,3 +4870,41 @@ One test was added: `a_child_header_reads_the_parents_sibling_catalog` (two sibl
 parent summary, the current child, and `None` on the parent). The new `subagent-sibling` preset
 selects the reviewer child and seeds the parent catalog; `--subagent-menu` opens the switcher for
 capture.
+
+### Round 267 — nested catalog branches
+
+**A catalog row with its own children now carries a branch chevron.** The menu is built by
+`subagent_catalog::tree_rows` from the root catalog plus each entry's own catalog, read from that
+child's `SessionSummary.projections.values.subagentCatalog` — the same summary data the parent's
+count uses, so no new read. A branch shows `▸` closed and `▾` open; its children render 12px further
+in per level, directly after the branch, and the chevron toggles through
+`Message::ToggleSubagentBranch`. Closing the dropdown clears every expansion, as the reference's
+`setExpanded(new Set())` does. The walk is bounded to three nested levels and 64 rows total, and a
+repeated id never expands again, so a malformed or cyclic catalog cannot loop.
+
+`shots/110-subagent-nested-collapsed.png` shows `PUBLIC reviewer` with `▸` and no grandchild;
+`shots/111-subagent-nested-expanded.png` shows `▾` with the indented `PUBLIC helper` between the
+reviewer and its sibling. Both reports are `status: passed`. The `subagent-sibling` preset now seeds
+the reviewer's own catalog and the helper child; `--subagent-expanded` pre-opens that branch through
+the production toggle state.
+
+**Deliberate differences.** The rows still carry no token totals, active durations or "open in
+sidebar" action; the menu keeps its visible heading; the tree is capped at three nested levels,
+where the reference's recursion has no explicit level cap (its catalog is Host-owned and finite).
+`shots/109` predates the chevron and remains as the pre-nesting switcher frame.
+
+**Battery (round 267).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1164 passed**, 1 ignored |
+| app, default | **0** | **1157 passed**, 1 ignored |
+| transport | **0** | 38 + 17 + 82 + 7 (unchanged, no transport edit) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+Two tests were added: `the_tree_expands_branches_indents_them_and_survives_a_cycle` (order, indent,
+expansion and a two-node cycle) and `a_catalog_branch_toggles_and_reads_grandchildren` (the
+grandchild catalog, the toggle, and the close-resets-expansion rule).

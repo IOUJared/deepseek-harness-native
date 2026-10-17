@@ -14,6 +14,8 @@ use serde_json::Value;
 pub const KEY: &str = "subagentCatalog";
 /// Bound the list like every other native surface; the Host owns the order.
 pub const MAX_ENTRIES: usize = 64;
+/// The menu tree's total rows, across every expanded branch.
+pub const MAX_ROWS: usize = 64;
 const MAX_ID: usize = 128;
 const MAX_LABEL: usize = 256;
 
@@ -90,6 +92,68 @@ pub fn descriptor_mode<'a>(events: impl Iterator<Item = (&'a str, &'a Value)>) -
             }
         })
         .last()
+}
+
+/// One row of the catalog menu's tree: the entry, its indent level, whether it has children,
+/// and whether those children are showing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TreeRow {
+    pub entry: Entry,
+    pub level: usize,
+    pub has_children: bool,
+    pub expanded: bool,
+}
+
+/// The menu rows in display order, with each expanded branch's children directly after it.
+/// `catalog_for` returns one session's own catalog; a missing one is an empty list. The walk is
+/// bounded by [`MAX_ROWS`] and three nested levels, and a repeated id never expands again, so a
+/// malformed catalog cannot cycle or blow the menu up.
+pub fn tree_rows(
+    roots: &[Entry],
+    expanded: &std::collections::BTreeSet<String>,
+    mut catalog_for: impl FnMut(&str) -> Vec<Entry>,
+) -> Vec<TreeRow> {
+    fn walk(
+        entries: &[Entry],
+        level: usize,
+        expanded: &std::collections::BTreeSet<String>,
+        catalog_for: &mut impl FnMut(&str) -> Vec<Entry>,
+        visited: &mut std::collections::BTreeSet<String>,
+        out: &mut Vec<TreeRow>,
+    ) {
+        const MAX_DEPTH: usize = 4;
+        for entry in entries {
+            if out.len() >= MAX_ROWS {
+                return;
+            }
+            if !visited.insert(entry.id.clone()) {
+                continue;
+            }
+            let children: Vec<_> = if level + 1 < MAX_DEPTH {
+                catalog_for(&entry.id)
+                    .into_iter()
+                    .filter(|child| !visited.contains(&child.id))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            let has_children = !children.is_empty();
+            let open = has_children && expanded.contains(&entry.id);
+            out.push(TreeRow {
+                entry: entry.clone(),
+                level,
+                has_children,
+                expanded: open,
+            });
+            if open {
+                walk(&children, level + 1, expanded, catalog_for, visited, out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    let mut visited = std::collections::BTreeSet::new();
+    walk(roots, 0, expanded, &mut catalog_for, &mut visited, &mut out);
+    out
 }
 
 /// The header action's copy, from the reference's `count.total.*`/`count.running.*` strings:
@@ -177,6 +241,76 @@ mod tests {
         ];
         assert_eq!(descriptor_mode(events.into_iter()), Some(Mode::Continuable));
         assert_eq!(descriptor_mode(std::iter::empty()), None);
+    }
+
+    #[test]
+    fn the_tree_expands_branches_indents_them_and_survives_a_cycle() {
+        use std::collections::BTreeSet;
+        let entry = |id: &str| Entry {
+            id: id.to_owned(),
+            label: id.to_owned(),
+            mode: Mode::Continuable,
+            created_at: 1,
+        };
+        let catalogs = |children: &[&'static str]| children.iter().map(|id| entry(id)).collect();
+        let roots = vec![entry("PUBLIC-a")];
+        let mut expanded = BTreeSet::new();
+        expanded.insert("PUBLIC-a".to_owned());
+        let rows = tree_rows(&roots, &expanded, |id| match id {
+            "PUBLIC-a" => catalogs(&["PUBLIC-b", "PUBLIC-c"]),
+            "PUBLIC-b" => catalogs(&["PUBLIC-d"]),
+            _ => Vec::new(),
+        });
+        let seen: Vec<_> = rows
+            .iter()
+            .map(|row| {
+                (
+                    row.entry.id.as_str(),
+                    row.level,
+                    row.has_children,
+                    row.expanded,
+                )
+            })
+            .collect();
+        assert_eq!(
+            seen,
+            [
+                ("PUBLIC-a", 0, true, true),
+                ("PUBLIC-b", 1, true, false),
+                ("PUBLIC-c", 1, false, false),
+            ]
+        );
+        expanded.insert("PUBLIC-b".to_owned());
+        let rows = tree_rows(&roots, &expanded, |id| match id {
+            "PUBLIC-a" => catalogs(&["PUBLIC-b", "PUBLIC-c"]),
+            "PUBLIC-b" => catalogs(&["PUBLIC-d"]),
+            _ => Vec::new(),
+        });
+        let seen: Vec<_> = rows
+            .iter()
+            .map(|row| (row.entry.id.as_str(), row.level))
+            .collect();
+        assert_eq!(
+            seen,
+            [
+                ("PUBLIC-a", 0),
+                ("PUBLIC-b", 1),
+                ("PUBLIC-d", 2),
+                ("PUBLIC-c", 1),
+            ]
+        );
+        // A cycle stops at the repeated id instead of recursing forever.
+        let cycle = tree_rows(
+            &roots,
+            &BTreeSet::from(["PUBLIC-a".to_owned()]),
+            |id| match id {
+                "PUBLIC-a" => catalogs(&["PUBLIC-b"]),
+                "PUBLIC-b" => catalogs(&["PUBLIC-a"]),
+                _ => Vec::new(),
+            },
+        );
+        assert_eq!(cycle.len(), 2);
+        assert!(!cycle[1].has_children);
     }
 
     #[test]

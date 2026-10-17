@@ -164,6 +164,8 @@ struct Options {
     session_log_saved: bool,
     /// Open the header's subagent catalog dropdown, so its rows are captured.
     subagent_menu: bool,
+    /// Pre-expand the catalog's first branch, so a grandchild row is captured.
+    subagent_expanded: bool,
     /// Open the shortcuts disclosure, so its rows are captured.
     shortcuts: bool,
 }
@@ -263,6 +265,7 @@ fn options() -> Result<Options, &'static str> {
             "--session-log",
             "--session-log-saved",
             "--subagent-menu",
+            "--subagent-expanded",
             "--agent-seat-error",
             "--settings",
             "--scrolled-away",
@@ -369,6 +372,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         subagent_menu: match values.remove("--subagent-menu") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        subagent_expanded: match values.remove("--subagent-expanded") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -725,6 +732,9 @@ impl Fixture {
         }
         if options.subagent_menu {
             app.set_subagent_menu(true);
+        }
+        if options.subagent_expanded {
+            app.expand_subagent_branch("PUBLIC-child-reviewer");
         }
         if options.scrolled_away {
             app.set_scrolled_away(true);
