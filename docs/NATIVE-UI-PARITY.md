@@ -3424,3 +3424,17 @@ the five above rather than missing work.
    What the editor still needs is the *interaction*: routing a press into capture while the editor
    is open, the per-row actions calling `Store::apply`, the confirmation, the overlay and the
    `primary + /` trigger — each now with its data, copy and mapping already in tested code.
+
+   **The store is missing `reset_all`, and my attempt to add it was reverted for guessing the
+   enum's text.** The surface's copy already carries the action — "Restore all defaults", its
+   confirmation title and description, and the promise that "all modified or removed shortcuts
+   will be restored" (`locales.ts:48-50`) — but `Store` has no operation behind them, so the store
+   is genuinely incomplete rather than merely unwired.
+   I tried to add `Edit::ResetAll` by replacing the variant list from memory, and the replacement
+   did nothing: formatting had changed that text, so the anchor silently missed and the compiler
+   then reported a variant that did not exist. **Second time this round-shape has failed** (the
+   round-192 rejoin anchor, the round-201 mode guess): writing a multi-line anchor from memory
+   rather than reading the current text.
+   `git checkout` restored the module — eleven tests still pass — and the next attempt should
+   **read the `Edit` enum's exact lines first**, then add the variant and the operation in one
+   pass. That is one grep, and it is the only thing standing between the store and completeness.
