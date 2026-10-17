@@ -2501,3 +2501,19 @@ state, which needs a Host that advertises that namespace.
    and the `lossy` flag is carried so an evicted range can be shown as a gap when it is.
    Transport suite **17 + 82 + 7 doctests**, exit 0; format-debt 0. Next: the two `Kind` variants
    and their methods in `mux.rs`, then the worker loop, then the panel.
+
+   **The mux half landed, and the compiler found a correctness property the design had missed.**
+   `Kind::JobList` and `Kind::JobFollow` now exist with their `jobs/list` and `jobs/follow`
+   endpoint names, and `jobs_list(session_id)` / `jobs_follow(request)` are shaped exactly like
+   `session_follow`, taking the typed requests added last round.
+   The non-exhaustive match the compiler reported was not busywork: `Kind::check` enforces a
+   **sequence discipline** — every kind declares the tag its *first* frame must carry
+   (`Workspace | Control => "baseline"`, `Session | Terminal => "snapshot"`, `Events => "ready"`,
+   `Question => none`, `mux.rs:492-501`) and the stream is refused with `Error::Sequence` if the
+   first frame disagrees or the tag reappears later. So a jobs stream has to declare its opening
+   tags too, and both come from the vocabulary already read rather than from a guess: a list
+   frame's own `type` is **`rows`** (`types.ts:24-27`) and a follow stream opens with **`opened`**
+   (`:72-80`). Both are now declared, so jobs inherits the same first-frame guarantee every other
+   stream has.
+   Transport suite **17 + 82 + 7 doctests**, exit 0; format-debt 0. Next: the worker loop that
+   consumes the two streams, then the panel.

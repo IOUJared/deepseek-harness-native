@@ -31,6 +31,8 @@ enum Kind {
     Control,
     Question,
     Terminal,
+    JobList,
+    JobFollow,
 }
 impl Kind {
     fn endpoint(self) -> &'static str {
@@ -41,6 +43,8 @@ impl Kind {
             Self::Control => "session/control",
             Self::Question => "userQuestions/attachWait",
             Self::Terminal => "terminal/follow",
+            Self::JobList => "jobs/list",
+            Self::JobFollow => "jobs/follow",
         }
     }
 }
@@ -305,6 +309,29 @@ impl Mux {
     pub async fn workspace_follow(&self) -> Result<NativeStream<WorkspaceFollowFrame>> {
         self.open(Kind::Workspace, json!({})).await
     }
+    /// The complete set of background jobs one session can see. Each frame replaces the set
+    /// wholesale (`api/job-controller/src/types.ts:19-27`).
+    pub async fn jobs_list(
+        &self,
+        session_id: &str,
+    ) -> Result<NativeStream<crate::dto::JobListFrame>> {
+        self.open(
+            Kind::JobList,
+            request_args(crate::dto::JobListRequest {
+                session_id: session_id.to_owned(),
+            })?,
+        )
+        .await
+    }
+    /// One job's opening, output and status as they change
+    /// (`api/job-controller/src/types.ts:72-89`).
+    pub async fn jobs_follow(
+        &self,
+        request: crate::dto::JobFollowRequest,
+    ) -> Result<NativeStream<crate::dto::JobFollowFrame>> {
+        self.open(Kind::JobFollow, request_args(request)?).await
+    }
+
     pub async fn session_follow(
         &self,
         request: SessionFollowRequest,
@@ -468,6 +495,11 @@ impl<T: DeserializeOwned> NativeStream<T> {
             Kind::Workspace | Kind::Control => Some("baseline"),
             Kind::Session | Kind::Terminal => Some("snapshot"),
             Kind::Events => Some("ready"),
+            // The vocabulary's own tags: a list frame is `rows`
+            // (`api/job-controller/src/types.ts:24-27`) and a follow stream opens
+            // (`:72-80`), so the sequence check enforces that on jobs as it does elsewhere.
+            Kind::JobList => Some("rows"),
+            Kind::JobFollow => Some("opened"),
             Kind::Question => None,
         };
         if let Some(opening) = opening
