@@ -32,14 +32,15 @@ same shape in the `Ctrl+/` trigger: it opened the account page and the open path
 disclosure, so the editor was never shown; the trigger's "captured" evidence had gone through the
 fixture's direct `set_settings_open`, not the press.
 
-**Next, in one step:** the **blocked/open inventory**, because the unblocked conversation surface is
-now thin. The composer stats are in compact form only; the reference's detailed dialog (turns,
-steps, LLM/tool wall time, exact token buckets) is derivable from retained events but is a larger
-view, and its speed/turn data is only as good as recorded step times. The transport-blocked items
-(queue edit/remove/steer, goal mutations, schedules, the deliverables diff, cross-session pending
-status) all need Host Remote channels native does not carry; the Iced-blocked items (`@` reference
-chips, inline-code chips, the settings/rename editable menu, drawn icons) all need editor
-decorations or a drawing layer. The four user-only items are unchanged. Do not half-build any of
+**Next, one step that needs a decision, not more code:** the remaining reference mutations and
+feeds all live on the Host's **Remote RPC channel** (`session/updateQueue`, `session/search`,
+`openWorkspacePath`, goal mutations, schedule CRUD, the deliverables diff, cross-session pending
+status). Native's transport is the BFF HTTP/control protocol and does not speak that channel;
+adding it would be a second wire path, which the standing constraint forbids. Either that channel
+is authorized (canonical methods only, no parallel commands) or those capabilities stay explicitly
+blocked. The only unblocked local item left is the **detailed performance dialog** (turns, steps,
+LLM/tool wall time, exact buckets) whose inputs are already retained; it is a view, not a wire
+change. The Iced-blocked list and the four user-only items are unchanged. Do not half-build any of
 them.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
@@ -5248,3 +5249,66 @@ a live Host list is not observed, the same caveat as the catalog metrics.
 Two tests were added: `the_token_reading_sums_the_buckets_and_never_rounds_a_near_full_cache_to_100`
 and `decode_speed_sums_durable_steps_and_skips_records_without_both_readings`. The `token-usage`
 preset seeds the projection and one timed assistant step for the capture.
+
+### Round 276 — open and blocked inventory
+
+The unblocked conversation surface is now thin enough that the remaining gaps should be named as a
+list rather than discovered one at a time. Each entry below was re-read in the reference tree this
+round; none is a guess.
+
+**Blocked on the Host Remote channel.** Native's transport speaks the BFF control protocol. These
+reference capabilities are `@Remote` methods or client feeds on the RPC channel; reusing them would
+mean adding that second channel, which the standing constraint forbids unless authorized.
+
+- **Queue item edit / remove / steer.** `api/session-controller/src/index.ts:468`
+  (`@Remote('updateQueue')`), consumed at `ui-conversation/src/client/queue/QueueDock.tsx:150-160`.
+  Native's dock is read-only and stays so.
+- **Full-text session search.** `api/session-controller/src/index.ts:273` (`@Remote('search')`),
+  consumed at `ui-workspace/src/client/rows/WorkspaceBrowser.tsx:1106`. Native's sidebar search
+  filters the loaded titles only; it does not call a backend search.
+- **Workspace path open/import.** `api/session-controller/src/index.ts:350,380`
+  (`openWorkspacePath`, `workspacePathApplications`); the native workspace chip lists known
+  workspaces but does not open an arbitrary path.
+- **Goal mutations.** `packages/client/ui-goal/src/client/GoalBar.tsx` and its slots carry
+  pause/resume/clear verbs through the generated Goal Remote API. Native has no goal bar.
+- **Schedule CRUD and delivery history.** `packages/client/ui-schedule/src/client/TaskManagerPage.tsx`
+  (and `TaskDetail`, `ClockPicker`, `DeliveryHistory`). Native lists schedule records read-only in
+  the work panel.
+- **Deliverables turn-tail diff/summary/opener.** `ui-deliverables/src/client/index.ts:60-74`
+  (`loadChangesDiff`, `loadChangesSummary`, `openPresented`). Native has per-tool diff counts, not
+  the changed-files view.
+- **Cross-session pending-interaction status.** `ui-session/src/client/index.ts:63,292,487` — the
+  snapshot is populated by client domains; native follows only the selected session's decisions.
+  (`completionUnread` is implemented already because it derives from the status event.)
+
+**Blocked on Iced.** No new toolkit capability was added, so these stay recorded rather than
+approximated:
+
+- **`@` reference chips** (`ui-conversation/src/client/input/facade.ts:173-176`) and **inline-code
+  chips** — both need atomic decorations inside `text_editor`, which Iced does not expose.
+- **Settings shortcut/rename editable menu** — needs selection/edit flags and mutation, not present
+  in the 0.14 editor.
+- **Drawn action/tool icons** — no `canvas`/lyon dependency (no new dependencies).
+
+**Blocked on the user or hardware.**
+
+- `reference.png` is still absent; first-line offsets, bubble-side gaps and tool-row rhythm stay
+  inferred from CSS rather than the supplied screenshot.
+- A real window-edge drag against the 520×600 floor needs the user's pointer/hardware.
+- The live close-timing run and the remote-image fetch policy need the user's decision/run.
+
+**Local, not blocked, still open.**
+
+- **Detailed performance dialog** — the reference's detailed mode
+  (`ui-chat/src/client/settings/PerformanceUsageRow.tsx`) opens dialogs with turns, steps, LLM/tool
+  wall times, TTFT and exact token buckets. Native's compact line is landed; the detailed view is
+  derivable from retained events and is the next local candidate.
+- **Transcript view modes** (`ui-chat/src/client/transcript-view.ts`, four modes with turn folding
+  and grouping) — native has one fixed presentation. Adding modes means adding the turn-grouping
+  model and, in the reference, a Host-backed settings field; this is a large view change, not a
+  switch.
+- **Per-turn usage pill** (`TurnUsagePanel.tsx`) — turn tokens/cache with a click-open dialog;
+  native's whole-log line is not the per-turn reading.
+
+**Not claimed:** live Host arrival of the `tokenUsage`/`inbox` projections used by the recent
+rounds; they are seeded in the fixtures. This is recorded with each item, not promoted to parity.
