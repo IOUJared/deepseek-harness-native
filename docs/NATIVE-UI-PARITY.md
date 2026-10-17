@@ -3641,3 +3641,24 @@ everything *around* it.
 **Stated plainly for the next session:** building the capture UI first would produce a screen that
 records bindings nothing reads — the same shape as the panel that was drawn before its stream, and
 the same mistake in reverse. The order is: honour catalog commands, then capture bindings for them.
+
+### Full verification battery (round 219)
+
+Every gate the repository has, run whole for the first time since round 150:
+
+| suite | result |
+|---|---|
+| app, fixture feature | **1131 passed**, 0 failed, 1 ignored |
+| app, default | **1124 passed**, 0 failed, 1 ignored |
+| transport | **17 + 82 + 7** passed |
+| core (`--lib`) | **112 passed** |
+| JS runtime (`core/runtime/*.test.mjs`) | **419 pass, 0 fail**, exit 0 |
+| format debt | **0 files, 0 hunks** |
+| tree | clean |
+
+A process note worth keeping, because it repeated the session's oldest rule: the first battery pass
+grepped `node --test`'s summary and printed **nothing**, so the JS suite's status was *unknown*
+while the rest of the run looked complete. It only looked complete because I had printed text
+instead of capturing the exit status. Re-run with `$?` captured it reports `exit=0`, `pass 419`,
+`fail 0`. **A gate whose status is read from its output text is not a gate** — the rule from
+round 115, still earning its keep two hundred rounds later.
