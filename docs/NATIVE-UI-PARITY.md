@@ -3586,3 +3586,18 @@ the five above rather than missing work.
    (`ui.rs:1129-1146`, a chain whose comment already says handlers must "hold live state and
    decide") and the message it produces — three lines, and the last thing between this feature and
    a working `Ctrl+/`.
+
+   **The trigger's route was written, built under the fixture feature, and reverted: it fails the
+   default build.** The fixture suite passed (**1131**), the fixture-mode build passed, and the
+   *default* suite returned 101 — which is the same signal the round-171 fixture exemption gave in
+   reverse: a change that only one feature configuration accepts is not a change, it is a
+   configuration. The likely cause is `set_settings_open`, which I selected without reading its
+   attributes; if it carries `#[cfg(feature = "public-layout-fixture")]` — as several of its
+   neighbours do — then the handler cannot compile in the default build, and the format gate's
+   failure on the same run is the ordinary consequence of an unformatted, untested edit.
+   `git checkout` restored `ui.rs`; the tree is clean, the format gate is 0, and seventeen
+   keybinding tests still pass. **The fix for the next attempt is one read** — the attributes on
+   `set_settings_open` (`ui.rs:5097`) and, if it is fixture-only, the production path that opens
+   Settings (a `Message` the settings entry raises) — and only then the same three-line route.
+   That is the sixth structural edit this session to be reverted rather than committed, and the
+   sixth to leave behind a one-line question instead of a defect.
