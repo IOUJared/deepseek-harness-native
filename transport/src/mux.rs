@@ -43,8 +43,13 @@ impl Kind {
             Self::Control => "session/control",
             Self::Question => "userQuestions/attachWait",
             Self::Terminal => "terminal/follow",
-            Self::JobList => "jobs/list",
-            Self::JobFollow => "jobs/follow",
+            // The generated host descriptor names these `job/list` and `job/follow`
+            // (`packages/api/job-controller/lib/typert.host.js:103-155`: `job/follow`,
+            // `job/kill`, `job/list`). An earlier revision of these arms wrote `jobs/…`, which
+            // would have posted to endpoints that do not exist and failed silently — the same
+            // class as the invented composer line, caught by reading the descriptor.
+            Self::JobList => "job/list",
+            Self::JobFollow => "job/follow",
         }
     }
 }

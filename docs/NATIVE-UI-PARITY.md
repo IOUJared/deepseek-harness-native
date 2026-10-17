@@ -2944,3 +2944,18 @@ keep the upward behaviour they were captured with.
    **unwired**: the `@Remote('kill')` two-click confirmation, and the follow stream the output
    expansion needs — both of which need transport work whose shapes I have not read, and neither
    of which I will invent to make the panel look finished.
+
+   **A shipped invention caught by reading the descriptor: the endpoints are `job/…`, not
+   `jobs/…`.** The mux kinds I added three rounds ago named their endpoints `jobs/list` and
+   `jobs/follow`, taken from the *method* names on the controller service. The generated host
+   descriptor says otherwise — `job/follow`, `job/kill`, `job/list`
+   (`packages/api/job-controller/lib/typert.host.js:103-155`) — so both arms would have posted to
+   endpoints that do not exist, and a stream that never opens is a silent failure of exactly the
+   kind this document keeps recording. Both names are corrected, with the descriptor cited in the
+   code, and `job/kill` is now known for the kill work still to come.
+   This is the **fourth** invented-string error of the session (the `/agent` composer line, the
+   English copy rendered from the Chinese dictionary, and now two endpoint names), and like the
+   others it was caught by reading the artifact that defines the fact rather than by inferring it
+   from a neighbouring name. Two observations worth keeping: the invention survived the compiler,
+   the transport suite and two captures — only a *name-level* check could catch it; and the fix
+   is one line, which is what makes checking cheap and inferring expensive.
