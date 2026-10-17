@@ -207,6 +207,9 @@ enum Endpoint {
     FileReferences,
     SessionReferences,
     OpenWorkspacePath,
+    FeedbackList,
+    FeedbackPut,
+    FeedbackDelete,
 }
 impl Endpoint {
     fn name(self) -> &'static str {
@@ -234,6 +237,9 @@ impl Endpoint {
             Self::FileReferences => "fileReferences/list",
             Self::SessionReferences => "sessionReferenceResolver/candidates",
             Self::OpenWorkspacePath => "session/openWorkspacePath",
+            Self::FeedbackList => "messageFeedback/list",
+            Self::FeedbackPut => "messageFeedback/put",
+            Self::FeedbackDelete => "messageFeedback/delete",
             Self::Page => "session/page",
             Self::AccountState => "account/getState",
             Self::WorkspaceCreate => "workspace/create",
@@ -842,6 +848,71 @@ impl NativeClient {
             )
             .await?;
         bounded_session_references(items).ok_or(Error::InvalidDto)
+    }
+    /// Read the current per-message feedback for one session.
+    pub async fn message_feedback_list(
+        &self,
+        session_id: &SessionId,
+    ) -> Result<Vec<MessageFeedbackItem>> {
+        let value: Value = self
+            .invoke(
+                Endpoint::FeedbackList,
+                json!({"request": {"sessionId": session_id.as_str()}}),
+            )
+            .await?;
+        feedback_items(&value).ok_or(Error::InvalidDto)
+    }
+    /// Create or replace feedback for one assistant message after a version check.
+    pub async fn message_feedback_put(
+        &self,
+        session_id: &SessionId,
+        message_id: &str,
+        rating: &str,
+        if_version: Option<&str>,
+    ) -> Result<MessageFeedbackPutOutcome> {
+        if !valid_feedback_target(message_id, if_version)
+            || !matches!(rating, "positive" | "negative")
+        {
+            return Err(Error::InvalidDto);
+        }
+        let value: Value = self
+            .invoke(
+                Endpoint::FeedbackPut,
+                json!({"request": {
+                    "sessionId": session_id.as_str(),
+                    "messageId": message_id,
+                    "rating": rating,
+                    "ifVersion": if_version,
+                }}),
+            )
+            .await?;
+        Ok(feedback_put_outcome(&value))
+    }
+    /// Delete feedback for one message after a version check.
+    pub async fn message_feedback_delete(
+        &self,
+        session_id: &SessionId,
+        message_id: &str,
+        if_version: &str,
+    ) -> Result<bool> {
+        if !valid_feedback_target(message_id, Some(if_version)) {
+            return Err(Error::InvalidDto);
+        }
+        let value: Value = self
+            .invoke(
+                Endpoint::FeedbackDelete,
+                json!({"request": {
+                    "sessionId": session_id.as_str(),
+                    "messageId": message_id,
+                    "ifVersion": if_version,
+                }}),
+            )
+            .await?;
+        match value.get("ok").and_then(Value::as_bool) {
+            Some(true) => Ok(true),
+            Some(false) => Ok(false),
+            None => Err(Error::InvalidDto),
+        }
     }
     /// One turn's changed-file summary from the authenticated GET route the deliverables card
     /// reads (`/api/changes.summary?sessionId&seq`). A 404 is an absent summary, not a transport
@@ -2335,5 +2406,119 @@ mod open_path_tests {
         assert!(!valid_open_path(""));
         assert!(!valid_open_path("src/\u{0007}.rs"));
         assert!(!valid_open_path(&"a".repeat(4097)));
+    }
+}
+
+fn valid_feedback_target(message_id: &str, if_version: Option<&str>) -> bool {
+    !message_id.is_empty()
+        && message_id.len() <= 256
+        && if_version.is_none_or(|version| !version.is_empty() && version.len() <= 256)
+}
+fn feedback_item(value: &Value) -> Option<MessageFeedbackItem> {
+    let item: MessageFeedbackItem = serde_json::from_value(value.clone()).ok()?;
+    if item.message_id.is_empty()
+        || item.message_id.len() > 256
+        || !matches!(item.rating.as_str(), "positive" | "negative")
+        || item.version.is_empty()
+        || item.version.len() > 256
+    {
+        return None;
+    }
+    Some(item)
+}
+fn feedback_items(value: &Value) -> Option<Vec<MessageFeedbackItem>> {
+    if value.get("ok").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    let items = value
+        .get("value")?
+        .get("items")?
+        .as_array()?
+        .iter()
+        .map(feedback_item)
+        .collect::<Option<Vec<_>>>()?;
+    if items.len() > 4096 {
+        return None;
+    }
+    Some(items)
+}
+fn feedback_put_outcome(value: &Value) -> MessageFeedbackPutOutcome {
+    match value.get("ok").and_then(Value::as_bool) {
+        Some(true) => match value.get("value").and_then(feedback_item) {
+            Some(item) => MessageFeedbackPutOutcome::Saved(item),
+            None => MessageFeedbackPutOutcome::Refused("invalid-reply".into()),
+        },
+        Some(false) => {
+            let Some(error) = value.get("error") else {
+                return MessageFeedbackPutOutcome::Refused("invalid-reply".into());
+            };
+            let code = error
+                .get("code")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            match code {
+                "target-not-found" => MessageFeedbackPutOutcome::TargetMissing,
+                "version-conflict" => MessageFeedbackPutOutcome::Conflict(
+                    error
+                        .get("current")
+                        .filter(|current| !current.is_null())
+                        .and_then(feedback_item),
+                ),
+                other => MessageFeedbackPutOutcome::Refused(other.to_owned()),
+            }
+        }
+        None => MessageFeedbackPutOutcome::Refused("invalid-reply".into()),
+    }
+}
+
+#[cfg(test)]
+mod feedback_tests {
+    use super::{feedback_items, feedback_put_outcome};
+    use crate::dto::MessageFeedbackPutOutcome;
+
+    fn item() -> serde_json::Value {
+        serde_json::json!({
+            "messageId":"PUBLIC-message","rating":"positive","version":"v1",
+            "createdAt":1,"updatedAt":2
+        })
+    }
+
+    #[test]
+    fn feedback_lists_and_puts_parse_the_business_union() {
+        let items = feedback_items(&serde_json::json!({
+            "ok":true,"value":{"items":[item()]}
+        }))
+        .unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].rating, "positive");
+        assert!(feedback_items(&serde_json::json!({"ok":false,"error":{"code":"x"}})).is_none());
+        assert!(
+            feedback_items(&serde_json::json!({"ok":true,"value":{"items":[{"messageId":""}]}}))
+                .is_none()
+        );
+        match feedback_put_outcome(&serde_json::json!({"ok":true,"value":item()})) {
+            MessageFeedbackPutOutcome::Saved(saved) => assert_eq!(saved.version, "v1"),
+            other => panic!("{other:?}"),
+        }
+        match feedback_put_outcome(&serde_json::json!({
+            "ok":false,"error":{"code":"version-conflict","current":item()}
+        })) {
+            MessageFeedbackPutOutcome::Conflict(Some(current)) => {
+                assert_eq!(current.message_id, "PUBLIC-message");
+            }
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(
+            feedback_put_outcome(&serde_json::json!({
+                "ok":false,"error":{"code":"target-not-found"}
+            })),
+            MessageFeedbackPutOutcome::TargetMissing
+        );
+        assert_eq!(
+            feedback_put_outcome(&serde_json::json!({
+                "ok":false,"error":{"code":"note-blank"}
+            })),
+            MessageFeedbackPutOutcome::Refused("note-blank".into())
+        );
     }
 }

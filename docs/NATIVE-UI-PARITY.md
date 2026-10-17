@@ -43,8 +43,9 @@ page** (catalog + delete + delivery history + title/instruction/timing edit) and
 diffs**, the **`@` file menu** and a **desktop-open action** now work end to end; the next items are
 the reference's **developer-tools gate and sidebar review tab**, then workspace open; the
 **date and clock pickers** now serve the one-shot and daily/weekly editors and are
-keyboard-navigable. Cross-session pending status is still unavailable from the present wires. The
-`@` menu is keyboard-navigable and lists sessions beside files.
+keyboard-navigable, and **assistant replies carry Like/Dislike feedback**. Cross-session pending
+status is still unavailable from the present wires. The `@` menu is keyboard-navigable and lists
+sessions beside files.
 
 **Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
 the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
@@ -6089,6 +6090,40 @@ separate focus ring or screen-reader announcement beyond its color.
 | app, fixture | **0** | **1204 passed**, 1 ignored |
 | app, default | **0** | **1197 passed**, 1 ignored |
 | transport | **0** | 54 + 17 + 82 + 7 (unchanged this round) |
+| core (`--lib`) | **0** | **112 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+### Round 309 — per-message feedback
+
+**Assistant replies now offer Like and Dislike, persisted through the canonical feedback methods.**
+The transport gained `messageFeedback/list|put|delete` with the Host's compare-and-set version
+(`ifVersion`), union parsing (`ok`/`saved`/`version-conflict`/`target-not-found`/refusal) and bounds.
+The app derives the current map from the session log's log-only `feedback/message-put|delete`
+events after each frame, so opening a session needs no extra read and live feedback updates arrive
+as events. Pressing the already-active control deletes the rating with its version; pressing the
+other writes with the observed version or `null`; a conflict adopts the Host's current value, a
+missing target or refusal is reported in the status. `shots/140-feedback.png` shows the positive
+rating highlighted beside Branch/Details; the report is `status: passed`.
+
+One app test covers the first write (`ifVersion: null`), the toggle delete (`v1`), the changed
+rating and conflict adoption; a transport test covers list/put/conflict/missing/refusal parsing.
+
+**Deliberate limits.** The reference opens a dialog for a note and category (especially after a
+dislike) and has a `/feedback` command; native writes the bare rating and has no dialog, categories
+or plugin gating. The unused `messageFeedback/list` endpoint is kept and tested but the app prefers
+the log. Live writes remain unverified. This round first wired feedback loading as a selection-time
+`list` call, which added an unexpected command and broke five command-sequence tests; deriving the
+map from the log removed the extra read instead of editing those expectations.
+
+**Battery (round 309).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1205 passed**, 1 ignored |
+| app, default | **0** | **1198 passed**, 1 ignored |
+| transport | **0** | **55 + 17 + 82 + 7** |
 | core (`--lib`) | **0** | **112 passed** (unchanged) |
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |

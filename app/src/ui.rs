@@ -314,6 +314,10 @@ pub enum Message {
     ToggleChanges(u64),
     /// Opens one changed file's comparison.
     OpenChanged(u64, usize),
+    /// Rates one assistant message positive.
+    FeedbackLike(String),
+    /// Rates one assistant message negative.
+    FeedbackDislike(String),
     /// Opens the one-shot date calendar.
     AtPickerDate,
     /// Opens the one-shot clock.
@@ -1045,6 +1049,8 @@ pub struct App {
     schedule_delete: Option<(SessionId, String)>,
     /// The task with a delete in flight.
     schedule_busy: Option<String>,
+    /// Per-message feedback by assistant message id.
+    feedback: std::collections::BTreeMap<String, dsh_native_transport::dto::MessageFeedbackItem>,
     /// `@` file-reference candidates for the active token.
     file_references: Vec<dsh_native_transport::dto::FileReferenceCandidate>,
     /// `@` session-reference candidates for the active token.
@@ -1374,6 +1380,7 @@ impl App {
                 schedules_error: None,
                 schedule_delete: None,
                 schedule_busy: None,
+                feedback: Default::default(),
                 file_references: Vec::new(),
                 session_references: Vec::new(),
                 reference_token: None,
@@ -2477,6 +2484,7 @@ impl App {
         self.exporter.dismiss();
         self.selected = Some(session.clone());
         self.changes.clear();
+        self.feedback.clear();
         self.completion_unread.remove(&session);
         self.generation += 1;
         self.transcript = Transcript::new(self.generation);
@@ -3706,6 +3714,12 @@ impl App {
             }
             Message::ScheduleEditCancel if self.schedules_open => {
                 self.schedule_edit = None;
+            }
+            Message::FeedbackLike(message_id) => {
+                return self.write_feedback(message_id, "positive");
+            }
+            Message::FeedbackDislike(message_id) => {
+                return self.write_feedback(message_id, "negative");
             }
             Message::AtPickerDate if self.schedule_edit.is_some() => {
                 let at = self
@@ -5199,6 +5213,54 @@ impl App {
                     Err(_) => self.file_references.clear(),
                 }
             }
+            Event::FeedbackWritten {
+                session,
+                message_id,
+                result,
+            } => {
+                if self.selected.as_ref() != Some(&session) {
+                    return Task::none();
+                }
+                match result {
+                    Ok(dsh_native_transport::dto::MessageFeedbackPutOutcome::Saved(item)) => {
+                        self.feedback.insert(message_id, item);
+                    }
+                    Ok(dsh_native_transport::dto::MessageFeedbackPutOutcome::Conflict(current)) => {
+                        match current {
+                            Some(item) => {
+                                self.feedback.insert(message_id, item);
+                            }
+                            None => {
+                                self.feedback.remove(&message_id);
+                            }
+                        }
+                        self.status = "Feedback changed on the Host; showing its value.".into();
+                    }
+                    Ok(dsh_native_transport::dto::MessageFeedbackPutOutcome::TargetMissing) => {
+                        self.status = "That message is no longer available for feedback.".into();
+                    }
+                    Ok(dsh_native_transport::dto::MessageFeedbackPutOutcome::Refused(code)) => {
+                        self.status = format!("Feedback refused: {code}");
+                    }
+                    Err(error) => self.status = error,
+                }
+            }
+            Event::FeedbackDeleted {
+                session,
+                message_id,
+                result,
+            } => {
+                if self.selected.as_ref() != Some(&session) {
+                    return Task::none();
+                }
+                match result {
+                    Ok(true) => {
+                        self.feedback.remove(&message_id);
+                    }
+                    Ok(false) => {}
+                    Err(error) => self.status = error,
+                }
+            }
             Event::WorkspacePathOpened { path, result } => {
                 self.status = match result {
                     Ok(true) => format!("Opened {path} on the desktop"),
@@ -6132,6 +6194,7 @@ impl App {
                 // to know whether this Host mounts plan mode.
                 self.plan_published = Some(plan_mode::published(self.transcript.projections()));
                 self.request_changes();
+                self.refresh_feedback();
             }
             Err(error) => {
                 self.files.invalidate();
@@ -6887,6 +6950,23 @@ impl App {
                     },
                 ],
             }),
+        );
+    }
+
+    /// Fixture-only: seed a positive rating on the feedback preset's assistant message.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn seed_feedback(&mut self) {
+        self.feedback.insert(
+            "PUBLIC-feedback-message".into(),
+            dsh_native_transport::dto::MessageFeedbackItem {
+                message_id: "PUBLIC-feedback-message".into(),
+                rating: "positive".into(),
+                note: None,
+                category: None,
+                version: "PUBLIC-v1".into(),
+                created_at: 1,
+                updated_at: 1,
+            },
         );
     }
 
@@ -9123,6 +9203,43 @@ impl App {
     fn reference_menu_open(&self) -> bool {
         self.reference_token.is_some()
             && (!self.file_references.is_empty() || !self.session_references.is_empty())
+    }
+    /// Rate one message, or remove the rating when the same control is pressed again.
+    fn write_feedback(&mut self, message_id: String, rating: &'static str) -> Task<Message> {
+        let Some(session) = self.selected.clone() else {
+            return Task::none();
+        };
+        match self.feedback.get(&message_id) {
+            Some(item) if item.rating == rating => {
+                self.command(worker::Command::FeedbackDelete {
+                    session,
+                    message_id,
+                    version: item.version.clone(),
+                });
+            }
+            current => {
+                self.command(worker::Command::FeedbackPut {
+                    session,
+                    message_id,
+                    rating: rating.to_owned(),
+                    if_version: current.map(|item| item.version.clone()),
+                });
+            }
+        }
+        Task::none()
+    }
+    /// Replace the feedback map from the log's log-only feedback events.
+    fn refresh_feedback(&mut self) {
+        self.feedback = self
+            .transcript
+            .feedback_state()
+            .into_iter()
+            .filter_map(|(message_id, value)| {
+                serde_json::from_value::<dsh_native_transport::dto::MessageFeedbackItem>(value)
+                    .ok()
+                    .map(|item| (message_id, item))
+            })
+            .collect();
     }
     /// Ask for every new `workspace/changes` summary, bounded to 64 outstanding reads.
     fn request_changes(&mut self) {
@@ -11387,6 +11504,7 @@ impl App {
             files: Vec::new(),
             references: Vec::new(),
             turn: None,
+            message_id: None,
             trigger: None,
             time: 0,
             surface: false,
@@ -11619,6 +11737,7 @@ impl App {
                     files: Vec::new(),
                     references: Vec::new(),
                     turn: None,
+                    message_id: None,
                     trigger: None,
                     time: 0,
                     surface: false,
@@ -11756,6 +11875,7 @@ impl App {
             files: Vec::new(),
             references: Vec::new(),
             turn: None,
+            message_id: None,
             trigger: None,
             time: 0,
             surface: false,
@@ -12079,6 +12199,44 @@ impl App {
                             .style(design::ghost)
                             .padding([ACTION_PAD, ACTION_PAD]),
                     );
+                    if !human && let Some(message_id) = &record.message_id {
+                        let rating = self
+                            .feedback
+                            .get(message_id)
+                            .map(|item| item.rating.as_str());
+                        footer = footer.push(
+                            button(
+                                label(
+                                    "Like",
+                                    if rating == Some("positive") {
+                                        ACCENT
+                                    } else {
+                                        MUTED
+                                    },
+                                )
+                                .size(10),
+                            )
+                            .on_press(Message::FeedbackLike(message_id.clone()))
+                            .style(design::ghost)
+                            .padding([1, 2]),
+                        );
+                        footer = footer.push(
+                            button(
+                                label(
+                                    "Dislike",
+                                    if rating == Some("negative") {
+                                        ACCENT
+                                    } else {
+                                        MUTED
+                                    },
+                                )
+                                .size(10),
+                            )
+                            .on_press(Message::FeedbackDislike(message_id.clone()))
+                            .style(design::ghost)
+                            .padding([1, 2]),
+                        );
+                    }
                     if human && self.transcript.editable_text(record.key).is_some() {
                         footer = footer.push(
                             button(label(ACTION_EDIT, MUTED).size(ACTION_GLYPH))
@@ -15609,6 +15767,7 @@ mod tests {
             files: Vec::new(),
             references: Vec::new(),
             turn: None,
+            message_id: None,
             trigger: None,
             time: 1000,
             surface: false,
@@ -16478,6 +16637,80 @@ mod tests {
         assert_eq!(app.schedule_edit.as_ref().unwrap().time, "14:45:00");
         assert!(app.at_picker.is_none());
         assert!(app.schedule_edit.as_ref().unwrap().at.is_empty());
+    }
+    #[test]
+    fn feedback_puts_toggles_and_adopts_the_host_value() {
+        use dsh_native_transport::dto::{MessageFeedbackItem, MessageFeedbackPutOutcome};
+        let (mut app, mut receiver) = managed_app();
+        let _ = app.update(Message::FeedbackLike("PUBLIC-message".into()));
+        let mut puts = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if let Command::FeedbackPut {
+                rating, if_version, ..
+            } = command
+            {
+                assert_eq!(rating, "positive");
+                assert!(if_version.is_none());
+                puts += 1;
+            }
+        }
+        assert_eq!(puts, 1);
+        app.feedback.insert(
+            "PUBLIC-message".into(),
+            MessageFeedbackItem {
+                message_id: "PUBLIC-message".into(),
+                rating: "positive".into(),
+                note: None,
+                category: None,
+                version: "v1".into(),
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+        let _ = app.update(Message::FeedbackLike("PUBLIC-message".into()));
+        let mut deletes = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if let Command::FeedbackDelete { version, .. } = command {
+                assert_eq!(version, "v1");
+                deletes += 1;
+            }
+        }
+        assert_eq!(deletes, 1);
+        let _ = app.update(Message::FeedbackDislike("PUBLIC-message".into()));
+        let mut puts = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if let Command::FeedbackPut {
+                rating, if_version, ..
+            } = command
+            {
+                assert_eq!(rating, "negative");
+                assert_eq!(if_version.as_deref(), Some("v1"));
+                puts += 1;
+            }
+        }
+        assert_eq!(puts, 1);
+        let _ = app.update(Message::Worker(Event::FeedbackWritten {
+            session: app.selected.clone().unwrap(),
+            message_id: "PUBLIC-message".into(),
+            result: Ok(MessageFeedbackPutOutcome::Conflict(Some(
+                MessageFeedbackItem {
+                    message_id: "PUBLIC-message".into(),
+                    rating: "negative".into(),
+                    note: None,
+                    category: None,
+                    version: "v2".into(),
+                    created_at: 1,
+                    updated_at: 3,
+                },
+            ))),
+        }));
+        assert_eq!(
+            app.feedback
+                .get("PUBLIC-message")
+                .map(|item| item.version.as_str()),
+            Some("v2")
+        );
+        assert!(app.status.contains("changed on the Host"));
     }
     #[test]
     fn picker_arrows_move_across_months_and_enter_picks() {

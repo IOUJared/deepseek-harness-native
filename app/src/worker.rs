@@ -88,6 +88,19 @@ pub enum Command {
     OpenWorkspacePath {
         path: String,
     },
+    /// Write one rating, or remove it when the user clicks the active one.
+    FeedbackPut {
+        session: dsh_native_transport::dto::SessionId,
+        message_id: String,
+        rating: String,
+        if_version: Option<String>,
+    },
+    /// Remove one message's feedback.
+    FeedbackDelete {
+        session: dsh_native_transport::dto::SessionId,
+        message_id: String,
+        version: String,
+    },
     /// List `@` session-reference candidates.
     SessionReferences {
         session: dsh_native_transport::dto::SessionId,
@@ -253,6 +266,16 @@ pub enum Event {
     },
     WorkspacePathOpened {
         path: String,
+        result: Result<bool, String>,
+    },
+    FeedbackWritten {
+        session: dsh_native_transport::dto::SessionId,
+        message_id: String,
+        result: Result<dsh_native_transport::dto::MessageFeedbackPutOutcome, String>,
+    },
+    FeedbackDeleted {
+        session: dsh_native_transport::dto::SessionId,
+        message_id: String,
         result: Result<bool, String>,
     },
     SchedulesLoaded(Result<Vec<dsh_native_transport::dto::ScheduleCatalogItem>, String>),
@@ -913,6 +936,24 @@ fn rejected(command: Command) -> Event {
         },
         Command::SessionReferences { query, .. } => Event::SessionReferencesLoaded {
             query,
+            result: Err(error),
+        },
+        Command::FeedbackPut {
+            session,
+            message_id,
+            ..
+        } => Event::FeedbackWritten {
+            session,
+            message_id,
+            result: Err(error),
+        },
+        Command::FeedbackDelete {
+            session,
+            message_id,
+            ..
+        } => Event::FeedbackDeleted {
+            session,
+            message_id,
             result: Err(error),
         },
         Command::OpenWorkspacePath { path } => Event::WorkspacePathOpened {
@@ -2475,6 +2516,16 @@ async fn run(
                     Command::ChangesSummary{session,seq}=>Event::ChangesLoaded{
                         seq,
                         result:client.changes_summary(&session,seq).await.map_err(|error|format!("Changed files: {error}")),
+                    },
+                    Command::FeedbackPut{session,message_id,rating,if_version}=>Event::FeedbackWritten{
+                        result:client.message_feedback_put(&session,&message_id,&rating,if_version.as_deref()).await.map_err(|error|format!("Feedback: {error}")),
+                        session,
+                        message_id,
+                    },
+                    Command::FeedbackDelete{session,message_id,version}=>Event::FeedbackDeleted{
+                        result:client.message_feedback_delete(&session,&message_id,&version).await.map_err(|error|format!("Feedback: {error}")),
+                        session,
+                        message_id,
                     },
                     Command::OpenWorkspacePath{path}=>Event::WorkspacePathOpened{
                         result:client.open_workspace_path(&path).await.map_err(|error|format!("Open path: {error}")),

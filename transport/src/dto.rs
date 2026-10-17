@@ -1133,3 +1133,27 @@ mod job_frame_tests {
         );
     }
 }
+
+/// One current per-message feedback value (`MessageFeedbackItem`).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageFeedbackItem {
+    pub message_id: String,
+    pub rating: String,
+    #[serde(default)]
+    pub note: Option<String>,
+    #[serde(default)]
+    pub category: Option<String>,
+    pub version: String,
+    pub created_at: u64,
+    pub updated_at: u64,
+}
+/// The compare-and-set result of one feedback write.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MessageFeedbackPutOutcome {
+    Saved(MessageFeedbackItem),
+    /// The item changed under the caller; the current value (if any) is authoritative.
+    Conflict(Option<MessageFeedbackItem>),
+    TargetMissing,
+    Refused(String),
+}

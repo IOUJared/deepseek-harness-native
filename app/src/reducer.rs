@@ -62,6 +62,8 @@ pub struct DisplayRow {
     pub references: Vec<String>,
     /// The turn this assistant record belongs to, when the event carries one.
     pub turn: Option<u64>,
+    /// The derived assistant message identity, which feedback targets.
+    pub message_id: Option<String>,
     /// A non-human source that began this turn, drawn as the reference's trigger
     /// notice instead of a user bubble; `None` for human history.
     pub trigger: Option<presentation::Trigger>,
@@ -143,6 +145,38 @@ impl Transcript {
     /// One assistant record's accounting rows, when its usage carries any bucket.
     pub fn turn_usage_detail(&self, key: u64) -> Option<crate::ui::chat_usage::TurnUsageDetail> {
         crate::ui::chat_usage::turn_usage_detail(self.records.get(&key)?)
+    }
+    /// Current feedback values derived from the log's log-only feedback events.
+    pub fn feedback_state(&self) -> std::collections::BTreeMap<String, serde_json::Value> {
+        let mut state = std::collections::BTreeMap::new();
+        let mut events: Vec<_> = self.records.values().collect();
+        events.sort_by_key(|event| event.seq);
+        for event in events {
+            match event.event_type.as_str() {
+                "feedback/message-put" => {
+                    let Some(item) = event.data.get("item") else {
+                        continue;
+                    };
+                    let Some(message_id) =
+                        item.get("messageId").and_then(serde_json::Value::as_str)
+                    else {
+                        continue;
+                    };
+                    state.insert(message_id.to_owned(), item.clone());
+                }
+                "feedback/message-delete" => {
+                    if let Some(message_id) = event
+                        .data
+                        .get("messageId")
+                        .and_then(serde_json::Value::as_str)
+                    {
+                        state.remove(message_id);
+                    }
+                }
+                _ => {}
+            }
+        }
+        state
     }
     /// Every `workspace/changes` record as `(turn, seq)`, in log order.
     pub fn changes_events(&self) -> Vec<(u64, u64)> {
@@ -768,6 +802,7 @@ impl Transcript {
                 files,
                 references: Vec::new(),
                 turn: event.data["turn"].as_u64(),
+                message_id: event.data["message"]["id"].as_str().map(str::to_owned),
                 trigger,
                 time: event.time,
                 surface,

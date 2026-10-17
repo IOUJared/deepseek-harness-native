@@ -114,6 +114,7 @@ pub const PRESETS: &[&str] = &[
     "work-panel",
     "schedules",
     "changes-card",
+    "feedback",
     "context-pressure",
     "context-pressure-risk",
     "context-management",
@@ -268,6 +269,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "work-panel"
         | "schedules"
         | "changes-card"
+        | "feedback"
         | "context-pressure"
         | "context-pressure-risk"
         | "context-management"
@@ -1048,6 +1050,19 @@ pub fn build(
                     "stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],
                         "texts":["PUBLIC synthetic answer; the token reading is a projection, not billing."]}]}}}),
         ]
+    } else if preset == "feedback" {
+        vec![
+            json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
+                "surfaceOp":"append","data":{"role":"user","id":"PUBLIC-feedback-prompt",
+                    "source":{"kind":"user"},"content":[{"type":"text","text":"PUBLIC prompt for rated feedback."}]}}}),
+            json!({"type":"event","event":{"type":"assistant/message","seq":1,"time":1001,
+                "surfaceOp":"append","data":{"turn":1,"step":1,
+                    "message":{"id":"PUBLIC-feedback-message","role":"assistant",
+                        "source":{"kind":"model","provider":"PUBLIC","model":"PUBLIC"},
+                        "content":[{"type":"text","text":"PUBLIC synthetic answer carrying a positive rating."}]},
+                    "stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],
+                        "texts":["PUBLIC synthetic answer carrying a positive rating."]}]}}}),
+        ]
     } else if preset == "changes-card" {
         vec![
             json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
@@ -1145,6 +1160,9 @@ pub fn build(
         let ticket = app.reply_parts(7).unwrap().ticket.unwrap();
         drop(app.update(Message::ToggleThoughts(ticket)));
         assert!(app.thoughts_expanded.contains(&7));
+    }
+    if preset == "feedback" {
+        app.seed_feedback();
     }
     if preset == "changes-card" {
         app.seed_changes_summary();
@@ -2036,7 +2054,7 @@ pub fn metadata(app: &App, preset: &str) -> Value {
         "reasoningStateMatchesPreset":app.chosen_model.as_ref().is_some_and(|m| !m.efforts.is_empty()) == reasoning_expected,
         "durablePublicRecordCount":app.transcript.rows().len(),
         "durablePublicSnapshotCursor":app.transcript.opening_cursor(),
-        "conversationSnapshotSimulated":matches!(preset, "conversation" | "inbox-canceled" | "changes-card") || preset.starts_with("tool-activity"),
+        "conversationSnapshotSimulated":matches!(preset, "conversation" | "inbox-canceled" | "changes-card" | "feedback") || preset.starts_with("tool-activity"),
         "displayedPublicRecordCount":app.transcript.display_rows(app.records_expanded).count(),
         "canceledInboxHeadingExpected":preset == "inbox-canceled",
         "publicToolSnapshotSimulated":preset.starts_with("tool-activity"),
