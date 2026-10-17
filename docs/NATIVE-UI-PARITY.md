@@ -5520,3 +5520,17 @@ whole-turn aggregate across attempts. The label is a text control, not a drawn i
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+### Round 286 — schedule catalog and delete (transport half)
+
+**The scheduled-task catalog and delete are typed Rust transport calls.** `schedule/catalog` returns
+the Host's catalog rows parsed into a bounded display view (id, title, kind, session binding, status,
+optional next `scheduledAt`, optional last-delivery stamp); the varying timing payload and message
+id are ignored rather than modeled. The catalog is capped at 4096 rows, ids at 256 bytes and titles
+at 120. `schedule/delete` sends the canonical `{sessionId, id}` request and parses the union into
+`Deleted`, `Missing` (`schedule_not_found`) or `Refused` (a non-mutating error value); malformed
+values are refused. Two tests cover the delete union and a catalog row with a daily timing payload
+and delivery stamp; the transport gate is **46 + 17 + 82 + 7**.
+
+No schedules page or delete control exists yet; the work panel still lists records read-only. The
+app half is the next item.

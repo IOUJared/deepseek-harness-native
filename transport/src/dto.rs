@@ -419,6 +419,36 @@ pub struct QueueTextBlock {
     pub block_type: String,
     pub text: String,
 }
+/// One Host schedule catalog row (`ScheduleCatalogEntry` in
+/// `packages/schedule/schedule/src/types.ts:213-220`). Only the display fields are modeled; the
+/// timing payload varies by kind and is ignored here.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduleCatalogItem {
+    pub id: String,
+    pub title: String,
+    pub kind: String,
+    pub session_id: SessionId,
+    pub status: String,
+    #[serde(default)]
+    pub scheduled_at: Option<String>,
+    #[serde(default)]
+    pub last_delivery: Option<ScheduleDeliveryStamp>,
+}
+/// One retained delivery acknowledgement, without its message identity.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduleDeliveryStamp {
+    pub scheduled_at: String,
+    pub delivered_at: String,
+}
+/// The delete outcome: deleted, already absent, or a non-mutating refusal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScheduleDeleteOutcome {
+    Deleted,
+    Missing,
+    Refused,
+}
 /// One goal revision identity (`packages/goal/goal/src/types.ts:18-26`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

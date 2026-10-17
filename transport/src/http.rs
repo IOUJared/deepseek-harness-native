@@ -200,6 +200,8 @@ enum Endpoint {
     GoalPause,
     GoalResume,
     GoalClear,
+    ScheduleCatalog,
+    ScheduleDelete,
 }
 impl Endpoint {
     fn name(self) -> &'static str {
@@ -220,6 +222,8 @@ impl Endpoint {
             Self::GoalPause => "goals/pause",
             Self::GoalResume => "goals/resume",
             Self::GoalClear => "goals/clear",
+            Self::ScheduleCatalog => "schedule/catalog",
+            Self::ScheduleDelete => "schedule/delete",
             Self::Page => "session/page",
             Self::AccountState => "account/getState",
             Self::WorkspaceCreate => "workspace/create",
@@ -768,6 +772,39 @@ impl NativeClient {
         )
         .await
     }
+    /// The Host's whole schedule catalog, bounded to 4096 rows and validated for display.
+    pub async fn schedule_catalog(&self) -> Result<Vec<ScheduleCatalogItem>> {
+        let items: Vec<ScheduleCatalogItem> =
+            self.invoke(Endpoint::ScheduleCatalog, json!({})).await?;
+        if items.len() > 4096
+            || items.iter().any(|item| {
+                item.id.is_empty()
+                    || item.id.len() > 256
+                    || item.title.is_empty()
+                    || item.title.len() > 120
+            })
+        {
+            return Err(Error::InvalidDto);
+        }
+        Ok(items)
+    }
+    /// Delete one reminder inside its original Session binding.
+    pub async fn schedule_delete(
+        &self,
+        session_id: &SessionId,
+        id: &str,
+    ) -> Result<ScheduleDeleteOutcome> {
+        if id.is_empty() || id.len() > 256 {
+            return Err(Error::InvalidDto);
+        }
+        let value: Value = self
+            .invoke(
+                Endpoint::ScheduleDelete,
+                json!({"request": {"sessionId": session_id.as_str(), "id": id}}),
+            )
+            .await?;
+        schedule_delete_outcome(&value).ok_or(Error::InvalidDto)
+    }
     pub async fn session_cancel(&self, session_id: &SessionId) -> Result<Accepted> {
         accepted(
             self.invoke(
@@ -1227,6 +1264,19 @@ fn validate_update_queue(request: &SessionUpdateQueueRequest) -> Result<()> {
     }
     Ok(())
 }
+/// The delete union (`types.ts:345-350`): `{deleted:true}`, `{deleted:false,code}`, or a
+/// non-mutating refusal carrying a code/message. Anything else is refused.
+fn schedule_delete_outcome(value: &Value) -> Option<ScheduleDeleteOutcome> {
+    let object = value.as_object()?;
+    match object.get("deleted").and_then(Value::as_bool) {
+        Some(true) => Some(ScheduleDeleteOutcome::Deleted),
+        Some(false) => Some(ScheduleDeleteOutcome::Missing),
+        None => object
+            .get("code")
+            .and_then(Value::as_str)
+            .map(|_| ScheduleDeleteOutcome::Refused),
+    }
+}
 fn validate_goal_ref(reference: &GoalRef) -> Result<()> {
     if reference.id.is_empty() || reference.id.len() > 256 || reference.revision == 0 {
         return Err(Error::InvalidDto);
@@ -1509,6 +1559,54 @@ mod goal_tests {
         assert_eq!(
             serde_json::from_value::<GoalView>(value).unwrap().revision,
             2
+        );
+    }
+}
+
+#[cfg(test)]
+mod schedule_tests {
+    use super::{ScheduleCatalogItem, schedule_delete_outcome};
+    use crate::dto::ScheduleDeleteOutcome;
+    use serde_json::json;
+
+    #[test]
+    fn the_delete_union_yields_deleted_missing_or_refused() {
+        assert_eq!(
+            schedule_delete_outcome(&json!({"id":"PUBLIC","deleted":true})),
+            Some(ScheduleDeleteOutcome::Deleted)
+        );
+        assert_eq!(
+            schedule_delete_outcome(&json!({"id":"PUBLIC","deleted":false,
+                "code":"schedule_not_found"})),
+            Some(ScheduleDeleteOutcome::Missing)
+        );
+        assert_eq!(
+            schedule_delete_outcome(&json!({"code":"invalid_rule","message":"PUBLIC"})),
+            Some(ScheduleDeleteOutcome::Refused)
+        );
+        for bad in [json!({}), json!({"deleted":"yes"}), json!(null), json!(7)] {
+            assert_eq!(schedule_delete_outcome(&bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_catalog_row_ignores_the_timing_payload_and_parses_the_delivery_stamp() {
+        let item: ScheduleCatalogItem = serde_json::from_value(json!({
+            "id":"PUBLIC-task","title":"PUBLIC task","kind":"daily",
+            "sessionId":"PUBLIC-session","status":"active",
+            "daily":{"hour":9,"minute":0,"timeZone":"UTC"},
+            "prompt":"PUBLIC prompt","scheduledAt":"2026-10-17T09:00:00Z",
+            "lastDelivery":{"scheduledAt":"2026-10-16T09:00:00Z",
+                "deliveredAt":"2026-10-16T09:00:01Z","messageId":"PUBLIC-message"}
+        }))
+        .unwrap();
+        assert_eq!(item.id, "PUBLIC-task");
+        assert_eq!(item.session_id.as_str(), "PUBLIC-session");
+        assert_eq!(
+            item.last_delivery
+                .as_ref()
+                .map(|stamp| stamp.delivered_at.as_str()),
+            Some("2026-10-16T09:00:01Z")
         );
     }
 }
