@@ -3572,3 +3572,17 @@ the five above rather than missing work.
    the `settings-general --shortcuts` capture reports **`passed: true`** with matching preset state
    and control counts — the same frame as before, because the strings are identical by
    construction (`shots/88-shortcuts-datadriven.png`).
+
+   **The trigger's decision is tested, including its macOS parity.** `is_trigger` answers through
+   the *same* comparison the resolver uses — it builds the reference's own binding
+   (`primary + Slash`, `index.ts:42-52`) and calls `matches` — so the trigger cannot drift from the
+   binding it is defined as, and a change to `matches` moves both. The test covers `Ctrl+/`,
+   **`Cmd+/`** (because `binding_from` maps command onto `primary`, which is what the reference's
+   "on macOS and Windows alike" default requires), and four near misses: shift, control+shift, a
+   different letter, and escape with control.
+   Verified: fixture **1130** exit 0 (seventeen keybinding tests), default **1123** exit 0,
+   format-debt 0.
+   That is the trigger's *decision*; what remains is one `.or_else` in the app's key router
+   (`ui.rs:1129-1146`, a chain whose comment already says handlers must "hold live state and
+   decide") and the message it produces — three lines, and the last thing between this feature and
+   a working `Ctrl+/`.

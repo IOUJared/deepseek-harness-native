@@ -288,6 +288,18 @@ pub fn resolve<'a>(
         .map(|(id, _)| id)
 }
 
+/// Whether a press is the reference's `shortcuts.open` trigger: **`primary + Slash`** on every
+/// desktop platform (`ui-shortcuts/src/client/index.ts:42-52`). It answers through the same
+/// comparison the resolver uses, so the trigger cannot drift from the binding it is defined as.
+pub fn is_trigger(key: &iced::keyboard::Key, modifiers: iced::keyboard::Modifiers) -> bool {
+    let trigger = Binding {
+        code: "Slash".to_owned(),
+        second_code: None,
+        modifiers: vec!["primary".to_owned()],
+    };
+    matches(&trigger, key, modifiers)
+}
+
 /// This app's own fixed bindings, with the ids and keys its input handling already implements and
 /// its Settings row already prints (`Ctrl+B`, `Ctrl+F`, `Enter / Ctrl+Enter`, `Shift+Enter`,
 /// `Escape`). They are prefixed `fixed.` like the reference's own fixed rows, so an editor can
@@ -627,6 +639,25 @@ mod tests {
         assert_eq!(display(&escape), "Escape");
         let up = binding_from(&Key::Named(Named::ArrowUp), Modifiers::empty()).unwrap();
         assert_eq!(display(&up), "ArrowUp");
+    }
+
+    #[test]
+    fn the_trigger_is_primary_slash_and_nothing_else() {
+        use iced::keyboard::{Key, Modifiers};
+        assert!(is_trigger(&Key::Character("/".into()), Modifiers::CTRL));
+        // Command counts as primary too, so the same rule holds on macOS.
+        assert!(is_trigger(&Key::Character("/".into()), Modifiers::COMMAND));
+        // The near misses must not open it.
+        assert!(!is_trigger(&Key::Character("/".into()), Modifiers::SHIFT));
+        assert!(!is_trigger(
+            &Key::Character("/".into()),
+            Modifiers::CTRL | Modifiers::SHIFT
+        ));
+        assert!(!is_trigger(&Key::Character("k".into()), Modifiers::CTRL));
+        assert!(!is_trigger(
+            &Key::Named(iced::keyboard::key::Named::Escape),
+            Modifiers::CTRL
+        ));
     }
 
     #[test]
