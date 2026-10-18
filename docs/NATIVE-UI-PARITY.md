@@ -138,7 +138,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Editable context menu | Undo · Redo · — · Cut · Copy · Paste · — · Select all, each enabled from the edit flags, no accelerator labels, 180px panel | `editor_menu::entries`/`view` + a 100-step editor history; `native-editor-menu` rect |
 | Search offset | measured with the drawn block heights, collapsed gaps and the ladder, for the answer and the reasoning alike | `document_first_offset` + `document_first_offset_walks_drawn_heights_and_gaps` |
 | Permission chip | control-row chip, `height: 28px`, `padding: 0 4px 0 8px`, `13px/20px` `label-secondary`, a 14px glyph, dimmed while locked | **landed** — `native-permission-control` 28.0 × 137.9 at x 380, and its menu `native-permission-menu` 200.0 × 90.7; the pick sends `/permission <preset>` |
-| Permission select | control-row chip: `height: 28px`, `padding: 0 4px 0 8px`, transparent, `radius-sm`, `13px/20px` weight 500, `label-secondary`, `max-width: 220px`, a 14px glyph on the trigger and 16px in the rows, hover `interactive-bg-hover`, disabled `label-dimmed`; menu rows plus an Auto-review preset with a badge and a risk confirmation before full access | **not implemented** — no permission projection state; recorded below with the package's parts |
+| Permission select | control-row trigger: `height: 28px`, `padding: 0 4px 0 8px`, transparent, `radius-sm`, `13px/20px` weight 500, `label-secondary`, `max-width: 220px` with an ellipsized label, a 14px trigger glyph and 16px row glyphs, a chevron that turns 180° while open, hover `interactive-bg-hover`, disabled `label-dimmed`; menu rows plus an Auto preset with its `EXP` badge (`8px/10px`) and a risk confirmation before full access | **implemented** — the chip, menu, Host catalog, badge and confirmation are in `ui.rs`; measured `native-permission-control` 28.0 × 153.9 at x 380 and `native-permission-menu` 200.0 × 117.6 (`shots/159-…`–`161-…`). Three deltas: the label has no px ellipsis (the built-in names are short and the Core bounds a preset name at 128 characters), and neither the trigger nor the rows draw the reference's per-preset glyphs, because all three are SVGs with no DejaVu equivalent — the trigger uses the `◈` stand-in at 12px |
 | Shutdown budgets | DMG shell: graceful 10 s → SIGTERM 5 s → SIGKILL 5 s (`apps/desktop/src/main.ts:3790-3807`) | native 3 s / 1 s / 1 s (`StopPolicy::default`), documented in `NATIVE-CLOSE.md#budgets-against-the-dmg-shell`; aligning needs a measured Host unwind, not the shell's figures |
 | Referenced-session summary | under a user bubble: `Referenced session · labels` at 13px/18px tertiary, labels from the following `session-reference` context record, joined with `, ` | `DisplayRow::references` + `REFERENCE_LINE`/`reference_line` and the row's geometry; `chat-references` preset |
 | Markdown image | unresolvable source renders the alt as tertiary italic; a failed load adds the destination when there is no alt (`imageAlt`, `radius-md` block) | `Span::alt` + `render.tsx:640,653`; no loading or decoding pipeline yet |
@@ -272,8 +272,10 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    chip will read. An earlier revision of this entry called it three edits, and reading the
    enum showed that was optimistic. The app already compiles against the new Core variants;
    after (c) lands, (d) is the first visible change in this feature;
-   (d) the chip, menu, Auto-review badge and confirmation guard, at the geometry below, with
-   a DP-2 capture — and, given the `/permission` command, the menu can offer the presets the
+   (d) **done** — the chip, menu, Auto-review badge and confirmation guard, with DP-2 captures
+   (`shots/159-permission-chip.png` … `161-permission-menu-catalog.png`; round 356 added the
+   reference's trigger chevron and gave the chip a fixture preset, since none could draw it).
+   Given the `/permission` command, the menu can offer the presets the
    Host already advertises to the command menu rather than waiting on the catalog read. Two facts gathered for it: the reference's three permission glyphs are
    SVGs with no DejaVu equivalent, so the chip needs a text stand-in the way the plan chip
    uses `☑` — checked against DejaVuSans, `◈` (U+25C8), `▣` (U+25A3) and `⎔` (U+2394) are
@@ -7788,3 +7790,38 @@ not have on this surface — a divergence, not parity — so it was not done.
 Corrected in the same commit: round 354's own closing paragraph, the tool-row row of the main
 dimension table, `NATIVE-CHAT-GEOMETRY.md`'s open-divergence note, and the session prompt's item D.
 No source changed, so no capture and no battery re-run; the gates in round 354 stand for this tree.
+
+### Round 356 — the permission chip gets its chevron, and a preset that can draw it
+
+Two things were wrong with a surface the document called both "landed" and "not implemented" in
+consecutive rows.
+
+- **The chip had no chevron.** The reference's trigger ends in one that turns 180° while the picker
+  is open (`PermissionSelect.tsx:191-193`, `.chevron`/`.chevronOpen`,
+  `PermissionSelect.module.css:76-87`). Native drew glyph and label only, so the one control in the
+  composer that opens a picker carried no "opens" affordance while its sibling model chip did. The
+  chip now draws the same 12px seat with `⌄`/`⌃`, the pair the model chip already uses, and the
+  `EXP` badge beside an Auto preset moved from an invented 10px to the reference's own `8px/10px`
+  (`PermissionSelect.module.css:65-72`; Iced's label carries no weight).
+- **No fixture preset could draw it.** The chip needs a `permission/preset` record, and no preset
+  seeded one, so `shots/69-permission-auto-badge-dp2.png` had no path back from the tree: the
+  "landed — 28.0 × 137.9" claim could not be reproduced. The new `permission-chip` preset records
+  `workspace-write` and keeps a two-row conversation, and the record is not a chat row, so every
+  other preset's row counts are untouched.
+- **The surface had no App test.** `permission_ui_tests` now pins the contract the reducer test
+  cannot: no record means no chip; the first open asks for the catalog; a failed read leaves the
+  catalog unheld so the next open asks again and the failure is a status line, not the design set
+  presented as the deployment's; a pick sends `/permission <preset>`; full access opens the
+  confirmation and sends nothing until the acknowledgement arms Enable; Cancel dismisses it.
+
+Measurement corrected in the same round: the chip is **153.9** wide, not 137.9, once the chevron
+is drawn; the menu is 200.0 × 117.6 at x 334.3.
+
+**Battery (round 356).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1258 passed**, 1 ignored |
+| app, default | **0** | **1251 passed**, 1 ignored |
+| DP-2 capture | — | `shots/159-permission-chip.png`, `160-permission-menu.png`, `161-permission-menu-catalog.png`, all `status: passed` |
+| tree | — | clean before the commit |

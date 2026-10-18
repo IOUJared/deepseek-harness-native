@@ -123,6 +123,7 @@ pub const PRESETS: &[&str] = &[
     "context-management",
     "context-management-chat",
     "plan-chip",
+    "permission-chip",
     "command-menu",
     "plan-mode",
     "plan-mode-applying",
@@ -221,6 +222,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "turn-trigger"
         | "token-usage"
         | "goal-bar"
+        | "permission-chip"
         | "working-phase-6"
         | "subagent-trail"
         | "subagent-catalog"
@@ -1131,6 +1133,23 @@ pub fn build(
                 "surfaceOp":"append"}}),
         ];
         records
+    } else if preset == "permission-chip" {
+        // The chip's projection reads the most recent `permission/preset` record
+        // (`reducer.rs:329`), which a real Host writes near the start of a session.
+        // The record is not a chat row, so the conversation keeps its two rows; it
+        // is what gives the chip a repeatable capture with no Host.
+        vec![
+            json!({"type":"event","event":{"type":"permission/preset","seq":0,"time":1000,
+                "data":{"preset":"workspace-write"}}}),
+            json!({"type":"event","event":{"type":"user/message","seq":1,"time":1001,
+                "surfaceOp":"append","data":{"role":"user","id":"PUBLIC-permission-message",
+                    "source":{"kind":"user"},
+                    "content":[{"type":"text","text":"PUBLIC prompt beside the permission chip."}]}}}),
+            json!({"type":"event","event":{"type":"assistant/message","seq":2,"time":1002,
+                "surfaceOp":"append","data":{"turn":1,"step":1,
+                    "stream":[{"type":"text-chunks","time0":1002,"index":0,"dt":[],
+                        "texts":["PUBLIC synthetic answer. The preset is a recorded projection, not an enforcement claim."]}]}}}),
+        ]
     } else {
         vec![]
     };
@@ -2322,6 +2341,21 @@ mod tests {
                 drop(app.update(app.detail_request(2).unwrap()));
                 assert!(app.detail.as_ref().unwrap().source.contains("canceled"));
                 assert!(receiver.try_recv().is_err());
+            }
+            if preset == "permission-chip" {
+                // The chip is drawn only from the recorded preset, and the record
+                // itself is not a chat row: the conversation keeps its two rows.
+                assert_eq!(app.transcript.permission_preset(), Some("workspace-write"));
+                assert_eq!(app.transcript.rows().len(), 3);
+                assert_eq!(report["displayedPublicRecordCount"], 2);
+                assert!(app.permission_chip().is_some());
+                drop(app.update(Message::TogglePermissionMenu));
+                assert!(app.permission_menu);
+                // The menu's first open asks the Host for the catalog.
+                assert!(matches!(
+                    receiver.try_recv(),
+                    Ok(Command::PermissionCatalogRead)
+                ));
             }
             if preset.starts_with("tool-activity") {
                 assert_eq!(app.transcript.rows().len(), 8);

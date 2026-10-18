@@ -126,6 +126,9 @@ mod model_controls;
 mod model_metadata_ui_tests;
 #[path = "notifications.rs"]
 mod notifications;
+#[cfg(test)]
+#[path = "permission_ui_tests.rs"]
+mod permission_ui_tests;
 #[path = "plan_control.rs"]
 mod plan_control;
 #[path = "plan_mode.rs"]
@@ -9341,12 +9344,11 @@ impl App {
         self.touch_draft();
         Self::focus_composer()
     }
-    /// The reference's permission chip, in the form it takes while its control is locked:
-    /// a 28px chip with a glyph and the current preset's name, drawn in the dimmed colour
-    /// with no menu, which is exactly the state `PermissionSelect` renders for
-    /// `disabled={locked || leaving}` (`PermissionSelect.module.css:1-40`). The preset
-    /// comes from the Host's own `permission/preset` record; the menu that switches it will
-    /// submit `/permission <preset>`, the command line the package's header names
+    /// The reference's permission chip: a 28px chip with a glyph, the current preset's
+    /// name and the chevron that turns when its picker opens
+    /// (`PermissionSelect.tsx:178-193`, `PermissionSelect.module.css:1-40`). The preset
+    /// comes from the Host's own `permission/preset` record; the menu that switches it
+    /// submits `/permission <preset>`, the command line the package's header names
     /// (`ui-permission-presets/src/client/index.ts:3-11`).
     fn permission_chip(&self) -> Option<Element<'_, Message>> {
         let preset = self.transcript.permission_preset()?.to_owned();
@@ -9357,6 +9359,11 @@ impl App {
                     .size(12)
                     .width(design::PERMISSION_CHIP_GLYPH),
                 label(permission_label(&preset).to_owned(), ink).size(13),
+                // `.chevron` turns 180° under `.chevronOpen`; native draws the two
+                // states as the model chip's own pair, in the same 12px seat.
+                container(label(if self.permission_menu { "⌃" } else { "⌄" }, MUTED).size(12))
+                    .width(design::COMPOSER_CHIP_CHEVRON)
+                    .align_x(iced::Alignment::Center),
             ]
             .spacing(4)
             .align_y(iced::Alignment::Center),
@@ -9547,9 +9554,11 @@ impl App {
             let ink = if value == current { TEXT } else { MUTED };
             // `locales.ts:54`: the deployment's registered Auto preset carries an `EXP`
             // badge in the picker, so it is never mistaken for a user-defined preset.
+            // The reference sets it at `8px/10px`, weight 600
+            // (`PermissionSelect.module.css:65-72`); Iced's label carries no weight.
             let mut content = row![label(name, ink).size(13)].spacing(6);
             if value == "auto" {
-                content = content.push(label(AUTO_BADGE, MUTED).size(10));
+                content = content.push(label(AUTO_BADGE, MUTED).size(8));
             }
             items = items.push(
                 button(content)
