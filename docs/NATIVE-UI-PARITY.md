@@ -19,7 +19,12 @@ the sidebar's **subagent rows and running-child count** (`shots/107-…`); the c
 **queue dock** (`shots/115-…`, `116-…`); **branching at a reply** (`shots/117-…`); **turn-trigger
 notices** (`shots/118-…`, `119-…`); the sidebar's **completion-unread marker** (`shots/120-…`); the
 composer's **token/cache/speed reading** (`shots/121-…`); and **keys as data**, so the store's five
-commands drive the live chain instead of a hardcoded map.
+commands drive the live chain instead of a hardcoded map. Later rounds added, with captures: the
+tool row's **workspace-relative path and edit pair** (`shots/158-…`), the **permission chip and its
+Host catalog** (`shots/159-…`–`161-…`), the goal bar's **Inactive Goal and Resume** (`shots/162-…`),
+the **inline diff card** and its fold (`shots/163-…`, `164-…`), and the compact navigation sheet's
+**search answer** (`shots/165-…`). The goal bar now follows Host projection pushes (round 357), which
+is the control stream the worker had never opened.
 
 **Read this before trusting the list above.** Round 257 found that the editor's per-row actions,
 the permission default row and eight Host-event handlers were **unreachable behind two catch-all
@@ -342,7 +347,16 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    `/home/jared/Documents/deepseek-harness/default-workspace/` would let those be measured
    from pixels instead.
 
-7. **Permission default row in Settings — a second surface, not yet built.** The reference
+7. **The two-row tool model is a structural divergence, not a formatting one.** The reference
+   folds a call and its result into one `ToolCallBlock` and draws **one row per call**
+   (`tool-call-tree.ts`, `ToolCallTree.tsx`); native's reducer keeps `tool/call` and `tool/result`
+   as two rows, so every tool call occupies two activity lines and carries the native-authored
+   `Output` / `Recorded error` suffix the reference has no equivalent for. The diff card (round
+   362) lives on the call row because of this. Closing it means folding the result into the call
+   row in `reducer`, moving the output into that row's expanded body, and re-basing every row-index
+   assertion and the scroll/virtualization vectors on the new counts — a structural round, not a
+   view tweak. It is the largest remaining chat-surface difference.
+8. **Permission default row in Settings — a second surface, not yet built.** The reference
    has *two* permission pickers, and only the composer one is done here. `PermissionRow.tsx`
    is "the default preset for subsequently created sessions", mounted in the
    `settings.general.item` slot, with its own `RiskConfirmation` and its own write path:
