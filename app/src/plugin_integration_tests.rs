@@ -30,6 +30,25 @@ fn snapshot_named(ns: &str) -> plugins::Snapshot {
         },
     }
 }
+/// Two namespaces with the foreign one first: the order in which the old code wrote the wrong one.
+fn two_namespaces() -> plugins::Snapshot {
+    let mut snapshot = snapshot_named("PUBLIC-other");
+    snapshot.settings.namespaces.push(SettingsNamespaceView {
+        ns: "llm-deepseek".into(),
+        revision: 3,
+        auto_generate: true,
+        unsupported_fields: 0,
+        secret_fields: 0,
+        fields: vec![SettingsField {
+            path: vec!["reasoningEffort".into()],
+            label: "reasoningEffort".into(),
+            kind: SettingsFieldKind::String { max_length: 64 },
+            value: Some(SettingsScalar::String("medium".into())),
+            overridden: false,
+        }],
+    });
+    snapshot
+}
 fn opened_plugins() -> Settings {
     let mut state = Settings::default();
     state.handle(Action::Open, 1, true);
@@ -54,7 +73,11 @@ fn submit_plugin(state: &mut Settings) -> WriteTicket {
     loaded_plugins(state);
     let ticket = state.plugin_read_ticket();
     state.handle(
-        Action::Plugins(plugins::Action::Begin { ticket, field: 0 }),
+        Action::Plugins(plugins::Action::Begin {
+            namespace: 0,
+            ticket,
+            field: 0,
+        }),
         1,
         true,
     );
@@ -83,6 +106,56 @@ fn submit_plugin(state: &mut Settings) -> WriteTicket {
     assert_eq!(field.path, vec!["enabled"]);
     assert_eq!(value, SettingsScalar::Bool(true));
     ticket
+}
+/// The DeepSeek page draws `llm-deepseek` with no namespace selector, so a draft begun from one of
+/// its field controls must be resolved against the namespace that control was drawn from — not
+/// whichever namespace happens to be selected. The old draft stored only the field index and
+/// resolved it against the selection, so a host that advertised another namespace first wrote that
+/// namespace's field at the same index, at that namespace's revision.
+#[test]
+fn a_draft_is_resolved_against_the_namespace_its_control_was_drawn_from() {
+    let mut state = opened_plugins();
+    let rendered = state.plugin_read_ticket();
+    let Some(Effect::Plugins(plugins::Effect::Read(ticket))) =
+        state.handle(Action::Plugins(plugins::Action::Refresh(rendered)), 1, true)
+    else {
+        panic!("explicit refresh required")
+    };
+    state.plugins_loaded(ticket, Ok(two_namespaces()));
+    // The selection stays on the foreign namespace, as it would after a load.
+    let read = state.plugin_read_ticket();
+    state.handle(
+        Action::Plugins(plugins::Action::Begin {
+            namespace: 1,
+            ticket: read,
+            field: 0,
+        }),
+        1,
+        true,
+    );
+    let draft = state
+        .plugin_draft_ticket()
+        .expect("the drawn namespace begins");
+    state.handle(
+        Action::Plugins(plugins::Action::Text {
+            ticket: draft,
+            input: draft_input("high".into()),
+        }),
+        1,
+        true,
+    );
+    let draft = state.plugin_draft_ticket().unwrap();
+    state.handle(Action::Plugins(plugins::Action::Review(draft)), 1, true);
+    let draft = state.plugin_draft_ticket().unwrap();
+    let Some(Effect::Plugins(plugins::Effect::Save {
+        namespace, field, ..
+    })) = state.handle(Action::Plugins(plugins::Action::Confirm(draft)), 1, true)
+    else {
+        panic!("the drawn namespace's write is admitted")
+    };
+    assert_eq!(namespace.ns, "llm-deepseek");
+    assert_eq!(namespace.revision, 3);
+    assert_eq!(field.label, "reasoningEffort");
 }
 #[test]
 fn plugins_enter_reopen_and_epoch_adoption_never_read_automatically() {
@@ -202,6 +275,7 @@ fn hidden_api_refresh_and_old_plugin_confirmation_cannot_dispatch() {
     loaded_plugins(&mut state);
     state.handle(
         Action::Plugins(plugins::Action::Begin {
+            namespace: 0,
             ticket: state.plugin_read_ticket(),
             field: 0,
         }),
@@ -295,4 +369,43 @@ fn deepseek_page_renders_only_the_loaded_llm_deepseek_namespace() {
             .is_none()
     );
     let _: Element<'_, Action> = state.view_sized(true, 960.0, 700.0, &RouteFacts::default());
+}
+
+/// The General page's session-log row is a write like any other: when the app is read-only it must
+/// not dispatch one. The arm used to build its context with a hard-coded `true`, so this one
+/// control stayed live while every sibling refused — and a bounced write was reported as a save
+/// failure rather than the read-only state it was.
+#[test]
+fn the_session_log_row_writes_only_when_the_app_is_writable() {
+    let mut state = opened_plugins();
+    let rendered = state.plugin_read_ticket();
+    let Some(Effect::Plugins(plugins::Effect::Read(ticket))) =
+        state.handle(Action::Plugins(plugins::Action::Refresh(rendered)), 1, true)
+    else {
+        panic!("explicit plugin refresh required")
+    };
+    state.plugins_loaded(ticket, Ok(snapshot_named("session-log-deepseek")));
+    assert!(
+        state.plugins.has_snapshot(),
+        "the snapshot must be loaded before the row can write"
+    );
+    // The snapshot's stored value is `false`, so the row turns it on: an unchanged value is a
+    // local no-op, not a write.
+    let Some(Effect::Plugins(plugins::Effect::Save { .. })) =
+        state.handle(Action::SessionLog(true), 1, true)
+    else {
+        panic!(
+            "a writable page writes (draft: {:?})",
+            state.plugin_draft_ticket()
+        )
+    };
+    // Same loaded snapshot, read-only caller: no effect, and nothing marked pending.
+    assert!(
+        state.handle(Action::SessionLog(false), 1, false).is_none(),
+        "a read-only app does not write"
+    );
+    assert!(
+        state.handle(Action::SessionLog(true), 1, false).is_none(),
+        "not even a real change"
+    );
 }

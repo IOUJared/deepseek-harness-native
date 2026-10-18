@@ -1883,10 +1883,20 @@ impl App {
         };
         let current = field.value(cloudflare).to_owned();
         let characters = text.chars().count();
-        self.settings.cloudflare_clipboard_result(field, characters);
-        self.update(Message::Settings(crate::settings::Action::Cloudflare(
+        let task = self.update(Message::Settings(crate::settings::Action::Cloudflare(
             field.paste(ticket, &current, &text),
-        )))
+        )));
+        // The field's own rules decide whether the paste landed: an unchanged value means the
+        // page refused it, and the controller's warning says why. Claiming "Pasted N characters"
+        // before the field applied anything reported success for a refused paste.
+        let landed = self
+            .settings
+            .cloudflare_fields()
+            .is_some_and(|cloudflare| field.value(cloudflare) != current);
+        if landed {
+            self.settings.cloudflare_clipboard_result(field, characters);
+        }
+        task
     }
     fn paste_into_focused_field(&mut self, id: Option<String>, text: String) -> Task<Message> {
         let Some(ticket) = self.clipboard_field_ticket() else {

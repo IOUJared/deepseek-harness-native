@@ -250,6 +250,7 @@ impl Controller {
         self.review = false;
         self.reading = None;
         self.metadata = None;
+        self.clipboard_notice = None;
         self.account.clear();
         self.models = false;
         self.browser = false;
@@ -284,9 +285,17 @@ impl Controller {
     pub fn clipboard_empty(&mut self) {
         self.clipboard_notice = Some("The clipboard held no text; nothing was pasted.".to_owned());
     }
-    pub fn clipboard_ignored(&mut self, field: Field) {
-        let _ = field;
-        self.clipboard_notice = Some("That field is read-only while this page is busy.".to_owned());
+    /// Whether Connect may be pressed. A metadata read in flight owns this page's serial, so a
+    /// Connect that bumped it would have its reply dropped on arrival and leave `reading` set —
+    /// the page read-only until Cancel. The view reads this, and it is the condition `can_write`
+    /// applies, so the two cannot disagree.
+    pub fn connect_available(&self, enabled: bool) -> bool {
+        enabled
+            && !self.pending()
+            && self.reading.is_none()
+            && self.connection.is_none()
+            && !self.require_read
+            && !self.auth.as_ref().is_some_and(|a| a.retry_blocked)
     }
     pub fn paste_target(&self) -> Option<Field> {
         self.last_field.or_else(|| {
@@ -508,6 +517,18 @@ impl Controller {
                 } else {
                     self.rejected_field(Field::ClientId);
                 }
+                None
+            }
+            // Scopes, the port and the token were the silent ones: a paste or an edit while the
+            // page cannot write fell through the final wildcard, so only the app's own "Pasted N
+            // characters" line appeared. They refuse out loud now, like the two required fields.
+            Action::Scopes(_, _) | Action::CallbackPort(_, _) | Action::Token(_, _)
+                if !self.can_write(enabled) =>
+            {
+                self.warning = Some((
+                    "Read the Cloudflare metadata before editing: this page cannot write yet.",
+                    true,
+                ));
                 None
             }
             Action::Scopes(_, value) if self.can_write(enabled) => {
@@ -963,12 +984,8 @@ impl Controller {
             button("Connect Cloudflare")
                 .style(design::primary)
                 .on_press_maybe(
-                    (enabled
-                        && !self.pending()
-                        && self.connection.is_none()
-                        && !self.require_read
-                        && !self.auth.as_ref().is_some_and(|a| a.retry_blocked))
-                    .then_some(Action::Connect(ticket)),
+                    self.connect_available(enabled)
+                        .then_some(Action::Connect(ticket)),
                 )
         };
         if connected {
@@ -1063,7 +1080,15 @@ impl Controller {
                     &self.port,
                     editable,
                     move |value| Action::CallbackPort(ticket, value),
-                ));
+                ))
+                // Saving the client was reachable only from a test: the fields stayed editable
+                // while nothing could persist them, so a registered client could never be
+                // replaced. The label names exactly what it writes.
+                .push(
+                    button("Save OAuth client (ID, scopes, port)")
+                        .style(design::ghost)
+                        .on_press_maybe(editable.then_some(Action::SaveSetup(ticket))),
+                );
             let models = checkbox(self.models).label("Workers AI models");
             let browser = checkbox(self.browser).label("Browser Run");
             let free = checkbox(self.free)

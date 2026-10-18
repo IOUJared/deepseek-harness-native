@@ -8360,3 +8360,68 @@ capture: three are state decisions and two are copy.
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | tree | — | clean before the commit |
+
+### Round 369 — Cloudflare and plugins: four silent refusals and a write to the wrong namespace
+
+Two read-only audits closed the last unaudited settings surfaces. Most of what they found was
+correct — every Cloudflare `Effect`/`Outcome` executed, the cancel reservation and deferred-cancel
+fences held, plugin write fencing and receipt settlement held, and the plugin inventory is honestly
+informational — and both found controls that disagreed with their handlers.
+
+**Plugins.**
+
+- **The DeepSeek page could write the wrong namespace.** `namespace_fields` posted
+  `Begin { ticket, field }` with only a field *index*, and `Begin`/`Confirm` resolved that index
+  against the **selected** namespace. The DeepSeek page draws `llm-deepseek` with no selector, so on
+  any host that advertised another namespace first, confirming a field wrote that namespace's field
+  at the same index, at that namespace's revision. The draft now carries the namespace it was drawn
+  from (`namespace` on `Begin` and on `Draft`), and both `field()` and `Confirm` read it.
+- **The session-log row ignored the read-only gate.** Its action built the controller context with a
+  hard-coded `true` where every sibling passes the caller's flag, so this one control stayed live
+  while Settings was read-only — dispatching a write, or bouncing it and reporting a *save failure*
+  for a page that was simply read-only. It takes the flag now.
+
+**Cloudflare.**
+
+- **A saved OAuth client could never be changed.** `Action::SaveSetup` had no drawn control: the
+  client-ID, scopes and port fields stayed editable after the first connect while nothing could
+  persist them. The "Client and feature details" disclosure now carries **Save OAuth client (ID,
+  scopes, port)**, whose label states exactly what it writes.
+- **Connect could dead-end the page.** Its gate omitted the in-flight metadata read, so pressing it
+  during "Read metadata" bumped the serial and orphaned the reply; the settlement guard then left
+  `reading` set forever, and the page stayed read-only until Cancel. The gate is one predicate
+  (`connect_available`) that the view and the test both read.
+- **Three fields refused silently, and a refused paste claimed success.** Scopes, the callback port
+  and the token fell through the final wildcard when the page could not write, so only the app's own
+  "Pasted N characters" line appeared — written *before* the field applied anything. All three now
+  state the same reason the two required fields do, the app only claims a paste whose value actually
+  changed, the page's clipboard notice is cleared with the page instead of outliving it, and the
+  never-called `clipboard_ignored` helper is gone.
+
+Tests: `a_draft_is_resolved_against_the_namespace_its_control_was_drawn_from` (two namespaces, the
+foreign one first), `the_session_log_row_writes_only_when_the_app_is_writable`,
+`a_saved_oauth_client_can_be_replaced`, `connect_waits_for_an_in_flight_metadata_read`, and
+`a_read_only_scope_port_or_token_edit_states_the_reason`. No capture: four are state decisions and
+one is a control that had never been drawn.
+
+**Recorded, not fixed:** the Cloudflare page's Ctrl+C/Ctrl+V routing is unreachable for a focused
+tagged field, because pinned Iced 0.14's `text_input` implements and captures both keys itself (the
+app's subscription only sees unclaimed presses), which is why the Paste button remains the working
+path and why the module comments claiming Iced has no such bindings are wrong. Making the shortcut
+work needs a clipboard backend the app owns, not a routing fix. `NATIVE-UI-PARITY.md`'s claim that a
+focused field keeps Ctrl+V/Ctrl+C is corrected by this paragraph. The plugins audit's remaining two
+findings — a failed session-log read is invisible with no retry, and one non-confirmed save disables
+the row for the rest of the visit — are open items for the next round, with their anchors in that
+report.
+
+**Battery (round 369).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1285 passed**, 1 ignored |
+| app, default | **0** | **1278 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed (`--all-targets`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| app bin | — | **18** dead-code warnings (20 before this round; two dead items removed) |
+| tree | — | clean before the commit |

@@ -90,6 +90,7 @@ fn draft(c: &mut Controller) {
     assert!(
         c.handle(
             Action::Begin {
+                namespace: 0,
                 ticket: c.read_ticket(),
                 field: 0
             },
@@ -289,6 +290,7 @@ fn batched_edits_share_editor_lifetime_but_old_review_does_not() {
     let mut c = loaded();
     c.handle(
         Action::Begin {
+            namespace: 0,
             ticket: c.read_ticket(),
             field: 0,
         },
@@ -397,6 +399,7 @@ fn conflict_indeterminate_refusal_and_not_sent_never_retry_or_restore() {
         assert!(
             c.handle(
                 Action::Begin {
+                    namespace: 0,
                     ticket: c.read_ticket(),
                     field: 0
                 },
@@ -442,6 +445,7 @@ fn missing_values_unchanged_values_and_bad_indices_never_submit() {
     let mut c = loaded();
     c.handle(
         Action::Begin {
+            namespace: 0,
             ticket: c.read_ticket(),
             field: 0,
         },
@@ -453,6 +457,7 @@ fn missing_values_unchanged_values_and_bad_indices_never_submit() {
     c.snapshot.as_mut().unwrap().settings.namespaces[0].fields[0].value = None;
     c.handle(
         Action::Begin {
+            namespace: 0,
             ticket: c.read_ticket(),
             field: 0,
         },
@@ -516,6 +521,7 @@ fn custom_ui_namespace_and_policy_fields_never_edit_or_confirm() {
     assert!(!c.editable());
     c.handle(
         Action::Begin {
+            namespace: 0,
             ticket: c.read_ticket(),
             field: 0,
         },
@@ -524,6 +530,7 @@ fn custom_ui_namespace_and_policy_fields_never_edit_or_confirm() {
     assert!(c.draft.is_none());
     // Even a forged preexisting draft/review cannot bypass the namespace opt-out.
     c.draft = Some(Draft {
+        namespace: 0,
         field: 0,
         raw: Editor::new("PUBLIC_NEW".into()),
     });

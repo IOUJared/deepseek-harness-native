@@ -908,11 +908,15 @@ impl Settings {
             }
             return None;
         }
-        if let Action::SessionLog(enabled) = action {
-            let context = self.plugin_context(true);
+        if let Action::SessionLog(value) = action {
+            // The caller's read-only flag, like every sibling: a hard-coded `true` left this one
+            // control live while the rest of Settings refused to write (observations lost, a
+            // prompt in flight, an export pending, closing), or bounced the write as `NotSent`
+            // and reported a save failure for a page that was simply read-only.
+            let context = self.plugin_context(enabled);
             return self
                 .plugins
-                .set_preference("session-log-deepseek", "enabled", enabled, context)
+                .set_preference("session-log-deepseek", "enabled", value, context)
                 .map(Effect::Plugins);
         }
         if let Action::CodingView(enabled) = action {

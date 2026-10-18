@@ -94,10 +94,26 @@ pub fn draft_input(raw: String) -> Input {
 #[derive(Clone)]
 pub enum Action {
     Refresh(ReadTicket),
-    SelectNamespace { ticket: ReadTicket, index: usize },
-    Begin { ticket: ReadTicket, field: usize },
-    Text { ticket: DraftTicket, input: Input },
-    Bool { ticket: DraftTicket, value: bool },
+    SelectNamespace {
+        ticket: ReadTicket,
+        index: usize,
+    },
+    /// Begin editing one field of one namespace. The namespace travels with the action so the
+    /// draft is resolved against the namespace the control was drawn from, not whichever one
+    /// happens to be selected (the DeepSeek page draws `llm-deepseek` without a selector).
+    Begin {
+        ticket: ReadTicket,
+        namespace: usize,
+        field: usize,
+    },
+    Text {
+        ticket: DraftTicket,
+        input: Input,
+    },
+    Bool {
+        ticket: DraftTicket,
+        value: bool,
+    },
     Review(DraftTicket),
     CancelReview(DraftTicket),
     Confirm(DraftTicket),
@@ -108,6 +124,7 @@ pub enum Action {
 }
 crate::secret_input::redacted_debug!("NativePluginSettings"; Action, Effect, Snapshot, SaveOutcome);
 struct Draft {
+    namespace: usize,
     field: usize,
     raw: Editor,
 }
@@ -299,7 +316,14 @@ impl Controller {
         // Selecting a namespace advances the serial, so Begin must carry the ticket the
         // selection left behind, not the one read before it.
         let ticket = self.read_ticket();
-        self.handle(Action::Begin { ticket, field }, context);
+        self.handle(
+            Action::Begin {
+                ticket,
+                namespace,
+                field,
+            },
+            context,
+        );
         let draft = self.draft_ticket()?;
         self.handle(
             Action::Bool {
@@ -367,13 +391,14 @@ impl Controller {
         self.open && c.visible && c.enabled && c.epoch == self.epoch && self.epoch != 0
     }
     fn field(&self) -> Option<(&SettingsNamespaceView, &SettingsField)> {
+        let draft = self.draft.as_ref()?;
         let ns = self
             .snapshot
             .as_ref()?
             .settings
             .namespaces
-            .get(self.selected?)?;
-        let field = ns.fields.get(self.draft.as_ref()?.field)?;
+            .get(draft.namespace)?;
+        let field = ns.fields.get(draft.field)?;
         Some((ns, field))
     }
     pub fn draft_ticket(&self) -> Option<DraftTicket> {
@@ -472,15 +497,12 @@ impl Controller {
                     self.serial += 1;
                 }
             }
-            Action::Begin { ticket, field }
-                if ticket == self.read_ticket() && self.editable() && self.draft.is_none() =>
-            {
-                let ns = self
-                    .snapshot
-                    .as_ref()?
-                    .settings
-                    .namespaces
-                    .get(self.selected?)?;
+            Action::Begin {
+                ticket,
+                namespace,
+                field,
+            } if ticket == self.read_ticket() && self.editable() && self.draft.is_none() => {
+                let ns = self.snapshot.as_ref()?.settings.namespaces.get(namespace)?;
                 let entry = ns.fields.get(field)?;
                 if !safe_field(entry) {
                     self.notice = Notice::Invalid;
@@ -498,6 +520,7 @@ impl Controller {
                 };
                 self.clear_draft();
                 self.draft = Some(Draft {
+                    namespace,
                     field,
                     raw: Editor::new(raw),
                 });
@@ -540,7 +563,7 @@ impl Controller {
                     panel: self.panel,
                     serial: self.serial,
                     description: self.description,
-                    namespace: self.selected?,
+                    namespace: self.draft.as_ref()?.namespace,
                     expected_revision: namespace.revision,
                     draft_revision: self.draft_revision,
                 };
@@ -780,7 +803,9 @@ impl Controller {
                 MUTED,
             ));
         }
-        body = body.push(self.namespace_fields(ns, allowed));
+        // This page draws the selected namespace, so its index is the selected one.
+        let index = self.selected.unwrap_or_default();
+        body = body.push(self.namespace_fields(ns, index, allowed));
         body.into()
     }
     /// One namespace's supported primitive fields, shared by the plugin panel
@@ -788,6 +813,7 @@ impl Controller {
     pub fn namespace_fields(
         &self,
         ns: &SettingsNamespaceView,
+        namespace: usize,
         allowed: bool,
     ) -> Column<'_, Action> {
         let mut body = column![].spacing(16);
@@ -879,6 +905,7 @@ impl Controller {
                                     && field.value.as_ref().is_some_and(|v| valid(field, v)))
                                 .then_some(Action::Begin {
                                     ticket: self.read_ticket(),
+                                    namespace,
                                     field: index,
                                 }),
                             ),
@@ -906,7 +933,8 @@ impl Controller {
             .settings
             .namespaces
             .iter()
-            .find(|row| row.ns == ns)?;
+            .position(|row| row.ns == ns)?;
+        let found = self.snapshot.as_ref()?.settings.namespaces.get(found)?;
         let allowed = self.allowed(context);
         let mut body = column![label(short(&found.ns), TEXT).size(17)].spacing(12);
         if self.pending() {
@@ -930,7 +958,18 @@ impl Controller {
                 MUTED,
             ));
         }
-        body = body.push(self.namespace_fields(found, allowed));
+        body = body.push(
+            self.namespace_fields(
+                found,
+                self.snapshot
+                    .as_ref()?
+                    .settings
+                    .namespaces
+                    .iter()
+                    .position(|row| row.ns == ns)?,
+                allowed,
+            ),
+        );
         body = body.push(label(
             self.notice.text(),
             if matches!(

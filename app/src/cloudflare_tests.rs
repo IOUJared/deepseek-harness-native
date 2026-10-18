@@ -600,3 +600,66 @@ fn disconnect_retires_both_start_and_reserved_cancel_and_old_epoch_settlement() 
     assert!(c.auth.is_none());
     assert!(!c.pending());
 }
+
+/// A registered OAuth client can be replaced: the fields stay editable after the first connect,
+/// so the control that persists them has to exist and write exactly them.
+#[test]
+fn a_saved_oauth_client_can_be_replaced() {
+    let mut c = oauth_ready();
+    c.client_id = "PUBLIC-new-client".into();
+    c.scopes = "PUBLIC:other".into();
+    c.port = "8978".into();
+    let Some(Effect::Setup { setup, .. }) = c.handle(Action::SaveSetup(c.ticket()), 1, true) else {
+        panic!("a typed client is saved")
+    };
+    assert_eq!(setup.client_id, "PUBLIC-new-client");
+    assert_eq!(setup.scopes, vec!["PUBLIC:other".to_owned()]);
+    assert_eq!(setup.callback_port, 8978);
+}
+
+/// Connect is not offered while the metadata read is in flight: the read owns the serial and its
+/// reply would be dropped, leaving the page read-only until Cancel.
+#[test]
+fn connect_waits_for_an_in_flight_metadata_read() {
+    let mut c = ready();
+    assert!(c.connect_available(true));
+    let _ = c.handle(Action::Read(c.ticket()), 1, true);
+    assert!(c.reading.is_some());
+    assert!(!c.connect_available(true));
+    // The refused press changes nothing, so the read can still settle.
+    assert!(c.handle(Action::Connect(c.ticket()), 1, true).is_none());
+    assert!(c.reading.is_some());
+}
+
+/// A field the page cannot write refuses out loud instead of falling through silently. The
+/// scopes/port/token arms used to return nothing at all, so only a paste's own success line was
+/// on screen.
+#[test]
+fn a_read_only_scope_port_or_token_edit_states_the_reason() {
+    let mut c = Controller::default();
+    c.enter(1);
+    let ticket = c.ticket();
+    assert!(
+        c.handle(Action::Scopes(ticket, "PUBLIC:scope".into()), 1, true)
+            .is_none()
+    );
+    let (reason, danger) = c.warning.clone().expect("a refusal says why");
+    assert!(reason.contains("cannot write yet"), "{reason}");
+    assert!(danger);
+    c.warning = None;
+    assert!(
+        c.handle(Action::CallbackPort(ticket, "8979".into()), 1, true)
+            .is_none()
+    );
+    assert!(c.warning.is_some());
+    c.warning = None;
+    assert!(
+        c.handle(
+            Action::Token(ticket, key_input("PUBLIC_FAKE_TOKEN".into())),
+            1,
+            true
+        )
+        .is_none()
+    );
+    assert!(c.warning.is_some());
+}
