@@ -8064,3 +8064,61 @@ does not read — it draws the argument-derived card on the call row instead.
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/163-tool-diff.png`, `164-tool-diff-folded.png`, both `status: passed` |
 | tree | — | clean before the commit |
+
+### Round 363 — the sidebar and workspace browser: four controls and one answer
+
+A read-only audit of the session sidebar and workspace browser found every `sidebar_ui::Action` arm
+present and the per-row gates consistent, then four states where a drawn control and its handler
+disagreed. Each is its own commit.
+
+- **"Hide folders" never hid them.** The button sent `Message::BrowseWorkspace(None)`, which means
+  "list the Host home": the press re-listed a different directory and left the panel drawn, and only
+  a *failed* listing closed it — which is why it looked correct in the smoke path, where every
+  directory read fails. It now sends its own `HideFolderBrowser` and clears the listing, and the
+  folder-browser test asserts both the closed panel and that no read was started.
+- **The compact navigation sheet never drew the search answer.** The sheet mounts the same search
+  box, and the box filtered titles and queried the Host, but `search_matches()` — CONTENT MATCHES,
+  "No content matches", the red transport error, "Search query is too long" — was composed only in
+  the expanded sidebar, whose compact branch returns before it. The sheet now composes the same
+  region. The same round fixed the fence behind it: `Message::Filter` bumped the search serial
+  *after* its empty and over-long early returns, so a page already in flight landed after the box was
+  emptied and was drawn with the new (empty) query stamped on it. Every filter change now retires
+  the pages in flight.
+- **A new conversation was offered where its press is discarded.** The command fence drops
+  `Message::NewSession` while observations are lost or a submission is in flight, and the three
+  controls that draw it gated on `can_create()` alone. They now gate on the same two conditions the
+  fence applies, which is what the row select and the `⋯` gate already did.
+- **A workspace destination stayed pressable for the group the conversation already occupied.** The
+  panel compares the *stored* location (often still `Original`) while it names the group through the
+  roster, so a conversation in workspace W showed "SIDEBAR WORKSPACE · W" and a pressable W row
+  whose press only moved the Current marker. Both sides now resolve through one `destination_group`,
+  so a destination is current exactly when choosing it leaves the conversation in the group it is
+  drawn in.
+
+Evidence: `shots/165-sheet-search.png` (DP-2 alongside, `status: passed`) is the compact sheet with
+`CONTENT MATCHES · PUBLIC` and both matched sessions — the region that did not exist before. The
+other three have no capture: one is a state map, one a fence, and one a control's disabled form.
+
+Tests: `the_folder_browser_lists_and_uses_a_directory` (extended),
+`content_search_is_fenced_and_stale_pages_are_ignored` (extended with the cleared and over-long
+cases), `the_compact_navigation_sheet_has_the_search_answer_to_draw`,
+`new_conversation_is_not_offered_where_its_press_is_discarded`, and
+`every_destination_the_store_would_refuse_is_drawn_as_the_current_group` (extended with the
+roster-group case). Fixture: the `navigation-search-tiny` preset seeds the sheet's own answer.
+
+**Doc claim corrected:** the coverage table's sidebar row said "sessions, search, … navigation
+sheet | cloned". It is cloned now; before this round the sheet's search *answer* was not drawn, and
+the table is the only place that claimed it.
+
+**Battery (round 363).** All four commits are the one tree measured here.
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1273 passed**, 1 ignored |
+| app, default | **0** | **1266 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| DP-2 capture | — | `shots/165-sheet-search.png`, `status: passed` |
+| tree | — | clean before the docs commit |
