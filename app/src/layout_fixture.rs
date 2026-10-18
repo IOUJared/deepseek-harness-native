@@ -56,6 +56,7 @@ pub const PRESETS: &[&str] = &[
     "model-metadata-expanded",
     "working-conversation",
     "working-queue",
+    "queued-idle",
     "turn-trigger",
     "token-usage",
     "goal-bar",
@@ -215,6 +216,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "model-metadata-expanded"
         | "working-conversation"
         | "working-queue"
+        | "queued-idle"
         | "turn-trigger"
         | "token-usage"
         | "goal-bar"
@@ -1158,7 +1160,7 @@ pub fn build(
             "uncachedInputTokens":6000,"outputTokens":345,
             "cacheReadTokens":6000,"cacheWriteTokens":0
         }}),
-        "working-queue" => json!({"inbox":{"next-turn":[
+        "queued-idle" | "working-queue" => json!({"inbox":{"next-turn":[
             {"id":"PUBLIC-queued-one","source":{"kind":"user"},
                 "content":[{"type":"text","text":"PUBLIC queued question about the running turn."}]},
             {"id":"PUBLIC-queued-two","source":{"kind":"user"},

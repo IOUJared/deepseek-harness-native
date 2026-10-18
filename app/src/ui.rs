@@ -7492,6 +7492,15 @@ impl App {
         self.busy_enter = value;
     }
 
+    /// Fixture-only: press the real Steer control on a session that is not running, so the
+    /// handler's refusal and the strip that carries it are capturable.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn show_queue_steer_refusal(&mut self) {
+        let Some(item) = self.transcript.queued().first().map(|item| item.id.clone()) else {
+            return;
+        };
+        let _ = self.update(Message::QueueSteer(item));
+    }
     /// Fixture-only: deliver the production queue-refusal event, so the strip that keeps the
     /// explanation on screen after the last item leaves is capturable without a Host.
     #[cfg(feature = "public-layout-fixture")]
@@ -10417,11 +10426,6 @@ impl App {
                 .width(Length::Fill),
             );
         }
-        let running = self
-            .selected
-            .as_ref()
-            .and_then(|id| self.sessions.get(id))
-            .is_some_and(|summary| summary.running);
         let visible = self.queue_edit.is_some()
             || self.queue_remove_armed.is_some()
             || self.queue_busy.is_some()
@@ -10505,8 +10509,12 @@ impl App {
                 let steer_action: Element<'_, Message> = if busy {
                     Space::new().width(0).into()
                 } else {
+                    // Steering only exists while the agent is running. The reference disables the
+                    // control with a tooltip; native has no tooltip, so the press stays available
+                    // and the handler names the reason in the strip — a drawn control that posts
+                    // nothing was the bug this replaces.
                     button(label("Steer", MUTED).size(10))
-                        .on_press_maybe(running.then_some(Message::QueueSteer(item.id.clone())))
+                        .on_press(Message::QueueSteer(item.id.clone()))
                         .style(design::ghost)
                         .padding([2, 6])
                         .into()
@@ -18638,6 +18646,42 @@ mod tests {
         assert!(app.goal_busy.is_none());
         assert_eq!(app.goal_error.as_deref(), Some("Goal: remote-failure"));
         assert_eq!(GoalPhase::Active, GoalPhase::Active);
+    }
+    #[test]
+    fn steering_on_an_idle_session_explains_itself_instead_of_doing_nothing() {
+        let (mut app, mut receiver) = managed_app();
+        // Two queued messages, and the selected session is not running.
+        app.transcript = reducer::Transcript::new(0);
+        app.transcript
+            .apply(
+                0,
+                serde_json::from_value(serde_json::json!({
+                    "type": "snapshot",
+                    "records": [],
+                    "cursor": 3,
+                    "hasMore": false,
+                    "header": {"version": 4, "id": "public-managed-session", "createdAt": 1000, "isSeeded": false},
+                    "projections": {"asOfSeq": 3, "values": {"inbox": {"next-turn": [
+                        {"id": "PUBLIC-queued-one", "source": {"kind": "user"},
+                         "content": [{"type": "text", "text": "PUBLIC queued question."}]}
+                    ]}}},
+                    "assistantStream": {"revision": 0}
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        assert!(!app.transcript.queued().is_empty());
+        let _ = app.update(Message::QueueSteer("PUBLIC-queued-one".into()));
+        assert_eq!(
+            app.queue_error.as_deref(),
+            Some("Steering is available only while the agent is running")
+        );
+        assert!(
+            receiver.try_recv().is_err(),
+            "an idle session sends no steer command"
+        );
+        // The refusal keeps the strip, so the reason is actually drawn.
+        assert!(app.queue_dock().is_some());
     }
     #[test]
     fn one_full_pane_panel_owns_the_body_at_a_time() {

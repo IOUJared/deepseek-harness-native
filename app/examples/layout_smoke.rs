@@ -182,6 +182,8 @@ struct Options {
     /// Run the production preference write with no local home, so the settings footer's
     /// unsaved-preference line is captured.
     preference_unsaved: bool,
+    /// Press the real Steer control on an idle session, so its refusal is captured.
+    queue_steer_refused: bool,
     /// Deliver a queue refusal with nothing queued, so the strip that keeps the explanation is
     /// captured.
     queue_refused: bool,
@@ -327,6 +329,7 @@ fn options() -> Result<Options, &'static str> {
             "--preference-unsaved",
             "--queue-expanded",
             "--queue-refused",
+            "--queue-steer-refused",
             "--trigger-expanded",
             "--turn-usage-expanded",
             "--completion-unread",
@@ -463,6 +466,10 @@ fn options() -> Result<Options, &'static str> {
         },
         busy_enter: values.remove("--busy-enter"),
         preference_unsaved: match values.remove("--preference-unsaved") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        queue_steer_refused: match values.remove("--queue-steer-refused") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -924,6 +931,9 @@ impl Fixture {
         }
         if options.queue_refused {
             app.show_queue_refusal();
+        }
+        if options.queue_steer_refused {
+            app.show_queue_steer_refusal();
         }
         if options.trigger_expanded {
             app.expand_trigger(0);

@@ -7268,3 +7268,39 @@ must not erase. One model test, `a_detached_follow_refuses_a_write_by_name_and_k
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+### Round 341 — Steer on an idle session explains itself
+
+**The composer audit's highest finding.** The queue dock drew "Steer" on every queued row but
+posted nothing while the session was not running (`ui.rs:10452-10453`
+`running.then_some(Message::QueueSteer(..))`), so the handler's refusal — "Steering is available
+only while the agent is running" — could never fire from the UI. That made the control inert and
+round 280's claim ("a refused press explains why") untrue in practice.
+
+The dock now always posts the press. The handler already refuses an idle session with that exact
+sentence, and the strip draws it in danger ink — the same pattern every other refused queue
+mutation uses. No new notice, no new state.
+
+One App test, `steering_on_an_idle_session_explains_itself_instead_of_doing_nothing`, applies a
+snapshot with one queued item on a non-running session, presses the real `Message::QueueSteer`, and
+asserts the refusal text, no command, and that the strip is still drawn. The capture uses the new
+`queued-idle` fixture preset, which carries the same queued items with `running: false`, and the
+`--queue-steer-refused true` flag, which dispatches the production message.
+
+**Capture.** `shots/154-queue-steer-refusal.png` (DP-2 alongside, `status: passed`): two queued
+rows with Edit/Steer/Remove and the red refusal beneath them.
+
+**Battery (round 341).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1239 passed**, 1 ignored |
+| app, default | **0** | **1232 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 88 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/154-queue-steer-refusal.png`, `status: passed` |
+| tree | — | clean before the commit |
