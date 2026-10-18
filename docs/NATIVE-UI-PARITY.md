@@ -8174,3 +8174,32 @@ from the fixed 24px line box, so nothing in the measurement model changed.
 | app, default | **0** | **1266 passed**, 1 ignored |
 | DP-2 capture | — | `shots/158-…`, `163-…`, `164-…` re-captured, all `status: passed` |
 | tree | — | clean before the commit |
+
+### Round 365 — a read result's body is its content, not its envelope
+
+The `read` tool's result is stored as an envelope — `<path>…</path>`, `<type>file</type>`, a
+`<content>` body — and the reference parses it into its `ReadBlock`
+(`read-card-model.ts:124-127`). Native kept the whole string as the expanded body, so pressing a
+read result showed the protocol markup around the file's text. The body now drops the envelope
+(`ui::read_body`) and keeps the content; a text that is not exactly that envelope — truncated,
+another tool's, or already plain — is left untouched, so nothing is lost when the shape differs.
+
+The fixture now records the real envelope shape in its read result (it previously stored a plain
+sentence), which is both more faithful and what makes the behaviour visible:
+`shots/166-tool-read-body.png` (DP-2 alongside, `status: passed`) shows the expanded read result as
+`PUBLIC note line one` / `PUBLIC note line two`, with no `<path>` or `<content>` in sight.
+
+This is not the reference's card: there are still no line numbers and no "Showing N of M lines",
+because those come from the result's opaque `meta`, which the compact summary deliberately keeps
+private (open item 8 records that difference and the slice that would close it).
+
+**Battery (round 365).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1274 passed**, 1 ignored |
+| app, default | **0** | **1267 passed**, 1 ignored |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| format debt | **0** | 0 files, 0 hunks |
+| DP-2 capture | — | `shots/166-tool-read-body.png`, `status: passed` |
+| tree | — | clean before the commit |

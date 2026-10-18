@@ -138,6 +138,7 @@ pub const PRESETS: &[&str] = &[
     "tool-activity-edit-error",
     "tool-activity-diff",
     "tool-activity-diff-long",
+    "tool-activity-read",
     "context-injects",
     "assistant-tool-call",
     "assistant-tool-call-expanded",
@@ -205,7 +206,8 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "tool-activity-attachment"
         | "tool-activity-edit-error"
         | "tool-activity-diff"
-        | "tool-activity-diff-long" => Some((Size::new(1040.0, 1040.0), 1.0)),
+        | "tool-activity-diff-long"
+        | "tool-activity-read" => Some((Size::new(1040.0, 1040.0), 1.0)),
         "context-injects" | "context-injects-trajectory" => Some((Size::new(1040.0, 900.0), 1.0)),
         "assistant-tool-call" | "assistant-tool-call-expanded" => {
             Some((Size::new(1040.0, 760.0), 1.0))
@@ -665,6 +667,10 @@ fn public_tool_records_with(attachment: Option<&str>) -> Vec<Value> {
             "role":"tool", "toolCallId":id, "source":{"kind":"tool", "callId":id},
             "isError":failed, "content":[{"type":"text", "text":if failed {
                 "PUBLIC synthetic error-marker fixture. No bash process ran and no tool outcome is claimed."
+            } else if name == "functions.read" {
+                // The read tool's own result envelope, the shape a real session stores and the
+                // reference parses into its read card (`read-card-model.ts:124-127`).
+                "<path>/PUBLIC-layout-fixture/workspace/src/PUBLIC-note.txt</path>\n<type>file</type>\n<content>\nPUBLIC note line one\nPUBLIC note line two\n</content>"
             } else { "PUBLIC synthetic result body for full Details. No tool execution or success is claimed." }}]
         }})));
     }
@@ -1902,6 +1908,25 @@ pub fn build(
                 key: 3,
             }));
             assert!(app.activity_expanded.contains(&3));
+        }
+        "tool-activity-read" => {
+            // The read result expands to its content lines, without the protocol envelope the
+            // session stores around them.
+            let row = app.transcript.rows().get(2).cloned();
+            let body = row
+                .as_ref()
+                .map(super::activity_body_source)
+                .unwrap_or_default();
+            assert!(
+                !body.contains("<path>") && !body.contains("<content>"),
+                "{body}"
+            );
+            assert!(body.contains("PUBLIC note line two"), "{body}");
+            drop(app.update(Message::ToggleActivity {
+                generation: app.generation,
+                key: 2,
+            }));
+            assert!(app.activity_expanded.contains(&2));
         }
         "tool-activity-expanded" => {
             // The recorded Bash call expands inside the conversation; the detail

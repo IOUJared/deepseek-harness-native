@@ -16832,8 +16832,21 @@ fn activity_body_source(row: &DisplayRow) -> &str {
     if row.role == "Tool call" {
         text.split_once('\n').map_or("", |(_, body)| body.trim())
     } else {
-        text
+        read_body(text).unwrap_or(text)
     }
+}
+/// A `read` result's text body without its envelope. The reference parses the same envelope
+/// into its read card (`read-card-model.ts:124-127`), so `<path>` and `<content>` are protocol,
+/// not content; native keeps the body and drops the markup. A text that is not exactly that
+/// envelope — truncated, another tool's, or already plain — is returned unchanged by the caller.
+fn read_body(text: &str) -> Option<&str> {
+    let rest = text.strip_prefix("<path>")?;
+    let (_, rest) = rest.split_once("</path>\n")?;
+    let body = rest
+        .strip_prefix("<type>file</type>\n<content>\n")
+        .or_else(|| rest.strip_prefix("<type>file</type>\n<content>"))?;
+    body.strip_suffix("\n</content>")
+        .or_else(|| body.strip_suffix("</content>"))
 }
 /// True for catalog rows the backend reports for its DeepSeek route. Matched
 /// case-insensitively so a renamed route or an id-only row still appears.
@@ -19884,6 +19897,42 @@ mod tests {
         // Switching back cannot find the bar stuck in a write that already settled.
         let _ = app.update(Message::Select(first));
         assert!(app.goal_busy.is_none());
+    }
+    /// A `read` result's body is its content, not the envelope that carries it.
+    #[test]
+    fn a_read_result_body_drops_the_envelope_and_keeps_other_text_whole() {
+        let envelope = "<path>/PUBLIC/a.rs</path>\n<type>file</type>\n<content>\nlet a = 1;\nlet b = 2;\n</content>";
+        assert_eq!(read_body(envelope), Some("let a = 1;\nlet b = 2;"));
+        // No trailing newline before the close tag, and an empty body.
+        assert_eq!(
+            read_body("<path>/PUBLIC/a.rs</path>\n<type>file</type>\n<content>\n</content>"),
+            Some("")
+        );
+        // Anything that is not exactly the envelope is left to the caller unchanged.
+        assert_eq!(read_body("PUBLIC plain output"), None);
+        assert_eq!(
+            read_body("<path>/PUBLIC/a.rs</path>\nPUBLIC truncated"),
+            None
+        );
+        assert_eq!(
+            read_body("<path>/PUBLIC/a.rs</path>\n<type>image</type>\n<content>\nx\n</content>"),
+            None
+        );
+        let row = DisplayRow {
+            key: 1,
+            role: "Tool result".into(),
+            kind: "tool/result".into(),
+            chat: true,
+            text: envelope.into(),
+            files: Vec::new(),
+            references: Vec::new(),
+            turn: None,
+            message_id: None,
+            trigger: None,
+            time: 0,
+            surface: false,
+        };
+        assert_eq!(activity_body_source(&row), "let a = 1;\nlet b = 2;");
     }
     /// The compact navigation sheet draws the same search answer as the expanded sidebar: its
     /// box filtered titles and queried the Host while every result was composed into a branch
