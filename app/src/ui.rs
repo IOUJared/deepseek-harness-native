@@ -5950,6 +5950,54 @@ impl App {
                     }
                 }
             },
+            // The Host's projection pushes. Every value is computed on the Host and held
+            // whole (`client/sessions/projection-store.ts:5-8`); this side only decides which
+            // owner reads it. Until round 357 no control stream was opened, so a goal
+            // mutation, a retitle or any other projection stayed as the opening snapshot
+            // left it until a reload.
+            Event::Control(frame) => match frame {
+                dsh_native_transport::dto::ControlFrame::Projection {
+                    session_id,
+                    key,
+                    value,
+                    seq,
+                } => {
+                    let seq = i64::try_from(seq).unwrap_or(i64::MAX);
+                    self.apply_control_projection(&session_id, &key, value, seq);
+                }
+                dsh_native_transport::dto::ControlFrame::Baseline { value } => {
+                    for (session, baseline) in value.projections {
+                        // The baseline is a complete Host cut for that session, so the roster
+                        // row takes it whole unless a newer sequenced frame already landed.
+                        if let Some(summary) = self.sessions.get_mut(&session) {
+                            let newer = summary.projections.as_ref().is_some_and(|hints| {
+                                matches!(
+                                    hints.kind,
+                                    dsh_native_transport::dto::ProjectionKind::Sequenced
+                                ) && hints.as_of_seq > baseline.as_of_seq
+                            });
+                            if !newer {
+                                summary.projections =
+                                    Some(dsh_native_transport::dto::ProjectionHints {
+                                        kind: dsh_native_transport::dto::ProjectionKind::Sequenced,
+                                        as_of_seq: baseline.as_of_seq,
+                                        values: baseline.values.clone(),
+                                    });
+                            }
+                        }
+                        if self.selected.as_ref() == Some(&session) {
+                            for (key, value) in &baseline.values {
+                                self.apply_control_projection(
+                                    &session,
+                                    key,
+                                    value.clone(),
+                                    baseline.as_of_seq,
+                                );
+                            }
+                        }
+                    }
+                }
+            },
             Event::Root {
                 frame,
                 decision_key,
@@ -10286,6 +10334,52 @@ impl App {
             line + summary.files.len().min(20) as f32 * (line + 4.0) + 6.0
         } else {
             line
+        }
+    }
+    /// Apply one Host-computed projection to every owner that holds its session: the
+    /// roster row the sidebar reads, and the selected session's retained window. A push at
+    /// or below the seq a value already carries loses, so a replayed frame cannot regress
+    /// one the snapshot or a newer frame set.
+    fn apply_control_projection(
+        &mut self,
+        session: &SessionId,
+        key: &str,
+        value: serde_json::Value,
+        seq: i64,
+    ) {
+        if let Some(summary) = self.sessions.get_mut(session) {
+            let hints = summary.projections.get_or_insert_with(|| {
+                dsh_native_transport::dto::ProjectionHints {
+                    kind: dsh_native_transport::dto::ProjectionKind::Sequenced,
+                    as_of_seq: seq,
+                    values: Default::default(),
+                }
+            });
+            // A cached row is the session list's persisted checkpoint; it yields to every
+            // sequenced write (`projection-store.ts:70-80`).
+            let sequenced = matches!(
+                hints.kind,
+                dsh_native_transport::dto::ProjectionKind::Sequenced
+            );
+            if !sequenced || seq >= hints.as_of_seq {
+                hints.kind = dsh_native_transport::dto::ProjectionKind::Sequenced;
+                hints.as_of_seq = seq;
+                hints.values.insert(key.to_owned(), value.clone());
+            }
+        }
+        if self.selected.as_ref() != Some(session) {
+            return;
+        }
+        let before = self.goal().map(|goal| goal.reference.id);
+        if !self.transcript.apply_projection(key, value, seq) {
+            return;
+        }
+        // A new goal identity invalidates the bar's local state: without the reset a
+        // surviving draft's Enter would write over the new goal (`GoalBar.tsx:50-57`).
+        if key == "goal" && before != self.goal().map(|goal| goal.reference.id) {
+            self.goal_edit = None;
+            self.goal_clear = None;
+            self.goal_error = None;
         }
     }
     /// The selected session's current goal, from its own `goal` projection.

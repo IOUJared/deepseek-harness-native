@@ -7825,3 +7825,60 @@ is drawn; the menu is 200.0 × 117.6 at x 334.3.
 | app, default | **0** | **1251 passed**, 1 ignored |
 | DP-2 capture | — | `shots/159-permission-chip.png`, `160-permission-menu.png`, `161-permission-menu-catalog.png`, all `status: passed` |
 | tree | — | clean before the commit |
+
+### Round 357 — the control stream is open, so a goal mutation reaches the bar
+
+A read-only audit of goals and todos found the subsystem's biggest gap on the *transport* side: the
+Host computed projections, the client had a typed `ControlFrame`, a `mux.control()` opener and a
+`session_projections` read — and the worker opened neither. `Event::GoalUpdated` cleared the write's
+busy flag and never the projection, and projections are replaced only by a follow snapshot, which is
+read once when a session opens. So pressing **Pause** on a goal succeeded, the bar kept drawing
+"Ongoing Goal" with the same Pause button, and the next press failed with an error line; a retitled
+session kept its old title in the sidebar until a reload. `shots/134-goal-inactive.png` had been
+produced by the fixture's direct activation hook, so it could not catch this.
+
+What changed:
+
+- **The worker opens `mux.control()`** beside the root and workspace streams, supervises it in the
+  same select, reopens it on `RejoinObservations`, cancels it on shutdown, and treats its loss like
+  the other observations' — `ObservationsLost`, not a silent stop. The stream is the only channel
+  the Host pushes projections on (`packages/api/session-controller/src/control.ts:23-33`;
+  `projection-store.ts:5-8`: "the host is the only computation site").
+- **`Event::Control` reaches both owners.** The selected session's retained window takes a
+  `Projection` frame; every session's roster row takes it too, because the sidebar's title is a
+  projection as well. A `Baseline` replaces a roster row whole (unless a newer sequenced frame
+  already landed) and merges into the selected window key by key.
+- **Higher seq wins, per key.** The window now records the seq each projection key is consistent
+  with; the snapshot seeds every key at its own `asOfSeq`, and a frame at or below the held seq
+  loses, so a replayed or stale frame cannot regress a value the snapshot or a newer frame set
+  (`projection-store.ts:86-95`). A cached roster row yields to every sequenced write
+  (`:70-80`).
+- **A new goal identity resets the bar's local state** — the inline draft, the armed clear and the
+  error line — which is the reference's own rule (`GoalBar.tsx:50-57`: a surviving draft's Enter
+  would otherwise write over the NEW goal). The same identity keeps the draft through an ordinary
+  phase update.
+
+Evidence split, stated exactly: the transport opener is covered by the Node-host fixture
+(`transport/tests/transport.rs:1388` asserts `mux.control()` yields `ControlFrame::Baseline`); the
+Application hop is covered by
+`transcript_projection_tests::a_pushed_projection_reaches_the_goal_and_the_roster_with_higher_seq_wins`
+(last-writer-wins, the roster conversion, the baseline cut, and the draft surviving the same
+identity while a new one clears it). The worker's open-and-publish hop has no simulated test — it is
+the same shape as the root and workspace streams — so a live run is what would settle it; no capture
+can, because the fixture seeds projections directly.
+
+Found in the same audit and **not yet fixed**, in this order: the bar's action set keys on `phase`
+alone, so an inactive goal offers Pause and never Resume and a blocked goal offers Resume
+(`GoalBar.tsx:131-154`); the inline editor silently stops accepting input at 4096 bytes; "Inactive
+Goal" is unreachable for a goal disarmed while another session was selected; and the
+`Plan · d/t · next` chip is a branch that cannot render.
+
+**Battery (round 357).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1259 passed**, 1 ignored |
+| app, default | **0** | **1252 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| tree | — | clean before the commit |

@@ -122,6 +122,11 @@ pub struct Transcript {
     /// keeping the two together is what stops a stale projection describing a
     /// newer window.
     projections: BTreeMap<String, serde_json::Value>,
+    /// The log seq each retained projection key is consistent with. A push frame
+    /// wins only above the seq already held, so a replayed or stale frame cannot
+    /// regress a value (`client/sessions/projection-store.ts:86-95`: sequenced rows
+    /// merge under higher-seq-wins).
+    projection_seqs: BTreeMap<String, i64>,
     retained_bytes: usize,
     rows: Vec<DisplayRow>,
     attempt: Option<Attempt>,
@@ -142,6 +147,7 @@ impl Transcript {
             more: false,
             records: BTreeMap::new(),
             projections: BTreeMap::new(),
+            projection_seqs: BTreeMap::new(),
             retained_bytes: 0,
             rows: vec![],
             attempt: None,
@@ -295,6 +301,21 @@ impl Transcript {
     }
     pub fn projections(&self) -> &BTreeMap<String, serde_json::Value> {
         &self.projections
+    }
+    /// Apply one Host-computed projection push to the retained window. Returns
+    /// whether the value changed: a frame at or below the seq already held loses,
+    /// so a replayed frame cannot regress one the snapshot or a newer frame set.
+    pub fn apply_projection(&mut self, key: &str, value: serde_json::Value, seq: i64) -> bool {
+        if self
+            .projection_seqs
+            .get(key)
+            .is_some_and(|held| seq <= *held)
+        {
+            return false;
+        }
+        self.projections.insert(key.to_owned(), value);
+        self.projection_seqs.insert(key.to_owned(), seq);
+        true
     }
     /// Whether the retained stream is broken. Read-only: the app announces it but
     /// never repairs it here.
@@ -506,8 +527,15 @@ impl Transcript {
                 self.records.clear();
                 self.retained_bytes = 0;
                 // A new snapshot replaces the window, so its projections replace
-                // the previous ones rather than being merged onto them.
+                // the previous ones rather than being merged onto them. Every value
+                // is consistent with the baseline's own cut, which is the seq a
+                // later push has to beat.
                 self.projections = projections.values.clone();
+                self.projection_seqs = projections
+                    .values
+                    .keys()
+                    .map(|key| (key.clone(), projections.as_of_seq))
+                    .collect();
                 self.rows.clear();
                 self.attempt = None;
                 self.retained = None;

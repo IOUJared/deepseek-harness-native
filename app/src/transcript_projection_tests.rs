@@ -208,3 +208,105 @@ fn canceled_future_and_malformed_inbox_records_are_visible_in_both_modes() {
     assert!(app.transcript.safe_to_send());
     assert!(queue.try_recv().is_err());
 }
+
+#[test]
+fn a_pushed_projection_reaches_the_goal_and_the_roster_with_higher_seq_wins() {
+    use dsh_native_transport::dto::{ControlFrame, ProjectionHints, ProjectionKind};
+    let (mut app, _queue) = app(vec![user(0)]);
+    let session: SessionId = serde_json::from_value(json!("PUBLIC-projection")).unwrap();
+    let summary = serde_json::from_value(json!({
+        "agentAvailable": true, "sessionId": "PUBLIC-projection", "updatedAt": 1,
+        "running": false, "blank": false,
+        "projections": {"kind": "cached", "asOfSeq": -1, "values": {"title": "PUBLIC cached title"}}
+    }))
+    .unwrap();
+    app.sessions.insert(session.clone(), summary);
+    let goal = |id: &str, phase: &str| {
+        json!({"goal": {"id": id, "revision": 1, "objective": "PUBLIC objective",
+            "phase": phase, "maxGoalRounds": 8},
+            "roundsStarted": 1, "createdAt": 1000, "updatedAt": 1000})
+    };
+    let push = |seq: u64, value: Value| ControlFrame::Projection {
+        session_id: session.clone(),
+        key: "goal".to_owned(),
+        value,
+        seq,
+    };
+
+    // A frame lands on the bar's own projection, above the snapshot's cut of 0.
+    drop(app.update(Message::Worker(Event::Control(push(
+        5,
+        goal("PUBLIC-goal-a", "active"),
+    )))));
+    assert_eq!(
+        app.goal().unwrap().reference.id,
+        "PUBLIC-goal-a",
+        "the pushed value is what the bar draws"
+    );
+    // The roster row takes the same value and is no longer a cached checkpoint.
+    let hints = app.sessions[&session].projections.as_ref().unwrap();
+    assert!(matches!(hints.kind, ProjectionKind::Sequenced));
+    assert_eq!(hints.values["goal"], goal("PUBLIC-goal-a", "active"));
+
+    // A draft under the same goal identity survives an ordinary update.
+    app.goal_edit = Some((
+        dsh_native_transport::dto::GoalRef {
+            id: "PUBLIC-goal-a".to_owned(),
+            revision: 1,
+        },
+        "PUBLIC draft".to_owned(),
+    ));
+    drop(app.update(Message::Worker(Event::Control(push(
+        6,
+        goal("PUBLIC-goal-a", "paused"),
+    )))));
+    assert_eq!(
+        app.goal().unwrap().phase,
+        dsh_native_transport::dto::GoalPhase::Paused
+    );
+    assert!(
+        app.goal_edit.is_some(),
+        "a paused update keeps the same goal, so the draft stays"
+    );
+
+    // A replay at an older seq loses.
+    drop(app.update(Message::Worker(Event::Control(push(
+        3,
+        goal("PUBLIC-goal-b", "active"),
+    )))));
+    assert_eq!(app.goal().unwrap().reference.id, "PUBLIC-goal-a");
+    // A baseline is a cut in its own right and replaces the roster row whole.
+    drop(
+        app.update(Message::Worker(Event::Control(ControlFrame::Baseline {
+            value: dsh_native_transport::dto::ControlBaseline {
+                projections: [(
+                    session.clone(),
+                    dsh_native_transport::dto::ProjectionBaseline {
+                        as_of_seq: 9,
+                        values: [("title".to_owned(), json!("PUBLIC live title"))]
+                            .into_iter()
+                            .collect(),
+                    },
+                )]
+                .into_iter()
+                .collect(),
+            },
+        }))),
+    );
+    let hints = app.sessions[&session].projections.as_ref().unwrap();
+    assert_eq!(hints.as_of_seq, 9);
+    assert_eq!(hints.values["title"], json!("PUBLIC live title"));
+
+    // A new goal identity invalidates the draft, and only then.
+    drop(app.update(Message::Worker(Event::Control(push(
+        10,
+        goal("PUBLIC-goal-b", "active"),
+    )))));
+    assert_eq!(app.goal().unwrap().reference.id, "PUBLIC-goal-b");
+    assert!(
+        app.goal_edit.is_none(),
+        "a new goal must not inherit the old draft"
+    );
+    let hints: &ProjectionHints = app.sessions[&session].projections.as_ref().unwrap();
+    assert_eq!(hints.values["goal"], goal("PUBLIC-goal-b", "active"));
+}

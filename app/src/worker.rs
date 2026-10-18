@@ -446,6 +446,8 @@ pub enum Event {
     Core(PublicEvent),
     Roster(Result<SessionListValue, String>),
     Workspace(WorkspaceFollowFrame),
+    /// One Host-computed projection push (`session/control`, `ControlFrame`).
+    Control(dsh_native_transport::dto::ControlFrame),
     Root {
         frame: RemoteEventFrame,
         decision_key: Option<crate::interactions::Key>,
@@ -687,9 +689,18 @@ async fn next_workspaces(
         None => std::future::pending().await,
     }
 }
+async fn next_control(
+    control: &mut Option<NativeStream<dsh_native_transport::dto::ControlFrame>>,
+) -> Option<dsh_native_transport::Result<dsh_native_transport::dto::ControlFrame>> {
+    match control {
+        Some(control) => control.next().await,
+        None => std::future::pending().await,
+    }
+}
 async fn drop_observations(
     root: &mut Option<NativeStream<RemoteEventFrame>>,
     workspaces: &mut Option<NativeStream<WorkspaceFollowFrame>>,
+    control: &mut Option<NativeStream<dsh_native_transport::dto::ControlFrame>>,
     selected: &mut Option<NativeStream<SessionFollowFrame>>,
     terminal: &mut Option<NativeStream<dsh_native_transport::terminal::TerminalFrame>>,
     mux: &mut Option<dsh_native_transport::Mux>,
@@ -698,6 +709,9 @@ async fn drop_observations(
         stream.cancel().await;
     }
     if let Some(mut stream) = workspaces.take() {
+        stream.cancel().await;
+    }
+    if let Some(mut stream) = control.take() {
         stream.cancel().await;
     }
     if let Some(mut stream) = selected.take() {
@@ -2144,8 +2158,12 @@ async fn run(
     };
     let root = operation(&mut closing, &events, mux.events()).await;
     let workspaces = operation(&mut closing, &events, mux.workspace_follow()).await;
-    let (root, workspaces) = match (root, workspaces) {
-        (Some(Ok(root)), Some(Ok(workspaces))) => (root, workspaces),
+    // The control stream is the only channel the Host pushes projections on. A
+    // goal mutation, a retitle or any other projection changes nothing on screen
+    // without it, because a follow snapshot is read once when a session opens.
+    let control = operation(&mut closing, &events, mux.control()).await;
+    let (root, workspaces, control) = match (root, workspaces, control) {
+        (Some(Ok(root)), Some(Ok(workspaces)), Some(Ok(control))) => (root, workspaces, control),
         _ => {
             mux.close().await;
             client.close().await;
@@ -2158,6 +2176,7 @@ async fn run(
     let mut mux = Some(mux);
     let mut root = Some(root);
     let mut workspaces = Some(workspaces);
+    let mut control = Some(control);
     let mut observations_live = true;
     let mut live_decisions = Vec::new();
     let (core_tx, mut core_rx) = mpsc::channel(32);
@@ -2229,8 +2248,9 @@ async fn run(
                         let fresh=verified.connect_mux().await.map_err(|_|"Same-owned observation connection unavailable".to_owned())?;
                         let root=fresh.events().await.map_err(|_|"Root rejoin unavailable".to_owned())?;
                         let workspace=fresh.workspace_follow().await.map_err(|_|"Workspace rejoin unavailable".to_owned())?;
+                        let control=fresh.control().await.map_err(|_|"Control rejoin unavailable".to_owned())?;
                         let roster=verified.session_list().await.map_err(|_|"Cold roster read unavailable; no Agent resumed".to_owned());
-                        Ok::<_,String>((verified,fresh,root,workspace,roster))
+                        Ok::<_,String>((verified,fresh,root,workspace,control,roster))
                     }.await;(epoch,result)});
                     continue;
                 }
@@ -2678,9 +2698,10 @@ async fn run(
                     };
                     if deliver && !publish(&events,Event::Root{frame:owned.frame,decision_key}){break Some("Native UI delivery queue overflow".into());}
                 },
-                Some(Err(_))|None=>{drop_observations(&mut root,&mut workspaces,&mut selected,&mut terminal,&mut mux).await;observations_live=false;files.invalidate();selected_file_target=None;selected_target=None;for key in live_decisions.drain(..){decisions.cancel(&key.event_id);}if !publish(&events,Event::ObservationsLost){break Some("Native UI delivery queue overflow".into());}},
+                Some(Err(_))|None=>{drop_observations(&mut root,&mut workspaces,&mut control,&mut selected,&mut terminal,&mut mux).await;observations_live=false;files.invalidate();selected_file_target=None;selected_target=None;for key in live_decisions.drain(..){decisions.cancel(&key.event_id);}if !publish(&events,Event::ObservationsLost){break Some("Native UI delivery queue overflow".into());}},
             },
-            event=next_workspaces(&mut workspaces),if workspaces.is_some()=>match event {Some(Ok(event))=>if !publish(&events,Event::Workspace(event)){break Some("Native UI delivery queue overflow".into());},Some(Err(_))|None=>{drop_observations(&mut root,&mut workspaces,&mut selected,&mut terminal,&mut mux).await;observations_live=false;files.invalidate();selected_file_target=None;selected_target=None;for key in live_decisions.drain(..){decisions.cancel(&key.event_id);}if !publish(&events,Event::ObservationsLost){break Some("Native UI delivery queue overflow".into());}}},
+            event=next_workspaces(&mut workspaces),if workspaces.is_some()=>match event {Some(Ok(event))=>if !publish(&events,Event::Workspace(event)){break Some("Native UI delivery queue overflow".into());},Some(Err(_))|None=>{drop_observations(&mut root,&mut workspaces,&mut control,&mut selected,&mut terminal,&mut mux).await;observations_live=false;files.invalidate();selected_file_target=None;selected_target=None;for key in live_decisions.drain(..){decisions.cancel(&key.event_id);}if !publish(&events,Event::ObservationsLost){break Some("Native UI delivery queue overflow".into());}}},
+            event=next_control(&mut control),if control.is_some()=>match event {Some(Ok(frame))=>if !publish(&events,Event::Control(frame)){break Some("Native UI delivery queue overflow".into());},Some(Err(_))|None=>{drop_observations(&mut root,&mut workspaces,&mut control,&mut selected,&mut terminal,&mut mux).await;observations_live=false;files.invalidate();selected_file_target=None;selected_target=None;for key in live_decisions.drain(..){decisions.cancel(&key.event_id);}if !publish(&events,Event::ObservationsLost){break Some("Native UI delivery queue overflow".into());}}},
             event=next_selected(&mut selected)=>match event {Some(Ok(frame))=>{if let SessionFollowFrame::Snapshot{header,..}=&frame {selected_file_target=file_receiver(header,selected_target.as_ref());if selected_file_target.is_none(){files.invalidate();}}if !publish(&events,Event::Selected{generation,frame}){break Some("Native UI delivery queue overflow".into());}},Some(Err(e))=>{files.invalidate();selected_file_target=None;selected=None;selected_target=None;jobs=None;job_output=None;job_output_for=None;if !publish(&events,Event::FollowError{generation,error:format!("Session stream: {e}")}){break Some("Native UI delivery queue overflow".into());}},None=>{files.invalidate();selected_file_target=None;selected=None;selected_target=None;jobs=None;job_output=None;job_output_for=None;if !publish(&events,Event::FollowError{generation,error:"Session stream closed; reload session".into()}){break Some("Native UI delivery queue overflow".into());}}},
             jobs_event=next_jobs(&mut jobs),if jobs.is_some()=>match jobs_event {Some(Ok(frame))=>{if !publish(&events,Event::JobsRows(frame.jobs)){break Some("Native UI delivery queue overflow".into());}},Some(Err(e))=>{jobs=None;if !publish(&events,Event::JobsError{generation,error:format!("Jobs list: {e}")}){break Some("Native UI delivery queue overflow".into());}},None=>{jobs=None;}},
             job_event=next_job_output(&mut job_output),if job_output.is_some()=>match job_event {Some(Ok(frame))=>{let job=job_output_for.clone().unwrap_or_default();if !publish(&events,Event::JobsFollow{job,frame}){break Some("Native UI delivery queue overflow".into());}},Some(Err(e))=>{job_output=None;job_output_for=None;if !publish(&events,Event::JobsError{generation,error:format!("Job output: {e}")}){break Some("Native UI delivery queue overflow".into());}},None=>{job_output=None;job_output_for=None;}},
@@ -2726,8 +2747,8 @@ async fn run(
             },
             rejoined=rejoin_jobs.join_next(),if !rejoin_jobs.is_empty()=>if let Some(result)=rejoined {
                 match result {
-                    Ok((epoch,Ok((verified,fresh,root_stream,workspace_stream,roster))))=>{
-                        client=verified;mux=Some(fresh);root=Some(root_stream);workspaces=Some(workspace_stream);observations_live=true;
+                    Ok((epoch,Ok((verified,fresh,root_stream,workspace_stream,control_stream,roster))))=>{
+                        client=verified;mux=Some(fresh);root=Some(root_stream);workspaces=Some(workspace_stream);control=Some(control_stream);observations_live=true;
                         if !publish(&events,Event::Roster(roster)) || !publish(&events,Event::ObservationsRejoined{epoch,result:Ok(())}){break Some("Native UI delivery queue overflow".into());}
                     },
                     Ok((epoch,Err(error)))=>if !publish(&events,Event::ObservationsRejoined{epoch,result:Err(error)}){break Some("Native UI delivery queue overflow".into());},
@@ -2758,6 +2779,9 @@ async fn run(
     }
     if let Some(workspaces) = workspaces.as_mut() {
         workspaces.cancel().await;
+    }
+    if let Some(control) = control.as_mut() {
+        control.cancel().await;
     }
     if let Some(mux) = mux.take() {
         mux.close().await;
