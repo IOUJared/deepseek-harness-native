@@ -1,163 +1,187 @@
-# Session prompt: finish the feature-complete native clone
+# Session prompt: keep coding the native clone to 1-to-1
 
-Paste everything below into a fresh session started in
+Paste everything below the line into a fresh session started in
 `/home/jared/Documents/deepseek-harness/default-workspace`.
 
 ---
 
-## Load first
-
-`deepseek-harness-native/AGENTS.md` governs this repository. Before frontend work load
-`.agents/skills/native-ui-parity/SKILL.md` (layout porting; build on `docs/NATIVE-UI-PARITY.md`) and
-`.agents/skills/impeccable-rust/SKILL.md` (verification discipline; follow `docs/VERIFICATION.md`).
-Assign every failure to an existing production verifier; add one only for a documented gap.
-
 ## Mission
 
-Take the Rust/Iced clone of the DeepSeek Harness web UI to **feature complete**, in this repository
-(`deepseek-harness-native`, branch `main`), by cloning the reference implementation in
-`../deepseek-harness-linux` feature by feature.
+Take the Rust/Iced clone of the DeepSeek Harness web UI to a **strict 1-to-1 clone**: same layout,
+same behaviour, same copy, genuinely native rendering. The reference implementation is the sibling
+checkout `../deepseek-harness-linux`; the clone is `deepseek-harness-native`, branch `main`, local
+commits only.
 
-Rules of engagement, in force for the whole session:
+**Work autonomously and do not ask questions.** Decide from the reference source, the existing
+documents and the code. When something genuinely needs the user (a file, a charged provider turn,
+hardware, a policy), write it into `docs/NATIVE-UI-PARITY.md`'s user-dependent list with the exact
+step, then keep working on everything that does not depend on it. Never stop to wait, never end a
+turn with a question, and never ask for permission to continue.
 
-- **Native only**: Rust + Iced + wgpu. No webview, no Electron, no new dependencies without explicit
-  approval. Reuse the existing backend, transport and Core; never fork a second wire path.
-- **Strict 1-to-1**: when the reference and the native app differ, the reference wins. Do not offer
-  options or "improvements"; close the gap that is proven.
-- **Local only**: one commit per item, imperative subject. **Never push, publish, deploy or open a
-  PR.** The repository has remotes configured; leave them untouched.
-- **Honest claims**: say what was verified and how. "Compiles", "tests pass", "captured" and "pressed
-  it and it worked" are four different claims.
+Start by creating a goal (`create_goal`) with this objective so the work continues across rounds:
+"Close the remaining native-clone gaps one commit at a time, reference-first, with tests, DP-2
+captures and full gates, recording user-only blockers in the docs instead of asking." Keep it active
+until the definition of done below is true.
 
-## Where the truth lives
+## Load first
 
-- `docs/NATIVE-UI-PARITY.md` — **start here**. Its first block is the current state, the next step and
-  the four rules earned the hard way. The rest is a per-item record with `file:line` citations,
-  measured before/after values, deliberate differences and remainders.
-- `docs/FEATURE-PARITY.md` — the older, broader feature inventory (many items are done; check the
-  parity doc before treating anything here as open).
-- `../deepseek-harness-linux` — the reference. Read the artifact that *defines* a fact (a generated
-  descriptor, a locale file, a component) before writing a name, a string or a shape.
-- Captures: `~/.local/share/dsh-macos-shell-reference/shots/` (numbered), mirrored but git-ignored in
-  `app/evidence/`.
+- `AGENTS.md` in the repository — the governing rules.
+- `.agents/skills/native-ui-parity/SKILL.md` and `.agents/skills/impeccable-rust/SKILL.md`.
+- `docs/NATIVE-UI-PARITY.md` — the top status block, "Reference surface coverage", the open items, and
+  the latest rounds at the end (they are the current state; this prompt's numbers are only a snapshot).
+- `docs/NATIVE-CHAT-GEOMETRY.md`, `docs/NATIVE-LIVE-VERIFICATION.md`, `docs/VERIFICATION.md`.
+- `git log --oneline -30` and `git status`.
 
-## Verification gates (capture every exit status; never read status from output text)
+## Current state (verify, do not trust)
+
+HEAD `8fa3a79`, tree clean, ~420 local commits ahead of origin, nothing pushed. Captures archived
+through `shots/157-chat-reference-size.png`. Working gates at that commit: app fixture **1255 passed /
+1 ignored**, app default **1248 / 1**, transport **56 + 17 + 89 + 7**, core `--lib` **115**, JS
+**419 pass / 0 fail**, format debt **0 files / 0 hunks**, `--suite clippy` and `--suite examples`
+passed. The app **bin** carries 20 pre-existing dead-code warnings: record that, never claim it
+warning-free.
+
+Two recorded environment facts, not defects to "fix": `--suite test` fails `binary-freshness` when a
+present `app/target/release/dsh-native-app` predates the sources (do not rebuild to silence it — record
+it), and `wayland-drops` cannot fetch `as-raw-xcb-connection v1.0.1` offline.
+
+## Hard rules
+
+- **Native only**: Rust + Iced + wgpu. No webview, no Electron, no new dependencies (the approved set
+  is in `Cargo.lock`: `zeroize`, `accesskit`, `oauth2`, `keyring`, `libc`). Reuse `dsh-native-transport`
+  and the existing `/api/<method>` BFF; never fork a second wire path; never rebuild or fork the Host.
+- **Strict 1-to-1**: the reference wins. No options, no "improvements", no re-designing. A deliberate
+  difference is allowed only with a reason written in the parity doc.
+- **Local only**: one commit per item, imperative subject. Never push, publish, deploy or open a PR.
+- **Serialize builds**: `--locked --offline --jobs 2`, never concurrent with another build.
+- `cargo fmt --manifest-path <crate>/Cargo.toml` before committing; **never `cargo clippy --fix`**;
+  never edit `scripts/format-debt-baseline.json`; never reformat files you did not touch.
+- Honest claims: "compiles", "tests pass", "captured", "pressed it and it worked" are four different
+  claims. A green suite proves nothing about padding — look at the capture.
+- Destructive actions keep their confirmation visible; a button must state exactly what it persists.
+
+## Gates (capture every exit status; never read status from output text)
 
 ```bash
-# app suites — fixture feature and default profile BOTH matter
+cd /home/jared/Documents/deepseek-harness/default-workspace/deepseek-harness-native
 cargo test --manifest-path app/Cargo.toml --locked --offline --jobs 2 \
-  --features public-layout-fixture --bin dsh-native-app -- --test-threads=2
+  --features public-layout-fixture --bin dsh-native-app -- --test-threads=2   # F
 cargo test --manifest-path app/Cargo.toml --locked --offline --jobs 2 \
-  --bin dsh-native-app -- --test-threads=2
-# transport, core, JS runtime
-cargo test --manifest-path transport/Cargo.toml --locked --offline -j2
-cargo test --manifest-path core/Cargo.toml --locked --offline -j2 --lib
-node --test $(python3 -c "import glob;print(' '.join(sorted(glob.glob('core/runtime/*.test.mjs'))))")
-# formatting debt (must be 0; never edit its baseline)
+  --bin dsh-native-app -- --test-threads=2                                     # D
+cargo test --manifest-path transport/Cargo.toml --locked --offline --jobs 2 -- --test-threads=2
+cargo test --manifest-path core/Cargo.toml --locked --offline --jobs 2 --lib -- --test-threads=2
+node --test core/runtime/*.test.mjs
 python3 -B scripts/format-debt.py
+python3 -B scripts/verify-native.py --suite clippy      # when source or examples change
+python3 -B scripts/verify-native.py --suite examples    # when an example changes
 ```
 
-Baseline at the time of writing: fixture **1134 passed**, default **1127**, transport **17 + 82 + 7**,
-core **112**, JS **419 / 0**, format debt **0**, tree clean, 343 commits.
+Rules: capture the exit code (`cmd | tail` returns `tail`'s status); run **both** app profiles; format
+before committing; gate the commit on every status.
 
-Hard rules around the gates:
+## Per-item workflow
 
-1. **Capture the exit code** — `cmd | tail` returns `tail`'s status. `FIX=$?` or refuse the commit.
-2. **Run both app profiles.** A change that only the fixture profile accepts is a configuration, not a
-   change. One round shipped a red default build because only the fixture suite was run.
-3. **Format before committing, not after** — and never run `cargo fmt` between two scripts that must
-   agree on the same text.
-4. **Gate the commit on all of them**: `if [ $FC -ne 0 ] || [ $DC -ne 0 ] || [ $FMT -ne 0 ]; then refuse; fi`.
+1. **Reference source first**: read the artifact that defines the fact (generated descriptor, locale
+   file, component, host service) — never a name, string or shape from memory or from our own docs.
+2. **Transport validation** when a wire is involved: exact request body against the descriptor; a live
+   probe (below) or a fake-wire test.
+3. **App state → UI**: the control, the reducer, the disabled/refusal states, the failure path.
+4. **Test**: press the real `Message`/`Action` (state-direct tests hide the bugs this repo keeps
+   finding); smallest production verifier that pins it.
+5. **DP-2 capture** for anything visual: build the release fixture, capture, **look at the image**,
+   archive it, and give it the next shot number.
+6. **Docs note** in `docs/NATIVE-UI-PARITY.md` (round section: what was wrong, what changed, evidence,
+   battery table) and correct any stale claim the round touched.
+7. **Commit** (imperative subject), then re-run the gates you touched.
+
+## Standing work loop (repeat; never idle)
+
+**A. Audit one subsystem, read-only, with a subagent.** Give it the coverage taxonomy: every action
+variant, every state field a draw site reads, every Command/Event pair; per item the construction site,
+the handling arm, any wildcard before it, the outcome, and the failure path. Flag only (A) constructed
+but never handled, (B) handled but invisible/stuck, (C) unreachable, (D) documented claim vs code.
+Exclude style, vendor code and anything already listed as unqualified. It must return findings with
+`file:line` and the smallest test. **Do not duplicate its reading in your own context.**
+
+**B. Fix the smallest finding, one commit each,** in this order: silent states first (a control that
+does nothing, a refusal dropped, a flag that cannot clear), then wrong words (a notice or doc that
+lies), then sizeable missing behaviour.
+
+**C. When a subsystem's audit is closed, take the next unqualified surface.** Audited so far:
+settings/management/sidebar (rounds 327-333), composer controls (334-336/341-342), terminal panel
+(337-340/343-344), approvals/questions (347-348), schedules (345-346/349-351), MCP panel (353).
+Not yet audited this way: the session sidebar and workspace browser, the details/work panel and
+deliverables, Codex settings/runtime, Cloudflare, plugins, the model/composer catalogs, goals/todos.
+
+**D. When the reference specifies something the native app lacks, build it.** The two known now:
+tool rows still lack **underlined relative paths** and the **`+N −N` edit pair** (the reference's tool
+components define both), and inline diffs are the same family. Build them from the reference source.
+
+**E. When `reference.png` appears, run the visual diff.** The native side is already captured at the
+reference's exact size (`shots/157-chat-reference-size.png`, 1980×1319) and the measured native rects
+and comparison order are in
+`docs/NATIVE-CHAT-GEOMETRY.md#reference-comparison-at-19801319-blocked-on-the-file`. Compare, fix the
+concrete gaps, capture each fix, record the deltas.
+
+## Live Host probe (free reads only)
+
+A closed Host can be booted exactly as the app boots it, without charging a model turn: the pinned
+runtime is `../deepseek-harness-linux/apps/cli` (version `0.2.1-alpha.1`), booted with
+`loadForkRuntime` + `runProfile` from `core/runtime/`, an isolated `HOME` and `DSH_TAURI_HOME`, and
+`DSH_TAURI_RUNTIME` pointing at that `apps/cli` directory. `/tmp/dsh-live8/probe*.mjs` are working
+examples (settings/roster probes). A live pass never substitutes for the fake-wire test and vice
+versa; [record](NATIVE-LIVE-VERIFICATION.md) what ran and what did not.
 
 ## Capture recipe
 
-The fixture is a self-checking binary; the shell script around it can fail for its own reasons.
-
 ```bash
+cargo build --release --manifest-path app/Cargo.toml --locked --offline --jobs 2 \
+  --features public-layout-fixture --example layout_smoke      # check this exit FIRST, warning-free
 mkdir -p /tmp/dsh-shots
 EXTRA="--settings true --shortcuts true" bash /tmp/dsh-capture.sh NAME MODE 3
-# when the script reports "all attempts failed", run the binary directly FIRST:
-./app/target/release/examples/layout_smoke --mode settings-general \
-  --screenshot /tmp/dsh-shots/x.png --report /tmp/dsh-shots/x.json --shortcuts true
-# then read the report's booleans: passed / allTextCollected / paintVisibilityQualified /
-# expectedControlCountsMatch / presetStatesMatch
+python3 -c "import json;d=json.load(open('/tmp/dsh-shots/NAME.json'));print(d.get('status'),d.get('layoutObservation',{}).get('passed'))"
 ```
 
-- Build with `--features public-layout-fixture --example layout_smoke`, and **check the build exit
-  before capturing** — a failed build leaves the previous binary in place and the capture silently
-  photographs it.
-- Modes are prefixed: a settings surface is `settings-*` (`settings-general`); the fixture derives its
-  expectations from the mode name (`preset.starts_with("settings-")`).
-- Flags must be registered in the fixture's accepted list or they are **refused**, not ignored.
-- The window is captured on DP-2 at 2400×1330; crop with PIL and *look* at the image. Padding and
-  layout changes have no measurement contract — a green suite proves nothing about them.
+- `/tmp/dsh-capture.sh` captures the fixture's own buffer **and** the physical DP-2 window; recreate it
+  if missing. DP-2 is 2560×1440 at scale 1.
+- Flags must be registered in `examples/layout_smoke.rs` or the fixture **refuses** them.
+- Modes are presets: `chat-transcript`, `settings-*`, `sidebar-*`, `plan-mode*`, `queued-idle`,
+  `mcp`, `schedules`, `workflow-run`, … see `layout_fixture.rs`'s preset list.
+- Archive to `~/.local/share/dsh-macos-shell-reference/shots/<n>-name.png` (+ `-dp2.png`, `.json`)
+  and mirror the buffer into `app/evidence/`. Next number is **158**.
 - When the fixture's check disagrees with a correct picture, read the check's inputs before touching
-  the picture. Twice the fix was one line in the *expectation*.
+  the picture — twice the fix was one line in the *expectation*.
 
-## State of play
+## User-only blockers (record; never wait)
 
-**Done, tested and captured:** permission select (chip, Host menu, `/permission` line, guarded
-full-access confirmation, default row); agent-preset roster and selection (header label, hero seat,
-seat list, staged pick, locked announcement); background jobs end to end (transport, mux, worker,
-counted header action, panel, row dots, two-click kill, per-job output stream, expansion with the
-reference's "… earlier output dropped …" copy); and the shortcuts editor **complete in behaviour**
-(store with revision guard, catalog, resolver, `Ctrl+/` trigger, sorted rows, "Modified", Remove,
-Restore default, customized count, Host commands group, guarded restore-all, capture-a-key).
+- `reference.png` at `/home/jared/Documents/deepseek-harness/default-workspace/reference.png`
+  (expected 1980×1319, sha256 `b8e164f5…`). Without it no pixel-level 1-to-1 claim may be made.
+- One authorized **charged** DeepSeek turn for the live model/feedback/schedule pass.
+- A real window-edge drag below 520×600, and one close-timing run against the 10/5/5 s budgets.
+- The remote-image fetch policy.
+- Optional: one `cargo fetch` of `as-raw-xcb-connection v1.0.1`.
 
-**Tested but not wired** (grep for callers before claiming a surface exists): `catalog_rows` is wired,
-but the ten-ish `COPY_*` constants are only partly used; `search_index` has no caller.
+Record these in the parity doc's list with their exact step and what each would establish. They are
+never a reason to stop.
 
-**Next, in order, smallest first:**
+## Working method that actually works here
 
-1. **A fixture flag for the armed *capture* state** — the branch compiles, the pure half
-   (`keybindings::binding_from`) has nine test cases. Two edits: a setter on `App`, a flag.
-2. **Keys as data** — a `Message::KeyPressed(key, modifiers)` routed by `update` through the whole key
-   chain with live state, so a stored binding can **replace** a hardcoded one. Not a store-first
-   subscription: that swallows `Ctrl+V` and `Ctrl+C`, which the paste/clipboard links own. The
-   fallback route already carries *unclaimed* presses as data, so this is unifying the chain, not
-   inventing a mechanism.
-3. **Rename the stale `fixed.` prefix** on this app's five ids (established cosmetic in the parity
-   doc). Do it with a scoped transform and run both profiles.
-4. **Then the rest of the reference's feature set**, in the order `docs/FEATURE-PARITY.md` and the
-   parity doc's Open items name. If the reference has a feature the native app lacks and it is not
-   listed, that is a finding: size it before building it.
-
-**Needs the user (do not guess, ask for the exact step):** the reference screenshot at
-`/home/jared/Documents/deepseek-harness/default-workspace/reference.png` (absent; expected sha256
-`b8e164f5…`, 1980×1319); a real window-edge drag to confirm the 520×600 floor (programmatic resizes
-below the minimum are blocked); one live close-timing run against the shell's 10/5/5 s budgets; and the
-remote-image fetch policy.
-
-**Blocked by the toolkit:** inline-code chips — Iced's `rich_text` has no span backgrounds. Do not
-fake it with spacing.
-
-## Working method that has actually worked here
-
-- **Read before editing.** Every structural failure in this repository's history came from an anchor
-  written from memory: a reformatted variant list, a moved match arm, a private type crossing a module
-  boundary. Read the exact current text, or locate the line by a *short* unique anchor.
-- **Write abort-safe scripts**: assert every anchor first, write once at the end. A missed anchor then
-  costs nothing.
-- **Prefer new files and pure functions** for new behaviour; they compile-check and test cheaply. Edits
-  to `app/src/ui.rs` (~11k lines) need their production anchor read immediately before the edit — the
-  fixture is a second configuration that will happily accept what the release build refuses.
-- **A control that does nothing is worse than no control.** `Settings::update` has a wildcard arm, so a
-  new `Action` variant is silently inert: wire the App interception (`Message::Settings(...)`) or do
-  not ship the button.
-- **Destructive actions keep their confirmation visible** — the confirmation names what will change and
-  Cancel is a first-class control.
-- **Remove dead-but-tested code's ambiguity in the document**, not by deleting it: say which functions
-  are capabilities and which are shipped surfaces.
-- **When you are wrong, say so in a commit** and correct the document the same round. The parity doc
-  carries twelve such corrections; they are why it can be trusted.
+- **Read before editing.** Every structural failure in this repo's history came from an anchor written
+  from memory. Read the exact current text, or locate a short unique anchor.
+- **Abort-safe scripts**: assert every anchor first, write once at the end.
+- **Prefer new files and pure functions**; `app/src/ui.rs` is ~19k lines — re-read the production
+  anchor immediately before editing, because the fixture is a second configuration that will happily
+  accept what the release build refuses.
+- **A control that does nothing is worse than no control.** Wildcard arms have silently swallowed new
+  actions here more than once: wire the App interception or do not ship the button.
+- **One commit per item**, imperative subject, docs corrected in the same round — including "this
+  earlier claim was wrong".
+- **Abort a build you cannot finish**: a stale artifact is worse than no evidence.
 
 ## Definition of done
 
-Feature complete means: every capability the reference's UI exposes has a native equivalent that is
-either **captured** (with a graded fixture run) or **tested** (with the test named), every deliberate
-difference is recorded with its reason in `docs/NATIVE-UI-PARITY.md`, both app profiles and all four
-suites are green with captured exit codes, and the only open items are the ones that need the user's
-hands, the toolkit, or a decision that is theirs to make.
-
-Write that closing table into the parity doc when you get there, and do not mark the goal complete
-before it is true.
+Every capability the reference's UI exposes has a native equivalent that is either **captured** (graded
+fixture run + DP-2 image) or **tested** (test named), every deliberate difference is recorded with its
+reason, both app profiles and all suites are green with captured exit codes, and the only open items
+are the user-only ones above. Write the closing table into the parity doc, and only then mark the goal
+complete.
