@@ -34,16 +34,14 @@ impl Offer {
     }
 }
 
-/// The line that selects the opposite of the committed state.
+/// The line the chip sends.
 ///
-/// A pending selection is not the committed one: `Mode::Applying` is active
-/// already and `Mode::Leaving` is still active, so the toggle always asks for the
-/// opposite of `active` and lets the projection confirm it.
-pub fn toggle_line(mode: Mode) -> &'static str {
-    match mode {
-        Mode::Active | Mode::Leaving => "/plan off",
-        Mode::Applying => "/plan",
-    }
+/// The reference's chip can only leave: it renders while the effective target is plan mode and its
+/// click always executes `/plan off` (`ui-plan/src/client/PlanModeControl.tsx:32-56`). Sending
+/// `/plan` from here would also enter in the one state the reference hides — a logged-active
+/// session with a pending change — so the chip never does.
+pub fn toggle_line(_mode: Mode) -> &'static str {
+    "/plan off"
 }
 
 /// What the control should do for one session.
@@ -59,12 +57,17 @@ impl Control {
     pub fn visible(self) -> bool {
         self.offer.available()
     }
+    /// Whether the chip is drawn at all: only while plan mode is the effective target, which is
+    /// the reference's own `if (!target) return null`.
+    pub fn shown(self) -> bool {
+        self.visible() && self.mode.is_some_and(Mode::effective)
+    }
     /// The line to send, or nothing when the control must not act. An
-    /// unavailable command is refused here as well as hidden, so a caller that
-    /// dispatches without checking visibility still cannot invoke one.
+    /// unavailable command, a hidden state and an in-flight toggle are all refused here as well as
+    /// hidden, so a caller that dispatches without checking visibility still cannot invoke one.
     pub fn press(self) -> Option<&'static str> {
         let mode = self.mode?;
-        (self.offer.available() && !self.pending).then(|| toggle_line(mode))
+        (self.shown() && !self.pending).then(|| toggle_line(mode))
     }
 }
 
@@ -82,12 +85,15 @@ mod tests {
     }
 
     #[test]
-    fn the_toggle_asks_for_the_opposite_of_the_committed_state() {
-        // Active and leaving are both committed-active, so both ask to leave.
-        assert_eq!(toggle_line(Mode::Active), "/plan off");
-        assert_eq!(toggle_line(Mode::Leaving), "/plan off");
-        // Applying is committed-inactive, so it asks to enter.
-        assert_eq!(toggle_line(Mode::Applying), "/plan");
+    fn the_chip_can_only_leave_and_only_while_plan_mode_is_the_effective_target() {
+        // The reference's chip always executes `/plan off`; it never enters.
+        for mode in [Mode::Active, Mode::Applying, Mode::Leaving] {
+            assert_eq!(toggle_line(mode), "/plan off", "{mode:?}");
+        }
+        // Effective target: active, or inactive with a pending enter.
+        assert!(Mode::Active.effective());
+        assert!(Mode::Applying.effective());
+        assert!(!Mode::Leaving.effective());
     }
 
     #[test]
@@ -152,5 +158,25 @@ mod tests {
                 "{offer:?}"
             );
         }
+    }
+
+    #[test]
+    fn the_chip_is_hidden_while_a_pending_change_would_turn_plan_mode_off() {
+        let control = |mode, pending| Control {
+            offer: Offer::Available,
+            mode: Some(mode),
+            pending,
+        };
+        // Active and a pending enter are both drawn; the reference hides the leaving state.
+        assert!(control(Mode::Active, false).shown());
+        assert!(control(Mode::Applying, false).shown());
+        assert!(!control(Mode::Leaving, false).shown());
+        assert!(!control(Mode::Leaving, false).press().is_some());
+        assert_eq!(control(Mode::Applying, false).press(), Some("/plan off"));
+        // A hidden state refuses even if a caller dispatches without checking `shown`.
+        assert!(control(Mode::Active, true).press().is_none());
+        assert!(
+            !control(Mode::Active, true).shown() || control(Mode::Active, true).press().is_none()
+        );
     }
 }

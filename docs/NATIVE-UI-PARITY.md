@@ -7027,3 +7027,44 @@ where it used to read "standard".
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/150-seat-host-roster.png`, `status: passed` |
 | tree | — | clean before the commit |
+
+### Round 334 — the plan projection's two pending states were inverted
+
+**Found by a read-only audit of the composer's controls.** The Host publishes `plan` as
+`{ active, pending }` where `active` is the **logged** state and `pending` says a selection differs
+from it (`plan-mode/src/index.ts:165`, `:396-399`). The reference client turns that into the
+effective target `pending ? !active : active` (`ui-plan/src/client/PlanModeControl.tsx:32-33`).
+Native read the pair backwards: a logged-active session with a pending change was labelled
+"applying" and, worse, its chip sent **`/plan`** — entering plan mode in the one state that is
+leaving it — while a logged-inactive session with a pending change was labelled "leaving".
+
+Corrected: `(true,true)` is `Leaving` (guidance still in force, on its way out) and `(false,true)`
+is `Applying` (not in force yet, on its way in). The chip now only ever sends `/plan off` — the
+reference's chip is an exit control whose click always executes `/plan off`
+(`PlanModeControl.tsx:52`) — and `Control::shown` hides it while the pending change would turn the
+mode off, which is the reference's `if (!target) return null`. The fixture's two presets carried the
+same inversion, so their projections are swapped; their names now describe what they show.
+
+Two tests: `only_reported_plan_state_is_presented` (all four projections, both labels, and
+`effective()`), `the_chip_can_only_leave_and_only_while_plan_mode_is_the_effective_target`
+plus `the_chip_is_hidden_while_a_pending_change_would_turn_plan_mode_off`, and the App-level
+`the_plan_chip_offers_only_to_leave_and_hides_while_a_pending_change_turns_it_off`, which drives
+real snapshots and asserts the emitted command line.
+
+**Captures.** `shots/151-plan-applying.png` (target on: the `☑ Plan` chip is drawn) and
+`shots/152-plan-leaving.png` (target off: no chip at all), both `status: passed`, DP-2 variants
+alongside.
+
+**Battery (round 334).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1231 passed**, 1 ignored |
+| app, default | **0** | **1224 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 88 + 7 |
+| core (`--lib`) | **0** | **115 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 captures | — | `shots/151`, `shots/152`, `status: passed` |
+| tree | — | clean before the commit |

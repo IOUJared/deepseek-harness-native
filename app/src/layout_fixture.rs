@@ -1143,9 +1143,12 @@ pub fn build(
             {"id":"PUBLIC-child-reviewer","createdAt":1000,"mode":"continuable","label":"PUBLIC reviewer"},
             {"id":"PUBLIC-child-scout","createdAt":1001,"mode":"one-shot","label":"PUBLIC scout"}
         ]}),
+        // The Host publishes the logged state plus whether a selection differs from it
+        // (`plan-mode/src/index.ts:165`): a pending change while inactive is an *enter*, and while
+        // active it is a *leave*. The fixtures were inverted before round 334.
         "plan-mode" => json!({"plan":{"active":true,"pending":false}}),
-        "plan-mode-applying" => json!({"plan":{"active":true,"pending":true}}),
-        "plan-mode-leaving" => json!({"plan":{"active":false,"pending":true}}),
+        "plan-mode-applying" => json!({"plan":{"active":false,"pending":true}}),
+        "plan-mode-leaving" => json!({"plan":{"active":true,"pending":true}}),
         "goal-bar" => json!({"goal":{"goal":{
             "id":"PUBLIC-goal","revision":2,
             "objective":"PUBLIC goal objective · finish the recorded clone task",

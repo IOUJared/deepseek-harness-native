@@ -8,19 +8,29 @@
 use serde_json::{Map, Value};
 
 /// What the Host reports about plan mode for the selected session.
+///
+/// The Host publishes `{ active, pending }` where `active` is the **logged** state and `pending`
+/// says a selection differs from it (`plan-mode/src/index.ts:165`, `:396-399`). The reference
+/// client turns that into the effective target `pending ? !active : active`
+/// (`ui-plan/src/client/PlanModeControl.tsx:32-33`), which is what [`Mode::effective`] reports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     /// Active and settled: the next request carries the plan guidance.
     Active,
-    /// A selection is waiting for an accepted in-turn pre-step to be appended.
-    /// It is not active yet, so the label must not claim that it is.
+    /// Inactive with a pending selection: the guidance is **not** in force yet, and the pending
+    /// selection is what will put it in force.
     Applying,
-    /// Inactive with a pending selection: the guidance is still in force until
-    /// that selection lands.
+    /// Active with a pending selection: the guidance is still in force until that selection
+    /// (which turns it off) lands.
     Leaving,
 }
 
 impl Mode {
+    /// Whether plan mode is the state this session will be in — the reference's
+    /// `target = pending ? !active : active`. `Leaving` is on its way out, so it is not.
+    pub fn effective(self) -> bool {
+        matches!(self, Self::Active | Self::Applying)
+    }
     /// The composer's indicator text. Deliberately short: this is a standing
     /// state, not an action.
     pub fn label(self) -> &'static str {
@@ -57,8 +67,12 @@ pub fn mode(projections: &std::collections::BTreeMap<String, Value>) -> Option<M
     let pending = flag(object, "pending").unwrap_or(false);
     Some(match (active, pending) {
         (true, false) => Mode::Active,
-        (true, true) => Mode::Applying,
-        (false, true) => Mode::Leaving,
+        // Logged active with a pending change: the guidance is still in force, and the
+        // reference hides its chip in exactly this state because the target is off.
+        (true, true) => Mode::Leaving,
+        // Logged inactive with a pending change: the target is plan mode, so the reference keeps
+        // its exit control visible and pressing it cancels the pending enter.
+        (false, true) => Mode::Applying,
         // Never reached: an inactive settled selection is no plan state at all.
         (false, false) => return None,
     })
@@ -80,14 +94,18 @@ mod tests {
             mode(&projections(json!({"active": true, "pending": false}))),
             Some(Mode::Active)
         );
+        // Logged active with a pending change: still in force, on its way out.
         assert_eq!(
             mode(&projections(json!({"active": true, "pending": true}))),
-            Some(Mode::Applying)
-        );
-        assert_eq!(
-            mode(&projections(json!({"active": false, "pending": true}))),
             Some(Mode::Leaving)
         );
+        // Logged inactive with a pending change: not in force yet, on its way in.
+        assert_eq!(
+            mode(&projections(json!({"active": false, "pending": true}))),
+            Some(Mode::Applying)
+        );
+        assert!(Mode::Leaving.effective() == false);
+        assert!(Mode::Applying.effective());
         // Inactive and settled is the ordinary case: no indicator, no chip.
         assert_eq!(
             mode(&projections(json!({"active": false, "pending": false}))),

@@ -9459,7 +9459,12 @@ impl App {
     /// while a toggle is in flight, drawing that state dimmed.
     fn plan_chip(&self) -> Option<Element<'_, Message>> {
         let control = self.plan_control();
-        control.mode?;
+        // The reference draws the chip only while plan mode is the effective target
+        // (`ui-plan/src/client/PlanModeControl.tsx:32-33`), so a pending change that turns the
+        // mode off hides it rather than offering a stale toggle.
+        if !control.shown() {
+            return None;
+        }
         let actionable = control.visible() && !control.pending && self.composer_visible();
         // The reference disables the chip while a toggle is in flight
         // (`disabled={locked || leaving}` under `opacity: 0.6`).
@@ -17392,6 +17397,55 @@ mod tests {
             }
         }
         assert_eq!(reads, 1);
+    }
+    #[test]
+    fn the_plan_chip_offers_only_to_leave_and_hides_while_a_pending_change_turns_it_off() {
+        let (mut app, mut receiver) = managed_app();
+        app.plan_published = Some(true);
+        // `Transcript::apply` ignores a frame whose generation does not match its own, and the
+        // fixture's transcript is born at zero.
+        app.transcript = reducer::Transcript::new(0);
+        let plan = |active: bool, pending: bool| -> SessionFollowFrame {
+            serde_json::from_value(serde_json::json!({
+                "type": "snapshot",
+                "records": [],
+                "cursor": 9,
+                "hasMore": false,
+                "header": {"version": 4, "id": "PUBLIC-plan-session", "createdAt": 1000, "isSeeded": false},
+                "projections": {"asOfSeq": 9, "values": {"plan": {"active": active, "pending": pending}}},
+                "assistantStream": {"revision": 0}
+            }))
+            .unwrap()
+        };
+        // Active and settled: the chip is the exit control and sends `/plan off`.
+        app.transcript.apply(0, plan(true, false)).unwrap();
+        assert!(app.plan_chip().is_some());
+        let _ = app.update(Message::TogglePlanMode);
+        assert!(
+            matches!(receiver.try_recv(), Ok(Command::CommandsExecute { line, .. }) if line == "/plan off"),
+            "the chip leaves; it never enters"
+        );
+        app.plan_toggle_pending = false;
+        // Logged active with a pending change: plan mode is on its way out, so the reference hides
+        // the chip and a press must not send the enter line.
+        app.transcript.apply(0, plan(true, true)).unwrap();
+        assert!(
+            app.plan_chip().is_none(),
+            "a pending leave has no control to press"
+        );
+        let _ = app.update(Message::TogglePlanMode);
+        assert!(
+            receiver.try_recv().is_err(),
+            "a hidden chip cannot invoke a command"
+        );
+        // Logged inactive with a pending enter: plan mode is the effective target, and pressing the
+        // exit control cancels the pending enter instead of re-entering.
+        app.transcript.apply(0, plan(false, true)).unwrap();
+        assert!(app.plan_chip().is_some());
+        let _ = app.update(Message::TogglePlanMode);
+        assert!(
+            matches!(receiver.try_recv(), Ok(Command::CommandsExecute { line, .. }) if line == "/plan off")
+        );
     }
     #[test]
     fn a_conversation_preference_that_cannot_be_stored_reaches_the_status() {
