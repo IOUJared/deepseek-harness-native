@@ -8203,3 +8203,59 @@ private (open item 8 records that difference and the slice that would close it).
 | format debt | **0** | 0 files, 0 hunks |
 | DP-2 capture | — | `shots/166-tool-read-body.png`, `status: passed` |
 | tree | — | clean before the commit |
+
+### Round 366 — the model and composer catalogs: six states the controls disagreed with
+
+A read-only audit of the model select and the composer's catalogs found every command with its
+refusal arm, every menu key claimed only while a row was drawn, and every receipt settled once —
+then six states where what was drawn and what the handler does disagreed.
+
+- **One Escape killed slash completion for the session.** Dismissing the menu set `commands` to an
+  empty list, and `request_commands` asks once per session, so `/`, Escape, `/pl` never offered a
+  completion again — silently. Dismissal now remembers the *query* it closed (`commands_dismissed`),
+  and the menu stays closed for that query only: any edit clears it, and the Host's advertisement is
+  never emptied.
+- **The `@` menu could select rows it never drew.** The keyboard ranged over every candidate (the
+  transport admits 50 files) while the view draws 12 per group, so past row 11 nothing was
+  highlighted and Enter inserted a path the user had never seen. `reference_rows()` is now the one
+  owner of the drawn counts, read by the view, the move clamp and the accept index.
+- **A stale session-reference reply could end the session half of the menu.** A read for another
+  query was skipped rather than superseded, so when the file reply happened to land first the final
+  query never got a session read. `session_reference_query` names the query in flight: a newer query
+  supersedes it, and a reply settles only its own.
+- **The model pill was drawn enabled while the command fence dropped its press.** While observations
+  are lost or a submission is being admitted, `ModelControls`/`Model`/`Effort` never reach their
+  handlers, so the pill, its popup and its submenus were dead with no refusal. The pill now locks
+  with the composer (`App::composer_locked`), draws its caption dimmed, and an open popup closes the
+  moment the composer locks.
+- **An empty Model section could claim the deployment had no models for a read it never sent.** The
+  catalog request latched before the `LoadModels` guard could drop it, so a disconnected app showed
+  "No models available. Check Settings." The latch now happens only when the dispatch is admitted,
+  and the empty state names its real reason (`catalog_placeholder`: disconnected, reopen to retry,
+  loading, or — only after an answered read — no models).
+- **A quoted `@` pick was a no-op or ate its separating space.** The token length counted a closing
+  quote the draft does not contain, so `@"my` plus a row returned nothing and `look at @"my` lost its
+  space. The length is now the token the draft actually holds, and the pick closes the quote it
+  opened: `look at @"my file.rs" `.
+
+Tests: `accepting_a_command_edits_the_draft_and_asks_for_focus_back` (the dismissal scope),
+`the_reference_menu_moves_accepts_and_dismisses_from_the_keyboard` (thirteen candidates stop at the
+last drawn row), `a_newer_reference_query_supersedes_an_in_flight_session_read`,
+`the_model_pill_locks_with_the_composer` (the lock, and the popup closing on the next Host report),
+`the_empty_model_section_names_the_reason_it_is_empty`, and
+`an_at_token_is_detected_and_picks_a_reference` (the quoted pick). No capture: five are state
+decisions and one is a disabled form.
+
+**Battery (round 366).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1277 passed**, 1 ignored |
+| app, default | **0** | **1270 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| tree | — | clean before the commit |

@@ -139,17 +139,23 @@ impl App {
             && self.composer_visible()
     }
     fn ensure_model_catalog(&mut self) -> Task<Message> {
+        // Only latch the request when the dispatch it stands for is admitted: the `LoadModels`
+        // guard drops the message while observations are lost or the app is closing, and a
+        // latched flag then made the empty section claim "Check Settings" about a read that was
+        // never sent.
         if self.model_controls.is_open()
             && !self.model_controls.catalog_requested
             && self.options.smoke.is_none()
             && self.ready
             && self.composer_visible()
             && !self.model_pending
+            && !self.observations_lost
+            && !self.stopped
+            && matches!(self.close, Close::None)
+            && !self.catalog_read.pending()
         {
             self.model_controls.catalog_requested = true;
-            if !self.catalog_read.pending() {
-                return self.update(Message::LoadModels);
-            }
+            return self.update(Message::LoadModels);
         }
         Task::none()
     }
@@ -314,7 +320,15 @@ impl App {
         let pill = container(
             button(
                 row![
-                    label(self.model_caption(), MUTED).size(13),
+                    label(
+                        self.model_caption(),
+                        if self.composer_locked() {
+                            design::LINE
+                        } else {
+                            MUTED
+                        }
+                    )
+                    .size(13),
                     container(
                         label(
                             if self.model_controls.is_open() {
@@ -332,8 +346,10 @@ impl App {
                 .spacing(6)
                 .align_y(iced::Alignment::Center),
             )
+            // Locked with the rest of the composer: the command fence drops the toggle in
+            // these states, so the pill is not offered as pressable while it would do nothing.
             .on_press_maybe(
-                self.composer_visible()
+                (self.composer_visible() && !self.composer_locked())
                     .then_some(Message::ModelControls(Action::Toggle)),
             )
             .style(design::ghost)
@@ -763,6 +779,88 @@ mod tests {
             assert!(rx.try_recv().is_err());
             assert!(!app.catalog_read.pending());
         }
+    }
+    /// The pill is locked with the rest of the composer, and an open popup closes the moment the
+    /// composer locks: the command fence drops the toggle and every nested selection in those
+    /// states, so a pressable pill or a live popup row would do nothing and say nothing.
+    #[test]
+    fn the_model_pill_locks_with_the_composer() {
+        use dsh_native_transport::dto::{PromptContentPart, PromptMode};
+        let (mut app, _rx) = app();
+        assert!(!app.composer_locked());
+        drop(app.update(Message::ModelControls(Action::Toggle)));
+        assert!(
+            app.model_controls.is_open(),
+            "the pill opens while unlocked"
+        );
+        app.observations_lost = true;
+        assert!(app.composer_locked());
+        // Any Host report runs the dismiss guard, which now includes the lock.
+        drop(app.update(Message::Worker(Event::Notice("PUBLIC host report".into()))));
+        assert!(
+            !app.model_controls.is_open(),
+            "the popup closes when locked"
+        );
+        app.observations_lost = false;
+        let session = app.selected.clone().unwrap();
+        assert!(app.pending.insert(
+            7,
+            crate::worker::prompt_recovery::Pending {
+                session: session.clone(),
+                text: "PUBLIC frozen submission".into(),
+                draft_serial: 0,
+                epoch: app.transport_epoch,
+                file_request_id: None,
+                file: Vec::new(),
+                file_ticket: Vec::new(),
+                request: dsh_native_transport::dto::SessionPromptRequest {
+                    session_id: session,
+                    request_id:
+                        dsh_native_transport::dto::SessionRequestId::new("PUBLIC-request").unwrap(),
+                    mode: PromptMode::Queue,
+                    content: vec![PromptContentPart::Text {
+                        text: "PUBLIC frozen submission".into(),
+                    }],
+                    client_time_zone: Some("UTC".into()),
+                },
+            }
+        ));
+        assert!(
+            app.composer_locked(),
+            "an in-flight submission locks the composer"
+        );
+    }
+    /// An empty Model section may only claim the deployment has no models when the read was
+    /// actually answered. A read the app never sent (observations lost, still closing) says it is
+    /// disconnected, and a read still in flight says it is loading.
+    #[test]
+    fn the_empty_model_section_names_the_reason_it_is_empty() {
+        let (mut app, _rx) = app();
+        app.observations_lost = true;
+        assert_eq!(
+            app.catalog_placeholder(),
+            "Models unavailable while disconnected."
+        );
+        // It never latched a request, so reopening asks again once the app can.
+        drop(app.update(Message::ModelControls(Action::Toggle)));
+        assert!(!app.model_controls.catalog_requested);
+        app.observations_lost = false;
+        app.ready = false;
+        assert_eq!(
+            app.catalog_placeholder(),
+            "Models unavailable while disconnected."
+        );
+        app.ready = true;
+        app.model_controls.catalog_failed(true);
+        assert_eq!(
+            app.catalog_placeholder(),
+            "Models unavailable. Reopen to retry."
+        );
+        app.model_controls.catalog_failed(false);
+        assert_eq!(
+            app.catalog_placeholder(),
+            "No models available. Check Settings."
+        );
     }
     #[test]
     fn closed_queue_catalog_and_model_failures_never_fake_a_chat_switch() {

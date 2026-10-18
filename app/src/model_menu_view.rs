@@ -141,21 +141,7 @@ impl App {
                     );
                 }
                 if self.models.is_empty() {
-                    options = options.push(
-                        label(
-                            if !self.ready {
-                                "Models unavailable while disconnected."
-                            } else if self.model_controls.catalog_error {
-                                "Models unavailable. Reopen to retry."
-                            } else if self.catalog_read.pending() {
-                                "Loading models…"
-                            } else {
-                                "No models available. Check Settings."
-                            },
-                            MUTED,
-                        )
-                        .size(12),
-                    );
+                    options = options.push(label(self.catalog_placeholder(), MUTED).size(12));
                 }
             }
             Section::Effort => {
@@ -235,6 +221,20 @@ impl App {
         .padding(6)
         .style(|_| design::card(SURFACE, 10.0))
         .into()
+    }
+    /// What the empty Model section says. Only an answered read may claim the deployment has no
+    /// models: a disconnected app, a refused read and a read still in flight each say their own
+    /// thing, so "Check Settings" cannot describe a request that was never sent.
+    pub(super) fn catalog_placeholder(&self) -> &'static str {
+        if !self.ready || self.observations_lost {
+            "Models unavailable while disconnected."
+        } else if self.model_controls.catalog_error {
+            "Models unavailable. Reopen to retry."
+        } else if self.catalog_read.pending() {
+            "Loading models…"
+        } else {
+            "No models available. Check Settings."
+        }
     }
     pub(super) fn model_popup(&self, stamp: Stamp) -> Element<'_, Message> {
         let panel: Element<'_, Message> = match self.model_controls.section {

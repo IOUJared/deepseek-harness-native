@@ -1103,7 +1103,10 @@ pub struct App {
     /// A file-reference read is in flight for the active query.
     reference_pending: bool,
     /// A session-reference read is in flight for the active query.
-    session_reference_pending: bool,
+    /// The query whose `@` session-reference read is in flight, if any. A newer query
+    /// supersedes it rather than being skipped: the in-flight reply for the older query is
+    /// stale and is ignored when it lands.
+    session_reference_query: Option<String>,
     /// The highlighted `@` menu row.
     reference_selected: usize,
     /// Changed-file summaries by announcing seq.
@@ -1262,6 +1265,11 @@ pub struct App {
     commands: Option<Vec<command_menu::Candidate>>,
     /// A completion read is in flight, so the composer asks once, not per key.
     commands_pending: bool,
+    /// The slash query the user dismissed with Escape. The menu stays closed while the draft's
+    /// token is still that query, and any edit reopens it. Kept separate from `commands`
+    /// because emptying the Host's advertisement to close the menu disabled completion for the
+    /// rest of the session.
+    commands_dismissed: Option<String>,
     /// Highlighted completion row.
     command_selected: usize,
     /// Tracks the selected session's run state so a settle is announced once.
@@ -1467,7 +1475,7 @@ impl App {
                 session_references: Vec::new(),
                 reference_token: None,
                 reference_pending: false,
-                session_reference_pending: false,
+                session_reference_query: None,
                 reference_selected: 0,
                 changes: Default::default(),
                 changes_expanded: Default::default(),
@@ -1558,6 +1566,7 @@ impl App {
                 plan_published: None,
                 plan_toggle_pending: false,
                 commands: None,
+                commands_dismissed: None,
                 commands_pending: false,
                 command_selected: 0,
                 run_watch: run_watch::Watch::default(),
@@ -2326,6 +2335,13 @@ impl App {
     fn composer_visible(&self) -> bool {
         self.composer_base_visible() && !self.local_files.picker.is_open()
     }
+    /// Whether the composer's controls are locked because nothing may be dispatched yet: a
+    /// submission is being admitted, or the observations are lost. The command fence drops
+    /// `Send`/`Model`/`Effort`/`ModelControls` in exactly these states, so a control that stayed
+    /// pressable would do nothing and say nothing.
+    pub(crate) fn composer_locked(&self) -> bool {
+        self.observations_lost || !self.pending.is_empty()
+    }
     fn composer_base_visible(&self) -> bool {
         self.layout_controls_enabled()
             && !self.capabilities
@@ -2689,6 +2705,7 @@ impl App {
         self.plan_toggle_pending = false;
         self.commands = None;
         self.commands_pending = false;
+        self.commands_dismissed = None;
         self.command_selected = 0;
         // A new subject: its run state is a snapshot, not a settle.
         self.run_watch = run_watch::Watch::default();
@@ -3602,7 +3619,7 @@ impl App {
                 if !self.layout_controls_enabled() {
                     self.conversation_menu = false;
                 }
-                if !self.composer_visible() || !self.ready {
+                if !self.composer_visible() || !self.ready || self.composer_locked() {
                     self.model_controls.dismiss();
                 }
                 // Every Host report can settle the selected session, so the
@@ -4473,6 +4490,9 @@ impl App {
                 self.editor.perform(action);
                 if changed {
                     self.touch_draft();
+                    // An edit is a new query, so a dismissal of the previous one no longer
+                    // applies and the menu may open again.
+                    self.commands_dismissed = None;
                     // Typing a leading slash is the user asking for completions;
                     // the read is lazy, once, and never on a frame.
                     if command_menu::query(&self.editor.text()).is_some() {
@@ -4488,7 +4508,8 @@ impl App {
             // The menu consumes these keys only while it is open, so nothing
             // about ordinary composing changes when no command line is typed.
             Message::CommandMenuMove(delta) if self.reference_menu_open() => {
-                let len = self.file_references.len() + self.session_references.len();
+                let (files, sessions) = self.reference_rows();
+                let len = files + sessions;
                 let next = self.reference_selected as i64 + i64::from(delta);
                 self.reference_selected = next.clamp(0, len as i64 - 1) as usize;
             }
@@ -4497,13 +4518,14 @@ impl App {
                 self.command_selected = command_menu::advance(self.command_selected, len, delta);
             }
             Message::CommandMenuAccept if self.reference_menu_open() => {
-                if let Some(candidate) = self.file_references.get(self.reference_selected).cloned()
+                let (files, _) = self.reference_rows();
+                if self.reference_selected < files
+                    && let Some(candidate) =
+                        self.file_references.get(self.reference_selected).cloned()
                 {
                     return self.update(Message::ReferencePick(candidate.path, candidate.kind));
                 }
-                let index = self
-                    .reference_selected
-                    .saturating_sub(self.file_references.len());
+                let index = self.reference_selected.saturating_sub(files);
                 let Some(candidate) = self.session_references.get(index).cloned() else {
                     return Task::none();
                 };
@@ -4527,13 +4549,15 @@ impl App {
                 self.session_references.clear();
                 self.reference_token = None;
                 self.reference_pending = false;
-                self.session_reference_pending = false;
+                self.session_reference_query = None;
                 return Self::focus_composer();
             }
             Message::CommandMenuDismiss if self.completion().is_some() => {
-                // Dismissal is not a draft edit: clear the menu by leaving the
-                // command position, and keep every typed character.
-                self.commands = Some(Vec::new());
+                // Dismissal is not a draft edit: keep every typed character and the Host's
+                // advertisement, and close the menu for this query only. Emptying `commands`
+                // here used to be permanent — `request_commands` asks once per session.
+                self.commands_dismissed =
+                    command_menu::query(&self.editor.text()).map(str::to_owned);
                 self.command_selected = 0;
                 return Self::focus_composer();
             }
@@ -4541,7 +4565,11 @@ impl App {
                 let Some((query, quoted)) = self.reference_token.clone() else {
                     return Task::none();
                 };
-                let token_len = query.len() + if quoted { 3 } else { 1 };
+                // The draft holds the token's opening `@` and, for a quoted token, the
+                // opening quote — but never the closing quote the mention will add. Counting
+                // three made the slice one byte too long, so a pick at the draft's end was
+                // dropped and one after another word ate its separating space.
+                let token_len = query.len() + if quoted { 2 } else { 1 };
                 let text = self.editor.text();
                 if token_len > text.len() {
                     return Task::none();
@@ -4555,7 +4583,7 @@ impl App {
                     self.session_references.clear();
                     self.reference_token = None;
                     self.reference_pending = false;
-                    self.session_reference_pending = false;
+                    self.session_reference_query = None;
                     return Self::focus_composer();
                 }
                 let directory = kind == "directory";
@@ -4585,7 +4613,7 @@ impl App {
                 self.session_references.clear();
                 self.reference_token = None;
                 self.reference_pending = false;
-                self.session_reference_pending = false;
+                self.session_reference_query = None;
                 if directory {
                     self.refresh_reference_token();
                 }
@@ -5629,7 +5657,9 @@ impl App {
                 };
             }
             Event::SessionReferencesLoaded { query, result } => {
-                self.session_reference_pending = false;
+                if self.session_reference_query.as_deref() == Some(query.as_str()) {
+                    self.session_reference_query = None;
+                }
                 let current = self
                     .reference_token
                     .as_ref()
@@ -9358,6 +9388,9 @@ impl App {
     fn completion(&self) -> Option<command_menu::Completion<'_>> {
         let draft = self.editor.text();
         let query = command_menu::query(&draft)?;
+        if self.commands_dismissed.as_deref() == Some(query) {
+            return None;
+        }
         let candidates = self.commands.as_deref().unwrap_or_default();
         let matches = command_menu::matches(candidates, query);
         if matches.is_empty() {
@@ -9889,8 +9922,11 @@ impl App {
             return;
         };
         self.reference_pending = true;
-        if !self.session_reference_pending {
-            self.session_reference_pending = true;
+        // A read for another query is superseded, not waited for: skipping it left the
+        // session half of the menu empty for the final query when the file reply happened to
+        // land first, with nothing left to trigger a re-read.
+        if self.session_reference_query.as_deref() != Some(query.as_str()) {
+            self.session_reference_query = Some(query.clone());
             self.command(worker::Command::SessionReferences {
                 session: session.clone(),
                 query: query.clone(),
@@ -9902,6 +9938,16 @@ impl App {
     fn reference_menu_open(&self) -> bool {
         self.reference_token.is_some()
             && (!self.file_references.is_empty() || !self.session_references.is_empty())
+    }
+    /// How many file and session rows the `@` menu draws, in that order. The view caps each group
+    /// at twelve; the keyboard's move range and the accept index read this same count, so a
+    /// highlight can never land on a row that is not drawn while the transport admits up to
+    /// fifty file candidates.
+    fn reference_rows(&self) -> (usize, usize) {
+        (
+            self.file_references.len().min(REFERENCE_ROWS),
+            self.session_references.len().min(REFERENCE_ROWS),
+        )
     }
     /// Rate one message, or remove the rating when the same control is pressed again.
     fn feedback_press(&mut self, message_id: String, rating: &'static str) -> Task<Message> {
@@ -11336,7 +11382,7 @@ impl App {
             && (!self.file_references.is_empty() || !self.session_references.is_empty())
         {
             let mut rows = column![].spacing(1);
-            for (index, candidate) in self.file_references.iter().take(12).enumerate() {
+            for (index, candidate) in self.file_references.iter().take(REFERENCE_ROWS).enumerate() {
                 let directory = candidate.kind == "directory";
                 let selected = index == self.reference_selected;
                 let row = container(
@@ -11367,8 +11413,13 @@ impl App {
                     ),
                 }));
             }
-            for (offset, candidate) in self.session_references.iter().take(12).enumerate() {
-                let index = self.file_references.len() + offset;
+            for (offset, candidate) in self
+                .session_references
+                .iter()
+                .take(REFERENCE_ROWS)
+                .enumerate()
+            {
+                let index = self.reference_rows().0 + offset;
                 let selected = index == self.reference_selected;
                 let row = container(
                     row![
@@ -15876,6 +15927,9 @@ mod native_clipboard {
         }
     }
 }
+/// Rows drawn per group in the `@` menu. The keyboard's range and the accept index read
+/// [`App::reference_rows`], which applies this same cap.
+const REFERENCE_ROWS: usize = 12;
 pub(crate) fn label<'a>(
     value: impl text::IntoFragment<'a>,
     color: Color,
@@ -17443,6 +17497,29 @@ mod tests {
         let task = app.update(Message::CommandMenuDismiss);
         assert_eq!(app.editor.text(), "/pla");
         assert!(task.units() >= 1, "dismissal must ask for the caret back");
+        // The dismissal closes the menu for that query only. It must not empty the Host's
+        // advertisement, which `request_commands` asks for once per session: emptying it made
+        // one Escape disable completion for the rest of the session.
+        assert!(
+            app.completion().is_none(),
+            "the dismissed query stays closed"
+        );
+        assert!(!app.commands.as_deref().unwrap_or_default().is_empty());
+        // A different query opens again, and so does the same query after an edit.
+        app.editor = text_editor::Content::with_text("/pl");
+        assert!(app.completion().is_some(), "a new query reopens the menu");
+        let _ = app.update(Message::CommandMenuDismiss);
+        assert!(app.completion().is_none());
+        app.editor = text_editor::Content::with_text("/plan");
+        let _ = app.update(Message::CommandMenuDismiss);
+        app.editor = text_editor::Content::with_text("/pla");
+        let _ = app.update(Message::Editor(text_editor::Action::Move(
+            text_editor::Motion::Left,
+        )));
+        assert!(
+            app.completion().is_some(),
+            "an edit clears the dismissal, so typing brings the menu back"
+        );
     }
     /// A press on the composer that owns no action publishes only the caret
     /// request, in the same message vocabulary the view uses.
@@ -19009,6 +19086,45 @@ mod tests {
         assert!(app.session_references.is_empty());
         assert!(app.reference_token.is_none());
     }
+    /// A newer `@` query supersedes a session-reference read that is still in flight, so the
+    /// session half is asked for the query the user has now — and the stale reply is ignored.
+    #[test]
+    fn a_newer_reference_query_supersedes_an_in_flight_session_read() {
+        let (mut app, mut receiver) = managed_app();
+        app.editor = text_editor::Content::with_text("@rev");
+        app.reference_token = Some(("rev".into(), false));
+        app.request_references("rev".into());
+        let mut asked = Vec::new();
+        while let Ok(command) = receiver.try_recv() {
+            if let Command::SessionReferences { query, .. } = command {
+                asked.push(query);
+            }
+        }
+        assert_eq!(asked, ["rev"]);
+        // The token grows while that read is outstanding: the session half is asked again
+        // rather than skipped until the stale answer arrives.
+        app.editor = text_editor::Content::with_text("@revi");
+        app.reference_token = Some(("revi".into(), false));
+        app.request_references("revi".into());
+        let mut asked = Vec::new();
+        while let Ok(command) = receiver.try_recv() {
+            if let Command::SessionReferences { query, .. } = command {
+                asked.push(query);
+            }
+        }
+        assert_eq!(asked, ["revi"]);
+        // The older answer cannot land on the newer query.
+        let _ = app.update(Message::Worker(Event::SessionReferencesLoaded {
+            query: "rev".into(),
+            result: Ok(vec![]),
+        }));
+        assert!(app.session_reference_query.as_deref() == Some("revi"));
+        let _ = app.update(Message::Worker(Event::SessionReferencesLoaded {
+            query: "revi".into(),
+            result: Ok(vec![]),
+        }));
+        assert!(app.session_reference_query.is_none());
+    }
     #[test]
     fn picking_a_directory_keeps_the_mention_open_for_its_children() {
         use dsh_native_transport::dto::FileReferenceCandidate;
@@ -19055,6 +19171,33 @@ mod tests {
         assert!(app.file_references.is_empty());
         assert!(app.reference_token.is_none());
         assert_eq!(app.editor.text(), "@src");
+        // The transport admits up to fifty file candidates while the menu draws twelve per
+        // group. The move range and the accept index must be the drawn rows, or a highlight
+        // lands on nothing and Enter inserts a path the user never saw.
+        let files: Vec<_> = (0..13)
+            .map(|index| FileReferenceCandidate {
+                path: format!("src/PUBLIC-{index}.rs"),
+                kind: "file".into(),
+            })
+            .collect();
+        app.editor = text_editor::Content::with_text("@src");
+        app.reference_token = Some(("src".into(), false));
+        app.file_references = files.clone();
+        app.session_references = Vec::new();
+        app.reference_selected = 0;
+        for _ in 0..20 {
+            let _ = app.update(Message::CommandMenuMove(1));
+        }
+        assert_eq!(
+            app.reference_selected,
+            REFERENCE_ROWS - 1,
+            "the highlight stops at the last drawn row"
+        );
+        let _ = app.update(Message::CommandMenuAccept);
+        assert_eq!(
+            app.editor.text(),
+            format!("@{} ", files[REFERENCE_ROWS - 1].path)
+        );
     }
     #[test]
     fn an_at_token_is_detected_and_picks_a_reference() {
@@ -19071,6 +19214,18 @@ mod tests {
             Some(("my file".into(), true))
         );
         assert_eq!(App::active_reference_token("user@example.com"), None);
+        // A quoted pick replaces exactly the token the draft holds, closing the quote it
+        // opened: the draft never contains the closing quote the mention adds.
+        let (mut app, _receiver) = managed_app();
+        app.editor = text_editor::Content::with_text("look at @\"my");
+        app.reference_token = Some(("my".into(), true));
+        let _ = app.update(Message::ReferencePick("my file.rs".into(), "file".into()));
+        assert_eq!(app.editor.text(), "look at @\"my file.rs\" ");
+        // At the draft's very start the same pick is not dropped.
+        app.editor = text_editor::Content::with_text("@\"my");
+        app.reference_token = Some(("my".into(), true));
+        let _ = app.update(Message::ReferencePick("my file.rs".into(), "file".into()));
+        assert_eq!(app.editor.text(), "@\"my file.rs\" ");
         let (mut app, _receiver) = managed_app();
         app.editor = text_editor::Content::with_text("@src");
         app.reference_token = Some(("src".into(), false));
