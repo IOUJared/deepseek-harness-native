@@ -182,6 +182,9 @@ struct Options {
     /// Run the production preference write with no local home, so the settings footer's
     /// unsaved-preference line is captured.
     preference_unsaved: bool,
+    /// Deliver a queue refusal with nothing queued, so the strip that keeps the explanation is
+    /// captured.
+    queue_refused: bool,
     /// Expand the queue dock's multi-item list for capture.
     queue_expanded: bool,
     /// Expand the first turn-trigger notice for capture.
@@ -323,6 +326,7 @@ fn options() -> Result<Options, &'static str> {
             "--busy-enter",
             "--preference-unsaved",
             "--queue-expanded",
+            "--queue-refused",
             "--trigger-expanded",
             "--turn-usage-expanded",
             "--completion-unread",
@@ -459,6 +463,10 @@ fn options() -> Result<Options, &'static str> {
         },
         busy_enter: values.remove("--busy-enter"),
         preference_unsaved: match values.remove("--preference-unsaved") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        queue_refused: match values.remove("--queue-refused") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -913,6 +921,9 @@ impl Fixture {
         }
         if options.queue_expanded {
             app.expand_queue();
+        }
+        if options.queue_refused {
+            app.show_queue_refusal();
         }
         if options.trigger_expanded {
             app.expand_trigger(0);

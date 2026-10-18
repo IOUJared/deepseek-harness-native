@@ -7106,3 +7106,34 @@ flag.
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+### Round 336 — a queue refusal outlives the item it names
+
+**Another composer-audit finding.** `queue_dock` returned `None` as soon as the queue was empty
+(`ui.rs:10368-10371`) — before the error line at `:10515` — so a refusal that named the cause was
+hidden exactly when it mattered: removing or steering the **only** queued item normally empties the
+queue, and a `NotFound` ("This message may have already started sending.") then had no strip to
+draw in. The stale message could later reappear attached to unrelated items.
+
+The strip now stays while a refusal is present even with nothing queued: the error is the whole
+surface. One test, `a_queue_refusal_survives_the_last_queued_item_leaving`, drives the production
+`Event::QueueUpdated` with `Failure::NotFound` on an empty queue and asserts the dock is drawn.
+
+**Capture.** `shots/153-queue-refusal.png` (DP-2 alongside, `status: passed`) shows the strip above
+the composer carrying only that line, reached through the new `--queue-refused true` fixture flag,
+which delivers the production event rather than poking state.
+
+**Battery (round 336).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1233 passed**, 1 ignored |
+| app, default | **0** | **1226 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 88 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/153-queue-refusal.png`, `status: passed` |
+| tree | — | clean before the commit |

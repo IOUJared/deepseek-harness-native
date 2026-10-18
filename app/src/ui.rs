@@ -7480,6 +7480,22 @@ impl App {
         self.busy_enter = value;
     }
 
+    /// Fixture-only: deliver the production queue-refusal event, so the strip that keeps the
+    /// explanation on screen after the last item leaves is capturable without a Host.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn show_queue_refusal(&mut self) {
+        let Some(session) = self.selected.clone() else {
+            return;
+        };
+        let _ = self.update(Message::Worker(Event::QueueUpdated {
+            submission: crate::queue_update::Submission {
+                session,
+                item_id: "PUBLIC-refused-item".into(),
+                action: dsh_native_transport::dto::QueueAction::Remove,
+            },
+            result: Err(crate::queue_update::Failure::NotFound),
+        }));
+    }
     /// Fixture-only: run the production preference write with no local home, so the settings
     /// footer's unsaved-preference line is capturable. The press, the saver and the failure
     /// message are the shipped ones; only the missing home is arranged.
@@ -10366,7 +10382,10 @@ impl App {
     /// as the reference's dock does.
     fn queue_dock(&self) -> Option<Element<'_, Message>> {
         let items = self.transcript.queued();
-        if items.is_empty() {
+        // A refusal can arrive exactly as the last item leaves the queue — removing the only
+        // queued message settles either way. Dropping the strip there would hide the explanation
+        // of what just happened, so the error keeps it on screen by itself.
+        if items.is_empty() && self.queue_error.is_none() {
             return None;
         }
         let mut list = column![].spacing(4);
@@ -18581,6 +18600,29 @@ mod tests {
         assert!(app.goal_busy.is_none());
         assert_eq!(app.goal_error.as_deref(), Some("Goal: remote-failure"));
         assert_eq!(GoalPhase::Active, GoalPhase::Active);
+    }
+    #[test]
+    fn a_queue_refusal_survives_the_last_queued_item_leaving() {
+        use dsh_native_transport::dto::QueueAction;
+        let (mut app, _receiver) = managed_app();
+        assert!(
+            app.queue_dock().is_none(),
+            "nothing queued and nothing refused draws no strip"
+        );
+        let submission = crate::queue_update::Submission {
+            session: app.selected.clone().unwrap(),
+            item_id: "PUBLIC-queued-1".into(),
+            action: QueueAction::Remove,
+        };
+        let _ = app.update(Message::Worker(Event::QueueUpdated {
+            submission,
+            result: Err(crate::queue_update::Failure::NotFound),
+        }));
+        assert!(app.queue_error.is_some());
+        assert!(
+            app.queue_dock().is_some(),
+            "the refusal keeps the strip so it can name itself"
+        );
     }
     #[test]
     fn a_goal_bar_state_and_an_open_usage_row_do_not_follow_a_session_switch() {
