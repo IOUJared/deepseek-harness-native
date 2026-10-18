@@ -217,12 +217,16 @@ pub struct Output {
     chunks: Vec<String>,
     bytes: usize,
     dropped: usize,
+    /// Bytes a single oversized chunk lost at [`CHUNK_BYTES`]. Counted separately from whole-chunk
+    /// eviction so the panel's "never silently hidden" copy stays true.
+    truncated: usize,
 }
 impl Output {
     pub fn clear(&mut self) {
         self.chunks.clear();
         self.bytes = 0;
         self.dropped = 0;
+        self.truncated = 0;
     }
     /// Append one sanitized chunk, evicting the oldest chunks under both bounds.
     pub fn push(&mut self, data: &str) {
@@ -232,6 +236,7 @@ impl Output {
             while cut > 0 && !text.is_char_boundary(cut) {
                 cut -= 1;
             }
+            self.truncated = self.truncated.saturating_add(text.len() - cut);
             text.truncate(cut);
         }
         if text.is_empty() {
@@ -272,6 +277,10 @@ impl Output {
     }
     pub fn dropped(&self) -> usize {
         self.dropped
+    }
+    /// Bytes discarded because one chunk exceeded [`CHUNK_BYTES`].
+    pub fn truncated(&self) -> usize {
+        self.truncated
     }
     /// Retained byte total, for the tests that assert the retention bounds.
     #[cfg(test)]
@@ -428,6 +437,12 @@ impl Terminal {
     }
     pub fn list_loaded(&self) -> bool {
         self.list_loaded
+    }
+    /// Whether the panel may claim a read is still outstanding. A refused read leaves
+    /// `list_loaded` false, and the notice already states the failure — claiming "loading" beside
+    /// it, forever, was the bug.
+    pub fn loading_claim(&self) -> bool {
+        !self.list_loaded && matches!(self.notice, Notice::Loading)
     }
     pub fn shells(&self) -> &[TerminalShell] {
         &self.shells
@@ -1065,6 +1080,79 @@ mod tests {
             }),
         );
         terminal
+    }
+    #[test]
+    fn an_oversized_chunk_is_counted_as_truncated_and_never_silently_shortened() {
+        let mut output = Output::default();
+        output.push(&"x".repeat(CHUNK_BYTES));
+        assert_eq!(
+            output.truncated(),
+            0,
+            "an exactly-sized chunk loses nothing"
+        );
+        output.push(&"y".repeat(CHUNK_BYTES * 2));
+        assert_eq!(
+            output.truncated(),
+            CHUNK_BYTES,
+            "the tail a chunk loses is reported, not hidden"
+        );
+        assert!(
+            output
+                .chunks()
+                .iter()
+                .all(|chunk| chunk.len() <= CHUNK_BYTES)
+        );
+        // A chunk that ends mid-character backs the cut up to the boundary and loses exactly the
+        // four bytes of the character the bound would have split.
+        let before = output.truncated();
+        output.push(&format!("{}🌹", "a".repeat(CHUNK_BYTES - 1)));
+        assert_eq!(output.truncated() - before, 4);
+        // A chunk far past the bound reports every byte it loses, not just the last character.
+        let before = output.truncated();
+        output.push(&"🌹".repeat(CHUNK_BYTES));
+        assert!(output.truncated() - before > CHUNK_BYTES);
+        output.clear();
+        assert_eq!(output.truncated(), 0);
+    }
+    #[test]
+    fn a_refused_list_read_never_leaves_a_loading_claim() {
+        let mut terminal = Terminal::default();
+        let effect = terminal
+            .apply(
+                Action::Open {
+                    view: context().view.unwrap(),
+                },
+                &context(),
+            )
+            .expect("open reads the host list");
+        let Effect::Read(read) = effect else {
+            panic!("opening must only read");
+        };
+        assert!(terminal.loading_claim(), "an outstanding read says so");
+        terminal.loaded(&read, Err(ReadFailure::Rejected));
+        assert!(!terminal.list_loaded());
+        assert!(
+            !terminal.loading_claim(),
+            "a refusal is stated by the notice, not as loading"
+        );
+        assert_eq!(terminal.notice(), &Notice::ReadFailed);
+        // A later successful read restores both the list and the settled claim.
+        let effect = terminal
+            .apply(Action::Refresh(ticket(&terminal)), &context())
+            .expect("refresh reads again");
+        let Effect::Read(read) = effect else {
+            panic!("refresh must only read");
+        };
+        terminal.loaded(
+            &read,
+            Ok(Loaded {
+                list: Vec::new(),
+                shells: vec![shell()],
+                environment: Some(environment()),
+            }),
+        );
+        assert!(terminal.list_loaded());
+        assert!(!terminal.loading_claim());
     }
     fn select(terminal: &mut Terminal) -> FollowTicket {
         let effect = terminal

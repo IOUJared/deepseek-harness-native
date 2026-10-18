@@ -7137,3 +7137,45 @@ which delivers the production event rather than poking state.
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/153-queue-refusal.png`, `status: passed` |
 | tree | — | clean before the commit |
+
+### Round 337 — two silent terminal states
+
+**A read-only audit of the terminal panel found the mechanical wiring complete** — all 13
+`terminal::Action` variants are constructed by drawn controls and matched before the wildcard, all
+25 `Notice` variants have a set site and a draw arm, and every `Command`/`Event` pair is handled —
+**but two states had no honest surface.** Both are fixed here.
+
+- **A refused list read left a permanent "Loading…".** `loaded(Err)` sets `list_loaded = false`
+  and the panel drew "Loading the Host terminal list…" whenever the list was not loaded, beside the
+  red `ReadFailed` notice, forever, with no read in flight. `Terminal::loading_claim()` now answers
+  "a read is outstanding" (`!list_loaded && notice == Loading`), the panel draws the loading line
+  from that, and the "no terminals exist" line only when a read actually succeeded.
+- **Per-chunk truncation was uncounted.** `Output::push` cut any chunk longer than `CHUNK_BYTES`
+  without touching `dropped`, which only counts whole-chunk eviction — while the panel says
+  "discarded output is counted, never silently hidden" and `docs/NATIVE-TERMINAL.md` promises every
+  discarded chunk is counted. A Host frame may be far larger than 16 KiB, so bytes vanished
+  uncounted. `Output` now carries `truncated`, the panel states the discarded bytes and the bound,
+  and the count includes the bytes a multi-byte character loses at the cut.
+
+Two model tests, `a_refused_list_read_never_leaves_a_loading_claim` and
+`an_oversized_chunk_is_counted_as_truncated_and_never_silently_shortened`, plus the draw change.
+No capture: neither state is reachable from a fixture preset (the terminal panel has no read
+fixture), and the deletion/addition is one 10px line inside an existing panel.
+
+**Still open from that audit, named rather than lost:** the three admission guards the drawn
+controls do not reflect (`ReviewCreate`/`ConfirmCreate`/`ReviewClose` die in the wildcard with no
+notice), the detached-follow Write copy, the Schedules/Terminal pane precedence, `Dismiss` leaving
+the Host attachment live, and `NATIVE-TERMINAL.md:45`'s claim that dimensions are bounded by
+`maxCols`/`maxRows` while creation always asks 80×24.
+
+**Battery (round 337).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1235 passed**, 1 ignored |
+| app, default | **0** | **1228 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 88 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |

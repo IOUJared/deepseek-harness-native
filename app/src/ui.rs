@@ -14357,9 +14357,9 @@ impl App {
             ]
             .spacing(8),
         );
-        if !self.terminal.list_loaded() {
+        if self.terminal.loading_claim() {
             body = body.push(label("Loading the Host terminal list…", MUTED).size(11));
-        } else if self.terminal.list().is_empty() {
+        } else if self.terminal.list_loaded() && self.terminal.list().is_empty() {
             body = body.push(label("No Host terminals exist for this Session.", MUTED).size(11));
         }
         for info in self.terminal.list() {
@@ -14465,6 +14465,19 @@ impl App {
                         format!(
                             "{} older output chunk(s) were discarded by the panel bound.",
                             self.terminal.output().dropped()
+                        ),
+                        MUTED,
+                    )
+                    .size(10),
+                );
+            }
+            if self.terminal.output().truncated() > 0 {
+                body = body.push(
+                    label(
+                        format!(
+                            "{} byte(s) of an oversized output chunk were truncated at the {} KiB bound.",
+                            self.terminal.output().truncated(),
+                            crate::terminal::CHUNK_BYTES / 1024
                         ),
                         MUTED,
                     )
