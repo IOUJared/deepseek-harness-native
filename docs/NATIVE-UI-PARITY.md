@@ -61,9 +61,11 @@ mounted; and the UI is English-only while the reference ships zh/en dictionaries
 pending status is still unavailable from the present wires. Live model runs, OAuth and desktop-open
 side effects remain unverified.
 
-**Four things need the user:** `reference.png` in the workspace root; a real window-edge drag for
-the 520×600 floor; one live close-timing run for the shell's 10/5/5 s budgets; the image fetch
-policy. **One is Iced-blocked:** inline-code chips.
+**Four things need the user:** `reference.png` in the workspace root (expected 1980×1319, sha256
+`b8e164f5…`; the native side is already captured at that size — see
+[the comparison plan](NATIVE-CHAT-GEOMETRY.md#reference-comparison-at-19801319-blocked-on-the-file));
+a real window-edge drag for the 520×600 floor; one live close-timing run for the shell's 10/5/5 s
+budgets; the image fetch policy. **One is Iced-blocked:** inline-code chips.
 
 **The rules this document earned, all in force:** capture every gating exit status; back every path
 claim with an implementation line; insert by locating the line, never by matching text from memory;

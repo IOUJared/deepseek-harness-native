@@ -22,6 +22,52 @@ Microbenchmark excludes App excerpt/widget layout; **not startup/scroll/CPU/memo
 
 Earlier [development package](<NATIVE-DEVELOPMENT-PACKAGE.md>) has its own frozen identity; captures do not qualify attachment effects or physical input.
 
+## Reference comparison at 1980×1319 (blocked on the file)
+
+The user's reference screenshot is **not in the workspace**, so visual parity is unverified. The
+expected artifact is a 1980×1319 PNG with sha256
+`b8e164f53665c2e85bad4b326c4c0b6decff0f1fc37d7f93fb64a0cbff4759ce` at
+`/home/jared/Documents/deepseek-harness/default-workspace/reference.png`. To place it, the user can
+copy it there and verify it with:
+
+```sh
+sha256sum /home/jared/Documents/deepseek-harness/default-workspace/reference.png
+```
+
+**The native side is captured at exactly that size already**, so the comparison is a diff and not a
+re-capture: `shots/157-chat-reference-size.png` (DP-2 alongside, fixture report `status: passed`) is
+the chat fixture at `--width 1980 --height 1319`. The product frame is `y=32, 1980×1319`; the 32px
+band above it is the fixture's own PUBLIC banner, not product chrome. Measured native rects from
+that run:
+
+| Element | Rect (logical px) |
+| --- | --- |
+| Frame | x 0, y 32, 1980×1319 |
+| Sidebar / header split | header starts x 260 |
+| Header | x 260, 1720×75 |
+| Header crumbs | x 280, y 43, 198×28 |
+| Content lane handles | x 626 and x 1604, 10 wide, y 136.3, h 1095.7 |
+| Composer controls row | y 1293, h 28 (attach, permission, model) |
+| Stop | x 1448.95, 51.28×34 |
+| Send | x 1512.23, 75.77×34 |
+| Settings entry | x 12, y 1309, 236×36 |
+
+**What to compare, in this order** (each is a user-stated requirement, so a mismatch is a defect,
+not a preference):
+
+1. user bubble: right inset from the lane edge, content width, and the gap to the next row;
+2. assistant text: the first line's x and y relative to the lane, and the absence of any box;
+3. tool activity: single muted line, icon column, name, underlined **relative** path, and the
+   `+N −N` edit pair where the reference shows one;
+4. the action row under an assistant reply (branch, like/dislike, details, time) and its rhythm;
+5. the composer card: width against the lane, its 32px overhang, control row height and baseline.
+
+**Known open divergences that do not need the image** (the reference source specifies them and the
+user's own target text names them): underlined relative paths and `+N −N` edit counts in tool rows
+are still unimplemented ([chat geometry limits](#remaining-limits) above); inline diffs are the same
+gap. These can be built from the reference source before the screenshot lands, but their *exact*
+rhythm stays unverified until it does.
+
 ## Remaining limits
 
 - Preview: **four source lines / 240 code points / four displayed lines**, not full-message height/Markdown. Long unbreakable tokens may clip; Details preserves bounded display source. [Formatted Details](<NATIVE-FORMATTED-DETAILS.md>) is optional/basic.
