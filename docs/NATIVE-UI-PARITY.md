@@ -7496,3 +7496,30 @@ pins it.
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+### Round 348 — a pending approval reaches its dialog over a full-pane panel
+
+**Second finding of the approvals/questions audit, and the serious one for a live agent.** The
+pending-decision banner is drawn above every body (`ui.rs:8964-8974`) and its only press is
+`Action::List`, the single entrance to the decision dialog. But
+`background_message` classifies `Message::Interaction(_)` as background, and the terminal and MCP
+fences drop background messages while those panels are open — so an approval that arrived while the
+Terminal or MCP panel was up showed the banner and the sidebar's "Waiting for approval", and
+pressing it did nothing at all: the agent stayed blocked, with no status saying why.
+
+The two fences now exempt `Message::Interaction(_)`, which is exactly the surface that must never
+be swallowed by a panel. One App test, `a_pending_approval_can_be_opened_while_a_panel_owns_the_body`,
+seeds a real waterfall decision, opens the MCP panel, presses the real banner action and asserts the
+dialog opened.
+
+**Battery (round 348).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1248 passed**, 1 ignored |
+| app, default | **0** | **1241 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 88 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |

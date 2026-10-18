@@ -2902,7 +2902,10 @@ impl App {
         }
         if self.terminal.is_open()
             && !self.settings.is_open()
-            && ((background_message(&message) && !matches!(&message, Message::Terminal(_)))
+            // A pending approval is the one thing that must never be swallowed by a panel: its
+            // banner sits above every body, so its presses reach the decision surface.
+            && ((background_message(&message)
+                && !matches!(&message, Message::Terminal(_) | Message::Interaction(_)))
                 || matches!(&message, Message::Settings(_)))
         {
             return Task::none();
@@ -2911,7 +2914,8 @@ impl App {
         // frame cannot change the file, the draft or the review under the user.
         if self.mcp.is_open()
             && !self.settings.is_open()
-            && ((background_message(&message) && !matches!(&message, Message::Mcp(_)))
+            && ((background_message(&message)
+                && !matches!(&message, Message::Mcp(_) | Message::Interaction(_)))
                 || matches!(&message, Message::Settings(_)))
         {
             return Task::none();
@@ -17745,6 +17749,38 @@ mod tests {
         }));
         assert!(app.schedules.is_empty());
         assert!(app.schedule_busy.is_none());
+    }
+    #[test]
+    fn a_pending_approval_can_be_opened_while_a_panel_owns_the_body() {
+        use dsh_native_transport::dto::{AgentId, RemoteEventFrame, WaterfallKind};
+        let (mut app, _receiver) = managed_app();
+        let key = crate::interactions::Key {
+            epoch: app.transport_epoch,
+            event_id: dsh_native_transport::dto::RemoteEventId::new("PUBLIC-decision").unwrap(),
+            serial: 1,
+        };
+        drop(app.receive(Event::Root {
+            frame: RemoteEventFrame::Waterfall {
+                event: WaterfallKind::Approval,
+                event_id: key.event_id.clone(),
+                agent_id: AgentId::new("PUBLIC-agent").unwrap(),
+                request: serde_json::json!({
+                    "toolName": "PUBLIC tool",
+                    "callId": "PUBLIC call",
+                    "reason": "PUBLIC reason"
+                }),
+            },
+            decision_key: Some(key),
+        }));
+        assert_eq!(app.decisions.len(), 1);
+        // A full-pane panel is open, and the banner above it is still drawn.
+        let _ = app.update(Message::Mcp(crate::mcp::Action::Open));
+        assert!(app.mcp.is_open());
+        let _ = app.update(Message::Interaction(crate::interactions::Action::List));
+        assert!(
+            app.decisions.is_open(),
+            "the approval banner must open its dialog over a panel"
+        );
     }
     #[test]
     fn a_worker_notice_reaches_the_status_without_touching_transport_state() {
