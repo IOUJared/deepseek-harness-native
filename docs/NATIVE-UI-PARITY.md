@@ -6988,3 +6988,39 @@ contradiction, one was a hollow reference section and one was an inert control.
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/149-sidebar-current-group.png`, `status: passed` |
 | tree | — | clean before the commit |
+
+### Round 333 — preset names resolve through the reference's display rule
+
+**The seat, the hero chip and the session's header crumb printed the Host's raw ids.** A live
+`agentPresets.remoteExportList()` answers `{id, order, isDefault}` with **no name** for the shipped
+presets (round 330's probe), and all three surfaces fell back to `row.name ?? row.id` — so the
+default chip read "standard" and the seat listed "standard/ptc/minimal/cordis". The reference never
+shows those: `agent-preset-registry/src/display.ts:70-80` resolves a shipped preset that publishes
+no name through the dictionary's own copy ("Standard mode", "PTC mode", "Minimal mode", "Creator
+mode"), and keeps a declaration's own name when it publishes one.
+
+All three sites now call `settings::preset_display`, the same function the round-331 section uses,
+so there is one rule and one set of strings. A named declaration still shows its own text — the
+fixture's named roster (`Implementer`, `Reviewer`) is unchanged and its earlier captures still
+describe themselves — and an unknown id still falls back to the id.
+
+**Capture.** `shots/150-seat-host-roster.png` (DP-2 in `150-seat-host-roster-dp2.png`, report
+`status: passed`) shows the hero seat against the Host's own roster shape, reached through the new
+`--agent-roster-host true` fixture flag: four dictionary names, the named `Team reviewer`
+declaration, and `Scout` in danger ink as a failed load. The chip beneath reads "Standard mode"
+where it used to read "standard".
+
+**Battery (round 333).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1229 passed**, 1 ignored |
+| app, default | **0** | **1222 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 88 + 7 |
+| core (`--lib`) | **0** | **115 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/150-seat-host-roster.png`, `status: passed` |
+| tree | — | clean before the commit |

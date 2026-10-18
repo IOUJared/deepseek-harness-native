@@ -7634,8 +7634,10 @@ impl App {
     pub(crate) fn set_agent_seat_open(&mut self) {
         self.agent_seat_open = true;
     }
-    /// Fixture-only: the Host's own roster shape for the settings section — the shipped presets
-    /// publish no name, a named declaration keeps its own text, and one declaration failed.
+    /// Fixture-only: the Host's own roster shape — the shipped presets publish no name, a named
+    /// declaration keeps its own text, and one declaration failed. Used by the settings section
+    /// preset and by `--agent-roster-host`, so the seat, the header and the section can each be
+    /// captured against the rows a live Host answers.
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn set_agent_presets_section_roster(&mut self) {
         let row = |id: &str,
@@ -11427,7 +11429,7 @@ impl App {
                         .presets
                         .iter()
                         .find(|row| row.id == preset)
-                        .map(|row| row.name.clone().unwrap_or_else(|| row.id.clone()))
+                        .map(|row| crate::settings::preset_display(row).0)
                 })
                 .unwrap_or_else(|| preset.to_owned());
             crumbs = crumbs.push(
@@ -13409,12 +13411,15 @@ impl App {
         // press is also the read's trigger, because the app queues no read without a user
         // action (the suite enforces that), and the selection list follows the roster's own
         // default.
+        // The reference resolves every preset name through one display rule
+        // (`agent-preset-registry/src/display.ts:70-80`): the shipped presets publish no name, so
+        // the dictionary's own "Standard mode" stands in rather than the raw id.
         let preset = self.agent_roster.as_ref().and_then(|roster| {
             roster
                 .presets
                 .iter()
                 .find(|row| row.is_default)
-                .map(|row| row.name.clone().unwrap_or_else(|| row.id.clone()))
+                .map(|row| crate::settings::preset_display(row).0)
         });
         let preset_chip = button(
             row![
@@ -13450,7 +13455,7 @@ impl App {
                 .map(|roster| roster.presets.as_slice())
                 .unwrap_or_default()
             {
-                let name = row.name.clone().unwrap_or_else(|| row.id.clone());
+                let name = crate::settings::preset_display(row).0;
                 let ink = match (row.broken.is_some(), row.is_default) {
                     // A declared preset whose activation failed stays visible but unchoosable.
                     (true, _) => DANGER,

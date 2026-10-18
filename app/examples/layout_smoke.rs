@@ -144,6 +144,9 @@ struct Options {
     permission_catalog: bool,
     /// Seed a Host-shaped agent roster, so the label's display name is captured.
     agent_roster: bool,
+    /// Seed the roster in the shape a live Host answers (ids only for the shipped presets), so
+    /// the display rule's dictionary copy is what the capture shows.
+    agent_roster_host: bool,
     /// Open the hero preset seat's list, so its rows are captured.
     agent_seat: bool,
     /// Hold the seat's refusal state, so its announcement is captured.
@@ -301,6 +304,7 @@ fn options() -> Result<Options, &'static str> {
             "--permission-acknowledged",
             "--permission-catalog",
             "--agent-roster",
+            "--agent-roster-host",
             "--agent-seat",
             "--agent-seat-error",
             "--jobs",
@@ -559,6 +563,10 @@ fn options() -> Result<Options, &'static str> {
             None => false,
         },
         agent_roster: match values.remove("--agent-roster") {
+            Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
+            None => false,
+        },
+        agent_roster_host: match values.remove("--agent-roster-host") {
             Some(raw) => raw.parse().map_err(|_| "invalid-boolean")?,
             None => false,
         },
@@ -831,6 +839,9 @@ impl Fixture {
         }
         if options.agent_roster {
             app.set_agent_roster();
+        }
+        if options.agent_roster_host {
+            app.set_agent_presets_section_roster();
         }
         if options.agent_seat {
             app.set_agent_seat_open();
