@@ -107,6 +107,19 @@ fn codex_flight_and_hidden_auth_block_api_and_plugin_mutations() {
         .is_none()
     );
     assert!(s.handle(Action::SelectPage(Page::Codex), 1, true).is_none());
+    // The API page is read-only for a reason it names: an unresolved ChatGPT attempt, not the
+    // local backend, which is running.
+    assert_eq!(
+        s.api_read_only(true),
+        Some(
+            "Read-only while a ChatGPT sign-in attempt is unresolved. Settle or cancel it under Codex."
+        )
+    );
+    assert_eq!(
+        s.api_read_only(false),
+        Some("Read-only: the local backend is unavailable."),
+        "a dead backend still says so"
+    );
     // Reattachment is an explicit read, not hydration of a hidden callback editor.
     assert!(s.codex_draft_ticket().is_none());
     let ticket = read(&mut s);

@@ -46,6 +46,66 @@ fn checked(m: CodexMetadata) -> Controller {
     c.completed(c.operation_ticket().unwrap(), Outcome::Metadata(m));
     c
 }
+/// Opening the section says, in the panel, that it performs no request. Both display sites used
+/// to suppress exactly that sentence, so the one line a first-time user needs was unreachable.
+#[test]
+fn the_idle_notice_is_drawn_and_says_no_request_was_made() {
+    let mut c = Controller::default();
+    c.enter(1);
+    assert!(matches!(c.notice, Notice::Idle));
+    assert_eq!(
+        c.notice_line(),
+        "Opening this section performs no request. Choose Connect ChatGPT to begin."
+    );
+}
+
+/// An armed review is `review_view`'s whole panel, and a review whose ticket no longer matches
+/// the one the panel holds is not drawn as a confirmation: the copy deleted from
+/// `connection_view` would have offered a stale "Enable GPT models".
+#[test]
+fn an_armed_review_is_drawn_once_and_a_stale_one_is_not_a_confirmation() {
+    // A callback draft exists only while an attempt is waiting, so the review is armed there.
+    let mut c = checked(waiting());
+    let draft = edit(&mut c, "PUBLIC-callback-0123456789");
+    c.handle(Action::ReviewCallback(draft), context());
+    assert!(
+        c.review_view(context()).is_some(),
+        "the armed review owns the panel"
+    );
+    // A review for an older panel ticket is not a confirmation any more.
+    let current = c.ticket();
+    c.review = Some(Review::Enable {
+        ticket: Ticket {
+            epoch: current.epoch,
+            panel: current.panel + 1,
+            serial: current.serial,
+        },
+        revision: 7,
+    });
+    assert!(c.review_view(context()).is_none());
+}
+
+/// A `codex-status` reply that predates a terminal observation of the same attempt cannot revive
+/// it: the panel must keep showing the authorized login, not a live cancel that would make the
+/// attempt indeterminate and block retry until restart.
+#[test]
+fn a_stale_status_reply_cannot_revive_an_authorized_attempt() {
+    let mut c = checked(authorized());
+    let Effect::StatusRead { .. } = c
+        .handle(Action::CheckStatus(c.ticket()), context())
+        .unwrap()
+    else {
+        panic!("a check status must read")
+    };
+    let ticket = c.operation_ticket().unwrap();
+    c.completed(ticket, Outcome::Metadata(waiting()));
+    assert_eq!(
+        c.metadata.map(|m| m.phase),
+        Some(CodexPhase::Authorized),
+        "the terminal observation of this attempt wins over a stale reply"
+    );
+    assert!(!c.pending(), "an authorized login does not block the rest");
+}
 fn edit(c: &mut Controller, raw: &str) -> DraftTicket {
     let ticket = c.draft_ticket().unwrap();
     assert!(

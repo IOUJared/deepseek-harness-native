@@ -1364,9 +1364,6 @@ impl Controller {
                     self.fresh = false;
                 }
             }
-            Outcome::Accounts(_) | Outcome::StatusSnapshot { .. } => {
-                self.notice = Notice::Indeterminate
-            }
             Outcome::Metadata(mut m) => {
                 // Start and status may introduce an attempt. A late Start ACK cannot downgrade a terminal observation.
                 if matches!(operation, Operation::Start | Operation::Add)
@@ -1382,13 +1379,14 @@ impl Controller {
                     Operation::Start | Operation::Add | Operation::Status
                 ) || self.same_attempt(m)
                 {
-                    if operation != Operation::Status
-                        && let Some(current) = self.metadata.filter(|current| {
-                            current.attempt == m.attempt
-                                && !active(current.phase)
-                                && active(m.phase)
-                        })
-                    {
+                    // A receipt that predates a terminal observation of the SAME attempt cannot
+                    // revive it, and a status read is no exception: the worker keeps the same
+                    // guard for the receipt it sees (`codex_worker.rs:149-156`). Without this a
+                    // stale `codex-status` reply re-showed an authorized login as active, whose
+                    // "Cancel attempt" turns it into a retry-blocked indeterminate attempt.
+                    if let Some(current) = self.metadata.filter(|current| {
+                        current.attempt == m.attempt && !active(current.phase) && active(m.phase)
+                    }) {
                         m = current;
                     }
                     accepted = true;
@@ -1435,7 +1433,12 @@ impl Controller {
                 self.metadata = None;
                 self.managed.fresh = false;
             }
-            Outcome::Indeterminate
+            // `Accounts` and `StatusSnapshot` are normalized into these outcomes before a
+            // receipt reaches here (`Controller::handle`), but the match is exhaustive over the
+            // wire outcomes, so they take the same indeterminate notice.
+            Outcome::Accounts(_)
+            | Outcome::StatusSnapshot { .. }
+            | Outcome::Indeterminate
             | Outcome::UsageIndeterminate
             | Outcome::UsageSnapshot(_)
             | Outcome::UsageConflict
@@ -1456,6 +1459,12 @@ impl Controller {
             }
         }
         self.connection_receipt(ticket, operation, outcome, accepted);
+    }
+    /// The account panel's status line: live connection progress while a login is connected,
+    /// the current notice otherwise. One owner, so the two panels cannot disagree.
+    pub(crate) fn notice_line(&self) -> &'static str {
+        self.connection
+            .map_or(self.notice.text(), Connection::progress)
     }
     fn same_attempt(&self, m: CodexMetadata) -> bool {
         self.metadata
@@ -1559,13 +1568,10 @@ impl Controller {
                 .on_press_maybe((allowed && self.connection.is_none()).then_some(Action::Connect(t))),
             label("Opens OpenAI sign-in and connects model access. This chat’s model stays unchanged; credentials may be stored locally.", MUTED)]
             .spacing(14).width(Length::Fill);
-        if self.connection.is_some() || !matches!(self.notice, Notice::Idle) {
-            body = body.push(label(
-                self.connection
-                    .map_or(self.notice.text(), Connection::progress),
-                MUTED,
-            ));
-        }
+        // The idle sentence is the first thing this panel says to someone who has just opened
+        // it, so it is drawn rather than suppressed: both display sites used to negate exactly
+        // that variant, which left the copy unreachable.
+        body = body.push(label(self.notice_line(), MUTED));
         if self.owner_uncertain {
             body = body.push(label("A sign-in operation has an unknown outcome. Do not retry. Cancel the tracked attempt if needed, then explicitly Refresh accounts to reconcile managed state once it settles. Legacy uncertainty requires restarting the application.", DANGER));
         }
@@ -1694,23 +1700,18 @@ impl Controller {
                 } else {
                     input
                 });
-                if self.review == Some(Review::Callback(ticket)) {
-                    body = body.push(label("Submit this masked callback only to the current OpenAI login attempt. Its contents will be consumed, not displayed or logged.", DANGER))
-                        .push(button("Submit callback").padding([10, 14]).style(design::primary)
-                            .on_press_maybe(allowed.then_some(Action::ConfirmCallback(ticket))))
-                        .push(button("Cancel review").padding([8, 12]).style(design::ghost)
-                            .on_press_maybe(allowed.then_some(Action::DismissReview(t))));
-                } else {
-                    body = body.push(
-                        button("Review callback")
-                            .padding([10, 14])
-                            .style(design::ghost)
-                            .on_press_maybe(
-                                (allowed && !self.draft.as_str().is_empty())
-                                    .then_some(Action::ReviewCallback(ticket)),
-                            ),
-                    );
-                }
+                // The confirmation for an armed review is `review_view`'s, which `view()` returns
+                // before this panel is built; the copy that lived here never rendered and had
+                // already drifted from it.
+                body = body.push(
+                    button("Review callback")
+                        .padding([10, 14])
+                        .style(design::ghost)
+                        .on_press_maybe(
+                            (allowed && !self.draft.as_str().is_empty())
+                                .then_some(Action::ReviewCallback(ticket)),
+                        ),
+                );
                 body = body.push(
                     button("Discard callback")
                         .padding([8, 12])
@@ -1732,20 +1733,14 @@ impl Controller {
         if m.route_configured {
             body = body.push(label("Existing openai-codex model route is preserved. Use Load models explicitly and select a specific model for your session; sending remains a separate action.", MUTED));
         } else if self.may_enable() {
-            if let Some(Review::Enable { ticket, revision }) = self.review {
-                body = body.push(label(format!("Review: enable openai-codex at settings revision {revision}. Only a missing native-default route is added; existing configuration is not replaced."), ACCENT))
-                    .push(button("Enable GPT models").padding([10, 14]).style(design::primary)
-                        .on_press_maybe(allowed.then_some(Action::ConfirmEnable(ticket))))
-                    .push(button("Cancel review").padding([8, 12]).style(design::ghost)
-                        .on_press_maybe(allowed.then_some(Action::DismissReview(t))));
-            } else {
-                body = body.push(
-                    button("Review enabling GPT models")
-                        .padding([10, 14])
-                        .style(design::ghost)
-                        .on_press_maybe(allowed.then_some(Action::ReviewEnable(t))),
-                );
-            }
+            // Same rule as the callback review above: `review_view` owns the confirmation, and
+            // an armed review never reaches this panel.
+            body = body.push(
+                button("Review enabling GPT models")
+                    .padding([10, 14])
+                    .style(design::ghost)
+                    .on_press_maybe(allowed.then_some(Action::ReviewEnable(t))),
+            );
         }
         container(body).width(Length::Fill).into()
     }

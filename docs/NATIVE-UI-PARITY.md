@@ -8263,3 +8263,51 @@ decisions and one is a disabled form.
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | tree | — | clean before the commit |
+
+### Round 367 — Codex settings and runtime: one live defect, three dead ones
+
+A read-only audit of Settings → Codex and the Codex runtime found every action, effect and outcome
+constructed and handled, the managed guards identical in view and handler, and late receipts barred
+from claiming success — then six divergences, most of them code no path could reach.
+
+- **A stale status reply could revive an authorized login, and then destroy it.** The
+  same-attempt terminal guard in `completed` explicitly skipped `Operation::Status`, so a
+  `codex-status` reply that predated the terminal `codex-state` event re-showed the sign-in as
+  "active or uncertain" with a live Cancel. Pressing that Cancel drives Core to
+  `Indeterminate` with `retry_blocked`, which only a restart clears — a stale read turning into a
+  destructive action. The guard now applies to Status like every other operation, which is the
+  same rule the worker already kept for the receipt it sees.
+- **The idle sentence never rendered.** Both display sites gated it out with
+  `!matches!(self.notice, Notice::Idle)`, so the one line that tells a first-time user opening the
+  section performs no request was unreachable. One `notice_line()` owner now feeds both panels and
+  the idle line is drawn.
+- **Two review confirmations were unreachable, and their copy had drifted.** `view()` returns
+  `review_view` before the connection panel is built, so the inline "Submit callback"/"Enable GPT
+  models" blocks could never paint — and their security sentence had already diverged from the one
+  that does. Both blocks are gone; the armed review is drawn in exactly one place.
+- **A dead `Accounts | StatusSnapshot` arm** joined the indeterminate group it already behaved
+  like, instead of claiming a wrong-kind receipt path that the normalizations make impossible.
+- **The API page blamed the backend for every lock.** "Read-only: the local backend is
+  unavailable." covered a pending plugin write, a Cloudflare operation and an unresolved ChatGPT
+  attempt alike, while the backend was fine. The page now names the cause it is actually waiting
+  on, so a blocked key field explains itself and says where to clear it.
+- **A doc sent the reader to a tab that does not exist**: `NATIVE-CODEX-RUNTIME.md` said "Images &
+  sketch"; the tab is "Images" and configures input limits only. Corrected in the same round.
+
+Tests: `a_stale_status_reply_cannot_revive_an_authorized_attempt`,
+`the_idle_notice_is_drawn_and_says_no_request_was_made`,
+`an_armed_review_is_drawn_once_and_a_stale_one_is_not_a_confirmation`, and the read-only assertion
+in `codex_flight_and_hidden_auth_block_api_and_plugin_mutations`. No capture: four are state
+decisions and one is deleted code.
+
+**Battery (round 367).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1280 passed**, 1 ignored |
+| app, default | **0** | **1273 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| app bin | — | **20** pre-existing dead-code warnings (unchanged) |
+| tree | — | clean before the commit |

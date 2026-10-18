@@ -1,6 +1,7 @@
 # Native Codex runtime configuration
 
-Open **Settings → Codex → Models & runtime** or **Images & sketch**. The two tabs share one eight-field draft. **Refresh runtime** reads the exact isolated backend; **Save runtime** submits all eight fields against its current revision. Tab navigation, typing and **Reset to inherited defaults** do not save or send prompts.
+Open **Settings → Codex → Models & runtime** or **Images**. (The Images tab configures image
+*input* limits only; this backend offers no image generation or sketch tools.) The two tabs share one eight-field draft. **Refresh runtime** reads the exact isolated backend; **Save runtime** submits all eight fields against its current revision. Tab navigation, typing and **Reset to inherited defaults** do not save or send prompts.
 
 | Fields | Accepted values |
 | --- | --- |

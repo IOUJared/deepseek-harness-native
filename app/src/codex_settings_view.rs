@@ -259,17 +259,8 @@ impl Controller {
                 .style(|_| design::card(SURFACE, 9.0)),
         ]
         .spacing(16);
-        if self.tab != Tab::Account
-            && (self.connection.is_some() || !matches!(self.notice, Notice::Idle))
-        {
-            panel = panel.push(
-                label(
-                    self.connection
-                        .map_or(self.notice.text(), Connection::progress),
-                    MUTED,
-                )
-                .size(12),
-            );
+        if self.tab != Tab::Account {
+            panel = panel.push(label(self.notice_line(), MUTED).size(12));
         }
         // Runtime writes/critical failures stay visible even away from either editor tab.
         if !matches!(self.tab, Tab::Models | Tab::Images)

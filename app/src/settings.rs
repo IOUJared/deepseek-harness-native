@@ -1170,13 +1170,7 @@ impl Settings {
                 )
             });
         let body: Element<'_, Action> = match self.page {
-            Page::ApiLogin => self.api_view(
-                enabled
-                    && !self.plugins.pending()
-                    && !self.codex.pending()
-                    && !self.cloudflare.pending(),
-                route,
-            ),
+            Page::ApiLogin => self.api_view(self.api_read_only(enabled), route),
             Page::Cloudflare => self
                 .cloudflare
                 .view(self.cloudflare_enabled(enabled))
@@ -1691,7 +1685,30 @@ impl Settings {
         }
         body.into()
     }
-    fn api_view(&self, enabled: bool, route: &RouteFacts) -> Element<'_, Action> {
+    /// Why the API page is read-only, if it is. The page used to name the backend for every
+    /// cause, so a pending ChatGPT attempt made the key field read-only while blaming a local
+    /// backend that was running fine — with no way to learn the real reason from that page.
+    fn api_read_only(&self, backend: bool) -> Option<&'static str> {
+        if !backend {
+            return Some("Read-only: the local backend is unavailable.");
+        }
+        if self.plugins.pending() {
+            return Some("Read-only while a plugin write is in flight. Wait for it to settle.");
+        }
+        if self.codex.pending() {
+            return Some(
+                "Read-only while a ChatGPT sign-in attempt is unresolved. Settle or cancel it under Codex.",
+            );
+        }
+        if self.cloudflare.pending() {
+            return Some(
+                "Read-only while a Cloudflare operation is in flight. Wait for it to settle.",
+            );
+        }
+        None
+    }
+    fn api_view(&self, read_only: Option<&'static str>, route: &RouteFacts) -> Element<'_, Action> {
+        let enabled = read_only.is_none();
         let ticket = self.ticket();
         let input_ticket = self.input_ticket();
         let can_save = self.can_save(enabled);
@@ -1915,11 +1932,8 @@ impl Settings {
                 );
             }
         }
-        if !enabled {
-            body = body.push(label(
-                "Read-only: the local backend is unavailable.",
-                DANGER,
-            ));
+        if let Some(reason) = read_only {
+            body = body.push(label(reason, DANGER));
         }
         if let Some(error) = self.error {
             body = body.push(label(error, DANGER));
