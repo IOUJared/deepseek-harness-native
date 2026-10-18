@@ -1025,6 +1025,7 @@ impl Fixture {
                 worker::Command::PermissionCatalogRead => "PermissionCatalogRead",
                 worker::Command::AgentPresetsRead => "AgentPresetsRead",
                 worker::Command::AgentPresetSelect { .. } => "AgentPresetSelect",
+                worker::Command::AgentPresetDefault(_) => "AgentPresetDefault",
                 worker::Command::JobKill { .. } => "JobKill",
                 worker::Command::JobOutput { .. } => "JobOutput",
                 worker::Command::PermissionSettingsRead => "PermissionSettingsRead",

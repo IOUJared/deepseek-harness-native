@@ -6881,3 +6881,67 @@ namespace, a malformed view). Transport grows from **86** to **88** tests. The U
 | transport | **0** | 56 + 17 + **88** + 7 |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+### Round 331 — the Agent presets section is a roster, not a paragraph (UI half)
+
+**Settings → Agent presets now shows the Host's roster and can change the new-task default.** The
+nav row used to open one static paragraph that claimed presets were "configured by the Harness
+profile" — while the reference mounts a real section
+(`ui-agent-preset/src/client/index.ts:266-274`) with the roster, the per-card default write and a
+read-only composition viewer.
+
+- **Read on entry.** Opening the modal on the section, or navigating to it, is the read's trigger —
+  the reference's section loads on mount — and `agent_roster_reading` makes the seat and the section
+  share one in-flight read instead of two. A raised or failed read settles that flag, including the
+  worker-queue-full path, so no row can be left waiting forever.
+- **The reference's copy, verbatim.** The Host's roster rows for the shipped presets publish no
+  name (`agentPresets.remoteExportList()` returned `{id, order, isDefault}` live), so the section
+  resolves display text exactly as `agent-preset-registry/src/display.ts:70-80` does: dictionary
+  copy for a shipped id that publishes no name, otherwise the declaration's own name/description,
+  falling back to the id. Two groups ("Built-in", "Custom"), "Set as new task default" on every
+  selectable card, "New task default" on the current one, and "Failed to load" in danger ink for a
+  broken declaration.
+- **The write.** `Action::PresetDefault` is intercepted before `Settings::handle`'s wildcard (that
+  ordering is the round-257 lesson), fenced to one in-flight write and to a live Host, and sent as
+  `Command::AgentPresetDefault` — which the worker admits through the same mutation fence as the
+  other Host mutations and answers with `Event::AgentPresetDefault`. A success clears the error and
+  re-reads the roster, which is the confirmation the reference's own save performs; a refusal is
+  drawn in the section that offered the control rather than dropped.
+- **Not cloned, and named.** The read-only composition viewer (`View configuration` →
+  `agentPresets.read`) has **no wire in this Host build**: the probe answered
+  `presets.read is not a function`. The Creator-mode entry (`startCreatorDraft`) is not built
+  either; it needs the conversation flow the reference composes there.
+
+Tests: `the_agent_presets_section_reads_the_roster_once_per_entry` (navigation is the trigger, no
+duplicate in flight, a fresh entry re-reads), `a_preset_default_write_is_sent_once_and_its_outcome_reaches_the_section`
+(one command, in-flight fencing, refusal drawn, success re-reads),
+`preset_rows_resolve_the_dictionary_copy_and_their_own_metadata` and
+`the_agent_presets_section_draws_loading_ready_and_broken_states` (the three states and all four
+row kinds draw).
+
+**Capture.** `shots/148-settings-agent-presets.png` (DP-2 in `148-settings-agent-presets-dp2.png`,
+report `status: passed`) shows both groups, the shipped presets with their dictionary
+descriptions, Standard mode marked as the current default, the named `Team reviewer` card and the
+failed `Scout` card. The fixture seeds the Host's own shape through
+`set_agent_presets_section_roster`; the shared `set_agent_roster` (named rows) is untouched, so the
+earlier seat captures still describe themselves.
+
+**Limit on the claim.** The default write is proven at the wire (the live `settings/update` call and
+its fake-wire tests, round 330) and at App level (the command, the fence, the outcome), but no
+charged or even free Host run has issued it *from the app*; that stays a separate step, like every
+other live mutation claim in this document.
+
+**Battery (round 331).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1228 passed**, 1 ignored |
+| app, default | **0** | **1221 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 88 + 7 |
+| core (`--lib`) | **0** | **115 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/148-settings-agent-presets.png`, `status: passed` |
+| tree | — | clean before the commit |

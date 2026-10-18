@@ -66,6 +66,9 @@ pub enum Command {
         session: dsh_native_transport::dto::SessionId,
         preset: String,
     },
+    /// Make one roster preset the default for sessions created later. The reply carries the
+    /// settings view; the roster re-read is what confirms the change.
+    AgentPresetDefault(String),
     /// Ask the Host to stop one background job.
     /// Open one job's live output stream; the panel sends this when a row expands.
     JobOutput {
@@ -240,6 +243,11 @@ pub enum Event {
     AgentPresets(Result<dsh_native_core::AgentPresetRoster, String>),
     /// The committed identity of an agent preset picked for a session that had not started.
     AgentPresetSelected(Result<String, String>),
+    /// The outcome of making one preset the new-session default.
+    AgentPresetDefault {
+        preset: String,
+        result: Result<(), String>,
+    },
     /// The receipt of a job kill: `requested` or `already-finished`.
     JobKilled(Result<dsh_native_transport::dto::JobKillOutcome, String>),
     QueueUpdated {
@@ -940,6 +948,10 @@ fn rejected(command: Command) -> Event {
         Command::PermissionSettingsRead => Event::PermissionSettings(Err(error)),
         Command::AgentPresetsRead => Event::AgentPresets(Err(error)),
         Command::AgentPresetSelect { .. } => Event::AgentPresetSelected(Err(error)),
+        Command::AgentPresetDefault(preset) => Event::AgentPresetDefault {
+            preset,
+            result: Err(error),
+        },
         Command::JobKill { .. } => Event::JobKilled(Err(error)),
         Command::ChangesSummary { seq, .. } => Event::ChangesLoaded {
             seq,
@@ -1454,6 +1466,7 @@ fn mutates_host_state(command: &Command) -> bool {
         | Command::Create { .. }
         | Command::UpdateQueue(_)
         | Command::JobKill { .. }
+        | Command::AgentPresetDefault(_)
         | Command::OpenWorkspace(_) => true,
         Command::Account(effect) => matches!(
             effect,
@@ -2543,6 +2556,10 @@ async fn run(
                     Command::PermissionDefaultSet{..}=>Event::Fault("Permission default bypassed priority dispatch".into()),
                     Command::Create{workspace,cwd}=>Event::Created(client.session_create(SessionCreateRequest{workspace_id:workspace,cwd,..Default::default()}).await.map_err(|e|format!("New session: {e}"))),
                     Command::AgentPresetSelect{session,preset}=>Event::AgentPresetSelected(client.agent_preset_select(&session,&preset).await.map_err(|error|format!("Agent preset: {error}"))),
+                    Command::AgentPresetDefault(preset)=>Event::AgentPresetDefault{
+                        result:client.agent_preset_default(&preset).await.map(|_|()).map_err(|error|format!("Agent preset default: {error}")),
+                        preset,
+                    },
                     Command::JobKill{session,job}=>Event::JobKilled(client.job_kill(session.as_str(),&job).await.map_err(|error|format!("Job kill: {error}"))),
                     Command::ChangesSummary{session,seq}=>Event::ChangesLoaded{
                         seq,

@@ -123,6 +123,60 @@ impl BusyEnter {
     }
 }
 
+/// The section's own copy, verbatim from the reference's English dictionary
+/// (`ui-agent-preset/src/client/locales.ts:52-75`) so the surface reads the same.
+const PRESET_INTRO: &str = "Choose the agent’s tools and how it works. Use Standard mode for everyday tasks, or Creator mode to add capabilities to DSH.";
+const PRESET_BUILT_IN: &str = "Built-in";
+const PRESET_CUSTOM: &str = "Custom";
+const PRESET_SET_DEFAULT: &str = "Set as new task default";
+const PRESET_IN_USE: &str = "New task default";
+const PRESET_BROKEN: &str = "Failed to load";
+/// The shipped presets whose copy the dictionary carries, in the reference's own order.
+/// A shipped preset publishes no name (`ui-agent-preset/src/client/locales.ts:66-67`).
+const PRESET_COPY: [(&str, &str, &str); 4] = [
+    (
+        "standard",
+        "Standard mode",
+        "Work with code, files, and information. Suitable for most tasks, with search, editing, terminal commands, and other tools available as needed.",
+    ),
+    (
+        "ptc",
+        "PTC mode",
+        "Includes all Standard mode capabilities. Better suited to tasks that call tools in batches and then filter, organize, deduplicate, count, or summarize the results.",
+    ),
+    (
+        "minimal",
+        "Minimal mode",
+        "The agent works using only a terminal tool. Useful for testing and comparing its basic performance.",
+    ),
+    (
+        "cordis",
+        "Creator mode",
+        "Customize DSH through conversation. Let the agent write plugins that add features or UI, or combine tools and prompts to create your own mode.",
+    ),
+];
+
+/// Whether a row is a shipped preset whose copy comes from the dictionary: the reference's own
+/// rule is "publishes no name and has a copy key", so a declaration that names itself keeps its
+/// own text (`agent-preset-registry/src/display.ts:52-58`).
+pub fn preset_is_built_in(row: &dsh_native_core::AgentPresetRow) -> bool {
+    row.name.is_none() && PRESET_COPY.iter().any(|(id, ..)| *id == row.id)
+}
+
+/// Resolve one row's display name and description, in the reference's order: dictionary copy for a
+/// shipped preset, otherwise the declaration's own metadata, falling back to the id.
+pub fn preset_display(row: &dsh_native_core::AgentPresetRow) -> (String, Option<String>) {
+    if preset_is_built_in(row)
+        && let Some((_, name, description)) = PRESET_COPY.iter().find(|(id, ..)| *id == row.id)
+    {
+        return ((*name).to_owned(), Some((*description).to_owned()));
+    }
+    (
+        row.name.clone().unwrap_or_else(|| row.id.clone()),
+        row.description.clone(),
+    )
+}
+
 /// Backend-reported DeepSeek route facts for the Models page. Display only; the
 /// App owns the catalog read and the active selection.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -140,6 +194,12 @@ pub struct RouteFacts {
     pub busy_enter: BusyEnter,
     /// The native "Show coding view" preference (reference developer tools).
     pub coding_view: bool,
+    /// The Host's preset roster, once the section's read answered. `None` is "not read yet".
+    pub presets: Option<Vec<dsh_native_core::AgentPresetRow>>,
+    /// The preset whose "set as new task default" write is in flight.
+    pub preset_saving: Option<String>,
+    /// The last refused preset default write, drawn in the section that offered it.
+    pub preset_error: Option<String>,
 }
 
 /// The General page's permission row: the deployment's new-session default, the revision a
@@ -252,6 +312,8 @@ pub enum Action {
     SessionLog(bool),
     /// Persists one new-session permission default; the App gates it on the descriptor.
     PermissionDefault(String),
+    /// Makes one roster preset the default for sessions created later; the App owns the write.
+    PresetDefault(String),
     /// Sets the busy-state Enter preference; the App owns and persists it.
     BusyEnter(BusyEnter),
     /// Sets the "Show coding view" preference; the App owns and persists it.
@@ -1108,13 +1170,17 @@ impl Settings {
                 )
             });
         let body: Element<'_, Action> = match self.page {
-            Page::ApiLogin => {
-                self.api_view(
-                    enabled && !self.plugins.pending() && !self.codex.pending() && !self.cloudflare.pending(),
-                    route,
-                )
-            }
-            Page::Cloudflare => self.cloudflare.view(self.cloudflare_enabled(enabled)).map(Action::Cloudflare),
+            Page::ApiLogin => self.api_view(
+                enabled
+                    && !self.plugins.pending()
+                    && !self.codex.pending()
+                    && !self.cloudflare.pending(),
+                route,
+            ),
+            Page::Cloudflare => self
+                .cloudflare
+                .view(self.cloudflare_enabled(enabled))
+                .map(Action::Cloudflare),
             Page::General => self.general_view(route),
             Page::Codex => self
                 .codex
@@ -1124,10 +1190,7 @@ impl Settings {
                 .plugins
                 .view(self.plugin_context(enabled))
                 .map(Action::Plugins),
-            Page::AgentPresets => column![
-                label("Agent presets", TEXT).size(17),
-                label("Presets define the tools and behavior of an agent. They are configured by the Harness profile; opening this section does not activate an agent or change a conversation.", MUTED).size(13),
-            ].spacing(14).into(),
+            Page::AgentPresets => self.presets_view(route, enabled),
         };
         // Reserve a gutter so the overlaid scrollbar cannot cover privacy/confirmation text.
         let body = container(body)
@@ -1285,6 +1348,70 @@ impl Settings {
         .spacing(8)
         .align_y(iced::Alignment::Center)
         .into()
+    }
+    /// The Agent presets section: the Host's roster, the shipped presets' own copy, and the one
+    /// write the reference offers here. `ui-agent-preset/src/client/AgentPresetSection.tsx`
+    /// renders the same two groups and the same per-card action; the read-only composition
+    /// viewer is absent because this Host build serves no `agentPresets/read`.
+    fn presets_view(&self, route: &RouteFacts, enabled: bool) -> Element<'_, Action> {
+        let mut body = column![
+            label("Agent presets", TEXT).size(17),
+            label(PRESET_INTRO, MUTED).size(13),
+        ]
+        .spacing(10);
+        if let Some(error) = &route.preset_error {
+            body = body.push(label(error.clone(), DANGER).size(12));
+        }
+        let Some(rows) = &route.presets else {
+            return body
+                .push(label("Reading the agent presets…", MUTED).size(12))
+                .into();
+        };
+        if rows.is_empty() {
+            return body
+                .push(label("The Host reports no agent presets.", MUTED).size(12))
+                .into();
+        }
+        for (heading, built_in) in [(PRESET_BUILT_IN, true), (PRESET_CUSTOM, false)] {
+            let group: Vec<_> = rows
+                .iter()
+                .filter(|row| preset_is_built_in(row) == built_in)
+                .collect();
+            if group.is_empty() {
+                continue;
+            }
+            body = body.push(label(heading, MUTED).size(11));
+            for row in group {
+                let (name, description) = preset_display(row);
+                let ink = if row.broken.is_some() { DANGER } else { TEXT };
+                let mut line = row![label(name, ink).size(14)]
+                    .spacing(10)
+                    .align_y(iced::Alignment::Center);
+                if row.broken.is_some() {
+                    line = line.push(label(PRESET_BROKEN, DANGER).size(11));
+                } else if row.is_default {
+                    line = line.push(label(PRESET_IN_USE, MUTED).size(11));
+                } else if route.preset_saving.as_deref() == Some(row.id.as_str()) {
+                    line = line.push(label("Saving…", MUTED).size(11));
+                } else {
+                    line = line.push(
+                        button(label(PRESET_SET_DEFAULT, MUTED).size(11))
+                            .style(design::ghost)
+                            .padding([0, 4])
+                            .on_press_maybe(
+                                (enabled && route.preset_saving.is_none())
+                                    .then(|| Action::PresetDefault(row.id.clone())),
+                            ),
+                    );
+                }
+                let mut card = column![line].spacing(3);
+                if let Some(description) = description {
+                    card = card.push(label(description, MUTED).size(12));
+                }
+                body = body.push(card);
+            }
+        }
+        body.into()
     }
     fn general_view(&self, route: &RouteFacts) -> Element<'_, Action> {
         let mut body = column![
@@ -2007,6 +2134,96 @@ mod disclosure_tests {
                 .handle(Action::ToggleInfo { ticket, info }, epoch, false)
                 .is_none()
         );
+    }
+
+    fn preset_row(
+        id: &str,
+        name: Option<&str>,
+        description: Option<&str>,
+        is_default: bool,
+        broken: Option<&str>,
+    ) -> dsh_native_core::AgentPresetRow {
+        dsh_native_core::AgentPresetRow {
+            id: id.to_owned(),
+            is_default,
+            name: name.map(str::to_owned),
+            description: description.map(str::to_owned),
+            broken: broken.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn preset_rows_resolve_the_dictionary_copy_and_their_own_metadata() {
+        // A shipped preset publishes no name, so its copy comes from the dictionary.
+        let (name, description) = preset_display(&preset_row("standard", None, None, true, None));
+        assert_eq!(name, "Standard mode");
+        assert!(description.unwrap().starts_with("Work with code"));
+        assert!(preset_is_built_in(&preset_row(
+            "ptc", None, None, false, None
+        )));
+        // A declaration that names itself keeps its own text: the reference never translates it.
+        let (name, description) = preset_display(&preset_row(
+            "standard",
+            Some("My Standard"),
+            Some("Own copy"),
+            false,
+            None,
+        ));
+        assert_eq!(
+            (name.as_str(), description.as_deref()),
+            ("My Standard", Some("Own copy"))
+        );
+        // An unknown id falls back to the id and has no description to invent.
+        let (name, description) =
+            preset_display(&preset_row("custom-one", None, None, false, None));
+        assert_eq!(
+            (name.as_str(), description.as_deref()),
+            ("custom-one", None)
+        );
+        assert!(!preset_is_built_in(&preset_row(
+            "custom-one",
+            None,
+            None,
+            false,
+            None
+        )));
+    }
+
+    #[test]
+    fn the_agent_presets_section_draws_loading_ready_and_broken_states() {
+        let mut state = Settings::default();
+        assert!(state.handle(Action::Open, 1, false).is_none());
+        assert!(
+            state
+                .handle(Action::SelectPage(Page::AgentPresets), 1, false)
+                .is_none()
+        );
+        // Before the read answers the section says so instead of inventing a roster.
+        let _: Element<'_, Action> = state.view_sized(false, 960.0, 700.0, &RouteFacts::default());
+        let route = RouteFacts {
+            presets: Some(vec![
+                preset_row("standard", None, None, true, None),
+                preset_row("ptc", None, None, false, None),
+                preset_row(
+                    "scout",
+                    Some("Scout"),
+                    Some("Looks around"),
+                    false,
+                    Some("activation failed"),
+                ),
+                preset_row("custom-one", None, None, false, None),
+            ]),
+            preset_saving: Some("ptc".to_owned()),
+            preset_error: Some("Agent preset default: settings/rejected".to_owned()),
+            ..RouteFacts::default()
+        };
+        let _: Element<'_, Action> = state.view_sized(true, 960.0, 700.0, &route);
+        // A Host that reports no presets gets the empty line, not a blank page.
+        let empty = RouteFacts {
+            presets: Some(Vec::new()),
+            ..RouteFacts::default()
+        };
+        let _: Element<'_, Action> = state.view_sized(true, 960.0, 700.0, &empty);
     }
 
     #[test]

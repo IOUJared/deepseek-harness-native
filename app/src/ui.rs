@@ -1174,6 +1174,13 @@ pub struct App {
     /// The Host's agent-preset roster, once its read answers. `None` keeps every surface
     /// that reads it hidden rather than showing a guessed name.
     agent_roster: Option<dsh_native_core::AgentPresetRoster>,
+    /// One roster read is in flight. The seat and the settings section share it, so opening
+    /// both cannot queue two reads.
+    agent_roster_reading: bool,
+    /// The preset whose "set as new task default" write is in flight; its row shows it.
+    preset_default_saving: Option<String>,
+    /// The Host's refusal of that write, drawn in the section that offered it.
+    preset_default_error: Option<String>,
     /// The hero preset seat's selection list is open.
     agent_seat_open: bool,
     /// The Host's refusal of the last pick, shown on the seat rather than dropped: a
@@ -1481,6 +1488,9 @@ impl App {
                 permission_catalog: None,
                 permission_settings: None,
                 agent_roster: None,
+                agent_roster_reading: false,
+                preset_default_saving: None,
+                preset_default_error: None,
                 agent_seat_open: false,
                 agent_seat_error: None,
                 jobs: Vec::new(),
@@ -2413,6 +2423,12 @@ impl App {
                         &context,
                     );
                 }
+                Command::AgentPresetsRead => self.agent_roster_reading = false,
+                Command::AgentPresetDefault(_) => {
+                    self.preset_default_saving = None;
+                    self.preset_default_error =
+                        Some("Not sent: the native worker queue is full or closed".into());
+                }
                 Command::PromptFile { tickets, request } => {
                     let context = self.file_context();
                     for ticket in &tickets {
@@ -3306,6 +3322,12 @@ impl App {
                 });
             }
             Message::Settings(action) => {
+                // Captured before `handle` consumes the action.
+                let enters_presets = matches!(
+                    &action,
+                    crate::settings::Action::Open
+                        | crate::settings::Action::SelectPage(crate::settings::Page::AgentPresets)
+                );
                 // The editor's own actions are local store edits, and the permission default
                 // reuses the same gated pick. They must be handled *before* `Settings::handle`,
                 // whose wildcard would otherwise absorb them: a button whose arm sits after a
@@ -3364,6 +3386,17 @@ impl App {
                     }
                     crate::settings::Action::PermissionDefault(name) => {
                         return self.update(Message::PermissionDefaultPick(name.clone()));
+                    }
+                    crate::settings::Action::PresetDefault(id) => {
+                        // One write at a time, and only with a live Host: the row shows the
+                        // pending write, so a second press cannot enqueue a racing default.
+                        if self.preset_default_saving.is_some() || !self.settings_enabled() {
+                            return Task::none();
+                        }
+                        self.preset_default_error = None;
+                        self.preset_default_saving = Some(id.clone());
+                        self.command(Command::AgentPresetDefault(id.clone()));
+                        return Task::none();
                     }
                     _ => {}
                 }
@@ -3426,6 +3459,15 @@ impl App {
                             Command::SaveKey { ticket, secret }
                         }
                     });
+                }
+                // Entering the Agent presets section is this read's trigger, exactly as opening
+                // the seat is for the chip: the navigation is the user action, and the read is
+                // what makes the section show the Host's roster instead of the shipped copy.
+                if enters_presets
+                    && self.settings.is_open()
+                    && self.settings.page() == crate::settings::Page::AgentPresets
+                {
+                    return self.read_agent_presets();
                 }
             }
             Message::Interaction(action) => {
@@ -3562,10 +3604,13 @@ impl App {
             Message::AgentPresetSeat => {
                 // The read rides the press rather than a frame or a selection, which is the
                 // discipline the suites enforce: no read is queued without a user action.
-                if self.agent_roster.is_none() {
-                    self.command(Command::AgentPresetsRead);
-                }
+                let read = if self.agent_roster.is_none() {
+                    self.read_agent_presets()
+                } else {
+                    Task::none()
+                };
                 self.agent_seat_open = !self.agent_seat_open;
+                return read;
             }
             Message::AgentPresetPick(id) => {
                 self.agent_seat_open = false;
@@ -6325,10 +6370,25 @@ impl App {
                 // A failed read must not present the design presets as the deployment's own.
                 Err(error) => self.status = format!("Permission catalog: {error}"),
             },
-            Event::AgentPresets(result) => match result {
-                Ok(roster) => self.agent_roster = Some(roster),
-                Err(error) => self.status = format!("Agent presets: {error}"),
-            },
+            Event::AgentPresets(result) => {
+                self.agent_roster_reading = false;
+                match result {
+                    Ok(roster) => self.agent_roster = Some(roster),
+                    Err(error) => self.status = format!("Agent presets: {error}"),
+                }
+            }
+            Event::AgentPresetDefault { result, .. } => {
+                self.preset_default_saving = None;
+                match result {
+                    // The roster re-read is the confirmation, as the reference's own save does:
+                    // the settings reply carries no projected field this namespace can trust.
+                    Ok(()) => {
+                        self.preset_default_error = None;
+                        return self.read_agent_presets();
+                    }
+                    Err(error) => self.preset_default_error = Some(error),
+                }
+            }
             Event::PermissionSettings(result) => match result {
                 Ok(settings) => self.permission_settings = Some(settings),
                 Err(error) => self.status = format!("Permission settings: {error}"),
@@ -6961,6 +7021,16 @@ impl App {
     }
     /// DeepSeek route facts the Settings page renders. Read-only projection of
     /// the real catalog read; never invents a model or an endpoint.
+    /// Read the Host's preset roster once per surface entry. The press or page change is the
+    /// trigger, never a frame, and a read already in flight is never duplicated.
+    fn read_agent_presets(&mut self) -> Task<Message> {
+        if self.agent_roster_reading {
+            return Task::none();
+        }
+        self.agent_roster_reading = true;
+        self.command(Command::AgentPresetsRead);
+        Task::none()
+    }
     fn settings_route_facts(&self) -> crate::settings::RouteFacts {
         let active = self.effective_model_selection();
         let mut models: Vec<(String, String, bool)> = self
@@ -7008,6 +7078,12 @@ impl App {
             failed: self.model_controls.catalog_is_failed(),
             busy_enter: self.busy_enter,
             coding_view: self.coding_view,
+            presets: self
+                .agent_roster
+                .as_ref()
+                .map(|roster| roster.presets.clone()),
+            preset_saving: self.preset_default_saving.clone(),
+            preset_error: self.preset_default_error.clone(),
         }
     }
     /// The content-size delta for the body tier, and for the secondary tier that
@@ -7557,6 +7633,44 @@ impl App {
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn set_agent_seat_open(&mut self) {
         self.agent_seat_open = true;
+    }
+    /// Fixture-only: the Host's own roster shape for the settings section — the shipped presets
+    /// publish no name, a named declaration keeps its own text, and one declaration failed.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn set_agent_presets_section_roster(&mut self) {
+        let row = |id: &str,
+                   is_default: bool,
+                   name: Option<&str>,
+                   description: Option<&str>,
+                   broken: Option<&str>| dsh_native_core::AgentPresetRow {
+            id: id.to_owned(),
+            is_default,
+            name: name.map(str::to_owned),
+            description: description.map(str::to_owned),
+            broken: broken.map(str::to_owned),
+        };
+        self.agent_roster = Some(dsh_native_core::AgentPresetRoster {
+            presets: vec![
+                row("standard", true, None, None, None),
+                row("ptc", false, None, None, None),
+                row("minimal", false, None, None, None),
+                row("cordis", false, None, None, None),
+                row(
+                    "team-reviewer",
+                    false,
+                    Some("Team reviewer"),
+                    Some("Reads a change and reports what breaks."),
+                    None,
+                ),
+                row(
+                    "scout",
+                    false,
+                    Some("Scout"),
+                    Some("Looks around before the plan."),
+                    Some("activation failed"),
+                ),
+            ],
+        });
     }
     /// Fixture-only: stand in for the Host's roster reply, so the label's display name is
     /// capturable without a running Host.
@@ -17179,6 +17293,100 @@ mod tests {
         assert!(error.contains("Shortcuts not saved"), "{error}");
         assert!(error.contains("until the app closes"), "{error}");
         std::fs::remove_dir_all(&home).unwrap();
+    }
+    #[test]
+    fn the_agent_presets_section_reads_the_roster_once_per_entry() {
+        let (mut app, mut receiver) = managed_app();
+        let drain_reads = |receiver: &mut tokio::sync::mpsc::Receiver<Command>| {
+            let mut reads = 0;
+            while let Ok(command) = receiver.try_recv() {
+                if matches!(command, Command::AgentPresetsRead) {
+                    reads += 1;
+                }
+            }
+            reads
+        };
+        let _ = app.update(Message::Settings(crate::settings::Action::Open));
+        assert_eq!(
+            drain_reads(&mut receiver),
+            0,
+            "the account page reads no roster"
+        );
+        // Selecting the section is the trigger.
+        let _ = app.update(Message::Settings(crate::settings::Action::SelectPage(
+            crate::settings::Page::AgentPresets,
+        )));
+        assert!(app.agent_roster_reading);
+        assert_eq!(drain_reads(&mut receiver), 1);
+        // A second entry while the read is in flight does not queue another.
+        let _ = app.update(Message::Settings(crate::settings::Action::Open));
+        assert_eq!(drain_reads(&mut receiver), 0);
+        let roster = dsh_native_core::AgentPresetRoster {
+            presets: vec![dsh_native_core::AgentPresetRow {
+                id: "standard".to_owned(),
+                is_default: true,
+                name: None,
+                description: None,
+                broken: None,
+            }],
+        };
+        let _ = app.update(Message::Worker(Event::AgentPresets(Ok(roster))));
+        assert!(!app.agent_roster_reading);
+        let facts = app.settings_route_facts();
+        assert_eq!(facts.presets.as_ref().map(Vec::len), Some(1));
+        // Re-entering after it settled reads again, as the reference's section mount does.
+        let _ = app.update(Message::Settings(crate::settings::Action::Open));
+        assert_eq!(drain_reads(&mut receiver), 1);
+    }
+    #[test]
+    fn a_preset_default_write_is_sent_once_and_its_outcome_reaches_the_section() {
+        let (mut app, mut receiver) = managed_app();
+        let _ = app.update(Message::Settings(crate::settings::Action::Open));
+        let _ = app.update(Message::Settings(crate::settings::Action::PresetDefault(
+            "ptc".to_owned(),
+        )));
+        assert_eq!(app.preset_default_saving.as_deref(), Some("ptc"));
+        // The write is fenced: a second press while it is in flight sends nothing.
+        let _ = app.update(Message::Settings(crate::settings::Action::PresetDefault(
+            "standard".to_owned(),
+        )));
+        let mut sent = Vec::new();
+        while let Ok(command) = receiver.try_recv() {
+            if let Command::AgentPresetDefault(preset) = command {
+                sent.push(preset);
+            }
+        }
+        assert_eq!(sent, vec!["ptc".to_owned()]);
+        // A refusal settles the row and reaches the section rather than the void.
+        let _ = app.update(Message::Worker(Event::AgentPresetDefault {
+            preset: "ptc".to_owned(),
+            result: Err("Agent preset default: settings/rejected".to_owned()),
+        }));
+        assert!(app.preset_default_saving.is_none());
+        assert_eq!(
+            app.settings_route_facts().preset_error.as_deref(),
+            Some("Agent preset default: settings/rejected")
+        );
+        // A success clears the error and confirms through the roster re-read.
+        let _ = app.update(Message::Settings(crate::settings::Action::PresetDefault(
+            "ptc".to_owned(),
+        )));
+        let _ = app.update(Message::Worker(Event::AgentPresetDefault {
+            preset: "ptc".to_owned(),
+            result: Ok(()),
+        }));
+        assert!(app.preset_default_error.is_none());
+        assert!(
+            app.agent_roster_reading,
+            "the confirmation is the roster re-read"
+        );
+        let mut reads = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if matches!(command, Command::AgentPresetsRead) {
+                reads += 1;
+            }
+        }
+        assert_eq!(reads, 1);
     }
     #[test]
     fn a_conversation_preference_that_cannot_be_stored_reaches_the_status() {

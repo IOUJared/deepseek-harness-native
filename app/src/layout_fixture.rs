@@ -1557,6 +1557,11 @@ pub fn build(
                     },
                 });
             }
+            if preset == "settings-presets" {
+                // The Host's own roster shape, seeded here as its read reply would be: the four
+                // shipped presets, one named declaration and one that failed.
+                app.set_agent_presets_section_roster();
+            }
             if preset.starts_with("settings-codex") || preset.starts_with("settings-general-usage")
             {
                 use crate::codex::Tab;
