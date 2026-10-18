@@ -781,11 +781,20 @@ impl Terminal {
                 let shell_path = self.chosen_shell().map(|shell| shell.path.clone());
                 self.create_pending = Some(receipt.clone());
                 self.notice = Notice::Creating;
+                // 80×24 is the request, bounded by the limits the Host advertised: creating at a
+                // size the environment refuses would be a request the panel already knows fails.
+                let (cols, rows) = match &self.environment {
+                    Some(environment) => (
+                        environment.max_cols.clamp(1, DEFAULT_COLS),
+                        environment.max_rows.clamp(1, DEFAULT_ROWS),
+                    ),
+                    None => (DEFAULT_COLS, DEFAULT_ROWS),
+                };
                 return Some(Effect::Create(CreateSubmission {
                     receipt,
                     shell_path,
-                    cols: DEFAULT_COLS,
-                    rows: DEFAULT_ROWS,
+                    cols,
+                    rows,
                 }));
             }
             Action::ReviewClose { ticket, id }
@@ -1159,6 +1168,38 @@ mod tests {
         assert!(output.truncated() - before > CHUNK_BYTES);
         output.clear();
         assert_eq!(output.truncated(), 0);
+    }
+    #[test]
+    fn a_create_is_bounded_by_the_host_environment_it_was_told_about() {
+        let mut terminal = opened();
+        let submission = create(&mut terminal);
+        assert_eq!(
+            (submission.cols, submission.rows),
+            (DEFAULT_COLS, DEFAULT_ROWS)
+        );
+        terminal.finish_create(&submission.receipt, CreateOutcome::Unavailable);
+        // A Host that advertises smaller limits gets a request inside them.
+        let mut terminal = opened();
+        let effect = terminal
+            .apply(Action::Refresh(ticket(&terminal)), &context())
+            .expect("refresh reads again");
+        let Effect::Read(read) = effect else {
+            panic!("refresh must only read");
+        };
+        terminal.loaded(
+            &read,
+            Ok(Loaded {
+                list: vec![info("PUBLIC-terminal-1")],
+                shells: vec![shell()],
+                environment: Some(TerminalEnvironment {
+                    max_cols: 40,
+                    max_rows: 10,
+                    ..environment()
+                }),
+            }),
+        );
+        let submission = create(&mut terminal);
+        assert_eq!((submission.cols, submission.rows), (40, 10));
     }
     #[test]
     fn a_detached_follow_refuses_a_write_by_name_and_keeps_its_warning() {

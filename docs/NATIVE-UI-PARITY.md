@@ -7336,3 +7336,36 @@ streams, which take the formatted path), so the geometry contract is asserted ra
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+### Round 343 — a create is bounded by the limits it was told about
+
+**The terminal audit's remaining documentation divergence, fixed in code rather than prose.**
+`docs/NATIVE-TERMINAL.md` claimed in one line that a create's dimensions follow the host
+environment's `maxCols`/`maxRows` and in another that the panel "always requests 80×24"; the code
+did the latter, and the environment's limits were display-only. A Session whose Host advertised a
+40-column terminal therefore received a request the panel already knew was out of bounds.
+
+`CreateSubmission` now carries `80×24` clamped to the environment the read returned
+(`max_cols.clamp(1, DEFAULT_COLS)`, same for rows), so the doc's authority claim is true and its
+self-contradiction is gone; the truncated-byte sentence in the same list is corrected to match
+round 337's counting. One model test,
+`a_create_is_bounded_by_the_host_environment_it_was_told_about`, asserts both the ordinary 80×24 and
+the clamped 40×10.
+
+**Still open from the terminal audit, named:** `Dismiss` sends no command, so the Host attachment
+and the worker's follow stream stay live until the panel is reopened or the process ends, and
+`WebTerminalInfo.controller_id` is parsed but never read, so "exclusive input control" is asserted
+on attach rather than confirmed by the Host. Closing either needs a follow-cancel path in the
+worker, which is its own item.
+
+**Battery (round 343).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1241 passed**, 1 ignored |
+| app, default | **0** | **1234 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 88 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |

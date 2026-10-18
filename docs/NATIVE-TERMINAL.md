@@ -17,7 +17,8 @@ spawns a shell or child process; the Host owns every PTY and its process range.
 5. **Write** sends the typed input line to the selected attachment as-is.
 
 Left out of this slice: `terminal/rename`, `terminal/retain` and in-panel `terminal/resize`.
-Resize exists in the transport but the panel always requests `80×24`.
+Resize exists in the transport but the panel always requests `80×24`, clamped to the limits the
+Host advertised for the Session.
 
 ## Authority and consent
 
@@ -40,9 +41,11 @@ Resize exists in the transport but the panel always requests `80×24`.
 
 - Output is sanitized to plain text (CSI/OSC sequences and control bytes removed) and retained
   in the panel only: at most **400 chunks / 128 KiB**, newest kept, and the panel renders only
-  the newest **32 KiB**. Every discarded chunk is counted and shown.
+  the newest **32 KiB**. Every discarded chunk and every byte an oversized chunk loses is
+  counted and shown.
 - One input line is bounded by the smaller of the Host's `environment.maxInputBytes` and the
-  transport's 256 KiB outbound cap; dimensions by the host environment's `maxCols`/`maxRows`.
+  transport's 256 KiB outbound cap; a create's dimensions are `80×24` bounded by the host
+  environment's `maxCols`/`maxRows` (round 343).
 - The panel is an in-shell body (like Work records): it hides the composer and Chat/Trajectory
   tabs while open and never touches the chat transcript, scroll anchor or virtualisation.
 
