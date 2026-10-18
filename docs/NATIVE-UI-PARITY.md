@@ -7523,3 +7523,34 @@ dialog opened.
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+### Round 349 — a committed schedule edit is adopted, so the next one is not refused
+
+**The schedules audit's highest finding.** `Event::ScheduleUpdated` used
+`Ok(Updated { title, .. })` and wrote only `item.title` — while the transport carries the committed
+`prompt` too (`dto.rs:509-512`, `http.rs:1741-1742`) and nothing rewrote `item.record`, `kind` or
+`scheduled_at`. So after saving an instruction, reopening Edit pre-filled the **old** text
+(`field("prompt")` reads the stale record), and the next Save re-sent that stale `expected`, which
+the Host's exact compare refuses as `schedule_conflict` — shown as "That task changed or is gone"
+with the user's draft already discarded. A timing save left the row's `kind · scheduled_at` line
+unchanged, so the save looked like it had done nothing.
+
+The reply is now adopted in full: `title` and `prompt` land in both the display row and its
+`record` (so the next `expected` is fresh), and a successful update re-reads the catalog — the
+bounded read the page already uses — because the reply carries no timing, and the row's rule must
+come from the Host rather than from an assumption. One App test,
+`a_committed_instruction_is_adopted_so_the_next_edit_has_a_fresh_expected`, drives the real
+messages and event and asserts the adopted record, exactly one `Command::ScheduleCatalog`, and a
+reopened editor whose prompt and `expected` both read the committed text.
+
+**Battery (round 349).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1249 passed**, 1 ignored |
+| app, default | **0** | **1242 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 88 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |

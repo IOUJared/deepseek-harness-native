@@ -5621,11 +5621,22 @@ impl App {
                 }
             }
             Event::ScheduleUpdated { id, result, .. } => match result {
-                Ok(dsh_native_transport::dto::ScheduleUpdateOutcome::Updated { title, .. }) => {
+                Ok(dsh_native_transport::dto::ScheduleUpdateOutcome::Updated { title, prompt }) => {
+                    // Adopt what the Host committed: the reply carries the title and instruction,
+                    // and the catalog re-read below is what confirms a timing change (the reply
+                    // has no timing in it). Keeping the old record here made the next Save send a
+                    // stale `expected`, which the Host's exact compare refuses as a conflict.
                     if let Some(item) = self.schedules.iter_mut().find(|item| item.id == id) {
-                        item.title = title;
+                        item.title = title.clone();
+                        item.record.insert("title".into(), serde_json::json!(title));
+                        item.record
+                            .insert("prompt".into(), serde_json::json!(prompt));
                     }
                     self.schedules_error = None;
+                    // Bounded and reloaded from the same read the page already uses, so the row's
+                    // kind/timing/status can never rest on an edit reply that does not carry them.
+                    self.schedules_loading = true;
+                    self.command(worker::Command::ScheduleCatalog);
                 }
                 Ok(dsh_native_transport::dto::ScheduleUpdateOutcome::Missing) => {
                     self.schedules_error = Some("That task changed or is gone; refreshing.".into());
@@ -17855,6 +17866,73 @@ mod tests {
                 .as_ref()
                 .and_then(|page| page.next_before.as_deref()),
             Some("PUBLIC-cursor")
+        );
+    }
+    #[test]
+    fn a_committed_instruction_is_adopted_so_the_next_edit_has_a_fresh_expected() {
+        use dsh_native_transport::dto::{ScheduleCatalogItem, ScheduleUpdateOutcome};
+        let (mut app, mut receiver) = managed_app();
+        let _ = app.update(Message::OpenSchedules);
+        let session = app.selected.clone().unwrap();
+        let mut record = serde_json::Map::new();
+        record.insert("prompt".into(), serde_json::json!("PUBLIC old instruction"));
+        record.insert("time".into(), serde_json::json!("09:00:00"));
+        record.insert("timeZone".into(), serde_json::json!("UTC"));
+        let item = ScheduleCatalogItem {
+            id: "PUBLIC-schedule".into(),
+            title: "PUBLIC task".into(),
+            kind: "daily".into(),
+            session_id: session.clone(),
+            status: "active".into(),
+            scheduled_at: Some("2026-10-17T09:00:00Z".into()),
+            last_delivery: None,
+            record,
+        };
+        let _ = app.update(Message::Worker(Event::SchedulesLoaded(Ok(vec![item]))));
+        let _ = app.update(Message::ScheduleEdit(
+            session.clone(),
+            "PUBLIC-schedule".into(),
+        ));
+        assert_eq!(
+            app.schedule_edit.as_ref().map(|edit| edit.prompt.as_str()),
+            Some("PUBLIC old instruction")
+        );
+        let _ = app.update(Message::ScheduleEditPrompt("PUBLIC new instruction".into()));
+        let _ = app.update(Message::ScheduleEditSave);
+        while receiver.try_recv().is_ok() {}
+        let _ = app.update(Message::Worker(Event::ScheduleUpdated {
+            session: session.clone(),
+            id: "PUBLIC-schedule".into(),
+            result: Ok(ScheduleUpdateOutcome::Updated {
+                title: "PUBLIC task".into(),
+                prompt: "PUBLIC new instruction".into(),
+            }),
+        }));
+        assert_eq!(
+            app.schedules[0]
+                .record
+                .get("prompt")
+                .and_then(|value| value.as_str()),
+            Some("PUBLIC new instruction"),
+            "the committed instruction replaces the stale record"
+        );
+        let mut reads = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if matches!(command, Command::ScheduleCatalog) {
+                reads += 1;
+            }
+        }
+        assert_eq!(reads, 1, "the catalog re-read confirms a timing change");
+        // Reopening the editor now carries the committed text and a matching expectation, so the
+        // next save cannot be refused as a stale-conflict.
+        let _ = app.update(Message::ScheduleEdit(session, "PUBLIC-schedule".into()));
+        let edit = app.schedule_edit.as_ref().unwrap();
+        assert_eq!(edit.prompt, "PUBLIC new instruction");
+        assert_eq!(
+            edit.expected
+                .get("prompt")
+                .and_then(serde_json::Value::as_str),
+            Some("PUBLIC new instruction")
         );
     }
     #[test]
