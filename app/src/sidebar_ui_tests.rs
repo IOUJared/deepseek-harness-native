@@ -320,6 +320,32 @@ fn stale_row_targets_epochs_generations_and_dimmed_background_are_fenced() {
     assert!(queue.try_recv().is_err());
 }
 #[test]
+fn every_destination_the_store_would_refuse_is_drawn_as_the_current_group() {
+    let (mut app, mut queue) = app();
+    open(&mut app, "b");
+    // "b" starts in its original workspace: that destination is current, the others are not.
+    assert!(app.sidebar_destination_current(&id("b"), &Location::Original));
+    assert!(!app.sidebar_destination_current(&id("b"), &Location::Ungrouped));
+    assert!(!app.sidebar_destination_current(&id("b"), &Location::Workspace(workspace("w2"))));
+    // The store refuses that move, which is why the drawn button could only be inert.
+    let stamp = app.sidebar_organization.stamp().unwrap();
+    assert!(
+        app.sidebar_organization
+            .propose(&stamp, Mutation::Move(Location::Original))
+            .is_none()
+    );
+    // After a real move the predicate follows the committed location, so the row that just became
+    // current stops being pressable and the old one becomes pressable again.
+    commit(
+        &mut app,
+        Mutation::Move(Location::Workspace(workspace("w2"))),
+    );
+    assert!(app.sidebar_destination_current(&id("b"), &Location::Workspace(workspace("w2"))));
+    assert!(!app.sidebar_destination_current(&id("b"), &Location::Original));
+    assert!(!app.sidebar_destination_current(&id("b"), &Location::Ungrouped));
+    assert!(queue.try_recv().is_err());
+}
+#[test]
 fn moved_group_is_local_and_empty_backend_membership_does_not_hide_overrides() {
     let (mut app, mut queue) = app();
     open(&mut app, "b");

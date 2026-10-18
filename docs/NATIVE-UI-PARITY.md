@@ -6945,3 +6945,46 @@ other live mutation claim in this document.
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/148-settings-agent-presets.png`, `status: passed` |
 | tree | — | clean before the commit |
+
+### Round 332 — the sidebar draws the destination it would refuse
+
+**The last settings-audit finding: every workspace destination was drawn as a button, including the
+group the conversation already holds.** `sidebar_organization` refuses a move to the current
+location (`:313-315`), so that press could only be inert — the same "control that does nothing"
+shape as the round-257 catch-alls, in a panel that is native's own design rather than a reference
+surface.
+
+`sidebar_destination_current(target, location)` now answers the question the panel draws, and
+`sidebar_destination_row` renders the current group as a plain `name · Current` line while every
+other destination stays a pressable row. The predicate reads the committed location, so after a
+move the row that just became current stops being pressable and the previous one becomes pressable,
+which is what the store's own rule does.
+
+The test `every_destination_the_store_would_refuse_is_drawn_as_the_current_group` asserts the
+predicate before and after a committed move, and pins the underlying store refusal that made the
+old button inert.
+
+**Capture.** `shots/149-sidebar-current-group.png` (DP-2 in `149-sidebar-current-group-dp2.png`,
+report `status: passed`) shows "Original workspace · Current" as text and the three other
+destinations as buttons.
+
+**This closes the five findings of the round-327 settings/management/sidebar audit.** The audit's
+coverage was 27 settings actions, 4 account, 22 Cloudflare, 12 plugin, 24 Codex, 4 management with
+4 operations and 6 notices, 11 sidebar actions and 6 pages; the four wildcards absorb nothing a
+drawn control posts. Two of its findings were real silent states, one was a doc-versus-code
+contradiction, one was a hollow reference section and one was an inert control.
+
+**Battery (round 332).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1229 passed**, 1 ignored |
+| app, default | **0** | **1222 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 88 + 7 |
+| core (`--lib`) | **0** | **115 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/149-sidebar-current-group.png`, `status: passed` |
+| tree | — | clean before the commit |

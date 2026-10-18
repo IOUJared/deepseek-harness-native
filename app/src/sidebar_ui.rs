@@ -275,6 +275,16 @@ impl App {
         order.swap(index, other);
         Some(order)
     }
+    /// Whether one destination is the conversation's current sidebar group. The panel draws it as
+    /// its current value rather than a button: `sidebar_organization` refuses a move to the group a
+    /// conversation already holds, so the press would be inert.
+    pub(super) fn sidebar_destination_current(
+        &self,
+        target: &SessionId,
+        location: &Location,
+    ) -> bool {
+        self.sidebar_organization.location(target) == *location
+    }
     pub(super) fn sidebar_group(&self, target: &SessionId) -> Option<WorkspaceId> {
         match self.sidebar_organization.location(target) {
             Location::Original => self
@@ -285,6 +295,35 @@ impl App {
             Location::Workspace(id) => Some(id),
             Location::Ungrouped => None,
         }
+    }
+    /// One workspace destination: a pressable row for every group the conversation is not in, and
+    /// a plain "Current" line for the one it holds. Drawing an inert button there was the bug: the
+    /// store refuses that move, so the press could never do anything.
+    fn sidebar_destination_row<'a>(
+        &'a self,
+        name: String,
+        location: Location,
+        stamp: &Stamp,
+        current: &Location,
+        enabled: bool,
+    ) -> Element<'a, Message> {
+        if *current == location {
+            return row![
+                label(name, MUTED).size(12),
+                label("Current", MUTED).size(10),
+            ]
+            .spacing(6)
+            .align_y(iced::Alignment::Center)
+            .into();
+        }
+        button(label(name, TEXT).size(12))
+            .style(design::ghost)
+            .on_press_maybe(enabled.then_some(Message::Sidebar(Action::Apply(
+                stamp.clone(),
+                Mutation::Move(location),
+            ))))
+            .width(Length::Fill)
+            .into()
     }
     pub(super) fn sidebar_panel(&self) -> Element<'_, Message> {
         use crate::management::Operation;
@@ -435,31 +474,32 @@ impl App {
                 })
                 .unwrap_or("Ungrouped");
             body = body.push(label(format!("SIDEBAR WORKSPACE · {group_name}"), MUTED).size(10));
+            let current = self.sidebar_organization.location(&stamp.target);
             let mut destinations = column![
-                button("Original workspace")
-                    .style(design::ghost)
-                    .on_press_maybe(enabled.then_some(Message::Sidebar(Action::Apply(
-                        stamp.clone(),
-                        Mutation::Move(Location::Original)
-                    )))),
-                button("Ungrouped")
-                    .style(design::ghost)
-                    .on_press_maybe(enabled.then_some(Message::Sidebar(Action::Apply(
-                        stamp.clone(),
-                        Mutation::Move(Location::Ungrouped)
-                    ))))
+                self.sidebar_destination_row(
+                    "Original workspace".to_owned(),
+                    Location::Original,
+                    &stamp,
+                    &current,
+                    enabled,
+                ),
+                self.sidebar_destination_row(
+                    "Ungrouped".to_owned(),
+                    Location::Ungrouped,
+                    &stamp,
+                    &current,
+                    enabled,
+                ),
             ]
             .spacing(3);
             for workspace in self.workspaces.iter().take(128) {
-                destinations = destinations.push(
-                    button(label(short(&workspace.title, 52), TEXT).size(12))
-                        .style(design::ghost)
-                        .on_press_maybe(enabled.then_some(Message::Sidebar(Action::Apply(
-                            stamp.clone(),
-                            Mutation::Move(Location::Workspace(workspace.workspace_id.clone())),
-                        ))))
-                        .width(Length::Fill),
-                );
+                destinations = destinations.push(self.sidebar_destination_row(
+                    short(&workspace.title, 52),
+                    Location::Workspace(workspace.workspace_id.clone()),
+                    &stamp,
+                    &current,
+                    enabled,
+                ));
             }
             body = body.push(scrollable(destinations).height(150));
             body = body.push(
