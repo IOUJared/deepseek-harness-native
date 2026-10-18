@@ -73,7 +73,10 @@ Their *exact* rhythm stays unverified until `reference.png` lands.
 ## Remaining limits
 
 - Preview: **four source lines / 240 code points / four displayed lines**, not full-message height/Markdown. Long unbreakable tokens may clip; Details preserves bounded display source. [Formatted Details](<NATIVE-FORMATTED-DETAILS.md>) is optional/basic.
-- Inline diffs remain unsupported. The underlined workspace-relative path and the edit `+N −N`
+- The inline diff card is drawn for an `edit`/`write` call (round 362): path header, added and
+  removed rows with the reference's 3px bar and tint, `⋯` between hunks and a 9-row cap with its
+  fold. The reference's card also carries its code toolbar (language, wrap, copy), which native's
+  expanded tool body does not draw. The underlined workspace-relative path and the edit `+N −N`
   pair are drawn (round 354); the path is not a separate open link.
 - [Reader anchors](<NATIVE-READER-ANCHORS.md>) separately address durable reflow/neighbor fallback, not partial/replaced text identity. Retention fails closed.
 - Live resize/input/IME/accessibility, compositor fractional scaling, real models/credentials and full parity remain unqualified.

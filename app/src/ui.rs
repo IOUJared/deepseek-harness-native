@@ -295,6 +295,8 @@ pub enum Message {
     GoalEdit,
     /// Updates the inline goal draft.
     GoalEditInput(String),
+    /// Unfold one expanded tool row's inline diff card past its row cap.
+    ToggleDiff(u64),
     /// Saves the inline goal edit.
     GoalSave,
     /// Cancels the inline goal edit.
@@ -1136,6 +1138,10 @@ pub struct App {
     schedule_history_error: Option<String>,
     /// The cursor of the load-older request in flight; `None` for a first/refresh page.
     schedule_history_before: Option<String>,
+    /// Tool rows whose inline diff card is unfolded past the reference's 9-row cap.
+    /// The row itself is already expanded; this is the card's own `FoldToggle`
+    /// (`DiffBlock.tsx:193-206`).
+    diff_expanded: std::collections::BTreeSet<u64>,
     /// The inline goal editor: the exact revision and the draft objective.
     goal_edit: Option<(dsh_native_transport::dto::GoalRef, String)>,
     /// The goal revision whose clear waits for a second press.
@@ -1467,6 +1473,7 @@ impl App {
                 background_reads_disabled: false,
                 schedule_edit: None,
                 at_picker: None,
+                diff_expanded: std::collections::BTreeSet::new(),
                 goal_activation: std::collections::BTreeMap::new(),
                 goal_activation_serial: 0,
                 goal_activation_read: None,
@@ -4882,6 +4889,13 @@ impl App {
                     self.activity_expanded.insert(key);
                 } else if !has_body {
                     self.activity_expanded.remove(&key);
+                }
+            }
+            // The diff card's own fold, one level inside the row's expansion: it changes
+            // only which rows of the card are drawn, so it starts no request.
+            Message::ToggleDiff(key) if self.composer_visible() => {
+                if !self.diff_expanded.remove(&key) {
+                    self.diff_expanded.insert(key);
                 }
             }
             Message::CopyCode(ticket, index)
@@ -12687,14 +12701,26 @@ impl App {
         if self.activity_is_expanded(row) {
             // The compact line stays; the recorded body sits beneath it in the
             // same conversation row, so expanding never leaves this chat.
-            geometry.body_height = self.chat_geometry.tool_line()
-                + chat_geometry::TOOL_BODY_GAP
-                + conversation_content::tool_body_height(
+            // A file mutation draws the reference's diff card instead of the recorded
+            // arguments, so the reservation is the card's own height.
+            let diff = (row.role == "Tool call")
+                .then(|| {
+                    self.transcript
+                        .activity(row.key, self.path_roots())
+                        .and_then(|activity| activity.diff)
+                })
+                .flatten();
+            let body = match &diff {
+                Some(diff) => self.diff_card_height(diff, row.key),
+                None => conversation_content::tool_body_height(
                     activity_body_source(row),
                     geometry.width - chat_geometry::BODY_INSET,
                     self.content_delta_secondary(),
                     design::body_line(self.content_delta()),
-                );
+                ),
+            };
+            geometry.body_height =
+                self.chat_geometry.tool_line() + chat_geometry::TOOL_BODY_GAP + body;
             geometry.height = geometry.body_height + chat_geometry::ROW_CHROME;
         }
         geometry
@@ -12881,6 +12907,76 @@ impl App {
     /// The display roots a tool path is shortened against: the selected
     /// session's workspace root and the configured host home, the two inputs
     /// the reference's row model uses (`tool-call-model.ts:261`).
+    /// The inline diff card's drawn height: the reference's 6px top and 20px bottom padding
+    /// around one code line per row, with the fold control occupying one row
+    /// (`DiffBlock.module.css:5-10`; `DiffBlock.tsx:194-206`).
+    fn diff_card_height(&self, diff: &crate::reducer::inline_diff::Diff, key: u64) -> f32 {
+        let rows =
+            crate::reducer::inline_diff::drawn_rows(diff, self.diff_expanded.contains(&key)) as f32;
+        design::DIFF_PAD_TOP
+            + design::DIFF_PAD_BOTTOM
+            + rows * (design::CODE_LINE + self.content_delta_secondary())
+    }
+    /// The reference's `DiffBlock` inside an expanded tool row: the path header, the
+    /// added/removed/context rows with their 3px colour bar and fill, and the head/tail fold
+    /// (`DiffBlock.tsx:164-206`). The card owns its drawn height so the row's reservation and
+    /// the render cannot disagree.
+    fn diff_card(
+        &self,
+        diff: &crate::reducer::inline_diff::Diff,
+        key: u64,
+    ) -> Element<'static, Message> {
+        let expanded = self.diff_expanded.contains(&key);
+        let shown = crate::reducer::inline_diff::shown(diff.lines.len(), expanded);
+        let line = design::CODE_LINE + self.content_delta_secondary();
+        let mut body = Column::new();
+        for diff_line in &diff.lines[shown.head.clone()] {
+            body = body.push(diff_line_view(diff_line, line));
+        }
+        if shown.hidden > 0 {
+            let copy = if expanded {
+                "Collapse".to_owned()
+            } else {
+                format!("… {} more lines", shown.hidden)
+            };
+            body = body.push(
+                button(label(copy, MUTED).size(design::CODE_FONT))
+                    .on_press(Message::ToggleDiff(key))
+                    .style(design::ghost)
+                    .padding(iced::Padding {
+                        top: 0.0,
+                        right: 0.0,
+                        bottom: 0.0,
+                        left: design::DIFF_LINE_PAD,
+                    })
+                    .height(line)
+                    .width(Length::Fill),
+            );
+        }
+        for diff_line in &diff.lines[shown.tail.clone()] {
+            body = body.push(diff_line_view(diff_line, line));
+        }
+        container(body)
+            .id("native-tool-diff")
+            .width(Length::Fill)
+            .height(self.diff_card_height(diff, key))
+            .padding(iced::Padding {
+                top: design::DIFF_PAD_TOP,
+                right: 0.0,
+                bottom: design::DIFF_PAD_BOTTOM,
+                left: 0.0,
+            })
+            .clip(true)
+            .style(|_| iced::widget::container::Style {
+                background: Some(design::OVERLAY.into()),
+                border: iced::Border {
+                    radius: design::RADIUS_LG.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .into()
+    }
     pub(crate) fn path_roots(&self) -> crate::reducer::activity::PathRoots<'_> {
         crate::reducer::activity::PathRoots {
             cwd: self
@@ -13081,9 +13177,20 @@ impl App {
                     // insert the gap constant it reserved for. Rendering at a
                     // narrower inset than the reservation made the two disagree.
                     let body_width = geometries[index].width - chat_geometry::BODY_INSET;
-                    activity_column = activity_column
-                        .push(Space::new().height(chat_geometry::TOOL_BODY_GAP))
-                        .push(conversation_content::tool_body_view(
+                    activity_column =
+                        activity_column.push(Space::new().height(chat_geometry::TOOL_BODY_GAP));
+                    // A file mutation's body is the reference's diff card, not the recorded
+                    // arguments; everything else keeps the recorded body.
+                    let diff = (record.role == "Tool call")
+                        .then(|| {
+                            self.transcript
+                                .activity(record.key, self.path_roots())
+                                .and_then(|activity| activity.diff)
+                        })
+                        .flatten();
+                    activity_column = activity_column.push(match &diff {
+                        Some(diff) => self.diff_card(diff, record.key),
+                        None => conversation_content::tool_body_view(
                             activity_body,
                             conversation_content::tool_body_height(
                                 activity_body,
@@ -13093,7 +13200,8 @@ impl App {
                             ),
                             self.content_delta_secondary(),
                             design::body_line(self.content_delta()),
-                        ));
+                        ),
+                    });
                 }
                 activity_column.into()
             } else if let Some(trigger) = record.trigger {
@@ -16642,6 +16750,52 @@ fn settings_paste_message(
 /// Recorded body shown when a tool row expands. The compact line already names
 /// the tool, so a call drops that first line; a result is shown whole. Only the
 /// text this app already retained for the row is ever surfaced.
+/// One diff row: the 3px colour bar, then the line on its own code line box over the row's
+/// tint. The reference puts the state colour in both the bar and the ink and fills the row
+/// (`DiffBlock.module.css:36-60`).
+fn diff_line_view(
+    line: &crate::reducer::inline_diff::Line,
+    height: f32,
+) -> Element<'static, Message> {
+    use crate::reducer::inline_diff::Kind;
+    let (ink, fill, bar) = match line.kind {
+        Kind::Deleted => (DANGER, Some(design::DIFF_DELETED_FILL), DANGER),
+        Kind::Added => (design::FOAM, Some(design::DIFF_ADDED_FILL), design::FOAM),
+        Kind::Path | Kind::Context | Kind::Gap => (MUTED, None, iced::Color::TRANSPARENT),
+    };
+    let content = row![
+        container(Space::new())
+            .width(design::DIFF_BAR)
+            .height(height)
+            .style(move |_| iced::widget::container::Style {
+                background: Some(bar.into()),
+                ..Default::default()
+            }),
+        container(
+            label(line.text.clone(), ink)
+                .size(design::CODE_FONT)
+                .font(MONO)
+        )
+        .padding(iced::Padding {
+            top: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+            left: design::DIFF_LINE_PAD - design::DIFF_BAR,
+        })
+        .width(Length::Fill)
+        .height(height)
+        .clip(true),
+    ]
+    .height(height);
+    container(content)
+        .width(Length::Fill)
+        .height(height)
+        .style(move |_| iced::widget::container::Style {
+            background: fill.map(Into::into),
+            ..Default::default()
+        })
+        .into()
+}
 fn activity_body_source(row: &DisplayRow) -> &str {
     let text = row.text.trim();
     if row.role == "Tool call" {
@@ -19106,6 +19260,70 @@ mod tests {
         app.observe_goal_activation(&serde_json::json!({"sessionId": selected.as_str()}));
         assert!(!app.goal_activation.contains_key(&selected));
         assert!(app.goal_activation.contains_key(&other));
+    }
+    /// An expanded edit row reserves exactly the diff card it draws, and the card's own fold
+    /// changes that reservation.
+    #[test]
+    fn an_expanded_edit_row_reserves_the_diff_card_it_draws() {
+        let (mut app, _receiver) = managed_app();
+        app.transcript = reducer::Transcript::new(app.generation);
+        let old = (1..=30)
+            .map(|n| format!("PUBLIC line {n}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let new = old.replace("PUBLIC line 3", "PUBLIC line 3 changed");
+        let frame = serde_json::json!({
+            "type": "snapshot", "cursor": 0, "hasMore": false,
+            "header": {"version": 4, "id": "public-managed-session", "createdAt": 0, "isSeeded": false},
+            "projections": {"asOfSeq": 0, "values": {}},
+            "assistantStream": {"revision": 0},
+            "records": [{"type": "event", "event": {
+                "type": "tool/call", "seq": 0, "time": 1000,
+                "data": {"callId": "PUBLIC-edit", "turn": 1, "step": 1, "name": "edit",
+                    "arguments": serde_json::json!({"file_path": "src/PUBLIC.rs",
+                        "old_string": old, "new_string": new}).to_string()}
+            }}]
+        });
+        let _ = app.update(Message::Worker(Event::Selected {
+            generation: app.generation,
+            frame: serde_json::from_value(frame).unwrap(),
+        }));
+        let diff = app
+            .transcript
+            .activity(0, app.path_roots())
+            .and_then(|activity| activity.diff)
+            .expect("an edit call carries its diff card");
+        let lane = app.chat_lane();
+        let collapsed = app.row_geometry(&app.transcript.rows()[0], lane);
+        assert_eq!(
+            collapsed.height,
+            app.chat_geometry.tool_line() + chat_geometry::ROW_CHROME,
+            "a collapsed row reserves its compact line alone"
+        );
+        let _ = app.update(Message::ToggleActivity {
+            generation: app.generation,
+            key: 0,
+        });
+        assert!(app.activity_expanded.contains(&0));
+        let expanded = app.row_geometry(&app.transcript.rows()[0], lane);
+        assert_eq!(
+            expanded.height,
+            app.chat_geometry.tool_line()
+                + chat_geometry::TOOL_BODY_GAP
+                + app.diff_card_height(&diff, 0)
+                + chat_geometry::ROW_CHROME,
+            "the reservation is the card's own height"
+        );
+        // The card is capped at nine rows plus the fold control; unfolding every row grows it
+        // by exactly the rows the fold stood for.
+        let folded = app.diff_card_height(&diff, 0);
+        let _ = app.update(Message::ToggleDiff(0));
+        assert!(app.diff_expanded.contains(&0));
+        let unfolded = app.diff_card_height(&diff, 0);
+        let line = design::CODE_LINE + app.content_delta_secondary();
+        let hidden = crate::reducer::inline_diff::shown(diff.lines.len(), false).hidden;
+        assert!(hidden > 0);
+        assert_eq!(unfolded - folded, hidden as f32 * line);
     }
     /// Opening a session asks the Host for its live activation, but only while its goal is
     /// active: that is the read a goal disarmed while the app was closed needs.

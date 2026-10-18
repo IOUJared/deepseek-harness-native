@@ -20,7 +20,7 @@ pub struct PathRoots<'a> {
     pub home: Option<&'a str>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Summary {
     /// At most 112 UTF-8 bytes; names describe recorded intent, not execution state.
     pub title: String,
@@ -32,6 +32,31 @@ pub struct Summary {
     /// old→new replacement is small enough to diff. Counts only; the strings
     /// never leave this module.
     pub edits: Option<(u32, u32)>,
+    /// The inline diff card for a file-mutation call (`inline_diff::derive`). Present for
+    /// `Edit` and `Write` only; the view draws it instead of the input/output body, as the
+    /// reference does (`ToolRow.tsx:169-170, 268`).
+    pub diff: Option<crate::reducer::inline_diff::Diff>,
+}
+
+/// The diff card's rows are file content, so the debug form names the card and its row count
+/// instead of printing them. Every other field is a bounded label the app may log, which is
+/// what let an existing test catch the content leak this impl exists to prevent.
+impl std::fmt::Debug for Summary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Summary")
+            .field("title", &self.title)
+            .field("target", &self.target)
+            .field("failed", &self.failed)
+            .field("edits", &self.edits)
+            .field(
+                "diff",
+                &self
+                    .diff
+                    .as_ref()
+                    .map(|diff| format!("{} lines", diff.lines.len())),
+            )
+            .finish()
+    }
 }
 
 pub(super) fn summarize<'a>(
@@ -75,6 +100,7 @@ pub(super) fn summarize<'a>(
                     target: None,
                     failed,
                     edits: None,
+                    diff: None,
                 },
                 |call| text_summary_label(&call.data, true, failed, roots),
             ))
@@ -91,6 +117,7 @@ pub(super) fn summarize<'a>(
             target: shadowed_tokens(&event.data),
             failed: false,
             edits: None,
+            diff: None,
         }),
         "compaction/summary" => {
             let range = &event.data["shadowedRange"];
@@ -103,6 +130,7 @@ pub(super) fn summarize<'a>(
                 target: shadowed_tokens(&event.data),
                 failed: false,
                 edits: None,
+                diff: None,
             })
         }
         "compaction/end" => event.data["error"].as_str().map_or_else(
@@ -113,6 +141,7 @@ pub(super) fn summarize<'a>(
                     target: Some(compact(error, 96)),
                     failed: true,
                     edits: None,
+                    diff: None,
                 })
             },
         ),
@@ -171,12 +200,14 @@ fn loop_guard_summary(data: &Value) -> Summary {
             target: Some(format!("{tool} × {times}")),
             failed: false,
             edits: None,
+            diff: None,
         },
         _ => Summary {
             title: "Loop guard · repeated identical call".into(),
             target: None,
             failed: false,
             edits: None,
+            diff: None,
         },
     }
 }
@@ -190,6 +221,7 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
             target: None,
             failed,
             edits: None,
+            diff: None,
         };
     }
     let verb = match name {
@@ -206,6 +238,7 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
         if result { " · result" } else { "" }
     );
     let mut edits = None;
+    let mut diff = None;
     let target = parse_args(data).map_or_else(
         || Some(ARGUMENTS_AVAILABLE.into()),
         |args| {
@@ -225,6 +258,11 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
             };
             if verb == "Edit" {
                 edits = edit_totals(&args);
+            }
+            // The card belongs to the row that represents the call. Native draws the call and
+            // its result as two rows and the diff is the call's, so a result row carries none.
+            if !result && matches!(verb, "Edit" | "Write") {
+                diff = crate::reducer::inline_diff::derive(verb, &args);
             }
             let label = match picked {
                 Some(value) if sensitive_text(value) => ARGUMENTS_AVAILABLE.into(),
@@ -246,6 +284,7 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
         target,
         failed,
         edits,
+        diff,
     }
 }
 

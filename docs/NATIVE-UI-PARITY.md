@@ -8004,3 +8004,63 @@ No visible change, so no capture: this is the removal of a branch nothing could 
 | app, fixture | **0** | **1263 passed**, 1 ignored |
 | app, default | **0** | **1256 passed**, 1 ignored |
 | tree | — | clean before the commit |
+
+### Round 362 — the inline diff card
+
+The last member of the tool-row family the reference's source defines and native lacked. An
+`edit`/`write` call's expanded body used to be the recorded argument JSON; the reference draws a
+diff card there instead (`ToolRow.tsx:169-170` picks a diff over the text card, `:268` renders
+`DiffBlock`), derived from the call's own arguments while it runs (`diff-card-model.ts:52-104`).
+
+`reducer::inline_diff` is that derivation: a path header, a longest-common-subsequence edit script
+over lines with three lines of context on each side, `⋯` where unchanged lines were dropped between
+hunks, and one `⋯ N more lines` fold at the reference's nine-row cap with the head/tail split
+(`ceil(9/2)` = 5 head, 4 tail). A `write` is a whole-file addition; an empty `old_string` is an
+insertion, drawn as additions only; an edit over the reference's own 256-line edit bound falls back
+to a whole-fragment replacement, exactly as its `maxEditLength` fallback does. The card is drawn with
+the reference's 6px/20px body padding, 19px code lines, 3px colour bar and the state tint, in the
+native palette's `FOAM`/`DANGER` pair the diff stat already uses.
+
+Wiring, in the order it had to be settled: the card lives on the **call** row (native draws call and
+result as two rows, so the diff is the call's and a result row carries none), `App` remembers which
+cards are unfolded, the expanded row's reservation reads the same `drawn_rows` the view slices, and
+the card owns its measured height so measurement and render cannot disagree.
+
+Two defects the round found and fixed on the way:
+
+- **`Summary`'s debug form leaked file content.** The existing "no PRIVATE content in the label"
+  tests caught it the moment the diff joined the struct. `diff` is file content by definition, so
+  `Summary` now implements `Debug` by hand and prints the card's row count instead of its lines.
+- **The example roots did not know the module.** `inline_diff` is declared inside `reducer`, beside
+  `activity`, because every fixture example that embeds `ui.rs` or `activity.rs` also embeds that
+  root; a crate-root declaration had to be repeated in fifteen examples and the clippy suite's
+  `--all-targets` failed until it moved.
+
+Evidence: `shots/163-tool-diff.png` (a one-line replacement's card) and
+`shots/164-tool-diff-folded.png` (a 30-line edit with two hunks: 16 rows, capped to five head rows,
+the `… 7 more lines` fold, and four tail rows), both DP-2 alongside with `status: passed`.
+
+Tests: seven model cases in `inline_diff` (the edit's three rows, a write's additions, context and
+gap grouping, insertion and unchanged edits, the oversized fallback, the missing-argument refusals,
+and the cap arithmetic) and
+`ui::tests::an_expanded_edit_row_reserves_the_diff_card_it_draws`, which pins the reservation to the
+card's own height and the fold to exactly the rows it stood for.
+
+**Still different, recorded here:** the reference's card carries a code toolbar (language, wrap,
+copy, `DiffBlock.tsx:207-215`); native's expanded tool body has none. A settled `edit`'s card also
+prefers the Host's applied diffs from result metadata (`diff-card-model.ts:106-124`), which native
+does not read — it draws the argument-derived card on the call row instead.
+
+**Battery (round 362).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1271 passed**, 1 ignored |
+| app, default | **0** | **1264 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed (`--all-targets`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/163-tool-diff.png`, `164-tool-diff-folded.png`, both `status: passed` |
+| tree | — | clean before the commit |

@@ -351,6 +351,19 @@ pub const CODE_BANNER_HEIGHT: f32 = 36.0;
 /// The banner plus both sides of the content padding: the whole chrome the code
 /// block reserves around its text.
 pub const CODE_CHROME: f32 = CODE_BANNER_HEIGHT + 2.0 * CODE_PAD;
+/// The reference's inline diff body: `padding: 6px 0 20px` around code lines that pad
+/// `0 22px` and carry a 3px inset colour bar for an added or removed line
+/// (`DiffBlock.module.css:5-30`). The bar is drawn as the row's first child, because
+/// Iced borders are uniform; the text therefore starts at the same 22px.
+pub const DIFF_PAD_TOP: f32 = 6.0;
+pub const DIFF_PAD_BOTTOM: f32 = 20.0;
+pub const DIFF_LINE_PAD: f32 = 22.0;
+pub const DIFF_BAR: f32 = 3.0;
+/// The web's dark diff fills: the success and error hues at 8%
+/// (`--dsw-alias-code-diff-added`/`-deleted`, `design-platform.css:242-243`), expressed
+/// over this palette's `FOAM` and `DANGER` so the row tint and the line ink agree.
+pub const DIFF_ADDED_FILL: Color = Color::from_rgba(0.612, 0.812, 0.847, 0.08);
+pub const DIFF_DELETED_FILL: Color = Color::from_rgba(0.922, 0.435, 0.573, 0.08);
 pub const ATTACHMENT_CARD_WIDTH: f32 = 240.0;
 pub const ATTACHMENT_CARD_HEIGHT: f32 = 64.0;
 /// `.userStack { gap: 8px }`, the gap between the attachment row and the bubble

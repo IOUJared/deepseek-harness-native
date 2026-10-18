@@ -135,6 +135,8 @@ pub const PRESETS: &[&str] = &[
     "tool-activity-expanded",
     "tool-activity-attachment",
     "tool-activity-edit-error",
+    "tool-activity-diff",
+    "tool-activity-diff-long",
     "context-injects",
     "assistant-tool-call",
     "assistant-tool-call-expanded",
@@ -200,7 +202,9 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "tool-activity"
         | "tool-activity-expanded"
         | "tool-activity-attachment"
-        | "tool-activity-edit-error" => Some((Size::new(1040.0, 1040.0), 1.0)),
+        | "tool-activity-edit-error"
+        | "tool-activity-diff"
+        | "tool-activity-diff-long" => Some((Size::new(1040.0, 1040.0), 1.0)),
         "context-injects" | "context-injects-trajectory" => Some((Size::new(1040.0, 900.0), 1.0)),
         "assistant-tool-call" | "assistant-tool-call-expanded" => {
             Some((Size::new(1040.0, 760.0), 1.0))
@@ -987,6 +991,34 @@ pub fn build(
         public_tool_records_with(Some("PUBLIC-note.txt"))
     } else if preset == "tool-activity-edit-error" {
         public_tool_edit_error_records()
+    } else if preset == "tool-activity-diff-long" {
+        // The same transcript with a longer edit, so the card's 9-row cap and its fold control
+        // are drawn. Every line is synthetic PUBLIC metadata.
+        let mut records = public_tool_records();
+        let old_lines = (1..=30)
+            .map(|n| format!("PUBLIC old line {n}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        // Two changes far apart: each hunk keeps its three context lines and the unchanged
+        // middle is one gap row, which is what takes the card past its nine-row cap. The
+        // markers carry their newline so line 3 cannot also match line 30.
+        let new_lines = old_lines
+            .replace("PUBLIC old line 3\n", "PUBLIC new line 3\n")
+            .replace("PUBLIC old line 28\n", "PUBLIC new line 28\n");
+        for record in &mut records {
+            let event = &mut record["event"];
+            if event["type"] == "tool/call" && event["data"]["callId"] == "PUBLIC-edit-call" {
+                event["data"]["arguments"] = json!(
+                    json!({
+                        "file_path": "/PUBLIC-layout-fixture/workspace/src/PUBLIC-note.txt",
+                        "old_string": old_lines,
+                        "new_string": new_lines,
+                    })
+                    .to_string()
+                );
+            }
+        }
+        records
     } else if preset.starts_with("tool-activity") || preset.starts_with("title-controls") {
         public_tool_records()
     } else if preset.starts_with("assistant-tool-call") {
@@ -1833,6 +1865,37 @@ pub fn build(
                     .is_some_and(|detail| detail.source.contains("PUBLIC old text"))
             );
         }
+        "tool-activity-diff" => {
+            // The edit call expands into the reference's diff card, inside the conversation.
+            assert!(
+                app.transcript
+                    .activity(3, app.path_roots())
+                    .is_some_and(|activity| activity.diff.is_some()),
+                "an edit call carries its diff card"
+            );
+            drop(app.update(Message::ToggleActivity {
+                generation: app.generation,
+                key: 3,
+            }));
+            assert!(app.activity_expanded.contains(&3));
+            assert!(app.detail.is_none() && app.composer_visible());
+        }
+        "tool-activity-diff-long" => {
+            let diff = app
+                .transcript
+                .activity(3, app.path_roots())
+                .and_then(|activity| activity.diff)
+                .expect("the long edit carries its diff card");
+            assert!(
+                crate::reducer::inline_diff::shown(diff.lines.len(), false).hidden > 0,
+                "the card is capped and draws its fold control"
+            );
+            drop(app.update(Message::ToggleActivity {
+                generation: app.generation,
+                key: 3,
+            }));
+            assert!(app.activity_expanded.contains(&3));
+        }
         "tool-activity-expanded" => {
             // The recorded Bash call expands inside the conversation; the detail
             // panel stays closed and no tool is executed.
@@ -2434,13 +2497,17 @@ mod tests {
                 assert!(app.transcript.activity(6, app.path_roots()).unwrap().failed);
                 // Programmatic local view action only: not physical input or execution proof.
                 drop(app.update(app.detail_request(3).unwrap()));
-                assert!(
-                    app.detail
-                        .as_ref()
-                        .unwrap()
-                        .source
-                        .contains("PUBLIC old text")
-                );
+                // The long-diff preset records a different edit body, so only the presets that
+                // carry the standard one assert its exact recorded text.
+                if preset != "tool-activity-diff-long" {
+                    assert!(
+                        app.detail
+                            .as_ref()
+                            .unwrap()
+                            .source
+                            .contains("PUBLIC old text")
+                    );
+                }
                 drop(app.update(app.detail_back().unwrap()));
                 assert!(receiver.try_recv().is_err());
             }

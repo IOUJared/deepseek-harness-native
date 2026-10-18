@@ -7,6 +7,11 @@ use std::collections::{BTreeMap, BTreeSet};
 pub mod activity;
 #[path = "assistant_parts.rs"]
 mod assistant_parts;
+/// The reference's inline diff card for a file-mutation tool row. Declared here, beside
+/// `activity`, because every fixture example that embeds `ui.rs` or `activity.rs` also embeds
+/// this module root; a crate-root declaration would have to be repeated in each of them.
+#[path = "inline_diff.rs"]
+pub mod inline_diff;
 pub use assistant_parts::AssistantParts;
 use assistant_parts::{Block, Kind};
 #[path = "chat_presentation.rs"]

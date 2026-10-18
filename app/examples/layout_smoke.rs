@@ -1069,6 +1069,7 @@ impl Fixture {
                 worker::Command::UpdateQueue(_) => "UpdateQueue",
                 worker::Command::Search { .. } => "Search",
                 worker::Command::Goal { .. } => "Goal",
+                worker::Command::GoalActivationRead { .. } => "GoalActivationRead",
                 worker::Command::ScheduleCatalog => "ScheduleCatalog",
                 worker::Command::ChangesSummary { .. } => "ChangesSummary",
                 worker::Command::ChangesDiff { .. } => "ChangesDiff",
