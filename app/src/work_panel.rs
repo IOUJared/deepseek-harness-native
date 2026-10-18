@@ -83,6 +83,10 @@ impl Store {
     /// The model's current standing plan as `(completed, total, next item)`.
     /// `None` when no `todo/write` has been retained, so the composer shows no
     /// chip rather than an empty one.
+    /// The standing plan's counts. Round 361 removed the composer chip that was its only
+    /// production reader, so this is a verification accessor: the dock draws from
+    /// [`Self::plan_items`], and the tests assert both stay in step.
+    #[cfg(any(test, feature = "public-layout-fixture"))]
     pub fn plan(&self) -> Option<(usize, usize, Option<&str>)> {
         self.plan
             .as_ref()
