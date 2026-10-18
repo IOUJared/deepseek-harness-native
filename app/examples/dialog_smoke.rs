@@ -147,7 +147,7 @@ fn load_public_plugins(settings: &mut settings::Settings, review: bool) {
             plugin_action(
                 settings,
                 plugins::Action::Begin {
-            namespace: 0,
+                    namespace: 0,
                     ticket: read,
                     field: 0
                 }
@@ -502,7 +502,7 @@ impl Fixture {
                 plugin_action(
                     &mut self.settings,
                     plugins::Action::Begin {
-            namespace: 0,
+                        namespace: 0,
                         ticket: read,
                         field: 2,
                     },

@@ -8425,3 +8425,33 @@ report.
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | app bin | — | **18** dead-code warnings (20 before this round; two dead items removed) |
 | tree | — | clean before the commit |
+
+### Round 370 — the General page can retry its own preferences read
+
+Round 369 left two plugin findings open; both had the same cause and the same missing screen. A
+failed (or never-run) settings read left the session-log row absent with no word and no retry, and a
+save that settled *without* a confirmation cleared the controller's `fresh` flag, which disables the
+row for the rest of the visit — the only surface that reports the failure could not retry it.
+
+The General page now owns one retry, `Action::RefreshPreferences`, which re-runs the same plugin read
+the page's open and page-select already use. It is drawn in the two states that need it: beside a row
+that cannot write, and in place of a row whose read failed or never ran — the second says so in words
+("Preference unavailable: the settings read failed or has not run.") instead of looking like a host
+that exposes no preference, which is the state `plugins.has_snapshot()` distinguishes.
+
+Test: `the_general_page_can_retry_its_preferences_read` (a failed read leaves no snapshot, and the
+retry dispatches the same read).
+
+**Battery (round 370).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1286 passed**, 1 ignored |
+| app, default | **0** | **1279 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| tree | — | clean before the commit |

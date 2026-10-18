@@ -409,3 +409,24 @@ fn the_session_log_row_writes_only_when_the_app_is_writable() {
         "not even a real change"
     );
 }
+
+/// A failed preferences read and a non-confirmed save both leave the General row unable to do
+/// anything, and the page had no way to try again. One control re-runs the same read.
+#[test]
+fn the_general_page_can_retry_its_preferences_read() {
+    let mut state = opened_plugins();
+    // The read fails: no snapshot, so the row is the stated absence with a retry.
+    let rendered = state.plugin_read_ticket();
+    let Some(Effect::Plugins(plugins::Effect::Read(ticket))) =
+        state.handle(Action::Plugins(plugins::Action::Refresh(rendered)), 1, true)
+    else {
+        panic!("explicit refresh required")
+    };
+    state.plugins_loaded(ticket, Err(crate::plugins::ReadFailure::Unavailable));
+    assert!(!state.plugins.has_snapshot());
+    let Some(Effect::Plugins(plugins::Effect::Read(_))) =
+        state.handle(Action::RefreshPreferences, 1, true)
+    else {
+        panic!("the retry reads again")
+    };
+}

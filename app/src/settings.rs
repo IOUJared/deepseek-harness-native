@@ -310,6 +310,9 @@ pub enum Action {
     ShortcutsSearch(String),
     /// Writes the one boolean the General page's session-log row shows.
     SessionLog(bool),
+    /// Re-read the preferences the General page shows. The row has no other retry: a failed read
+    /// was invisible and a non-confirmed save disabled the row for the rest of the visit.
+    RefreshPreferences,
     /// Persists one new-session permission default; the App gates it on the descriptor.
     PermissionDefault(String),
     /// Makes one roster preset the default for sessions created later; the App owns the write.
@@ -907,6 +910,9 @@ impl Settings {
                 self.shortcuts_query = raw.clone();
             }
             return None;
+        }
+        if matches!(action, Action::RefreshPreferences) {
+            return self.general_plugin_read();
         }
         if let Action::SessionLog(value) = action {
             // The caller's read-only flag, like every sibling: a hard-coded `true` left this one
@@ -1674,7 +1680,48 @@ impl Settings {
                     .size(11),
                 );
             }
+            // A row that cannot write offers the read again here, because a non-confirmed save
+            // leaves it read-only for the rest of the visit and no other surface retries it.
+            if !writable && !self.plugins.pending() {
+                section = section.push(
+                    button("Refresh preference")
+                        .style(design::ghost)
+                        .padding([4, 8])
+                        .on_press(Action::RefreshPreferences),
+                );
+            }
             body = body.push(section);
+        }
+        // A read that failed or never ran is not a host without the preference: say which one
+        // this is and offer the same read the Plugins page has.
+        if !self.plugins.has_snapshot()
+            && self
+                .plugins
+                .preference("session-log-deepseek", "enabled")
+                .is_none()
+        {
+            body = body.push(
+                row![
+                    column![
+                        label(SESSION_LOG_TITLE, TEXT).size(13),
+                        label(
+                            "Preference unavailable: the settings read failed or has not run.",
+                            MUTED
+                        )
+                        .size(11),
+                    ]
+                    .spacing(2)
+                    .width(Length::Fill),
+                    button("Refresh")
+                        .style(design::ghost)
+                        .padding([4, 8])
+                        .on_press_maybe(
+                            (!self.plugins.pending()).then_some(Action::RefreshPreferences)
+                        ),
+                ]
+                .spacing(12)
+                .align_y(iced::Alignment::Center),
+            );
         }
         body = body.push(self.info_button(
             Info::ContextPolicy,
