@@ -7369,3 +7369,48 @@ worker, which is its own item.
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+### Round 344 — closing the terminal panel stops its stream, and control is the Host's to give
+
+**The last two terminal-audit findings, both about state that outlived its confirmation.**
+
+- **Dismiss left the Host attachment and its stream running.** `Action::Dismiss` only cleared
+  local state and returned no effect, so the worker kept its follow stream and kept publishing
+  frames the closed panel dropped, and the Host kept this client's exclusive input control. Now
+  `Terminal::dismiss()` reports whether a follow was live, `Action::Dismiss` returns
+  `Effect::Unfollow`, and the worker's new `Command::TerminalUnfollow` cancels the stream and
+  clears its ticket — no reply, because the surface that asked for it is gone. Every panel-
+  replacement path in the App goes through one `dismiss_terminal` helper so a stream cannot be
+  orphaned anywhere. A lost unfollow (worker queue full) is reported as a status line through the
+  new `Event::Notice`; it changes no product state.
+- **"Exclusive input control" was asserted, never checked.** The Host sets
+  `info.controllerId` to the attaching client's id before it yields the baseline
+  (`api/terminal-controller/src/terminal.ts:77-84`) and clears it on detach, but the panel said
+  "Attached with exclusive input control" the moment it attached and never looked at the field.
+  `Terminal::control()` now reports `Held` / `Elsewhere` / `Unconfirmed` from the Host's own frame,
+  the notice follows it (`FollowPending` until the first frame, `FollowAttached` only when the
+  frame names this attachment, `ControlElsewhere` in danger ink when another client holds it), and
+  a write is refused with that notice instead of being attempted.
+
+Two model tests — `dismissing_a_panel_with_a_live_follow_asks_for_the_stream_to_stop` and
+`input_control_is_reported_only_from_the_hosts_own_frame` (unconfirmed → held by our attachment →
+taken by a foreign one → withdrawn) — plus the App test `closing_the_terminal_panel_stops_its_stream`,
+which attaches a real follow and asserts exactly one `Command::TerminalUnfollow` leaves when the
+panel closes. No capture: the panel has no fixture mode and no visual element was added.
+
+**The terminal audit is closed.** Every finding it raised is either fixed here and in rounds
+337-340/343 or named as a deliberate limit; no unqualified divergence remains from it.
+
+**Battery (round 344).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1244 passed**, 1 ignored |
+| app, default | **0** | **1237 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 88 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| tree | — | clean before the commit |

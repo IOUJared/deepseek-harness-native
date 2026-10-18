@@ -189,6 +189,9 @@ pub enum Command {
     Fork(crate::fork::Submission),
     TerminalRead(crate::terminal::ReadTicket),
     TerminalFollow(crate::terminal::FollowTicket),
+    /// Stop the live terminal follow this worker owns. No reply: the panel that asked for the
+    /// stream has already closed and cleared its own copy.
+    TerminalUnfollow,
     TerminalCreate(crate::terminal::CreateSubmission),
     TerminalClose(crate::terminal::CloseSubmission),
     TerminalWrite(crate::terminal::WriteSubmission),
@@ -248,6 +251,8 @@ pub enum Event {
         preset: String,
         result: Result<(), String>,
     },
+    /// A bounded status line, for an outcome that owns no state of its own.
+    Notice(String),
     /// The receipt of a job kill: `requested` or `already-finished`.
     JobKilled(Result<dsh_native_transport::dto::JobKillOutcome, String>),
     QueueUpdated {
@@ -1154,6 +1159,7 @@ fn rejected(command: Command) -> Event {
             ticket,
             failure: Some(crate::terminal::ReadFailure::Rejected),
         },
+        Command::TerminalUnfollow => Event::Notice(error),
         Command::TerminalCreate(submission) => Event::TerminalCreated {
             submission,
             result: Err(crate::terminal::CreateFailure::NotSent),
@@ -2464,6 +2470,12 @@ async fn run(
                         }
                         continue;
                     },
+                    Command::TerminalUnfollow=>{
+                        // The Host attachment and its frames end here, not when the next panel opens.
+                        if let Some(stream)=terminal.as_mut(){stream.cancel().await;}
+                        terminal=None;terminal_ticket=None;
+                        continue;
+                    },
                     Command::TerminalCreate(submission)=>{
                         let flight=TerminalFlight::Create(submission.clone());
                         if submission.receipt.ticket.epoch==TRANSPORT_EPOCH && admit_terminal(&mut terminal_active,&flight,&Admission::new(smoke,*closing.borrow(),operations,flights)) {
@@ -2550,6 +2562,7 @@ async fn run(
                 if matches!(command,Command::PermissionCatalogRead){let backend=backend.clone();tasks.spawn_blocking(move||Event::PermissionCatalog(match backend.request(CoreCommand::PermissionCatalog,Duration::from_secs(5)){Ok(PublicReply::PermissionCatalog(catalog))=>Ok(catalog),Ok(_)=>Err("Invalid Core permission catalog reply".into()),Err(e)=>Err(format!("Core permission catalog: {e}"))}));continue;}
                 if matches!(command,Command::Inspect){let backend=backend.clone();tasks.spawn_blocking(move||Event::Inspection(match backend.request(CoreCommand::Inspect,Duration::from_secs(5)){Ok(PublicReply::Inspection(value))=>Ok(value),Ok(_)=>Err("Invalid Core inspection reply".into()),Err(e)=>Err(format!("Core inspection: {e}"))}));continue;}
                 let client=client.clone();tasks.spawn(async move {match command {
+                    Command::TerminalUnfollow=>Event::Fault("Terminal unfollow bypassed priority dispatch".into()),
                     Command::PermissionCatalogRead=>Event::Fault("Permission catalog bypassed priority dispatch".into()),
                     Command::PermissionSettingsRead=>Event::Fault("Permission settings bypassed priority dispatch".into()),
                     Command::AgentPresetsRead=>Event::Fault("Agent presets bypassed priority dispatch".into()),

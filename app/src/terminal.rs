@@ -71,6 +71,20 @@ pub struct ReadTicket {
     pub serial: u64,
     pub target: SessionId,
 }
+/// Who the Host named as the input controller of the selected terminal.
+///
+/// `follow` sets `info.controllerId` to the attaching client's own id before it yields the
+/// baseline (`api/terminal-controller/src/terminal.ts:77-84`), so a frame naming this panel's
+/// attachment is the Host's confirmation — the panel never asserts it alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Control {
+    /// The Host's latest frame names this panel's attachment.
+    Held,
+    /// Another attachment holds input control; this panel is read-only until it reattaches.
+    Elsewhere,
+    /// No frame has said yet.
+    Unconfirmed,
+}
 /// One live follow identity: the exact Host attachment this panel owns.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FollowTicket {
@@ -185,6 +199,10 @@ pub enum Notice {
     Busy,
     /// The Host attachment this panel held has ended; nothing can be written until it reattaches.
     Detached,
+    /// Attached, and waiting for the Host's frame to name this panel the controller.
+    FollowPending,
+    /// Another attachment holds input control; input here is refused until the panel reattaches.
+    ControlElsewhere,
     CreateReview,
     Creating,
     CreateFailed,
@@ -210,6 +228,9 @@ pub enum Notice {
 pub enum Effect {
     Read(ReadTicket),
     Follow(FollowTicket),
+    /// Stop the follow this panel owned. Dismissing the panel must not leave the Host attachment
+    /// and its stream running behind a surface that no longer shows them.
+    Unfollow,
     Create(CreateSubmission),
     Close(CloseSubmission),
     Write(WriteSubmission),
@@ -462,6 +483,20 @@ impl Terminal {
     pub fn attached(&self) -> bool {
         self.attachment.is_some()
     }
+    /// What the Host last said about input control for the selected terminal.
+    pub fn control(&self) -> Control {
+        let Some(selected) = self.selected.as_ref() else {
+            return Control::Unconfirmed;
+        };
+        let Some(info) = self.list.iter().find(|info| &info.id == selected) else {
+            return Control::Unconfirmed;
+        };
+        match &info.controller_id {
+            Some(controller) if Some(controller) == self.attachment.as_ref() => Control::Held,
+            Some(_) => Control::Elsewhere,
+            None => Control::Unconfirmed,
+        }
+    }
     pub fn selected(&self) -> Option<&WebTerminalId> {
         self.selected.as_ref()
     }
@@ -512,12 +547,15 @@ impl Terminal {
         &self.notice
     }
     /// Hide the panel and retire local reviews. It never cancels an admitted write.
-    pub fn dismiss(&mut self) {
+    /// Returns whether a Host follow was live, so the caller can retire the stream too.
+    pub fn dismiss(&mut self) -> bool {
         self.panel = None;
         self.create_review = None;
         self.close_review = None;
         self.notice = Notice::None;
+        let following = self.follow.is_some();
         self.stop_follow();
+        following
     }
     /// Fence late receipts after the transport generation is gone.
     pub fn disconnect(&mut self) {
@@ -591,13 +629,17 @@ impl Terminal {
             attachment,
         };
         self.follow = Some(follow.clone());
-        self.notice = Notice::FollowAttached;
+        // The Host names the controller in the frame that follows; until then this is only an
+        // attachment, and the notice must not claim exclusivity it has not been given.
+        self.notice = Notice::FollowPending;
         Some(follow)
     }
 
     pub fn apply(&mut self, action: Action, context: &Context) -> Option<Effect> {
         match action {
-            Action::Dismiss(ticket) if self.ticket().as_ref() == Some(&ticket) => self.dismiss(),
+            Action::Dismiss(ticket) if self.ticket().as_ref() == Some(&ticket) => {
+                return self.dismiss().then_some(Effect::Unfollow);
+            }
             Action::Open { view }
                 if !self.exhausted && context.allowed && context.view.as_ref() == Some(&view) =>
             {
@@ -698,6 +740,10 @@ impl Terminal {
                     && self.create_pending.is_none()
                     && self.close_pending.is_none() =>
             {
+                if self.control() == Control::Elsewhere {
+                    self.notice = Notice::ControlElsewhere;
+                    return None;
+                }
                 let (Some(id), Some(attachment)) = (self.selected.clone(), self.attachment.clone())
                 else {
                     // A detached follow is not an empty field or a missing selection: say what
@@ -934,15 +980,33 @@ impl Terminal {
                 self.output.clear();
                 self.output.push(&screen);
                 self.upsert(info);
-                self.notice = Notice::FollowAttached;
+                self.control_notice();
             }
             TerminalFrame::Output { data, .. } => self.output.push(&data),
             TerminalFrame::State { info } => {
                 if dsh_native_transport::terminal::validate_info(&info).is_ok() {
                     self.upsert(info);
+                    self.control_notice();
                 }
             }
         }
+    }
+    /// Restate who the Host named as controller, without clobbering a notice about something else.
+    fn control_notice(&mut self) {
+        if self.follow.is_none() {
+            return;
+        }
+        if !matches!(
+            self.notice,
+            Notice::FollowPending | Notice::FollowAttached | Notice::ControlElsewhere
+        ) {
+            return;
+        }
+        self.notice = match self.control() {
+            Control::Held => Notice::FollowAttached,
+            Control::Elsewhere => Notice::ControlElsewhere,
+            Control::Unconfirmed => Notice::FollowPending,
+        };
     }
     /// Retire the exact follow. A later frame for the same ticket changes nothing.
     pub fn follow_ended(&mut self, ticket: &FollowTicket, failure: Option<ReadFailure>) {
@@ -1168,6 +1232,73 @@ mod tests {
         assert!(output.truncated() - before > CHUNK_BYTES);
         output.clear();
         assert_eq!(output.truncated(), 0);
+    }
+    #[test]
+    fn input_control_is_reported_only_from_the_hosts_own_frame() {
+        let mut terminal = opened();
+        let follow = select(&mut terminal);
+        // The Host has not spoken yet: the panel says it is attached, not that it controls.
+        assert_eq!(terminal.control(), Control::Unconfirmed);
+        assert_eq!(terminal.notice(), &Notice::FollowPending);
+        // The baseline frame names this panel's attachment as the controller.
+        let mine = WebTerminalInfo {
+            controller_id: Some(follow.attachment.clone()),
+            ..info("PUBLIC-terminal-1")
+        };
+        terminal.frame(
+            &follow,
+            TerminalFrame::Snapshot {
+                sequence: 1,
+                screen: String::new(),
+                info: mine.clone(),
+            },
+        );
+        assert_eq!(terminal.control(), Control::Held);
+        assert_eq!(terminal.notice(), &Notice::FollowAttached);
+        // A later state frame from another client takes control away, and a write refuses.
+        let foreign = WebTerminalInfo {
+            controller_id: Some(TerminalAttachmentId::new("PUBLIC-other-client").unwrap()),
+            ..info("PUBLIC-terminal-1")
+        };
+        terminal.frame(&follow, TerminalFrame::State { info: foreign });
+        assert_eq!(terminal.control(), Control::Elsewhere);
+        assert_eq!(terminal.notice(), &Notice::ControlElsewhere);
+        let t = ticket(&terminal);
+        let _ = terminal.apply(
+            Action::EditInput {
+                ticket: t.clone(),
+                text: "PUBLIC input".into(),
+            },
+            &context(),
+        );
+        assert!(terminal.apply(Action::Write(t), &context()).is_none());
+        assert_eq!(terminal.notice(), &Notice::ControlElsewhere);
+        // The Host withdrawing the controller field is "unconfirmed", not "mine".
+        terminal.frame(
+            &follow,
+            TerminalFrame::State {
+                info: info("PUBLIC-terminal-1"),
+            },
+        );
+        assert_eq!(terminal.control(), Control::Unconfirmed);
+    }
+    #[test]
+    fn dismissing_a_panel_with_a_live_follow_asks_for_the_stream_to_stop() {
+        let mut terminal = opened();
+        let _follow = select(&mut terminal);
+        let t = ticket(&terminal);
+        assert!(matches!(
+            terminal.apply(Action::Dismiss(t.clone()), &context()),
+            Some(Effect::Unfollow)
+        ));
+        assert!(!terminal.is_open());
+        // Without a follow there is no stream to retire, so no command is asked for.
+        let mut terminal = opened();
+        assert!(
+            terminal
+                .apply(Action::Dismiss(ticket(&terminal)), &context())
+                .is_none()
+        );
     }
     #[test]
     fn a_create_is_bounded_by_the_host_environment_it_was_told_about() {

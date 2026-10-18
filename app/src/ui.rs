@@ -2623,7 +2623,7 @@ impl App {
         self.management.dismiss();
         self.sidebar_organization.dismiss();
         self.rename.dismiss();
-        self.terminal.dismiss();
+        self.dismiss_terminal();
         self.mcp.dismiss();
         self.exporter.dismiss();
         self.selected = Some(session.clone());
@@ -3030,7 +3030,7 @@ impl App {
             {
                 self.conversation_menu = !self.conversation_menu;
                 self.work_open = false;
-                self.terminal.dismiss();
+                self.dismiss_terminal();
                 self.mcp.dismiss();
             }
             Message::ToggleInfoDetails(section)
@@ -3065,7 +3065,7 @@ impl App {
                 self.mcp.dismiss();
             }
             Message::DismissPanel if self.terminal.is_open() && !self.settings_modal_visible() => {
-                self.terminal.dismiss();
+                self.dismiss_terminal();
                 self.mcp.dismiss();
             }
             Message::ExportSession(ticket) => {
@@ -3137,7 +3137,7 @@ impl App {
                     self.work_open = false;
                     self.detail = None;
                     self.schedules_open = false;
-                    self.terminal.dismiss();
+                    self.dismiss_terminal();
                     let effect = self.mcp.enter(self.transport_epoch);
                     self.dispatch_mcp(effect);
                 } else {
@@ -3727,7 +3727,7 @@ impl App {
                 self.capabilities = false;
                 self.work_open = false;
                 self.detail = None;
-                self.terminal.dismiss();
+                self.dismiss_terminal();
                 self.mcp.dismiss();
                 self.schedules_open = true;
                 self.schedules_loading = true;
@@ -4975,7 +4975,7 @@ impl App {
             Message::Capabilities => {
                 self.capabilities = !self.capabilities;
                 self.work_open = false;
-                self.terminal.dismiss();
+                self.dismiss_terminal();
                 self.mcp.dismiss();
                 self.info_expanded = 0;
             }
@@ -4987,7 +4987,7 @@ impl App {
                 self.work_open = true;
                 self.conversation_menu = false;
                 self.capabilities = false;
-                self.terminal.dismiss();
+                self.dismiss_terminal();
                 self.mcp.dismiss();
             }
             Message::Work(work_panel_ui::Action::Close) if self.work_open => {
@@ -5022,7 +5022,7 @@ impl App {
                 self.exporter.dismiss();
                 self.rename.dismiss();
                 self.fork.dismiss();
-                self.terminal.dismiss();
+                self.dismiss_terminal();
                 self.mcp.dismiss();
                 if self.stopped {
                     if self.last_stop.as_ref().is_some_and(|r|matches!(r,Ok(s) if s.exited&&!s.containment_unknown&&s.observed_descendants_remaining==0)){self.capture_draft();self.draft_exit_requested=true;self.close=Close::Stopping;return self.finish_draft_exit();}
@@ -6403,6 +6403,7 @@ impl App {
                     Err(error) => self.status = format!("Agent presets: {error}"),
                 }
             }
+            Event::Notice(message) => self.status = message,
             Event::AgentPresetDefault { result, .. } => {
                 self.preset_default_saving = None;
                 match result {
@@ -6763,12 +6764,20 @@ impl App {
     }
     /// Map one terminal model effect onto the worker. Only mutating effects reserve
     /// the management flight; a read or follow never blocks another operation.
+    /// Close the terminal panel and retire its Host follow. Panel replacement paths use this so a
+    /// stream cannot outlive the surface that owned it.
+    fn dismiss_terminal(&mut self) {
+        if self.terminal.dismiss() {
+            self.command(Command::TerminalUnfollow);
+        }
+    }
     fn dispatch_terminal(&mut self, effect: crate::terminal::Effect) {
         match effect {
             crate::terminal::Effect::Read(ticket) => self.command(Command::TerminalRead(ticket)),
             crate::terminal::Effect::Follow(ticket) => {
                 self.command(Command::TerminalFollow(ticket))
             }
+            crate::terminal::Effect::Unfollow => self.command(Command::TerminalUnfollow),
             crate::terminal::Effect::Create(submission) => {
                 self.command(Command::TerminalCreate(submission))
             }
@@ -14537,6 +14546,7 @@ impl App {
                 // A follow that ended leaves no attachment; offering Write there would refuse for
                 // a reason the button itself could have prevented.
                 && self.terminal.attached()
+                && self.terminal.control() != crate::terminal::Control::Elsewhere
                 && !self.terminal.write_pending()
                 && !self.terminal.input().is_empty()
                 && self.terminal.input().len() as u64 <= self.terminal.max_input_bytes();
@@ -14670,6 +14680,16 @@ impl App {
             Notice::FollowAttached => label(
                 "Attached with exclusive input control; an older attachment became read-only.",
                 MUTED,
+            )
+            .size(11),
+            Notice::FollowPending => label(
+                "Attached; the Host's first frame confirms input control. An older attachment becomes read-only.",
+                MUTED,
+            )
+            .size(11),
+            Notice::ControlElsewhere => label(
+                "Another client holds input control for this terminal; input here is read-only. Select it again to take control.",
+                DANGER,
             )
             .size(11),
             Notice::FollowEnded => label(
@@ -18649,6 +18669,78 @@ mod tests {
         assert!(app.goal_busy.is_none());
         assert_eq!(app.goal_error.as_deref(), Some("Goal: remote-failure"));
         assert_eq!(GoalPhase::Active, GoalPhase::Active);
+    }
+    #[test]
+    fn closing_the_terminal_panel_stops_its_stream() {
+        let (mut app, mut receiver) = managed_app();
+        let view = crate::management::View {
+            epoch: app.transport_epoch,
+            generation: app.generation,
+            target: app.selected.clone().unwrap(),
+        };
+        let _ = app.update(Message::Terminal(crate::terminal::Action::Open { view }));
+        // The panel's read answered with one terminal and a shell; selecting it attaches a follow.
+        let read = app.terminal.ticket().unwrap();
+        let _ = app.update(Message::Worker(Event::TerminalLoaded {
+            ticket: crate::terminal::ReadTicket {
+                epoch: read.epoch,
+                generation: read.generation,
+                serial: read.serial,
+                target: read.target.clone(),
+            },
+            result: Ok(crate::terminal::Loaded {
+                list: vec![dsh_native_transport::terminal::WebTerminalInfo {
+                    id: dsh_native_transport::terminal::WebTerminalId::new("PUBLIC-terminal-1")
+                        .unwrap(),
+                    title: "PUBLIC terminal".into(),
+                    shell: dsh_native_transport::terminal::TerminalShell {
+                        path: "/bin/PUBLIC-shell".into(),
+                        args: vec!["-l".into()],
+                        name: "PUBLIC shell".into(),
+                    },
+                    cwd: "/PUBLIC/cwd".into(),
+                    cols: 80,
+                    rows: 24,
+                    state: dsh_native_transport::terminal::TerminalState::Running,
+                    exit_code: None,
+                    error: None,
+                    controller_id: None,
+                }],
+                shells: vec![dsh_native_transport::terminal::TerminalShell {
+                    path: "/bin/PUBLIC-shell".into(),
+                    args: vec!["-l".into()],
+                    name: "PUBLIC shell".into(),
+                }],
+                environment: None,
+            }),
+        }));
+        let ticket = app.terminal.ticket().unwrap();
+        let id = dsh_native_transport::terminal::WebTerminalId::new("PUBLIC-terminal-1").unwrap();
+        let _ = app.update(Message::Terminal(crate::terminal::Action::Select {
+            ticket: ticket.clone(),
+            id,
+        }));
+        let mut follows = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if matches!(command, Command::TerminalFollow(_)) {
+                follows += 1;
+            }
+        }
+        assert_eq!(follows, 1, "selecting attaches one follow");
+        let _ = app.update(Message::Terminal(crate::terminal::Action::Dismiss(
+            app.terminal.ticket().unwrap(),
+        )));
+        assert!(!app.terminal.is_open());
+        let mut unfollows = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if matches!(command, Command::TerminalUnfollow) {
+                unfollows += 1;
+            }
+        }
+        assert_eq!(
+            unfollows, 1,
+            "closing the panel retires the stream it owned"
+        );
     }
     #[test]
     fn an_expanded_usage_line_is_reserved_above_both_geometry_paths() {
