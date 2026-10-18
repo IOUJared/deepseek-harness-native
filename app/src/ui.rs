@@ -1115,13 +1115,20 @@ pub struct App {
     schedule_edit: Option<ScheduleEdit>,
     /// The open one-shot date or clock picker.
     at_picker: Option<AtPickerView>,
-    /// The selected goal's process-local activation: (session, goal id, revision, activation).
-    goal_activation: Option<(
+    /// Process-local goal activation per session: (goal id, revision, activation). Every
+    /// session's edge is kept because the Host pushes them all, and a goal disarmed while
+    /// another session was on screen must read "Inactive Goal" when it comes back. Activation
+    /// is absent from the durable projection (`packages/goal/goal/src/types.ts:112-126`), so
+    /// it is read from the Host when a session opens (`activation-source.ts:57-88`).
+    goal_activation: std::collections::BTreeMap<
         SessionId,
-        String,
-        u64,
-        dsh_native_transport::dto::GoalActivation,
-    )>,
+        (String, u64, dsh_native_transport::dto::GoalActivation),
+    >,
+    /// The serial of the newest activation edge. A read that started under an older serial is
+    /// stale and must not overwrite a newer edge (`activation-source.ts:63-90`).
+    goal_activation_serial: u64,
+    /// The activation read in flight: the session it asks about and the serial it started under.
+    goal_activation_read: Option<(SessionId, u64)>,
     /// The task whose delivery history is open: (session binding, id).
     schedule_history: Option<(SessionId, String)>,
     schedule_history_page: Option<dsh_native_transport::dto::ScheduleHistory>,
@@ -1460,7 +1467,9 @@ impl App {
                 background_reads_disabled: false,
                 schedule_edit: None,
                 at_picker: None,
-                goal_activation: None,
+                goal_activation: std::collections::BTreeMap::new(),
+                goal_activation_serial: 0,
+                goal_activation_read: None,
                 schedule_history: None,
                 schedule_history_page: None,
                 schedule_history_loading: false,
@@ -5748,6 +5757,36 @@ impl App {
                     Err(error) => self.schedules_error = Some(error),
                 }
             }
+            Event::GoalActivationRead { session, result } => {
+                // A read that started before a newer edge is stale, exactly as the
+                // reference's read epoch fences it (`activation-source.ts:63-90`).
+                let current = self
+                    .goal_activation_read
+                    .as_ref()
+                    .is_some_and(|(asked, serial)| {
+                        asked == &session && *serial == self.goal_activation_serial
+                    });
+                if !current {
+                    return Task::none();
+                }
+                self.goal_activation_read = None;
+                match result {
+                    Ok(Some(view)) => {
+                        if self.goal_activation.contains_key(&session)
+                            || self.goal_activation.len() < 2048
+                        {
+                            self.goal_activation
+                                .insert(session, (view.id, view.revision, view.activation));
+                        }
+                    }
+                    Ok(None) => {
+                        self.goal_activation.remove(&session);
+                    }
+                    // A refused read leaves the current snapshot unchanged, the reference's
+                    // own rule; it is not a bar error.
+                    Err(_) => {}
+                }
+            }
             Event::GoalUpdated { session, result } => {
                 // The reply settles the write it raised even when the user has moved on; only the
                 // outcome (drafts and the error line) belongs to the bar that is still showing it.
@@ -6621,6 +6660,11 @@ impl App {
                 self.plan_published = Some(plan_mode::published(self.transcript.projections()));
                 self.request_changes();
                 self.refresh_feedback();
+                // Activation is not in the durable projection, so opening a session is when
+                // its live reading is asked for (`activation-source.ts:112-121`).
+                if snapshot {
+                    self.read_goal_activation();
+                }
             }
             Err(error) => {
                 self.files.invalidate();
@@ -7483,12 +7527,15 @@ impl App {
             return;
         };
         if let Some(session) = self.selected.clone() {
-            self.goal_activation = Some((
+            self.goal_activation.insert(
                 session,
-                goal.reference.id,
-                goal.reference.revision,
-                dsh_native_transport::dto::GoalActivation::Disarmed,
-            ));
+                (
+                    goal.reference.id,
+                    goal.reference.revision,
+                    dsh_native_transport::dto::GoalActivation::Disarmed,
+                ),
+            );
+            self.goal_activation_serial = self.goal_activation_serial.wrapping_add(1);
         }
     }
 
@@ -9704,9 +9751,6 @@ impl App {
         else {
             return;
         };
-        if self.selected.as_ref() != Some(&session) {
-            return;
-        }
         let goal = value.get("goal").filter(|goal| !goal.is_null());
         match goal {
             Some(goal) => {
@@ -9722,10 +9766,50 @@ impl App {
                 if id.is_empty() || id.len() > 256 || revision == 0 {
                     return;
                 }
-                self.goal_activation = Some((session, id.to_owned(), revision, activation));
+                // The roster bounds the sessions this map can hold, so an edge for an
+                // unknown session is admitted only while there is room.
+                if !self.goal_activation.contains_key(&session)
+                    && self.goal_activation.len() >= 2048
+                {
+                    return;
+                }
+                self.goal_activation
+                    .insert(session, (id.to_owned(), revision, activation));
             }
-            None => self.goal_activation = None,
+            None => {
+                self.goal_activation.remove(&session);
+            }
         }
+        // A newer edge invalidates any read that started before it.
+        self.goal_activation_serial = self.goal_activation_serial.wrapping_add(1);
+    }
+    /// Whether the selected session's active goal is disarmed: the reference's "Inactive Goal".
+    /// Only a matching goal id and revision counts, so an edge for an older goal cannot relabel
+    /// a new one.
+    fn goal_disarmed(&self, goal: &crate::goal_ui::Goal) -> bool {
+        let Some(session) = self.selected.as_ref() else {
+            return false;
+        };
+        matches!(
+            self.goal_activation.get(session),
+            Some((id, revision, dsh_native_transport::dto::GoalActivation::Disarmed))
+                if id == &goal.reference.id && *revision == goal.reference.revision
+        )
+    }
+    /// Ask the Host for the selected session's live activation. Only an active goal has any:
+    /// a paused or blocked goal draws from its phase, and a complete one is not drawn.
+    fn read_goal_activation(&mut self) {
+        let Some(session) = self.selected.clone() else {
+            return;
+        };
+        if self
+            .goal()
+            .is_none_or(|goal| goal.phase != dsh_native_transport::dto::GoalPhase::Active)
+        {
+            return;
+        }
+        self.goal_activation_read = Some((session.clone(), self.goal_activation_serial));
+        self.command(worker::Command::GoalActivationRead { session });
     }
     /// The `@` token at the end of the draft, as `(query, quoted)`.
     fn active_reference_token(text: &str) -> Option<(String, bool)> {
@@ -10391,6 +10475,11 @@ impl App {
             self.goal_clear = None;
             self.goal_error = None;
         }
+        // A projection change is the reference's other read trigger
+        // (`activation-source.ts:97-108`): the new goal's activation is process-local.
+        if key == "goal" {
+            self.read_goal_activation();
+        }
     }
     /// The selected session's current goal, from its own `goal` projection.
     fn goal(&self) -> Option<crate::goal_ui::Goal> {
@@ -10499,20 +10588,7 @@ impl App {
             // A goal that is active but disarmed is the reference's "Inactive Goal": it
             // offers Resume, never Pause, and a paused goal offers Resume while a blocked
             // one offers neither (`GoalBar.tsx:130-154`).
-            let disarmed = matches!(
-                (&self.goal_activation, goal.phase),
-                (
-                    Some((
-                        session,
-                        id,
-                        revision,
-                        dsh_native_transport::dto::GoalActivation::Disarmed,
-                    )),
-                    dsh_native_transport::dto::GoalPhase::Active,
-                ) if self.selected.as_ref() == Some(session)
-                    && id == &goal.reference.id
-                    && *revision == goal.reference.revision
-            );
+            let disarmed = self.goal_disarmed(&goal);
             let offered = crate::goal_ui::actions(goal.phase, disarmed);
             if busy {
                 actions = actions.push(label("Working…", MUTED).size(10));
@@ -19005,8 +19081,10 @@ mod tests {
         }));
         assert_eq!(app.schedules[0].title, "PUBLIC renamed");
     }
+    /// Every session's edge is kept, not only the selected one's: a goal disarmed while
+    /// another session was on screen must still read "Inactive Goal" when it comes back.
     #[test]
-    fn goal_activation_is_fenced_to_the_selected_goal() {
+    fn an_activation_edge_is_kept_for_its_own_session() {
         use dsh_native_transport::dto::GoalActivation;
         let (mut app, _receiver) = managed_app();
         let selected = app.selected.clone().unwrap();
@@ -19016,24 +19094,121 @@ mod tests {
         }));
         assert_eq!(
             app.goal_activation
-                .as_ref()
-                .map(|(_, id, revision, activation)| (id.as_str(), *revision, *activation)),
+                .get(&selected)
+                .map(|(id, revision, activation)| (id.as_str(), *revision, *activation)),
             Some(("PUBLIC-goal", 2, GoalActivation::Disarmed))
         );
-        // Another session's update is ignored.
+        // Another session's edge is stored beside it.
+        let other: SessionId = serde_json::from_value(serde_json::json!("PUBLIC-other")).unwrap();
         app.observe_goal_activation(&serde_json::json!({
             "sessionId": "PUBLIC-other",
             "goal": {"id":"PUBLIC-goal","revision":2,"activation":"armed"}
         }));
         assert_eq!(
             app.goal_activation
-                .as_ref()
-                .map(|(_, _, _, activation)| *activation),
+                .get(&other)
+                .map(|(_, _, activation)| *activation),
+            Some(GoalActivation::Armed)
+        );
+        assert_eq!(
+            app.goal_activation
+                .get(&selected)
+                .map(|(_, _, activation)| *activation),
             Some(GoalActivation::Disarmed)
         );
-        // An absent goal clears it.
+        // An absent goal clears only its own session.
         app.observe_goal_activation(&serde_json::json!({"sessionId": selected.as_str()}));
-        assert!(app.goal_activation.is_none());
+        assert!(!app.goal_activation.contains_key(&selected));
+        assert!(app.goal_activation.contains_key(&other));
+    }
+    /// Opening a session asks the Host for its live activation, but only while its goal is
+    /// active: that is the read a goal disarmed while the app was closed needs.
+    #[test]
+    fn opening_a_session_reads_the_activation_of_an_active_goal() {
+        fn snapshot(phase: &str) -> serde_json::Value {
+            serde_json::json!({
+                "type": "snapshot", "records": [], "cursor": 0, "hasMore": false,
+                "header": {"version": 4, "id": "public-managed-session", "createdAt": 0, "isSeeded": false},
+                "projections": {"asOfSeq": 0, "values": {"goal": {"goal": {
+                    "id": "PUBLIC-goal", "revision": 2, "objective": "PUBLIC objective",
+                    "phase": phase, "maxGoalRounds": 8
+                }, "roundsStarted": 1, "createdAt": 0, "updatedAt": 0}}},
+                "assistantStream": {"revision": 0}
+            })
+        }
+        let open = |phase: &str| {
+            let (mut app, mut receiver) = managed_app();
+            // The fixture's transcript was built for generation 0; this app is at 7.
+            app.transcript = reducer::Transcript::new(app.generation);
+            let frame = serde_json::from_value(snapshot(phase)).unwrap();
+            let _ = app.update(Message::Worker(Event::Selected {
+                generation: app.generation,
+                frame,
+            }));
+            let mut reads = Vec::new();
+            while let Ok(command) = receiver.try_recv() {
+                if let Command::GoalActivationRead { session } = command {
+                    reads.push(session);
+                }
+            }
+            reads
+        };
+        assert_eq!(
+            open("active").len(),
+            1,
+            "an active goal asks for its activation"
+        );
+        assert!(
+            open("paused").is_empty(),
+            "a paused goal draws from its phase"
+        );
+    }
+    /// A read only lands while no newer edge has arrived since it started.
+    #[test]
+    fn a_stale_activation_read_cannot_overwrite_a_newer_edge() {
+        use dsh_native_transport::dto::{GoalActivation, GoalPhase, GoalView};
+        let (mut app, _receiver) = managed_app();
+        let selected = app.selected.clone().unwrap();
+        let view = GoalView {
+            id: "PUBLIC-goal".into(),
+            revision: 2,
+            objective: "PUBLIC objective".into(),
+            phase: GoalPhase::Active,
+            blocked_reason: None,
+            max_goal_rounds: 8,
+            rounds_started: 1,
+            created_at: 0,
+            updated_at: 0,
+            activation: GoalActivation::Disarmed,
+        };
+        app.goal_activation_read = Some((selected.clone(), app.goal_activation_serial));
+        let _ = app.update(Message::Worker(Event::GoalActivationRead {
+            session: selected.clone(),
+            result: Ok(Some(view.clone())),
+        }));
+        assert_eq!(
+            app.goal_activation
+                .get(&selected)
+                .map(|(_, _, activation)| *activation),
+            Some(GoalActivation::Disarmed)
+        );
+        // A newer edge lands while a read is in flight; the read's answer is stale.
+        app.goal_activation_read = Some((selected.clone(), app.goal_activation_serial));
+        app.observe_goal_activation(&serde_json::json!({
+            "sessionId": selected.as_str(),
+            "goal": {"id":"PUBLIC-goal","revision":2,"activation":"armed"}
+        }));
+        let _ = app.update(Message::Worker(Event::GoalActivationRead {
+            session: selected.clone(),
+            result: Ok(Some(view)),
+        }));
+        assert_eq!(
+            app.goal_activation
+                .get(&selected)
+                .map(|(_, _, activation)| *activation),
+            Some(GoalActivation::Armed),
+            "the edge wins over a read that started before it"
+        );
     }
     #[test]
     fn a_goal_draft_stops_at_the_transport_bound_and_says_so() {

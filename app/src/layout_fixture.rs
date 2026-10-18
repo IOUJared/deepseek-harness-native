@@ -2277,10 +2277,23 @@ mod tests {
             options.scale = scale;
             let (mut app, mut receiver) = build(options, preset, size, None);
             drop(app.view());
-            assert!(
-                receiver.try_recv().is_err(),
-                "PUBLIC preset queued a Command"
-            );
+            // Opening a session whose goal is active asks the Host for its live activation.
+            // That is a read of process-local state, not work, so it is the one command a
+            // preset may queue; everything else still has to stay unqueued.
+            let mut activation_reads = 0;
+            loop {
+                match receiver.try_recv() {
+                    Ok(Command::GoalActivationRead { .. }) => activation_reads += 1,
+                    Ok(_) => panic!("PUBLIC preset queued a Command"),
+                    Err(_) => break,
+                }
+            }
+            if preset == "goal-bar" {
+                assert_eq!(
+                    activation_reads, 1,
+                    "an active goal is read once when its session opens"
+                );
+            }
             let report = metadata(&app, preset);
             assert_eq!(report["validPublicSnapshotApplied"], true);
             assert_eq!(report["registryReady"], true);

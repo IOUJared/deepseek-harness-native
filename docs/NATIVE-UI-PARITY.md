@@ -7932,3 +7932,48 @@ goal bar whose copy the test pins, and the bar itself is already captured in rou
 | app, fixture | **0** | **1261 passed**, 1 ignored |
 | app, default | **0** | **1254 passed**, 1 ignored |
 | tree | — | clean before the commit |
+
+### Round 360 — a goal disarmed in the background still reads "Inactive Goal"
+
+Round 358 gave the bar the right actions, but the activation it reads could be missing in exactly the
+case the user notices. `observe_goal_activation` dropped every edge whose session was not the selected
+one, and nothing ever re-read activation — `Client::goal_get` had no caller at all. Activation is
+deliberately **absent from the durable projection** (`packages/goal/goal/src/types.ts:112-126`), so a
+goal that exhausted its last round while another session was on screen kept drawing "Ongoing Goal"
+with a Pause button, and no reload could correct it: the snapshot never carries the fact.
+
+The reference keeps one activation source per session and re-reads it on mount, on a projection
+change, on a running flip and on a connection reset, with an epoch that makes an in-flight read stale
+as soon as a newer edge arrives (`activation-source.ts:57-121`). Native now does the same four things
+it can observe:
+
+- **Edges are kept per session**, bounded by the roster's 2048, and an absent goal clears only its own
+  session. A goal disarmed while you view another session therefore displays correctly when you
+  return.
+- **Opening a session with an active goal asks the Host** (`Event::GoalActivationRead` →
+  `Client::goal_get`, which the transport already returned `activation` on). This is the case the
+  edges cannot cover: the app was closed when the goal was disarmed.
+- **A goal projection change re-reads** activation, because a new goal has no edge yet.
+- **A newer edge invalidates an in-flight read**, so a slow answer cannot relabel a goal that has
+  since changed. A refused read leaves the current snapshot alone, as the reference's does.
+
+The fixture's "a preset queues no Command" guard now names the one exception — a session whose goal
+is active asks for its activation when it opens, which is a read of process-local state rather than
+work — and asserts that `goal-bar` produces exactly one such read.
+
+Tests: `an_activation_edge_is_kept_for_its_own_session` (the other session's edge survives, and an
+absent goal clears only its own), `opening_a_session_reads_the_activation_of_an_active_goal`
+(dispatched for active, absent for paused), `a_stale_activation_read_cannot_overwrite_a_newer_edge`;
+the fixture's `goal-bar` arm. `shots/162-…` still stands for the drawn state; no new capture, because
+this round changes which facts reach that drawing, not how it looks.
+
+**Battery (round 360).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1263 passed**, 1 ignored |
+| app, default | **0** | **1256 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |

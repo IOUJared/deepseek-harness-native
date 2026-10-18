@@ -150,6 +150,11 @@ pub enum Command {
         session: dsh_native_transport::dto::SessionId,
         operation: crate::goal_ui::Operation,
     },
+    /// Read one session's live goal activation. Activation is process-local and absent from
+    /// the durable projection, so a session opened after its goal was disarmed has to ask.
+    GoalActivationRead {
+        session: dsh_native_transport::dto::SessionId,
+    },
     /// Full-text search at one generation/serial fence.
     Search {
         generation: u64,
@@ -448,6 +453,11 @@ pub enum Event {
     Workspace(WorkspaceFollowFrame),
     /// One Host-computed projection push (`session/control`, `ControlFrame`).
     Control(dsh_native_transport::dto::ControlFrame),
+    /// One session's live goal activation, or `None` when it has no active goal.
+    GoalActivationRead {
+        session: dsh_native_transport::dto::SessionId,
+        result: Result<Option<dsh_native_transport::dto::GoalView>, String>,
+    },
     Root {
         frame: RemoteEventFrame,
         decision_key: Option<crate::interactions::Key>,
@@ -1030,6 +1040,10 @@ fn rejected(command: Command) -> Event {
             result: Err(error),
         },
         Command::Goal { session, .. } => Event::GoalUpdated {
+            session,
+            result: Err(error),
+        },
+        Command::GoalActivationRead { session } => Event::GoalActivationRead {
             session,
             result: Err(error),
         },
@@ -2650,6 +2664,10 @@ async fn run(
                             Operation::Clear(reference)=>client.goal_clear(&session,&reference).await.map(|_|()),
                         }.map_err(|error|format!("Goal: {error}"));
                         Event::GoalUpdated{session,result}
+                    },
+                    Command::GoalActivationRead{session}=>Event::GoalActivationRead{
+                        session:session.clone(),
+                        result:client.goal_get(&session).await.map_err(|error|format!("Goal activation: {error}")),
                     },
                     Command::Search{generation,serial,query}=>Event::Searched{
                         generation,
