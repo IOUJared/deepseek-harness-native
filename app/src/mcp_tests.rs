@@ -119,6 +119,29 @@ fn secret_wipes_its_full_allocation_and_never_prints_its_value() {
 }
 
 #[test]
+fn a_reviewed_set_that_cannot_fit_the_patch_file_is_refused_before_the_write() {
+    // Every field is inside its own bound; together they cannot fit the file this panel writes.
+    let mut entries = Vec::new();
+    for index in 0..5 {
+        let mut entry = stdio(&format!("server-{index}"), "/usr/bin/npx");
+        entry.env = (0..MAX_BINDINGS)
+            .map(|binding| {
+                (
+                    format!("PUBLIC_KEY_{binding}"),
+                    secret("x".repeat(4096 - 1)),
+                )
+            })
+            .collect();
+        entries.push(entry);
+    }
+    assert!(entries.len() <= MAX_SERVERS);
+    assert_eq!(
+        validate(&entries),
+        Err(Defect::TooLarge),
+        "the composed file would exceed MAX_FILE_BYTES"
+    );
+}
+#[test]
 fn stdio_validation_requires_a_command_and_bounds_every_field() {
     assert_eq!(validate(&[stdio("alpha", "npx")]), Ok(()));
 
@@ -526,12 +549,17 @@ fn loading_reports_the_revision_entries_and_a_foreign_reason() {
 
     let missing = home.path.join("missing-home");
     let loaded = load(&missing, Vec::new(), true);
-    assert!(loaded.foreign.is_some());
+    // The home could not be resolved: the read never inspected a file, so this is a read error
+    // and no file content may be blamed for it.
+    assert!(loaded.read_error.is_some());
+    assert!(loaded.foreign.is_none());
     assert!(loaded.path.is_empty());
 
     let plain = TempHome::new();
     std::fs::set_permissions(&plain.path, std::fs::Permissions::from_mode(0o755)).unwrap();
-    assert!(load(&plain.path, Vec::new(), true).foreign.is_some());
+    let loaded = load(&plain.path, Vec::new(), true);
+    assert!(loaded.read_error.is_some());
+    assert!(loaded.foreign.is_none());
 }
 
 // ---- panel state machine ----
@@ -560,6 +588,7 @@ fn with_entries(entries: Vec<ServerEntry>) -> (Mcp, ReadTicket) {
         }),
         entries,
         foreign: None,
+        read_error: None,
         inventory: Vec::new(),
         inventory_read: true,
     };
@@ -604,6 +633,7 @@ fn panel_opens_reads_and_dismisses_without_writing() {
             revision: None,
             entries: Vec::new(),
             foreign: None,
+            read_error: None,
             inventory: Vec::new(),
             inventory_read: true,
         },
@@ -629,6 +659,7 @@ fn panel_opens_reads_and_dismisses_without_writing() {
             revision: None,
             entries: Vec::new(),
             foreign: None,
+            read_error: None,
             inventory: Vec::new(),
             inventory_read: true,
         },
@@ -641,6 +672,7 @@ fn panel_opens_reads_and_dismisses_without_writing() {
             revision: None,
             entries: Vec::new(),
             foreign: None,
+            read_error: None,
             inventory: Vec::new(),
             inventory_read: true,
         },
@@ -1084,6 +1116,7 @@ fn an_unrecognised_file_refuses_every_mutation() {
             revision: Some(Revision { bytes: 4, hash: 4 }),
             entries: Vec::new(),
             foreign: Some("line 1 is not a patch entry this app can preserve: - id: x".to_owned()),
+            read_error: None,
             inventory: Vec::new(),
             inventory_read: true,
         },
@@ -1213,6 +1246,7 @@ fn an_absent_file_is_a_valid_expected_revision_only_after_a_successful_read() {
             revision: None,
             entries: Vec::new(),
             foreign: None,
+            read_error: None,
             inventory: Vec::new(),
             inventory_read: true,
         },

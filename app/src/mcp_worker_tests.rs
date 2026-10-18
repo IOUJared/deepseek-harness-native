@@ -174,7 +174,9 @@ fn a_refused_mcp_command_reports_not_sent_and_an_unread_file() {
         panic!("a refused MCP read answers with its ticket");
     };
     assert_eq!(ticket.serial, 1);
-    assert!(loaded.foreign.is_some());
+    // "Nothing was inspected" is a read error, not evidence about the file's content.
+    assert!(loaded.read_error.is_some());
+    assert!(loaded.foreign.is_none());
     assert!(loaded.revision.is_none());
     assert!(!loaded.inventory_read);
 }

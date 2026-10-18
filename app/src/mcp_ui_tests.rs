@@ -69,6 +69,7 @@ fn loaded(entries: Vec<ServerEntry>) -> Loaded {
         }),
         entries,
         foreign: None,
+        read_error: None,
         inventory: Vec::new(),
         inventory_read: true,
     }
@@ -366,6 +367,7 @@ fn an_unrecognised_file_makes_the_panel_read_only() {
             revision: Some(Revision { bytes: 4, hash: 4 }),
             entries: Vec::new(),
             foreign: Some("line 1 is not a patch entry this app can preserve: - id: x".to_owned()),
+            read_error: None,
             inventory: Vec::new(),
             inventory_read: true,
         },
@@ -504,4 +506,127 @@ fn a_peer_management_flight_blocks_the_panel_and_an_admitted_mcp_write_blocks_th
         !app.export_context_for(app.selected.as_ref()).allowed,
         "an admitted MCP write must block export, as worker::ExportAdmission already does"
     );
+}
+
+#[test]
+fn the_menu_count_survives_the_panel_closing_and_a_late_write_says_restart() {
+    let (mut app, mut commands) = fixture();
+    let ticket = open(&mut app, &mut commands);
+    deliver(
+        &mut app,
+        ticket,
+        loaded(vec![stdio("alpha", "/usr/bin/npx")]),
+    );
+    assert_eq!(app.mcp.configured(), 1);
+    assert!(!app.mcp.restart_required());
+    // Back clears the loaded file; the count is what the More-menu entry draws.
+    let _ = app.update(Message::Mcp(Action::Dismiss(app.mcp.read_ticket())));
+    assert!(!app.mcp.is_open());
+    assert_eq!(
+        app.mcp.configured(),
+        1,
+        "the menu entry must not claim zero servers once loaded"
+    );
+    // A confirmed write admitted before Back still replaced the file.
+    let ticket = open(&mut app, &mut commands);
+    deliver(
+        &mut app,
+        ticket,
+        Loaded {
+            path: "/PUBLIC-mcp-native-home/cordis.patch.yml".to_owned(),
+            revision: Some(Revision {
+                bytes: 10,
+                hash: 20,
+            }),
+            entries: vec![stdio("alpha", "/usr/bin/npx")],
+            foreign: None,
+            read_error: None,
+            inventory: Vec::new(),
+            inventory_read: true,
+        },
+    );
+    let _ = app.update(Message::Mcp(Action::BeginDisable {
+        ticket: app.mcp.read_ticket(),
+        index: 0,
+    }));
+    let submission = reviewed_write(&mut app, &mut commands);
+    let _ = app.update(Message::Mcp(Action::Dismiss(app.mcp.read_ticket())));
+    assert!(!app.mcp.is_open());
+    let _ = app.update(Message::Worker(Event::McpWritten {
+        submission,
+        outcome: WriteOutcome::Written {
+            revision: Revision {
+                bytes: 12,
+                hash: 21,
+            },
+            backup: Some("PUBLIC-backup".to_owned()),
+            bytes: 12,
+        },
+    }));
+    assert!(
+        app.mcp.restart_required(),
+        "a replacement that lands after Back still needs a restart"
+    );
+    assert_eq!(app.mcp.configured(), 1);
+    assert!(
+        app.status.contains("restart the session Host"),
+        "the outcome is reported where the user can see it: {}",
+        app.status
+    );
+}
+
+#[test]
+fn a_refused_read_is_not_reported_as_a_corrupt_file() {
+    let (mut app, mut commands) = fixture();
+    let ticket = open(&mut app, &mut commands);
+    assert!(
+        !app.mcp.config_empty(),
+        "loading is not an empty configuration"
+    );
+    deliver(
+        &mut app,
+        ticket,
+        Loaded::refused("The native worker refused the MCP read before it ran."),
+    );
+    assert_eq!(app.mcp.notice(), Notice::ReadRefused);
+    assert!(
+        !app.mcp.writable(),
+        "nothing was inspected, so no mutation may be offered"
+    );
+    assert!(
+        !app.mcp.config_empty(),
+        "a refused read is not an empty patch list"
+    );
+    assert!(app.mcp.foreign_reason().is_none());
+    // A real foreign file still takes the foreign notice.
+    let ticket = app.mcp.read_ticket();
+    let _ = app.update(Message::Mcp(Action::Refresh(ticket)));
+    let ticket = match commands.try_recv() {
+        Ok(Command::McpRead(ticket)) => ticket,
+        _ => panic!("refresh must read"),
+    };
+    deliver(
+        &mut app,
+        ticket,
+        Loaded {
+            path: "/PUBLIC-mcp-native-home/cordis.patch.yml".to_owned(),
+            revision: None,
+            entries: Vec::new(),
+            foreign: Some("not a patch entry".to_owned()),
+            read_error: None,
+            inventory: Vec::new(),
+            inventory_read: true,
+        },
+    );
+    assert_eq!(app.mcp.notice(), Notice::Foreign);
+    assert!(!app.mcp.config_empty());
+}
+
+#[test]
+fn a_successful_empty_read_is_the_only_empty_configuration() {
+    let (mut app, mut commands) = fixture();
+    let ticket = open(&mut app, &mut commands);
+    deliver(&mut app, ticket, loaded(Vec::new()));
+    assert!(app.mcp.config_empty());
+    assert_eq!(app.mcp.notice(), Notice::Loaded);
 }

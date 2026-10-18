@@ -114,6 +114,7 @@ pub const PRESETS: &[&str] = &[
     "information-expanded",
     "work-panel",
     "schedules",
+    "mcp",
     "changes-card",
     "feedback",
     "workflow-run",
@@ -271,6 +272,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "information-expanded"
         | "work-panel"
         | "schedules"
+        | "mcp"
         | "changes-card"
         | "feedback"
         | "workflow-run"
@@ -1190,6 +1192,62 @@ pub fn build(
     if preset == "changes-card" {
         app.seed_changes_summary();
     }
+    if preset == "mcp" {
+        // The panel's own read answer, delivered through the controller the app draws from.
+        let effect = app.mcp.enter(app.transport_epoch);
+        let crate::mcp::Effect::Read(ticket) = effect else {
+            panic!("entering MCP must read");
+        };
+        let http = |name: &str, url: &str, enabled: bool| crate::mcp::ServerEntry {
+            server_name: name.to_owned(),
+            transport: crate::mcp::Transport::StreamableHttp,
+            enabled,
+            command: String::new(),
+            args: Vec::new(),
+            env: Vec::new(),
+            cwd: String::new(),
+            url: url.to_owned(),
+            headers: vec![(
+                "Authorization".to_owned(),
+                crate::mcp::secret("PUBLIC-token".to_owned()),
+            )],
+            tool_call_timeout_ms: 60_000,
+            fail_on_startup_error: false,
+        };
+        app.mcp.loaded_snapshot(
+            ticket,
+            crate::mcp::Loaded {
+                path: "/PUBLIC-native-home/cordis.patch.yml".to_owned(),
+                revision: Some(crate::mcp::Revision {
+                    bytes: 420,
+                    hash: 7,
+                }),
+                entries: vec![
+                    crate::mcp::ServerEntry {
+                        server_name: "files".to_owned(),
+                        transport: crate::mcp::Transport::Stdio,
+                        enabled: true,
+                        command: "/usr/bin/npx".to_owned(),
+                        args: vec!["-y".to_owned(), "@PUBLIC/files-server".to_owned()],
+                        env: vec![(
+                            "API_TOKEN".to_owned(),
+                            crate::mcp::secret("PUBLIC-token".to_owned()),
+                        )],
+                        cwd: String::new(),
+                        url: String::new(),
+                        headers: Vec::new(),
+                        tool_call_timeout_ms: 60_000,
+                        fail_on_startup_error: false,
+                    },
+                    http("search", "https://PUBLIC.invalid/mcp", false),
+                ],
+                foreign: None,
+                read_error: None,
+                inventory: Vec::new(),
+                inventory_read: true,
+            },
+        );
+    }
     if preset == "schedules" {
         app.schedules_open = true;
         app.schedules_loading = false;
@@ -2016,6 +2074,8 @@ pub fn metadata(app: &App, preset: &str) -> Value {
     let info_expected = matches!(preset, "information" | "information-expanded");
     let work_expected = preset == "work-panel";
     let schedules_expected = preset == "schedules";
+    // The MCP panel is a full-pane page like Schedules: it owns the body and hides the composer.
+    let mcp_expected = preset == "mcp";
     let context_expected = preset.starts_with("context-management");
     let plan_expected = preset == "plan-chip";
     let plan_projected = app.transcript.work().plan().is_some();
@@ -2029,6 +2089,7 @@ pub fn metadata(app: &App, preset: &str) -> Value {
     // and its controls with a read-only frame: the pane is expected, the controls are not.
     let composer_replaced = preset == "subagent-readonly";
     let composer_expected = !schedules_expected
+        && !mcp_expected
         && !settings_expected
         && !picker_expected
         && !sidebar_expected

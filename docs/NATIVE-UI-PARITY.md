@@ -7650,3 +7650,61 @@ No source behavior changed, so no capture. The schedules intro is visible in
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+### Round 353 — the MCP panel's five audit findings
+
+**A read-only audit of the MCP panel found every action wired** — all 22 `mcp::Action` variants are
+constructed by drawn controls and matched before the wildcard, both `Effect`s and `Command`/`Event`
+pairs are handled, and every disconnect path clears `pending` and `reading` — but five states told
+the operator the wrong thing. All five are fixed here. (Reference note: the reference has **no MCP
+management UI**; MCP is config-only there, so this panel is native-authored and these are
+self-consistency defects, not porting gaps.)
+
+- **The More-menu count was always 0.** The entry read `mcp.entries()`, but opening the menu calls
+  `mcp.dismiss()`, whose `leave()` clears the loaded file. The controller now keeps a
+  `configured` count from the last successful read or write, never any secret, and the entry draws
+  that.
+- **An unread, refused or foreign file was drawn as an empty configuration.** "No managed MCP
+  server. The composition file carries an empty patch list." came from `entries().is_empty()`,
+  which is also true while loading and after a refusal. `config_empty()` now requires a *successful*
+  read that found no entries.
+- **A read refused before it ran was reported as a corrupt file.** `Loaded::refused` set `foreign`,
+  so a worker/lifecycle refusal showed "the file holds content this app cannot preserve … an
+  operator must move or remove that content". `Loaded` gained `read_error`, distinct from `foreign`
+  (the private-home failure joins it), the panel draws the new `Notice::ReadRefused`, and `writable()`
+  refuses both — nothing was inspected, so nothing may be blamed or changed.
+- **A write confirmed after Back was reported nowhere.** The receipt landed on `Notice::Earlier`
+  ("does not apply to this panel") and was overwritten by the next open's read, although the file
+  had been replaced. A confirmed write now records `restart_required` and the new count, the menu
+  entry reads `MCP servers · app-owned (N) · restart required`, and the status line says "MCP
+  configuration written; restart the session Host to apply it." when the panel was already closed.
+- **A reviewable set could never be committed, and the refusal blamed the filesystem.** `validate`
+  bounded each field but not the rendered file, so a set within every per-field limit could exceed
+  `MAX_FILE_BYTES`, pass Review, and be refused at commit as `Refusal::Filesystem`. `validate` now
+  renders and refuses with the new `Defect::TooLarge` ("would exceed the 1 MiB patch file…"), which
+  the panel shows while the draft is still editable.
+
+**New evidence surface.** The MCP panel had no fixture preset and no capture at all. The `mcp`
+preset now enters the panel and installs one read answer (a stdio server, a disabled HTTP server,
+an inventory-read notice), so the panel can be painted without a Host;
+`shots/156-mcp-servers.png` (DP-2 alongside, `status: passed`) is its first capture.
+
+Tests: three App tests in `mcp_ui_tests` (the count and restart flag across Back; a refused read is
+not a corrupt file and `writable()` is false; only a successful empty read is `config_empty`), one
+model test for the rendered-size refusal, and the two existing tests that encoded the old
+`foreign`-for-everything conflation are corrected to assert `read_error`.
+
+**Battery (round 353).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1255 passed**, 1 ignored |
+| app, default | **0** | **1248 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/156-mcp-servers.png`, `status: passed` |
+| tree | — | clean before the commit |

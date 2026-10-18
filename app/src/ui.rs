@@ -5856,7 +5856,15 @@ impl App {
                 submission,
                 outcome,
             } => {
+                let was_open = self.mcp.is_open();
+                let written = matches!(outcome, crate::mcp::WriteOutcome::Written { .. });
                 self.mcp.written(&submission, outcome);
+                // A replacement admitted before Back still happened; the panel's own notice says
+                // the outcome does not apply to it, so the status carries the one fact that matters.
+                if written && !was_open {
+                    self.status =
+                        "MCP configuration written; restart the session Host to apply it.".into();
+                }
             }
             Event::Roster(result) => {
                 self.roster_pending = false;
@@ -8671,7 +8679,16 @@ impl App {
                 .padding([12, 14])
                 .width(Length::Fill),
             button(label(
-                format!("MCP servers · app-owned ({})", self.mcp.entries().len()),
+                // The panel clears its loaded file on close, so the entry reads the remembered
+                // count instead of zero — and says when the running Host still needs a restart.
+                if self.mcp.restart_required() {
+                    format!(
+                        "MCP servers · app-owned ({}) · restart required",
+                        self.mcp.configured()
+                    )
+                } else {
+                    format!("MCP servers · app-owned ({})", self.mcp.configured())
+                },
                 TEXT,
             ))
             .on_press_maybe(
@@ -14827,6 +14844,7 @@ impl App {
                         | Notice::Indeterminate
                         | Notice::Invalid
                         | Notice::ReadFailed
+                        | Notice::ReadRefused
                         | Notice::Refused
                         | Notice::NotSent
                         | Notice::Exhausted
@@ -14968,7 +14986,7 @@ impl App {
                 .style(design::primary)
                 .on_press_maybe(writable.then_some(Message::Mcp(Action::BeginAdd(ticket)))),
         );
-        if self.mcp.entries().is_empty() {
+        if self.mcp.config_empty() {
             body = body.push(
                 label(
                     "No managed MCP server. The composition file carries an empty patch list.",

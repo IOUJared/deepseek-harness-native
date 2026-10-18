@@ -178,6 +178,8 @@ pub enum Defect {
     BindingKey,
     BindingValue,
     Timeout,
+    /// The composed file would exceed the patch size this panel may write.
+    TooLarge,
 }
 
 impl Defect {
@@ -211,6 +213,9 @@ impl Defect {
             }
             Self::Timeout => {
                 "Tool-call timeout must be a whole number of milliseconds from 1 to 3600000."
+            }
+            Self::TooLarge => {
+                "The configuration would exceed the 1 MiB patch file this panel writes. Reduce servers, arguments or binding values."
             }
         }
     }
@@ -257,6 +262,12 @@ pub fn validate(entries: &[ServerEntry]) -> Result<(), Defect> {
                 bindings_valid(&entry.headers, false)?;
             }
         }
+    }
+    // The per-field bounds above do not bound the file they compose to: four servers with every
+    // binding field at its limit render past `MAX_FILE_BYTES`, which `parse` then refuses at commit
+    // time as a filesystem-shaped refusal. Refuse it here, where the user can still edit it.
+    if render(entries).len() > MAX_FILE_BYTES {
+        return Err(Defect::TooLarge);
     }
     Ok(())
 }
@@ -944,6 +955,9 @@ pub struct Loaded {
     pub entries: Vec<ServerEntry>,
     /// Set when existing content cannot be preserved; mutations are refused.
     pub foreign: Option<String>,
+    /// Set when the read itself could not run (the worker refused it, or the private home could
+    /// not be opened). Distinct from `foreign`: nothing was inspected, so no file can be blamed.
+    pub read_error: Option<String>,
     /// Live `@deepseek-ai/dsh-mcp-client` rows from the plugin inventory.
     pub inventory: Vec<InventoryRow>,
     /// Whether the inventory read succeeded; `false` is not "no rows".
@@ -986,7 +1000,8 @@ impl Loaded {
             path: String::new(),
             revision: None,
             entries: Vec::new(),
-            foreign: Some(reason.to_owned()),
+            foreign: None,
+            read_error: Some(reason.to_owned()),
             inventory: Vec::new(),
             inventory_read: false,
         }
@@ -1017,7 +1032,8 @@ pub fn load(native_home: &Path, inventory: Vec<InventoryRow>, inventory_read: bo
                 path: String::new(),
                 revision: None,
                 entries: Vec::new(),
-                foreign: Some(reason.to_owned()),
+                foreign: None,
+                read_error: Some(reason.to_owned()),
                 inventory,
                 inventory_read,
             };
@@ -1036,7 +1052,8 @@ pub fn load(native_home: &Path, inventory: Vec<InventoryRow>, inventory_read: bo
                 path: displayed,
                 revision: None,
                 entries: Vec::new(),
-                foreign: Some("The private native home could not be opened.".to_owned()),
+                foreign: None,
+                read_error: Some("The private native home could not be opened.".to_owned()),
                 inventory,
                 inventory_read,
             };
@@ -1061,6 +1078,7 @@ pub fn load(native_home: &Path, inventory: Vec<InventoryRow>, inventory_read: bo
         revision,
         entries,
         foreign,
+        read_error: None,
         inventory,
         inventory_read,
     }
@@ -1415,6 +1433,8 @@ pub enum Notice {
     Loading,
     Loaded,
     ReadFailed,
+    /// The read never ran (worker refusal or an unopenable home); no file was inspected.
+    ReadRefused,
     Foreign,
     Invalid,
     Reviewing,
@@ -1440,6 +1460,9 @@ impl Notice {
             }
             Self::ReadFailed => {
                 "The app-owned patch file or the Host inventory could not be read. Refresh explicitly; no automatic retry."
+            }
+            Self::ReadRefused => {
+                "The MCP configuration could not be read in this run; nothing was inspected and nothing was changed. Refresh explicitly."
             }
             Self::Foreign => {
                 "The app-owned patch file holds content this app cannot preserve, so every mutation is refused and nothing was changed. An operator must move or remove that content."
@@ -1651,6 +1674,8 @@ pub struct Mcp {
     draft_serial: u64,
     editor: u64,
     revision: u64,
+    configured: usize,
+    restart_required: bool,
     exhausted: bool,
     loaded: Option<Loaded>,
     reading: Option<ReadTicket>,
@@ -1673,6 +1698,8 @@ impl Default for Mcp {
             draft_serial: 0,
             editor: 0,
             revision: 0,
+            configured: 0,
+            restart_required: false,
             exhausted: false,
             loaded: None,
             reading: None,
@@ -1760,9 +1787,25 @@ impl Mcp {
     pub fn writable(&self) -> bool {
         self.loaded
             .as_ref()
-            .is_some_and(|loaded| loaded.foreign.is_none())
+            .is_some_and(|loaded| loaded.foreign.is_none() && loaded.read_error.is_none())
             && !self.pending()
             && !self.exhausted
+    }
+    /// The number of managed servers the last successful read or write reported. Survives the
+    /// panel closing, so the More-menu entry does not claim zero servers once it is populated.
+    pub fn configured(&self) -> usize {
+        self.configured
+    }
+    /// A write replaced the composition file and the running Host has not re-read it.
+    pub fn restart_required(&self) -> bool {
+        self.restart_required
+    }
+    /// Whether a successful read found no managed server. Loading, a refused read and a foreign
+    /// file are not "empty": each has its own notice, and none may carry the empty-list sentence.
+    pub fn config_empty(&self) -> bool {
+        self.loaded.as_ref().is_some_and(|loaded| {
+            loaded.read_error.is_none() && loaded.foreign.is_none() && loaded.entries.is_empty()
+        })
     }
     fn allowed(&self, context: Context) -> bool {
         self.open
@@ -1863,13 +1906,19 @@ impl Mcp {
             return;
         }
         self.report = None;
-        self.notice = if loaded.foreign.is_some() {
+        self.notice = if loaded.read_error.is_some() {
+            Notice::ReadRefused
+        } else if loaded.foreign.is_some() {
             Notice::Foreign
         } else if loaded.inventory_read {
             Notice::Loaded
         } else {
             Notice::ReadFailed
         };
+        // The count survives the panel closing (the menu entry draws it), but never a secret.
+        if self.notice != Notice::ReadRefused && self.notice != Notice::Foreign {
+            self.configured = loaded.entries.len();
+        }
         self.loaded = Some(loaded);
     }
     /// A write outcome from the worker. Only the exact admitted ticket settles.
@@ -1883,6 +1932,14 @@ impl Mcp {
             || self.epoch != submission.ticket.epoch
             || self.panel != submission.ticket.panel
         {
+            // The panel closed after the write was admitted. A confirmed replacement still
+            // happened, so it must be reported where the user can see it: the menu entry keeps the
+            // count and says the running Host needs a restart, instead of a notice that claims the
+            // write does not apply here.
+            if let WriteOutcome::Written { .. } = outcome {
+                self.configured = submission.entries.len();
+                self.restart_required = true;
+            }
             self.notice = Notice::Earlier;
             return;
         }
@@ -1893,6 +1950,10 @@ impl Mcp {
                 bytes,
             } => {
                 self.notice = Notice::Confirmed;
+                self.configured = submission.entries.len();
+                // The Host composed its patch layers at start; this file now describes a
+                // composition the running Host has not read.
+                self.restart_required = true;
                 self.report = self.loaded.as_ref().map(|loaded| Report {
                     path: loaded.path.clone(),
                     backup,
