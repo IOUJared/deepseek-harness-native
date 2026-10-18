@@ -153,7 +153,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Assistant text | unboxed, full content column | unboxed, spans the shared content column |
 | Message flow gap | 6 process / 12 response / 16 turn | `design::FLOW_GAP`/`RESPONSE_GAP` ladder 6/12; the 16px `turn-process` row is Trajectory-only |
 | Tool activity | compact unboxed single muted line | compact unboxed single muted line, expands in place |
-| Tool-row file path | grey **dotted** underline, clickable | solid `MUTED` underline (Read/Edit/Write) |
+| Tool-row file path | `relativizeToCwd` then `abbreviateHomePath` of the recorded argument (`tool-call-model.ts:261`), grey **dotted** underline, the path alone is a link that opens the file | same two rules in `activity::path_label` over `PathRoots` (the selected session's `cwd` and `--user-home`), solid `MUTED` underline; the press still toggles the row, so the path is **not** separately clickable |
 | Edit diff stat | `+N -M`, code font 11px, 10px left margin, muted until hover/expanded, dropped on error | same call-argument totals; `DIFF_STAT_*` + ASCII `-`, cued colours, dropped when the row failed |
 | Composer card | panel 28 · `padding-top: 8` · `gap: 12` · input-major + l2 hairline | `RADIUS_XL` 20; `COMPOSER_CARD_*` + `design::elevated_surface` |
 | Composer input | `min-height: 36` · `4px 8px 0 14px` · 14-line text cap 336 | `COMPOSER_INPUT_*`, one-line floor 36, 14 lines (8 in a short window) |
@@ -7709,4 +7709,55 @@ model test for the rendered-size refusal, and the two existing tests that encode
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/156-mcp-servers.png`, `status: passed` |
+| tree | — | clean before the commit |
+
+### Round 354 — the tool row draws the path the reference draws
+
+The session prompt's item D still listed "underlined relative paths" and the `+N −N` pair as
+unbuilt. Reading the code showed the underlining and the edit totals had landed already
+(`00734e1`); what had not was the **path itself**. `activity::path_label` invented
+`basename · parent/` — a form the reference never draws — so the row read
+`PUBLIC-note.txt · /PUBLIC-layout-fixture/workspace/src/` where the reference reads
+`src/PUBLIC-note.txt`.
+
+The reference's rule is two pure functions over the recorded argument
+(`tool-call-model.ts:261`): `relativizeToCwd(filePath, cwd)` strips the session workspace root
+(`workspace-path/src/index.ts:107`), then `abbreviateHomePath(…, home)` writes a leftover home path
+as `~/…` (`:44`). Both are display-only and neither is applied to a path the app would open.
+
+`path_label` now applies the same two rules. `PathRoots { cwd, home }` is threaded through
+`summarize` → `Transcript::activity` → `App::path_roots`, which reads the **selected session's**
+`cwd` and the configured `--user-home`, so the label a test asserts is the label the row draws. The
+roots are parameters rather than state on the transcript: a session switch cannot leave a stale
+root behind. Corrections kept from the reference: a trailing separator on the root is the same
+root, a sibling that merely shares the prefix is not inside it, the root itself stays as recorded,
+an already-relative argument is drawn as recorded, a Windows root is stripped but `~` is POSIX-only,
+and the target stays inside its documented 160-byte bound.
+
+The earlier `basename · parent/` split is gone with `tail`; a deep path is now clipped from its head
+like the reference's own `text-overflow: ellipsis`, which is why the unicode bounding test asserts
+the head rather than the basename.
+
+**Evidence.** `shots/158-tool-relative-path.png` (DP-2 alongside, `status: passed`) shows four file
+rows reading `src/PUBLIC-note.txt` with the `+1 -1` pair on the edits and the underline in place.
+The fixture assertion was proved live: with the expectation changed to `PROVE-LIVE` the preset test
+failed on `left: Some("src/PUBLIC-note.txt")`, which is the projection the view consumes.
+
+**Still different, and now stated as such:** the reference's path is a link that opens the file
+(`ToolRow.tsx:189-195, 213-221`), while the native path is plain underlined text inside the row's
+toggle. The open wire exists (`Command::OpenWorkspacePath`, round 305) but the row does not use it.
+
+**Battery (round 354).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1256 passed**, 1 ignored |
+| app, default | **0** | **1249 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/158-tool-relative-path.png`, `status: passed` |
 | tree | — | clean before the commit |

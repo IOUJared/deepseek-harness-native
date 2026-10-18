@@ -113,9 +113,11 @@ settings/management/sidebar (rounds 327-333), composer controls (334-336/341-342
 Not yet audited this way: the session sidebar and workspace browser, the details/work panel and
 deliverables, Codex settings/runtime, Cloudflare, plugins, the model/composer catalogs, goals/todos.
 
-**D. When the reference specifies something the native app lacks, build it.** The two known now:
-tool rows still lack **underlined relative paths** and the **`+N −N` edit pair** (the reference's tool
-components define both), and inline diffs are the same family. Build them from the reference source.
+**D. When the reference specifies something the native app lacks, build it.** The path form and the
+edit pair landed (round 354: `relativizeToCwd`/`abbreviateHomePath`, `shots/158-…`). What that
+family still lacks is the reference's **click-to-open on the tool path** (`ToolRow.tsx:189-221`) —
+the open wire exists (`Command::OpenWorkspacePath`) but the row toggles instead — and the **inline
+diff body**; both are defined by the reference source. Build them from it.
 
 **E. When `reference.png` appears, run the visual diff.** The native side is already captured at the
 reference's exact size (`shots/157-chat-reference-size.png`, 1980×1319) and the measured native rects

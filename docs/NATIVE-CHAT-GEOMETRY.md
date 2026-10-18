@@ -62,15 +62,17 @@ not a preference):
 4. the action row under an assistant reply (branch, like/dislike, details, time) and its rhythm;
 5. the composer card: width against the lane, its 32px overhang, control row height and baseline.
 
-**Known open divergences that do not need the image** (the reference source specifies them and the
-user's own target text names them): underlined relative paths and `+N −N` edit counts in tool rows
-are still unimplemented ([chat geometry limits](#remaining-limits) above); inline diffs are the same
-gap. These can be built from the reference source before the screenshot lands, but their *exact*
-rhythm stays unverified until it does.
+**Known open divergences that do not need the image.** The reference's own source defines the
+underlined file path and the `+N −N` edit pair, and both are now drawn: the path is
+`relativizeToCwd` then `abbreviateHomePath` of the recorded argument (round 354, `shots/158-…`),
+and the totals follow the reference's hover/expanded cue rules. Two things from that family remain:
+the path is not a link that opens the file (the press toggles the row), and an inline diff body is
+still unsupported. Their *exact* rhythm stays unverified until `reference.png` lands.
 
 ## Remaining limits
 
 - Preview: **four source lines / 240 code points / four displayed lines**, not full-message height/Markdown. Long unbreakable tokens may clip; Details preserves bounded display source. [Formatted Details](<NATIVE-FORMATTED-DETAILS.md>) is optional/basic.
-- Inline diffs, underlined relative paths and real edit counts remain unsupported.
+- Inline diffs remain unsupported. The underlined workspace-relative path and the edit `+N −N`
+  pair are drawn (round 354); the path is not a separate open link.
 - [Reader anchors](<NATIVE-READER-ANCHORS.md>) separately address durable reflow/neighbor fallback, not partial/replaced text identity. Retention fails closed.
 - Live resize/input/IME/accessibility, compositor fractional scaling, real models/credentials and full parity remain unqualified.

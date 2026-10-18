@@ -2107,7 +2107,7 @@ pub fn metadata(app: &App, preset: &str) -> Value {
         .transcript
         .rows()
         .iter()
-        .filter_map(|row| app.transcript.activity(row.key))
+        .filter_map(|row| app.transcript.activity(row.key, app.path_roots()))
         .collect();
     let mut report = json!({
         "publicSource":true,
@@ -2342,8 +2342,11 @@ mod tests {
                 if preset == "tool-activity-edit-error" {
                     // The edit call keeps its recorded totals; the render is what
                     // drops them, so the model still carries them.
-                    assert_eq!(app.transcript.activity(3).unwrap().edits, Some((1, 1)));
-                    assert!(app.transcript.activity(4).unwrap().failed);
+                    assert_eq!(
+                        app.transcript.activity(3, app.path_roots()).unwrap().edits,
+                        Some((1, 1))
+                    );
+                    assert!(app.transcript.activity(4, app.path_roots()).unwrap().failed);
                 }
                 // The attachment preset is the only one whose user message
                 // carries a file part; every other tool-activity preset keeps
@@ -2362,14 +2365,24 @@ mod tests {
                     assert!(files.is_empty());
                 }
                 assert_eq!(
-                    app.transcript.activity(1).unwrap().title,
+                    app.transcript.activity(1, app.path_roots()).unwrap().title,
                     "Read · functions.read"
                 );
+                // The recorded argument is absolute; the row draws it relative
+                // to the session's own workspace root, as the reference does.
                 assert_eq!(
-                    app.transcript.activity(4).unwrap().title,
+                    app.transcript
+                        .activity(1, app.path_roots())
+                        .unwrap()
+                        .target
+                        .as_deref(),
+                    Some("src/PUBLIC-note.txt")
+                );
+                assert_eq!(
+                    app.transcript.activity(4, app.path_roots()).unwrap().title,
                     "Edit · functions.edit · result"
                 );
-                assert!(app.transcript.activity(6).unwrap().failed);
+                assert!(app.transcript.activity(6, app.path_roots()).unwrap().failed);
                 // Programmatic local view action only: not physical input or execution proof.
                 drop(app.update(app.detail_request(3).unwrap()));
                 assert!(

@@ -4823,7 +4823,7 @@ impl App {
                 } else if let Some(row) = self.transcript.rows().iter().find(|r| r.key == key) {
                     let heading = self
                         .transcript
-                        .activity(key)
+                        .activity(key, self.path_roots())
                         .map_or_else(|| row.role.clone(), |a| a.title);
                     let source = row.text.clone();
                     let metadata = Some(format!(
@@ -12704,6 +12704,19 @@ impl App {
             });
         self.position_transcript()
     }
+    /// The display roots a tool path is shortened against: the selected
+    /// session's workspace root and the configured host home, the two inputs
+    /// the reference's row model uses (`tool-call-model.ts:261`).
+    pub(crate) fn path_roots(&self) -> crate::reducer::activity::PathRoots<'_> {
+        crate::reducer::activity::PathRoots {
+            cwd: self
+                .selected
+                .as_ref()
+                .and_then(|id| self.sessions.get(id))
+                .and_then(|session| session.cwd.as_deref()),
+            home: self.options.backend.user_home.to_str(),
+        }
+    }
     fn transcript_view(&self) -> Element<'_, Message> {
         let partial = self.transcript.partial().map(|text| DisplayRow {
             key: u64::MAX,
@@ -12747,7 +12760,7 @@ impl App {
             let assistant = record.role.starts_with("Assistant")
                 || record.role == "Interrupted assistant attempt";
             let bubble: Element<'_, Message> = if let Some(activity) =
-                self.transcript.activity(record.key)
+                self.transcript.activity(record.key, self.path_roots())
             {
                 // Match Harness's quiet single-line disclosures, not full tool cards.
                 // Raw arguments/output never enter the collapsed line.

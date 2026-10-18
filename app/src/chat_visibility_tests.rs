@@ -2,6 +2,11 @@
 use super::*;
 use serde_json::json;
 
+/// This suite reads labels, not the shortened file paths, so it asks for the
+/// projection with no display roots.
+fn no_roots() -> crate::reducer::activity::PathRoots<'static> {
+    crate::reducer::activity::PathRoots::default()
+}
 fn message(id: &str, text: &str) -> Value {
     json!({"id":id,"role":"user","source":{"kind":"user","rpcId":format!("PUBLIC-request-{id}"),"promptFingerprint":"PUBLIC-opaque-fingerprint"},"content":[{"type":"text","text":text}]})
 }
@@ -714,14 +719,14 @@ fn compaction_and_loop_guard_stay_out_of_chat_with_labelled_rows() {
     let labels: Vec<String> = transcript
         .rows()
         .iter()
-        .filter_map(|row| transcript.activity(row.key))
+        .filter_map(|row| transcript.activity(row.key, no_roots()))
         .map(|summary| summary.title)
         .collect();
     assert!(labels.contains(&"Context elided · 2 records → stubs".to_owned()));
     assert!(labels.contains(&"Context summarized · seqs 0–1".to_owned()));
     assert!(labels.contains(&"Loop guard · repeated identical call".to_owned()));
     // The successful close of a compaction is not itself a row-worthy event.
-    assert!(transcript.activity(4).is_none());
+    assert!(transcript.activity(4, no_roots()).is_none());
     let roles: Vec<&str> = transcript
         .rows()
         .iter()
@@ -911,7 +916,7 @@ fn a_real_recorded_window_projects_its_own_reported_occupancy() {
     for row in transcript.rows() {
         if row.role == "Tool call" {
             let summary = transcript
-                .activity(row.key)
+                .activity(row.key, no_roots())
                 .expect("recorded tool call labels");
             assert!(!summary.title.is_empty());
         }

@@ -428,10 +428,13 @@ impl Transcript {
         (!text.trim().is_empty() && text.len() <= MAX_DISPLAY_BYTES).then_some(text)
     }
     /// Derive a compact tool label from retained metadata, without changing the fold.
-    pub fn activity(&self, key: u64) -> Option<activity::Summary> {
+    /// `roots` is the display shortening a file path gets, so the label is the
+    /// one the view draws rather than an unshortened path the view would redo.
+    pub fn activity(&self, key: u64, roots: activity::PathRoots<'_>) -> Option<activity::Summary> {
         activity::summarize(
             self.records.get(&key)?,
             self.records.range(..key).rev().map(|(_, event)| event),
+            roots,
         )
     }
     pub fn before(&self) -> Option<u64> {

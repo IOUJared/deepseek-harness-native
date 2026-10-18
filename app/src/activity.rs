@@ -4,7 +4,21 @@ use serde_json::{Map, Value};
 
 const MAX_ARGUMENT_BYTES: usize = 32 * 1024;
 const MAX_NAME_BYTES: usize = 80;
+/// Bound for the rendered target, matching the `Summary::target` contract.
+const MAX_TARGET_BYTES: usize = 160;
 const ARGUMENTS_AVAILABLE: &str = "Tool arguments available";
+
+/// Display roots for a tool path, the reference's own inputs
+/// (`tool-call-model.ts:261` combines `relativizeToCwd` with
+/// `abbreviateHomePath`). Both are display-only: neither changes the path the
+/// app would open.
+#[derive(Clone, Copy, Default)]
+pub struct PathRoots<'a> {
+    /// The session's workspace root; a path inside it displays relative to it.
+    pub cwd: Option<&'a str>,
+    /// The host account home; a path inside it displays from `~`.
+    pub home: Option<&'a str>,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Summary {
@@ -23,9 +37,10 @@ pub struct Summary {
 pub(super) fn summarize<'a>(
     event: &SessionWireEvent,
     previous: impl Iterator<Item = &'a SessionWireEvent>,
+    roots: PathRoots<'_>,
 ) -> Option<Summary> {
     match event.event_type.as_str() {
-        "tool/call" => Some(text_summary_label(&event.data, false, false)),
+        "tool/call" => Some(text_summary_label(&event.data, false, false, roots)),
         "tool/result" => {
             let message = &event.data["message"];
             let failed = message["isError"].as_bool() == Some(true);
@@ -61,7 +76,7 @@ pub(super) fn summarize<'a>(
                     failed,
                     edits: None,
                 },
-                |call| text_summary_label(&call.data, true, failed),
+                |call| text_summary_label(&call.data, true, failed, roots),
             ))
         }
         // Staged context management, described with the paper's own vocabulary:
@@ -166,7 +181,7 @@ fn loop_guard_summary(data: &Value) -> Summary {
     }
 }
 
-fn text_summary_label(data: &Value, result: bool, failed: bool) -> Summary {
+fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots<'_>) -> Summary {
     let name = data["name"].as_str().unwrap_or("");
     let display_name = compact(name, MAX_NAME_BYTES);
     if display_name.is_empty() {
@@ -213,7 +228,9 @@ fn text_summary_label(data: &Value, result: bool, failed: bool) -> Summary {
             }
             let label = match picked {
                 Some(value) if sensitive_text(value) => ARGUMENTS_AVAILABLE.into(),
-                Some(value) if matches!(verb, "Read" | "Edit" | "Write") => path_label(value),
+                Some(value) if matches!(verb, "Read" | "Edit" | "Write") => {
+                    path_label(value, roots)
+                }
                 Some(value) => compact(value, 96),
                 None => ARGUMENTS_AVAILABLE.into(),
             };
@@ -366,27 +383,63 @@ fn sensitive_text(value: &str) -> bool {
         })
 }
 
-fn path_label(path: &str) -> String {
+/// The reference displays a file tool's path as `relativizeToCwd` then
+/// `abbreviateHomePath` of the recorded argument (`tool-call-model.ts:261`,
+/// `workspace-path/src/index.ts:107,44`). The earlier native form invented
+/// `basename · parent/`, which the reference never draws.
+fn path_label(path: &str, roots: PathRoots<'_>) -> String {
     let clean = compact(path, MAX_ARGUMENT_BYTES);
     let clean = clean.trim_end_matches(['/', '\\']);
-    let (parent, basename) = clean.rsplit_once(['/', '\\']).unwrap_or(("", clean));
-    let basename = compact(basename, 64);
-    if parent.is_empty() {
-        return basename;
-    }
-    let parent = tail(parent, 80);
-    format!("{basename} · {parent}/")
+    let relative = strip_root(clean, roots.cwd);
+    let abbreviated = home_abbreviated(relative, roots.home);
+    compact(&abbreviated, MAX_TARGET_BYTES)
 }
 
-fn tail(text: &str, max: usize) -> String {
-    if text.len() <= max {
-        return text.into();
+/// Strip a workspace root prefix as `relativizeToCwd` does: only a path that
+/// continues past the root loses it, and either separator ends the root. A
+/// trailing separator on the root is ignored, as the reference ignores it.
+fn strip_root<'a>(path: &'a str, cwd: Option<&str>) -> &'a str {
+    let Some(cwd) = cwd.filter(|cwd| !cwd.is_empty()) else {
+        return path;
+    };
+    let root = cwd.trim_end_matches(['/', '\\']);
+    path.strip_prefix(root)
+        .and_then(|rest| rest.strip_prefix(['/', '\\']))
+        .unwrap_or(path)
+}
+
+/// Abbreviate the host home prefix as `~`, as `abbreviateHomePath` does. A
+/// Windows-spelled path or home is left alone, since `~` is a POSIX spelling.
+fn home_abbreviated(path: &str, home: Option<&str>) -> String {
+    let Some(home) = home.filter(|home| !home.is_empty()) else {
+        return path.into();
+    };
+    if windows_style(path) || windows_style(home) {
+        return path.into();
     }
-    let mut start = text.len() - (max - '…'.len_utf8());
-    while !text.is_char_boundary(start) {
-        start += 1;
+    let root = home.trim_end_matches('/');
+    if root.is_empty() || root == "/" {
+        return path.into();
     }
-    format!("…{}", &text[start..])
+    if path.trim_end_matches('/') == root {
+        return "~".into();
+    }
+    match path
+        .strip_prefix(root)
+        .and_then(|rest| rest.strip_prefix('/'))
+    {
+        Some(rest) => format!("~/{rest}"),
+        None => path.into(),
+    }
+}
+
+fn windows_style(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    value.starts_with("\\\\")
+        || (bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && matches!(bytes[2], b'/' | b'\\'))
 }
 
 fn compact(text: &str, max: usize) -> String {
@@ -426,6 +479,16 @@ mod tests {
     use dsh_native_transport::dto::SessionFollowFrame;
     use serde_json::json;
 
+    /// Tests that do not care about path shortening call the production
+    /// projection with no roots; a test about the display rule calls
+    /// `super::summarize` with the roots it means.
+    fn summarize<'a>(
+        event: &SessionWireEvent,
+        previous: impl Iterator<Item = &'a SessionWireEvent>,
+    ) -> Option<Summary> {
+        super::summarize(event, previous, PathRoots::default())
+    }
+
     fn event(seq: u64, kind: &str, data: Value) -> SessionWireEvent {
         serde_json::from_value(json!({"seq":seq,"time":1000,"type":kind,"data":data})).unwrap()
     }
@@ -463,11 +526,88 @@ mod tests {
             assert_eq!(summary.title, format!("{verb} · {name}"));
             assert_eq!(
                 summary.target.as_deref(),
-                Some("activity.rs · /workspace/src/")
+                Some("/workspace/src/activity.rs")
             );
             assert!(!summary.failed);
             assert!(!format!("{summary:?}").contains("PRIVATE"));
         }
+    }
+
+    /// A file tool's label is the recorded path shortened the way the
+    /// reference shortens it: workspace-relative first, then `~` for home
+    /// (`tool-call-model.ts:261`, `workspace-path/src/index.ts:44,107`).
+    #[test]
+    fn a_file_path_displays_relative_to_the_workspace_and_from_home() {
+        fn target(path: &str, cwd: Option<&str>, home: Option<&str>) -> Option<String> {
+            super::summarize(
+                &call(0, "a", "read", json!({ "file_path": path })),
+                std::iter::empty(),
+                PathRoots { cwd, home },
+            )
+            .unwrap()
+            .target
+        }
+        for (path, cwd, home, expected) in [
+            // Inside the workspace, relative to its root.
+            (
+                "/work/repo/src/ui.rs",
+                Some("/work/repo"),
+                None,
+                "src/ui.rs",
+            ),
+            // A trailing separator on the root is the same root.
+            (
+                "/work/repo/src/ui.rs",
+                Some("/work/repo/"),
+                None,
+                "src/ui.rs",
+            ),
+            // The root itself has nothing to strip and stays as recorded.
+            ("/work/repo", Some("/work/repo"), None, "/work/repo"),
+            // A sibling whose name merely shares the prefix is not inside it.
+            (
+                "/work/repository/a.rs",
+                Some("/work/repo"),
+                None,
+                "/work/repository/a.rs",
+            ),
+            ("/etc/hosts", Some("/work/repo"), None, "/etc/hosts"),
+            // Outside the workspace but under home: drawn from `~`.
+            (
+                "/home/jared/notes/a.md",
+                Some("/work/repo"),
+                Some("/home/jared"),
+                "~/notes/a.md",
+            ),
+            ("/home/jared", None, Some("/home/jared"), "~"),
+            // An already-relative argument is drawn as recorded.
+            (
+                "src/a.rs",
+                Some("/work/repo"),
+                Some("/home/jared"),
+                "src/a.rs",
+            ),
+            // A Windows root is stripped too, but `~` is a POSIX spelling.
+            (
+                "C:\\repo\\a.rs",
+                Some("C:\\repo"),
+                Some("/home/jared"),
+                "a.rs",
+            ),
+            (
+                "C:\\Users\\a\\x.rs",
+                None,
+                Some("C:\\Users\\a"),
+                "C:\\Users\\a\\x.rs",
+            ),
+        ] {
+            assert_eq!(target(path, cwd, home).as_deref(), Some(expected), "{path}");
+        }
+        // The rendered target stays bounded even for a long unbroken path.
+        let long = format!("/work/repo/{}", "a".repeat(400));
+        let rendered = target(&long, Some("/work/repo"), None).unwrap();
+        assert!(rendered.len() <= MAX_TARGET_BYTES, "{}", rendered.len());
+        assert!(rendered.ends_with('…'));
     }
 
     #[test]
@@ -622,6 +762,15 @@ mod tests {
 
     #[test]
     fn unicode_long_paths_names_and_controls_are_bounded_single_line() {
+        // A short path keeps its unicode name with the controls stripped; the
+        // reference draws a path from its head, so a long one is clipped there.
+        let short = label(&call(
+            0,
+            "a",
+            "read",
+            json!({"path":"/你好/文件\n\u{1b}\u{202e}名.rs"}),
+        ));
+        assert_eq!(short.target.as_deref(), Some("/你好/文件 名.rs"));
         let summary = label(&call(
             0,
             "a",
@@ -629,7 +778,8 @@ mod tests {
             json!({"path":format!("/你好/{}/文件\n\u{1b}\u{202e}名.rs", "目录/".repeat(900))}),
         ));
         let target = summary.target.unwrap();
-        assert!(target.starts_with("文件 名.rs"));
+        assert!(target.starts_with("/你好/目录/"), "{target}");
+        assert!(target.ends_with('…'), "{target}");
         assert!(target.len() <= 160);
         assert!(!target.chars().any(char::is_control));
         assert!(!target.contains('\u{202e}'));
@@ -709,9 +859,9 @@ mod tests {
         let stored = serde_json::to_value(&transcript.records).unwrap();
         let durable_cursor = transcript.cursor;
         let retained_bytes = transcript.retained_bytes;
-        assert!(transcript.activity(0).is_some());
-        assert!(transcript.activity(1).is_some());
-        assert!(transcript.activity(999).is_none());
+        assert!(transcript.activity(0, PathRoots::default()).is_some());
+        assert!(transcript.activity(1, PathRoots::default()).is_some());
+        assert!(transcript.activity(999, PathRoots::default()).is_none());
         assert_eq!(
             before,
             transcript
@@ -754,10 +904,7 @@ mod tests {
         ));
         assert_eq!(summary.edits, Some((1, 1)));
         assert_eq!(summary.title, "Edit · edit");
-        assert_eq!(
-            summary.target.as_deref(),
-            Some("ui.rs · /workspace/app/src/")
-        );
+        assert_eq!(summary.target.as_deref(), Some("/workspace/app/src/ui.rs"));
         // Insertion and deletion only.
         assert_eq!(
             label(&call(
