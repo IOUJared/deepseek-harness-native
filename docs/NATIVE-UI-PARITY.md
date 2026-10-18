@@ -203,9 +203,13 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
 
 1. **Markdown images — the resolvable branch.** Native renders the alt fallback
    (`render.tsx:640,653`) and documents it; a picture the reference would show appears as
-   its alt text. Needs a decode plus texture path and a deliberate fetch policy: are
-   `https://` URLs fetched, are local paths read, or neither? That policy is the user's
-   call, and it decides whether the feature is safe to build at all.
+   its alt text. Needs a decode plus texture path and a deliberate fetch policy, which is the
+   user's call because it decides whether the feature is safe to build at all. **The exact
+   step:** answer three yes/no questions — (a) may the app fetch `https://` image URLs, which
+   dials a remote host from a transcript the model wrote, (b) may it read local files by the
+   paths a transcript names, (c) or neither, leaving the alt text as the only form? Each
+   answer is a separate permission: (a) needs an allow-list or a proxy decision, (b) needs a
+   root to confine reads to. With (c) the item closes as a deliberate difference.
 2. **Permission select — the mutation is a conversation command, so the chip mirrors the
    plan chip.** Corrected again, and this one shrinks the feature: the package's own header
    says the picker "submits the `/permission <preset>` command line, so both surfaces" agree,
