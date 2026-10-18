@@ -17747,6 +17747,21 @@ mod tests {
         assert!(app.schedule_busy.is_none());
     }
     #[test]
+    fn a_worker_notice_reaches_the_status_without_touching_transport_state() {
+        let (mut app, _receiver) = managed_app();
+        let _ = app.update(Message::Worker(Event::Notice(
+            "Decision not admitted: Duplicate live decision delivery".into(),
+        )));
+        assert_eq!(
+            app.status,
+            "Decision not admitted: Duplicate live decision delivery"
+        );
+        assert!(
+            app.root_ready && app.ready,
+            "a refused decision is not a transport fault"
+        );
+    }
+    #[test]
     fn a_failed_page_in_keeps_the_deliveries_already_shown() {
         use dsh_native_transport::dto::{
             ScheduleDeliveryRecord, ScheduleHistory, ScheduleHistoryOutcome,

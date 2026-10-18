@@ -2660,17 +2660,23 @@ async fn run(
             }
             event=next_root(&mut root),if root.is_some()=>match event {
                 Some(Ok(owned))=>{
-                    let decision_key=match &owned.frame {
+                    // A refused decision is one request the coordinator would not hold, not a
+                    // transport fault: report it and keep every other pending decision reachable.
+                    let (deliver,decision_key)=match &owned.frame {
                         RemoteEventFrame::Waterfall{..}=>{
                             let Some(delivery)=owned.delivery else {break Some("Live decision delivery owner missing".into());};
                             match decisions.observe(TRANSPORT_EPOCH,&owned.frame,Arc::new(delivery)) {
-                                Ok(key)=>{live_decisions.push(key.clone());Some(key)},Err(error)=>break Some(error.into()),
+                                Ok(key)=>{live_decisions.push(key.clone());(true,Some(key))},
+                                Err(error)=>{
+                                    if !publish(&events,Event::Notice(format!("Decision not admitted: {error}"))){break Some("Native UI delivery queue overflow".into());}
+                                    (false,None)
+                                }
                             }
                         },
-                        RemoteEventFrame::Cancel{event_id}=>{decisions.cancel(event_id);live_decisions.retain(|key|&key.event_id!=event_id);None},
-                        _=>None,
+                        RemoteEventFrame::Cancel{event_id}=>{decisions.cancel(event_id);live_decisions.retain(|key|&key.event_id!=event_id);(true,None)},
+                        _=>(true,None),
                     };
-                    if !publish(&events,Event::Root{frame:owned.frame,decision_key}){break Some("Native UI delivery queue overflow".into());}
+                    if deliver && !publish(&events,Event::Root{frame:owned.frame,decision_key}){break Some("Native UI delivery queue overflow".into());}
                 },
                 Some(Err(_))|None=>{drop_observations(&mut root,&mut workspaces,&mut selected,&mut terminal,&mut mux).await;observations_live=false;files.invalidate();selected_file_target=None;selected_target=None;for key in live_decisions.drain(..){decisions.cancel(&key.event_id);}if !publish(&events,Event::ObservationsLost){break Some("Native UI delivery queue overflow".into());}},
             },

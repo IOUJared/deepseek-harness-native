@@ -7468,3 +7468,31 @@ cursor all survive.
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+### Round 347 — a refused decision is a status line, not a transport failure
+
+**First finding of a read-only audit of the approvals/questions surface.** The worker's decision
+coordinator refuses a duplicate or over-capacity live delivery with an error
+(`decision_worker.rs:56-57`, `:64-73`), and the worker turned that into `break Some(error)` — a
+fatal loop exit, `Event::Fault`, `root_ready = false` and `decisions.disconnect()`. One refused
+request therefore tore down the whole transport and left every other pending approval permanently
+"Transport ended; replies disabled", with no re-arm. The identical conditions on the UI side are
+status-only (`interactions.rs:376-392`).
+
+A refused delivery now publishes the new `Event::Notice` ("Decision not admitted: …"), is not
+delivered to the App at all, and leaves the loop, the transport and every other pending decision
+untouched. `Event::Notice` is a bounded status line with no product state — the same channel the
+terminal unfollow uses. One App test, `a_worker_notice_reaches_the_status_without_touching_transport_state`,
+pins it.
+
+**Battery (round 347).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1247 passed**, 1 ignored |
+| app, default | **0** | **1240 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 88 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
