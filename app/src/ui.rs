@@ -13824,8 +13824,8 @@ impl App {
         .into()
     }
     /// The scheduled-tasks page: the Host's whole catalog across sessions, with a two-step
-    /// delete. Creation and timing edits stay with the model's schedule tool (as in the
-    /// reference), so this page lists and deletes only.
+    /// delete, the delivery history, and an editor for a task's name, instruction and timing
+    /// (creation stays with the model's schedule tool, as in the reference).
     fn schedules_view(&self) -> Element<'_, Message> {
         let header = row![
             label("Scheduled tasks", TEXT).size(22).width(Length::Fill),
@@ -13843,7 +13843,7 @@ impl App {
         let mut body = column![
             header,
             label(
-                "Tasks recorded on the Host across sessions. Created by the model's schedule tool; this page lists and deletes them.",
+                "Tasks recorded on the Host across sessions. Created by the model's schedule tool; this page can rename, re-instruct, retime or delete them.",
                 MUTED
             )
             .size(11),

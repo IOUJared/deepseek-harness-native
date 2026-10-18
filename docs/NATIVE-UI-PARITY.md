@@ -4991,10 +4991,13 @@ feature, with the private ids kept inside `interactions.rs`) and the `--pending-
 seeded decision also drives the app's existing review banner, so the frame is one state, not a
 painted label.
 
-**Limitation, stated.** Native's `Decisions` holds the **followed** session's requests; there is no
-per-session status feed. So the badge is exact for the selected row and absent for other rows,
-where the reference's status controller can show a pending approval on any observed session. The
-same gap blocks the reference's `completionUnread` marker. Neither is claimed.
+**Limitation, stated (corrected in round 352).** Native's `Decisions` is **Host-global**: every
+root waterfall is admitted with no selection check, the panel says so in its own copy, and
+`pending_label()` takes no session. So the "Waiting for approval" badge is drawn on whichever row is
+**selected**, not on the row whose agent the request belongs to — a pending approval for agent B
+labels selected session A, and follows every later selection. The reference's status controller can
+show a pending approval on any observed session; this app shows one badge for the panel it can open.
+That is a real divergence, recorded here rather than claimed as per-row parity.
 
 **Battery (round 269).**
 
@@ -7604,6 +7607,39 @@ App test, `opening_work_records_replaces_the_schedule_page_so_escape_closes_it`,
 opens Work and asserts the first Escape closes Work.
 
 **Battery (round 351).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1251 passed**, 1 ignored |
+| app, default | **0** | **1244 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+### Round 352 — the two claims the audits found stale are corrected
+
+Two documentation/copy divergences, both about a surface describing itself wrongly:
+
+- **The schedules page said it could only list and delete.** Its own doc comment ("Creation and
+  timing edits stay with the model's schedule tool, so this page lists and deletes only") and its
+  visible intro ("this page lists and deletes them") were written before the editor landed in
+  rounds 292-295, which draws a kind selector, five timing shapes, the title/instruction fields and
+  Save. Both now say what the page does: it lists, renames, re-instructs, retimes and deletes (the
+  creation path stays with the model's tool, as the reference's does).
+- **Round 269's decision-badge limitation was the opposite of the code.** It claimed `Decisions`
+  holds the *followed* session's requests and that the badge is "exact for the selected row". The
+  surface is Host-global: every root waterfall is admitted with no selection check, the panel says
+  "This panel is global to this Host", and `pending_label()` takes no session — so a pending
+  approval for agent B labels whichever row is selected. The limitation is now recorded as the real
+  divergence it is; closing it needs a per-agent mapping from the selected session, which no current
+  read supplies.
+
+No source behavior changed, so no capture. The schedules intro is visible in
+`shots/155-schedules-ended-readonly.png`'s sibling run after this commit.
+
+**Battery (round 352).**
 
 | gate | status | result |
 | --- | --- | --- |
