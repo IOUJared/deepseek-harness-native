@@ -1307,7 +1307,9 @@ impl Settings {
             // The same bindings, drawn the way the reference draws them: a group heading and one
             // row per command with its keys beside its label (`ui-shortcuts`' `Reference.tsx`,
             // whose groups are in product order at `:179` and whose rows carry label plus keys).
-            // The store is not yet writable from this surface, so no row shows a modified marker.
+            // Rows carry a "Modified" marker when their binding differs from the shipped default,
+            // and every edit from this surface is stored in the app's own keybindings document
+            // (`native-keybindings.v1.json`), the reference's local preference sink.
             // One source for both the strings and the keys: the store the resolver will read.
             // One source for the ids, labels and keys: the same catalog the resolver reads.
             let catalog = crate::keybindings::native_catalog();

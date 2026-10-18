@@ -6789,3 +6789,63 @@ production action and the production saver with no home; only the missing home i
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/147-settings-unsaved-preference.png`, `status: passed` |
 | tree | — | clean before the commit |
+
+### Round 329 — a shortcut edit survives a restart
+
+**The third settings-audit finding: a shortcut edit reached no durable sink.** `ClearShortcut`,
+`ResetShortcut`, `ConfirmResetAll` and a captured key all wrote `settings.keybindings` and dropped
+the result, and no store key carried the overrides, so every edit returned to its default at
+restart — while the row kept drawing "Modified". The comment above the disclosure even said the
+store was "not yet writable from this surface", which four controls had already contradicted.
+
+**The reference's sink is a local preference document, not a Host namespace.**
+`packages/client/shortcuts/src/client/storage.ts:9` names `dsh.keybindings.v1`, written by
+`ShortcutPersistence` through `localStorage` on the web and a preload API on Desktop. Native
+therefore gained a fourth `draft_store` namespace, `native-keybindings.v1.json` (+ its own lock and
+temporary prefix), rather than a new wire path: it holds only this app's overrides, bounded and
+atomic through the same owner as the drafts, sidebar and layout documents.
+
+- **The document stores differences, and a clear is one.** `keybindings::overrides` lists each
+  command whose bindings differ from the shipped default; a cleared binding is an entry with an
+  empty value, which is exactly the distinction the store already draws between empty and absent.
+- **The value is a closed grammar**, `modifiers:code` with a chord's second code after it
+  (`primary:KeyG`, `primary+shift:KeyK+KeyC`, `:Enter`). `parse_binding` refuses anything this app
+  did not write — an unknown modifier word, a duplicated modifier, a non-alphanumeric code or an
+  extra segment — so a hand-edited document cannot invent a key the resolver would then honour.
+- **Boot applies it through the same function a test can call.** `restore_keybindings` reads the
+  document and restores each entry through `Store::restore`; an unknown id (a document from a
+  build carrying a command this one lacks) leaves the shipped binding in place.
+- **Every edit writes, and a failure is reported.** The four edit paths call `persist_keybindings`,
+  which rebuilds the document from the store and routes a failure through the same channel round
+  328 built: the Settings footer while the modal is open ("Shortcuts not saved …; the change lasts
+  until the app closes."), the status line otherwise. The document is never written over a read
+  that failed.
+
+Tests: two `keybindings` unit tests cover the codec round trip (plain, chord, bare) and each
+refused form, plus `overrides` (differences only, a clear included, `reset_all` emptying it), and
+the App test `a_shortcut_edit_survives_a_restart_and_its_failure_is_reported` presses the real
+`ClearShortcut` and `ResetShortcut` actions, reads the document at the mode-0700 home, calls
+`restore_keybindings` on a fresh store **and boots a second `App` over the same home** to prove
+`App::boot` restores the clear. No drawing changed — the row already drew its Modified marker — so
+there is no new capture.
+
+**Also in this commit's verification:** the JS gate failed once (418 pass / 1 fail) in a run under
+load. It was not this change: `codex-app-server.test.mjs` counted the fake child's request log
+before the child had drained `initialized`, reproduced 10/10 under eight busy loops and fixed in
+`87a21a5` with an exact-count wait; both JS runs after that fix report **419 pass, 0 fail**. A
+separate load-induced `STARTUP_TIMEOUT` in the same file is recorded in
+[verification](VERIFICATION.md#resolved-codex-trace-read-race) with no product change.
+
+**Battery (round 329).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1224 passed**, 1 ignored |
+| app, default | **0** | **1217 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 86 + 7 |
+| core (`--lib`) | **0** | **115 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail (twice, after `87a21a5`) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| tree | — | clean before the commit |

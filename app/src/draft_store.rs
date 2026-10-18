@@ -46,6 +46,10 @@ enum Namespace {
     Drafts,
     Sidebar,
     Layout,
+    /// The reference keeps shortcut edits in their own local preference document
+    /// (`dsh.keybindings.v1`, `packages/client/shortcuts/src/client/storage.ts:9`), not in a Host
+    /// namespace, so they own a document here too rather than sharing the layout map.
+    Keybindings,
 }
 impl Namespace {
     fn document(self) -> &'static str {
@@ -53,6 +57,7 @@ impl Namespace {
             Self::Drafts => DOCUMENT,
             Self::Sidebar => "native-sidebar.v1.json",
             Self::Layout => "native-layout.v1.json",
+            Self::Keybindings => "native-keybindings.v1.json",
         }
     }
     fn lock(self) -> &'static str {
@@ -60,6 +65,7 @@ impl Namespace {
             Self::Drafts => LOCK,
             Self::Sidebar => "native-sidebar.v1.lock",
             Self::Layout => "native-layout.v1.lock",
+            Self::Keybindings => "native-keybindings.v1.lock",
         }
     }
     fn temporary_prefix(self) -> &'static str {
@@ -67,6 +73,7 @@ impl Namespace {
             Self::Drafts => ".native-drafts",
             Self::Sidebar => ".native-sidebar",
             Self::Layout => ".native-layout",
+            Self::Keybindings => ".native-keybindings",
         }
     }
 }
@@ -619,6 +626,10 @@ impl Store {
     /// Separate bounded app-local layout preferences; value validation belongs to the caller.
     pub fn layout(native_home: PathBuf) -> Result<Self, Failure> {
         Self::with_namespace(native_home, Namespace::Layout)
+    }
+    /// Separate bounded shortcut overrides; value validation belongs to the caller.
+    pub fn keybindings(native_home: PathBuf) -> Result<Self, Failure> {
+        Self::with_namespace(native_home, Namespace::Keybindings)
     }
     fn with_namespace(native_home: PathBuf, namespace: Namespace) -> Result<Self, Failure> {
         let text = native_home.to_str().ok_or(Failure::InvalidHome)?;

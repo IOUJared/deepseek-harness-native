@@ -1332,6 +1332,19 @@ impl App {
         let busy_enter = stored(draft_store::LAYOUT_BUSY_ENTER)
             .and_then(crate::settings::BusyEnter::parse)
             .unwrap_or_default();
+        // Shortcut overrides are the reference's own local preference document
+        // (`dsh.keybindings.v1`, `shortcuts/src/client/storage.ts:9`), read once at boot like
+        // the layout preferences. An absent, unreadable or unrecognised entry leaves the shipped
+        // binding in place, because a missing override has a correct default.
+        let keybinding_preferences = if options.smoke.is_none() {
+            draft_store::Store::keybindings(options.backend.native_home.clone())
+                .ok()
+                .and_then(|mut store| store.load().ok())
+        } else {
+            None
+        };
+        let mut settings = crate::settings::Settings::default();
+        restore_keybindings(&mut settings.keybindings, keybinding_preferences.as_ref());
         // Captured here, before `options` is consumed: a later field initializer
         // cannot borrow it. Smoke runs keep `None` so they never write a profile.
         let native_home = options
@@ -1517,7 +1530,7 @@ impl App {
                 terminal: crate::terminal::Terminal::default(),
                 mcp: crate::mcp::Mcp::default(),
                 info_expanded: 0,
-                settings: Default::default(),
+                settings,
                 decisions: Default::default(),
                 transport_epoch: 0,
 
@@ -2064,11 +2077,23 @@ impl App {
     /// failure; a width drag or a content-size change acts in the conversation, where the
     /// status line is the reporting channel.
     fn persist_preference(&mut self) {
-        match self.save_layout_preference() {
+        let saved = self.save_layout_preference();
+        self.report_preference(
+            saved,
+            "Preference",
+            "the change applies to this window only",
+        );
+    }
+    /// Store the shortcut overrides and report the outcome through the same channel.
+    fn persist_keybindings(&mut self) {
+        let saved = self.save_keybindings();
+        self.report_preference(saved, "Shortcuts", "the change lasts until the app closes");
+    }
+    fn report_preference(&mut self, saved: Result<(), &'static str>, subject: &str, reach: &str) {
+        match saved {
             Ok(()) => self.settings.preference_error = None,
             Err(reason) => {
-                let message =
-                    format!("Preference not saved ({reason}); it applies to this window only.");
+                let message = format!("{subject} not saved ({reason}); {reach}.");
                 if self.settings.is_open() {
                     self.settings.preference_error = Some(message);
                 } else {
@@ -2076,6 +2101,36 @@ impl App {
                 }
             }
         }
+    }
+    /// Persist the shortcut overrides. Same bounded synchronous shape as the layout preference,
+    /// and the same refusal to write over a document it could not read.
+    fn save_keybindings(&self) -> Result<(), &'static str> {
+        let Some(home) = self.native_home.clone() else {
+            return Err("this run has no local home");
+        };
+        let Ok(mut store) = draft_store::Store::keybindings(home) else {
+            return Err("the shortcuts store could not be opened");
+        };
+        if store.load().is_err() {
+            return Err("the stored shortcuts could not be read");
+        }
+        // Rebuilt rather than patched: a removed override and a restored default are both the
+        // key's absence, and the document holds nothing but these overrides.
+        let mut next = draft_store::Drafts::new();
+        for (id, binding) in self.settings.keybindings.overrides() {
+            let Ok(entry) = SessionId::new(id) else {
+                continue;
+            };
+            next.insert(
+                entry,
+                binding
+                    .map(crate::keybindings::store_binding)
+                    .unwrap_or_default(),
+            );
+        }
+        store
+            .save(&next)
+            .map_err(|_| "the shortcuts store refused the write")
     }
     /// The bottom fade that dissolves scrolled content before the composer. It is
     /// an overlay rather than a sibling strip, so it costs no layout height and
@@ -3280,6 +3335,7 @@ impl App {
                                 .settings
                                 .keybindings
                                 .reset_all(self.settings.keybindings.revision());
+                            self.persist_keybindings();
                         }
                         return Task::none();
                     }
@@ -3289,6 +3345,7 @@ impl App {
                             crate::keybindings::Edit::Reset { id: id.clone() },
                             self.settings.keybindings.revision(),
                         );
+                        self.persist_keybindings();
                         return Task::none();
                     }
                     crate::settings::Action::ClearShortcut(id) => {
@@ -3302,6 +3359,7 @@ impl App {
                             },
                             self.settings.keybindings.revision(),
                         );
+                        self.persist_keybindings();
                         return Task::none();
                     }
                     crate::settings::Action::PermissionDefault(name) => {
@@ -6854,6 +6912,7 @@ impl App {
             );
             self.settings.capture_for = None;
             self.settings.capture_error = None;
+            self.persist_keybindings();
             return Task::none();
         }
         // A running turn's two-press Escape wins over the close command while the conversation
@@ -15236,6 +15295,28 @@ fn invoke_message(invoke: Option<crate::keybindings::Invoke>) -> Option<Message>
     }
 }
 
+/// Apply the stored shortcut overrides to a store. The boot path and its test share this one
+/// function, so a test cannot pass against a copy of the rule the app does not run.
+fn restore_keybindings(
+    store: &mut crate::keybindings::Store,
+    document: Option<&draft_store::Drafts>,
+) {
+    let Some(document) = document else {
+        return;
+    };
+    for (id, raw) in document {
+        // An empty value is a clear, which must survive a restart exactly as a binding does. A
+        // value this app did not write leaves the shipped binding in place.
+        let restored = if raw.is_empty() {
+            Some(None)
+        } else {
+            crate::keybindings::parse_binding(raw).map(Some)
+        };
+        if let Some(binding) = restored {
+            let _ = store.restore(id.as_str(), binding);
+        }
+    }
+}
 fn routine_status(status: &str) -> bool {
     // Exact controlled successes only. Never hide errors by substring/prefix or infer account validity.
     matches!(
@@ -16992,6 +17073,111 @@ mod tests {
             Some("steer"),
             "the value actually landed in the layout namespace"
         );
+        std::fs::remove_dir_all(&home).unwrap();
+    }
+    #[test]
+    fn a_shortcut_edit_survives_a_restart_and_its_failure_is_reported() {
+        use keyboard::{Key, Modifiers};
+        use std::os::unix::fs::DirBuilderExt;
+        let home = std::env::temp_dir().join(format!("dsh-keybindings-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&home)
+            .unwrap();
+        let (mut app, _receiver) = app();
+        app.native_home = Some(home.clone());
+        // The editor lives in Settings, so that is the surface a real edit is made from.
+        let _ = app.update(Message::Settings(crate::settings::Action::Open));
+        let _ = app.update(Message::Settings(crate::settings::Action::ClearShortcut(
+            "native.find".to_owned(),
+        )));
+        assert!(
+            app.settings
+                .keybindings
+                .bindings("native.find")
+                .is_some_and(<[_]>::is_empty)
+        );
+        // The document the boot path reads back holds the clear as its own entry, because a
+        // removed binding must survive a restart exactly as a changed one does.
+        let key = SessionId::new("native.find").unwrap();
+        let mut store = draft_store::Store::keybindings(home.clone()).unwrap();
+        let document = store.load().unwrap();
+        assert_eq!(document.get(&key).map(String::as_str), Some(""));
+        let mut restarted = crate::keybindings::Store::new(crate::keybindings::native_fixed());
+        restore_keybindings(&mut restarted, Some(&document));
+        assert!(
+            restarted
+                .bindings("native.find")
+                .is_some_and(<[_]>::is_empty),
+            "the cleared binding comes back cleared"
+        );
+        // A refused capture is not stored, and a set override replaces the entry.
+        let _ = app.update(Message::Settings(crate::settings::Action::CaptureShortcut(
+            "native.find".to_owned(),
+        )));
+        let _ = app.update(Message::KeyPressed(
+            Key::Character("b".into()),
+            Modifiers::CTRL,
+        ));
+        let _ = app.update(Message::KeyPressed(
+            Key::Character("g".into()),
+            Modifiers::CTRL,
+        ));
+        let document = store.load().unwrap();
+        assert_eq!(document.get(&key).map(String::as_str), Some("primary:KeyG"));
+        // Restoring the default removes the entry rather than storing one.
+        let _ = app.update(Message::Settings(crate::settings::Action::ResetShortcut(
+            "native.find".to_owned(),
+        )));
+        assert!(store.load().unwrap().get(&key).is_none());
+        // The real boot reads the document: a second App over the same home starts cleared.
+        let _ = app.update(Message::Settings(crate::settings::Action::ClearShortcut(
+            "native.find".to_owned(),
+        )));
+        assert_eq!(
+            store.load().unwrap().get(&key).map(String::as_str),
+            Some("")
+        );
+        let (handle, feed, _restarted_receiver, _events, _closing) = worker::test_channels();
+        let options = crate::config::parse(
+            [
+                "--runtime",
+                "/explicit-fork/apps/cli",
+                "--expected-version",
+                "0.2.1-alpha.1",
+                "--home",
+                home.to_str().unwrap(),
+                "--user-home",
+                "/user-home",
+                "--cwd",
+                "/tmp",
+            ]
+            .map(str::to_owned),
+        )
+        .unwrap()
+        .unwrap();
+        let (restarted, _) = App::boot(options, handle, feed);
+        assert!(
+            restarted
+                .settings
+                .keybindings
+                .bindings("native.find")
+                .is_some_and(<[_]>::is_empty),
+            "App::boot restores the stored clear"
+        );
+        // With no home the same edit is reported in the modal instead of vanishing.
+        app.native_home = None;
+        let _ = app.update(Message::Settings(crate::settings::Action::ClearShortcut(
+            "native.find".to_owned(),
+        )));
+        let error = app
+            .settings
+            .preference_error
+            .as_deref()
+            .expect("the modal reports the unsaved shortcuts");
+        assert!(error.contains("Shortcuts not saved"), "{error}");
+        assert!(error.contains("until the app closes"), "{error}");
         std::fs::remove_dir_all(&home).unwrap();
     }
     #[test]

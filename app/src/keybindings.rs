@@ -163,6 +163,77 @@ impl Store {
             })
             .map(|(other, _)| other.as_str())
     }
+
+    /// The overrides this profile carries relative to the shipped defaults, as the document the
+    /// App stores. `None` is a cleared binding, which is distinct from the command's absence: a
+    /// clear must survive a restart too, so it is an entry with an empty value rather than a
+    /// missing key.
+    pub fn overrides(&self) -> Vec<(&str, Option<&Binding>)> {
+        self.entries
+            .iter()
+            .filter(|(_, entry)| entry.bindings != entry.default)
+            .map(|(id, entry)| (id.as_str(), entry.bindings.first()))
+            .collect()
+    }
+
+    /// Apply a stored override. An unknown command id (a document from a build that carried a
+    /// command this one does not) is reported, not silently installed.
+    pub fn restore(&mut self, id: &str, binding: Option<Binding>) -> Outcome {
+        let revision = self.revision;
+        self.apply(
+            Edit::Set {
+                id: id.to_owned(),
+                binding,
+            },
+            revision,
+        )
+    }
+}
+
+/// The stored form of one override: `modifiers:code`, with a chord's second code after it.
+/// Modifier words are the ones [`binding_from`] produces and [`display`] reads; codes are the
+/// closed set [`code_for`] maps into.
+pub fn store_binding(binding: &Binding) -> String {
+    let codes = match &binding.second_code {
+        Some(second) => format!("{}+{second}", binding.code),
+        None => binding.code.clone(),
+    };
+    format!("{}:{codes}", binding.modifiers.join("+"))
+}
+
+/// Parse a stored override, refusing anything this app did not write: a hand-edited document
+/// cannot invent a modifier or a code the resolver would then treat as a real key press.
+pub fn parse_binding(raw: &str) -> Option<Binding> {
+    let (modifiers, codes) = raw.split_once(':')?;
+    let mut held = Vec::new();
+    if !modifiers.is_empty() {
+        for word in modifiers.split('+') {
+            if !matches!(word, "primary" | "alt" | "shift") || held.iter().any(|m| m == word) {
+                return None;
+            }
+            held.push(word.to_owned());
+        }
+    }
+    let mut codes = codes.split('+');
+    let code = codes.next()?;
+    let second = codes.next().map(str::to_owned);
+    if codes.next().is_some()
+        || !valid_code(code)
+        || second.as_deref().is_some_and(|second| !valid_code(second))
+    {
+        return None;
+    }
+    Some(Binding {
+        code: code.to_owned(),
+        second_code: second,
+        modifiers: held,
+    })
+}
+
+/// A stored code: bounded ASCII alphanumerics, which is every code [`code_for`] returns and no
+/// separator the document format uses.
+fn valid_code(code: &str) -> bool {
+    !code.is_empty() && code.len() <= 32 && code.chars().all(|c| c.is_ascii_alphanumeric())
 }
 
 /// The DOM-style codes the reference captures and displays (`Editor.tsx:119`, and the codes in
@@ -586,6 +657,73 @@ mod tests {
             store.bindings("palette"),
             Some([binding("KeyK")].as_slice())
         );
+    }
+
+    #[test]
+    fn a_stored_binding_round_trips_and_foreign_text_is_refused() {
+        let plain = binding("KeyG");
+        assert_eq!(store_binding(&plain), "primary:KeyG");
+        assert_eq!(parse_binding(&store_binding(&plain)), Some(plain.clone()));
+        let chord = Binding {
+            code: "KeyK".to_owned(),
+            second_code: Some("KeyC".to_owned()),
+            modifiers: vec!["primary".to_owned(), "shift".to_owned()],
+        };
+        assert_eq!(store_binding(&chord), "primary+shift:KeyK+KeyC");
+        assert_eq!(parse_binding(&store_binding(&chord)), Some(chord));
+        let bare = Binding {
+            code: "Enter".to_owned(),
+            second_code: None,
+            modifiers: Vec::new(),
+        };
+        assert_eq!(store_binding(&bare), ":Enter");
+        assert_eq!(parse_binding(&store_binding(&bare)), Some(bare));
+        for raw in [
+            "",
+            "KeyG",
+            "primary:",
+            "hyper:KeyG",
+            "primary+primary:KeyG",
+            "primary:KeyG+KeyC+KeyD",
+            "primary:key-g",
+            "primary:KeyG ",
+        ] {
+            assert_eq!(parse_binding(raw), None, "refused: {raw:?}");
+        }
+    }
+
+    #[test]
+    fn overrides_are_the_differences_from_the_defaults_and_a_clear_is_one() {
+        let mut store = store();
+        assert!(store.overrides().is_empty());
+        store.apply(
+            Edit::Set {
+                id: "palette".to_owned(),
+                binding: Some(binding("KeyK")),
+            },
+            0,
+        );
+        store.apply(
+            Edit::Set {
+                id: "send".to_owned(),
+                binding: None,
+            },
+            1,
+        );
+        let overrides = store.overrides();
+        assert_eq!(overrides.len(), 2);
+        // The cleared command is present with no binding, which is what the empty value stores.
+        assert!(overrides.contains(&("send", None)));
+        assert_eq!(
+            overrides
+                .iter()
+                .find(|(id, _)| *id == "palette")
+                .and_then(|(_, binding)| binding.map(store_binding))
+                .as_deref(),
+            Some("primary:KeyK")
+        );
+        store.reset_all(2);
+        assert!(store.overrides().is_empty());
     }
 
     #[test]
