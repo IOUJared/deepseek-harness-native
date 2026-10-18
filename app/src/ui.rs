@@ -3283,6 +3283,7 @@ impl App {
             }
             Message::DismissPanel if self.layout_controls_enabled() && self.schedules_open => {
                 self.schedules_open = false;
+                self.close_schedule_editor();
                 self.schedule_delete = None;
             }
             Message::DismissPanel if self.layout_controls_enabled() && self.work_open => {
@@ -3737,6 +3738,7 @@ impl App {
             }
             Message::CloseSchedules if self.layout_controls_enabled() => {
                 self.schedules_open = false;
+                self.close_schedule_editor();
                 self.schedule_delete = None;
                 self.schedule_busy = None;
             }
@@ -3750,6 +3752,7 @@ impl App {
                 self.schedules_error = None;
             }
             Message::ScheduleEdit(session, id) if self.schedules_open => {
+                self.at_picker = None;
                 let Some(item) = self
                     .schedules
                     .iter()
@@ -3919,7 +3922,7 @@ impl App {
                 }
             }
             Message::ScheduleEditCancel if self.schedules_open => {
-                self.schedule_edit = None;
+                self.close_schedule_editor();
             }
             Message::ToggleTodoDock => self.todo_dock_open = !self.todo_dock_open,
             Message::PickDirectory => {
@@ -4123,7 +4126,7 @@ impl App {
                         return Task::none();
                     }
                 };
-                self.schedule_edit = None;
+                self.close_schedule_editor();
                 self.schedules_error = None;
                 self.command(worker::Command::ScheduleUpdate {
                     session: edit.session,
@@ -6766,6 +6769,13 @@ impl App {
     /// the management flight; a read or follow never blocks another operation.
     /// Close the terminal panel and retire its Host follow. Panel replacement paths use this so a
     /// stream cannot outlive the surface that owned it.
+    /// Close the inline schedule editor and any date/clock picker it opened. The picker owns
+    /// Arrow/Enter for the whole window while it exists, so leaving it set after its popover is
+    /// gone keeps intercepting keys.
+    fn close_schedule_editor(&mut self) {
+        self.schedule_edit = None;
+        self.at_picker = None;
+    }
     fn dismiss_terminal(&mut self) {
         if self.terminal.dismiss() {
             self.command(Command::TerminalUnfollow);
@@ -17733,6 +17743,45 @@ mod tests {
         }));
         assert!(app.schedules.is_empty());
         assert!(app.schedule_busy.is_none());
+    }
+    #[test]
+    fn closing_the_schedule_editor_also_releases_its_picker() {
+        use dsh_native_transport::dto::ScheduleCatalogItem;
+        let (mut app, _receiver) = managed_app();
+        let _ = app.update(Message::OpenSchedules);
+        let session = app.selected.clone().unwrap();
+        let item = ScheduleCatalogItem {
+            id: "PUBLIC-schedule".into(),
+            title: "PUBLIC task".into(),
+            kind: "at".into(),
+            session_id: session.clone(),
+            status: "active".into(),
+            scheduled_at: None,
+            last_delivery: None,
+            record: serde_json::Map::new(),
+        };
+        let _ = app.update(Message::Worker(Event::SchedulesLoaded(Ok(vec![item]))));
+        let _ = app.update(Message::ScheduleEdit(session, "PUBLIC-schedule".into()));
+        assert!(app.schedule_edit.is_some());
+        // Choosing a time opens the clock picker, which then owns Arrow/Enter window-wide.
+        let _ = app.update(Message::AtPickerTime);
+        assert!(app.at_picker.is_some());
+        let _ = app.update(Message::ScheduleEditCancel);
+        assert!(app.schedule_edit.is_none());
+        assert!(
+            app.at_picker.is_none(),
+            "a cancelled editor must not leave its picker owning the keys"
+        );
+        // The page's own close does the same.
+        let _ = app.update(Message::ScheduleEdit(
+            app.selected.clone().unwrap(),
+            "PUBLIC-schedule".into(),
+        ));
+        let _ = app.update(Message::AtPickerDate);
+        assert!(app.at_picker.is_some());
+        let _ = app.update(Message::CloseSchedules);
+        assert!(!app.schedules_open);
+        assert!(app.at_picker.is_none());
     }
     #[test]
     fn schedule_timing_changes_cover_each_kind_and_refuse_invalid_input() {

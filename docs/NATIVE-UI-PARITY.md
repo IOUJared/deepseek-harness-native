@@ -7414,3 +7414,31 @@ panel closes. No capture: the panel has no fixture mode and no visual element wa
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | tree | — | clean before the commit |
+
+### Round 345 — closing the schedule editor releases its picker
+
+**First finding of a read-only audit of the scheduled-tasks page.** The inline editor's date/clock
+picker was never cleared by Cancel, Save, Close or Escape — only its own close action cleared it.
+The popover is drawn inside the editor, so cancelling made it vanish while `at_picker` stayed
+`Some`, and `key_pressed` intercepts Arrow and Enter for the whole window while it exists
+(`ui.rs:6903`): the fixed `native.move` bindings and the picker's own Enter stopped working until
+an Escape the user had no reason to press. Re-opening Edit on any row also showed the popover
+unrequested.
+
+`close_schedule_editor` now clears the editor and the picker together, and every path that closes
+one calls it: Cancel, Save (which consumed the editor before sending), Close, Escape, and opening
+a different row resets the picker first. One App test,
+`closing_the_schedule_editor_also_releases_its_picker`, presses the real messages and asserts the
+picker is gone after Cancel and after the page closes.
+
+**Battery (round 345).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1245 passed**, 1 ignored |
+| app, default | **0** | **1238 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 88 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
