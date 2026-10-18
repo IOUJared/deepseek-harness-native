@@ -7589,3 +7589,28 @@ row keeps Edit / History / Delete, and the inactive row reads `Ended · read-onl
 | format debt | **0** | 0 files, 0 hunks |
 | DP-2 capture | — | `shots/155-schedules-ended-readonly.png`, `status: passed` |
 | tree | — | clean before the commit |
+
+### Round 351 — Work records replace the schedule page, so Escape closes what is visible
+
+**Fourth finding of the schedules audit.** `Message::Work(Open)` and `Message::Capabilities` set
+their pane and cleared the menu, capabilities, terminal and MCP panels — but not `schedules_open`.
+The body draws `work_open` before `schedules_open`, so the Work panel covered the page, while
+`DismissPanel` checks `schedules_open` first: the first Escape closed the invisible schedule page
+and left the visible Work panel open, and the panel's own Close resurrected the page. Round 339's
+one-pane rule was applied in the other direction only.
+
+Both openers now retire the schedule page and its editor, like every other pane replacement. One
+App test, `opening_work_records_replaces_the_schedule_page_so_escape_closes_it`, opens the page,
+opens Work and asserts the first Escape closes Work.
+
+**Battery (round 351).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1251 passed**, 1 ignored |
+| app, default | **0** | **1244 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |

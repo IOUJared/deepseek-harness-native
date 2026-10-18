@@ -4982,6 +4982,8 @@ impl App {
             Message::Capabilities => {
                 self.capabilities = !self.capabilities;
                 self.work_open = false;
+                self.schedules_open = false;
+                self.close_schedule_editor();
                 self.dismiss_terminal();
                 self.mcp.dismiss();
                 self.info_expanded = 0;
@@ -4994,6 +4996,11 @@ impl App {
                 self.work_open = true;
                 self.conversation_menu = false;
                 self.capabilities = false;
+                // One pane owns the body: the Work panel replaces the schedule page instead of
+                // hiding it, so Escape closes what is on screen (`DismissPanel` checks the
+                // schedule page first).
+                self.schedules_open = false;
+                self.close_schedule_editor();
                 self.dismiss_terminal();
                 self.mcp.dismiss();
             }
@@ -17886,6 +17893,21 @@ mod tests {
                 .and_then(|page| page.next_before.as_deref()),
             Some("PUBLIC-cursor")
         );
+    }
+    #[test]
+    fn opening_work_records_replaces_the_schedule_page_so_escape_closes_it() {
+        let (mut app, _receiver) = managed_app();
+        let _ = app.update(Message::OpenSchedules);
+        assert!(app.schedules_open);
+        let _ = app.update(Message::Work(work_panel_ui::Action::Open));
+        assert!(app.work_open);
+        assert!(
+            !app.schedules_open,
+            "the Work panel replaces the page instead of hiding it"
+        );
+        // The first Escape now closes what is actually on screen.
+        let _ = app.update(Message::DismissPanel);
+        assert!(!app.work_open, "Escape closes the visible Work panel");
     }
     #[test]
     fn an_ended_task_is_read_only_and_its_refusal_says_so() {
