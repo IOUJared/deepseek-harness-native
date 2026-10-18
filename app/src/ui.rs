@@ -3119,6 +3119,9 @@ impl App {
                     self.work_open = false;
                     self.detail = None;
                     self.mcp.dismiss();
+                    // The Schedules page is drawn before the terminal panel, so leaving it open
+                    // would show the schedule list under a terminal panel the user just opened.
+                    self.schedules_open = false;
                 }
                 let context = self.terminal_context();
                 if let Some(effect) = self.terminal.apply(action, &context) {
@@ -3133,6 +3136,7 @@ impl App {
                     self.capabilities = false;
                     self.work_open = false;
                     self.detail = None;
+                    self.schedules_open = false;
                     self.terminal.dismiss();
                     let effect = self.mcp.enter(self.transport_epoch);
                     self.dispatch_mcp(effect);
@@ -3717,6 +3721,14 @@ impl App {
                 self.queue_expanded = !self.queue_expanded;
             }
             Message::OpenSchedules if self.layout_controls_enabled() => {
+                // One pane owns the body, so the page replaces any full-pane panel rather than
+                // leaving it open behind the schedule list.
+                self.conversation_menu = false;
+                self.capabilities = false;
+                self.work_open = false;
+                self.detail = None;
+                self.terminal.dismiss();
+                self.mcp.dismiss();
                 self.schedules_open = true;
                 self.schedules_loading = true;
                 self.schedules_error = None;
@@ -18618,6 +18630,31 @@ mod tests {
         assert!(app.goal_busy.is_none());
         assert_eq!(app.goal_error.as_deref(), Some("Goal: remote-failure"));
         assert_eq!(GoalPhase::Active, GoalPhase::Active);
+    }
+    #[test]
+    fn one_full_pane_panel_owns_the_body_at_a_time() {
+        let (mut app, _receiver) = managed_app();
+        // Opening the terminal from the More menu while the schedule page is up must show the
+        // terminal, not the schedule list with a hidden terminal beneath it.
+        let _ = app.update(Message::OpenSchedules);
+        assert!(app.schedules_open);
+        let view = crate::management::View {
+            epoch: app.transport_epoch,
+            generation: app.generation,
+            target: app.selected.clone().unwrap(),
+        };
+        let _ = app.update(Message::Terminal(crate::terminal::Action::Open {
+            view: view.clone(),
+        }));
+        assert!(app.terminal.is_open());
+        assert!(
+            !app.schedules_open,
+            "the terminal replaces the schedule page"
+        );
+        // And the reverse: opening the schedule page retires the terminal panel.
+        let _ = app.update(Message::OpenSchedules);
+        assert!(app.schedules_open);
+        assert!(!app.terminal.is_open());
     }
     #[test]
     fn a_queue_refusal_survives_the_last_queued_item_leaving() {

@@ -7212,3 +7212,32 @@ line's text inside the existing panel.
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+### Round 339 — one full-pane panel owns the body
+
+**The terminal audit's pane-precedence finding.** The body dispatch draws `schedules_open` before
+`terminal.is_open()` (`ui.rs:8452-8454`), and neither opener retired the other: opening Terminal
+from the More menu closed the menu, sent its read and set the panel open, yet the schedule list
+stayed on screen — pressing the item again re-read and still showed nothing, and closing Schedules
+later revealed a stale terminal panel underneath. The same held for the MCP panel and for opening
+Schedules over either of them.
+
+Every full-pane opener now retires the others first: `terminal::Action::Open` and
+`mcp::Action::Open` leave the schedule page, and `Message::OpenSchedules` dismisses the terminal
+and MCP panels and the menu/work/detail panes instead of hiding under them. One App test,
+`one_full_pane_panel_owns_the_body_at_a_time`, drives the real messages in both directions.
+
+No capture: both states are reachable only with two panes' fixture flags at once, and the change
+removes a pane rather than drawing a new one.
+
+**Battery (round 339).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1237 passed**, 1 ignored |
+| app, default | **0** | **1230 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 88 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
