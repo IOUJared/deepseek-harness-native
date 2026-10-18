@@ -114,10 +114,12 @@ Not yet audited this way: the session sidebar and workspace browser, the details
 deliverables, Codex settings/runtime, Cloudflare, plugins, the model/composer catalogs, goals/todos.
 
 **D. When the reference specifies something the native app lacks, build it.** The path form and the
-edit pair landed (round 354: `relativizeToCwd`/`abbreviateHomePath`, `shots/158-…`). What that
-family still lacks is the reference's **click-to-open on the tool path** (`ToolRow.tsx:189-221`) —
-the open wire exists (`Command::OpenWorkspacePath`) but the row toggles instead — and the **inline
-diff body**; both are defined by the reference source. Build them from it.
+edit pair landed (round 354: `relativizeToCwd`/`abbreviateHomePath`, `shots/158-…`). Read what the
+reference's path link opens before building it: `openFile` addresses the path and calls
+`sidebarRight.openResource`, i.e. the **right Sidebar document preview**, and its own test asserts
+the desktop opener is not called. Native's right Sidebar is a recorded deliberate difference, so
+the path stays display-only unless that difference is revisited. The remaining member of this family
+is the **inline diff body**, which the reference's `DiffBlock` defines.
 
 **E. When `reference.png` appears, run the visual diff.** The native side is already captured at the
 reference's exact size (`shots/157-chat-reference-size.png`, 1980×1319) and the measured native rects

@@ -153,7 +153,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Assistant text | unboxed, full content column | unboxed, spans the shared content column |
 | Message flow gap | 6 process / 12 response / 16 turn | `design::FLOW_GAP`/`RESPONSE_GAP` ladder 6/12; the 16px `turn-process` row is Trajectory-only |
 | Tool activity | compact unboxed single muted line | compact unboxed single muted line, expands in place |
-| Tool-row file path | `relativizeToCwd` then `abbreviateHomePath` of the recorded argument (`tool-call-model.ts:261`), grey **dotted** underline, the path alone is a link that opens the file | same two rules in `activity::path_label` over `PathRoots` (the selected session's `cwd` and `--user-home`), solid `MUTED` underline; the press still toggles the row, so the path is **not** separately clickable |
+| Tool-row file path | `relativizeToCwd` then `abbreviateHomePath` of the recorded argument (`tool-call-model.ts:261`), grey **dotted** underline, the path is a link to the right Sidebar's document preview | same two rules in `activity::path_label` over `PathRoots` (the selected session's `cwd` and `--user-home`), solid `MUTED` underline; no Sidebar, so the press toggles the row and the path is display-only (see the Sidebar difference) |
 | Edit diff stat | `+N -M`, code font 11px, 10px left margin, muted until hover/expanded, dropped on error | same call-argument totals; `DIFF_STAT_*` + ASCII `-`, cued colours, dropped when the row failed |
 | Composer card | panel 28 · `padding-top: 8` · `gap: 12` · input-major + l2 hairline | `RADIUS_XL` 20; `COMPOSER_CARD_*` + `design::elevated_surface` |
 | Composer input | `min-height: 36` · `4px 8px 0 14px` · 14-line text cap 336 | `COMPOSER_INPUT_*`, one-line floor 36, 14 lines (8 in a short window) |
@@ -7743,9 +7743,14 @@ rows reading `src/PUBLIC-note.txt` with the `+1 -1` pair on the edits and the un
 The fixture assertion was proved live: with the expectation changed to `PROVE-LIVE` the preset test
 failed on `left: Some("src/PUBLIC-note.txt")`, which is the projection the view consumes.
 
-**Still different, and now stated as such:** the reference's path is a link that opens the file
-(`ToolRow.tsx:189-195, 213-221`), while the native path is plain underlined text inside the row's
-toggle. The open wire exists (`Command::OpenWorkspacePath`, round 305) but the row does not use it.
+**Still different, and now stated exactly:** the reference's path is a link
+(`ToolRow.tsx:189-195, 213-221`), but what it opens is the **right Sidebar's document preview** —
+`openFile` addresses the path under the session scope and calls `sidebarRight.openResource`,
+and the reference's own test asserts the desktop opener is *not* called ("Files stay in the
+product", `apply-inject.client.spec.tsx:210-216`). The right Sidebar is this clone's recorded
+deliberate difference (full-page details panel, no document preview), so the native path is
+underlined display text inside the row's toggle. Wiring the row to `Command::OpenWorkspacePath`
+would be a divergence the reference does not have on this surface, not parity.
 
 **Battery (round 354).**
 
@@ -7761,3 +7766,25 @@ toggle. The open wire exists (`Command::OpenWorkspacePath`, round 305) but the r
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/158-tool-relative-path.png`, `status: passed` |
 | tree | — | clean before the commit |
+
+### Round 355 — the tool path's link target, read before it was built
+
+Round 354 ended by calling the reference's tool-path link "click-to-open" and noting that
+`Command::OpenWorkspacePath` existed unused. That was the wrong target, and reading the reference
+settled it: `openFile` in the chat's own apply closure resolves the path against the session cwd,
+turns it into a `dsh-resource://file/session/<id>/<path>` address and calls
+`sidebarRight.openResource`, with an optional `line` navigation parameter
+(`ui-chat/src/client/apply.ts:211-222`). Its test states the intent in words — "Files stay in the
+product … not to a desktop opener" — and asserts `expect(b.openWorkspacePath).not.toHaveBeenCalled()`
+(`apply-inject.client.spec.tsx:210-216`). The desktop opener is the **deliverables** surface's wire
+(round 305), not this one.
+
+So the honest parity statement is: the reference's underlined path opens the **right Sidebar
+document preview**, and this clone replaces the right Sidebar with the full-page details panel by a
+recorded deliberate difference. The native path therefore stays underlined display text inside the
+row's toggle. Wiring it to `Command::OpenWorkspacePath` would add a capability the reference does
+not have on this surface — a divergence, not parity — so it was not done.
+
+Corrected in the same commit: round 354's own closing paragraph, the tool-row row of the main
+dimension table, `NATIVE-CHAT-GEOMETRY.md`'s open-divergence note, and the session prompt's item D.
+No source changed, so no capture and no battery re-run; the gates in round 354 stand for this tree.

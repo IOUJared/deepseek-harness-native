@@ -66,8 +66,9 @@ not a preference):
 underlined file path and the `+N −N` edit pair, and both are now drawn: the path is
 `relativizeToCwd` then `abbreviateHomePath` of the recorded argument (round 354, `shots/158-…`),
 and the totals follow the reference's hover/expanded cue rules. Two things from that family remain:
-the path is not a link that opens the file (the press toggles the row), and an inline diff body is
-still unsupported. Their *exact* rhythm stays unverified until `reference.png` lands.
+the reference's path link opens the right Sidebar's document preview, which this clone replaces with
+the details panel, so the native path is display-only, and an inline diff body is still unsupported.
+Their *exact* rhythm stays unverified until `reference.png` lands.
 
 ## Remaining limits
 
