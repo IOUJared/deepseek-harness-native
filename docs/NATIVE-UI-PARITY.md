@@ -6301,7 +6301,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Chat, renderer, tools, thoughts, turn triggers, images, copy/branch/edit/fork | cloned |
 | Composer: slash, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned |
 | Sidebar: sessions, search, pin/archive/trash, workspace filter, navigation sheet | cloned (time-grouped list, not the grouped browser) |
-| Settings: General, API, Cloudflare, Codex, plugins, shortcuts | cloned (coding view is a local substitute) |
+| Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
 | Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab) |
 | Goals, plan mode, permissions, approvals/questions, jobs, subagents, session log | cloned |
 | Deliverables: summary, file list, diffs, desktop open | cloned (no right-Sidebar review tab) |
@@ -6314,13 +6314,16 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Locales (zh/en) | difference: English-only |
 
 **Verification limits.** Visual 1-to-1 remains unverified until `reference.png` is placed in the
-workspace. Live Host reads/writes were exercised once against the desktop-composed alpha Host
+workspace. Live Host reads/writes were exercised against the desktop-composed alpha Host
 ([record](NATIVE-LIVE-VERIFICATION.md)): session create/rename/page/projections, `@` file and
 session references, feedback list/delete and the put request shape, schedule catalog/history/
-delete/update request shapes, workspace create, directory listings, and the picker capability. That
-pass found and fixed three null-field defects in `c9dd30e`; it did not create a schedule task or an
-assistant message, open a desktop file successfully, run OAuth or run a model. The user-dependent
-items at the top of this document stand.
+delete/update request shapes, workspace create, directory listings, the picker capability, the queue,
+goal, attachment, terminal, registry, model-selection, cancel and command paths, and the
+`agent-preset-registry` settings namespace (its `settings/update` write and its roster shape). Those
+passes found and fixed six wire defects (`c9dd30e`, the preset and job-resume wires, and the
+`settings/update` endpoint added in `40d5073`); none created a schedule task or an assistant
+message, opened a desktop file successfully, ran OAuth or ran a model. The user-dependent items at
+the top of this document stand.
 
 ### Round 315 — the workflow-run chat card
 
