@@ -906,3 +906,44 @@ fn fork_in_flight_shares_the_single_management_rename_and_export_flight() {
     assert!(app.exporter.ticket().is_none());
     assert!(queue.try_recv().is_err());
 }
+
+/// A new conversation is offered only where its press would be accepted: the command fence
+/// drops `Message::NewSession` while observations are lost or a submission is in flight, so the
+/// three controls that draw the action must agree with it.
+#[test]
+fn new_conversation_is_not_offered_where_its_press_is_discarded() {
+    use dsh_native_transport::dto::{PromptContentPart, PromptMode};
+    let (mut app, _queue) = app();
+    assert!(app.can_create());
+    app.observations_lost = true;
+    assert!(!app.can_create(), "lost observations refuse the press");
+    app.observations_lost = false;
+    let session = id("a");
+    assert!(app.pending.insert(
+        7,
+        crate::worker::prompt_recovery::Pending {
+            session: session.clone(),
+            text: "PUBLIC frozen submission".into(),
+            draft_serial: 0,
+            epoch: app.transport_epoch,
+            file_request_id: None,
+            file: Vec::new(),
+            file_ticket: Vec::new(),
+            request: dsh_native_transport::dto::SessionPromptRequest {
+                session_id: session,
+                request_id:
+                    dsh_native_transport::dto::SessionRequestId::new("PUBLIC-request").unwrap(),
+                mode: PromptMode::Queue,
+                content: vec![PromptContentPart::Text {
+                    text: "PUBLIC frozen submission".into(),
+                }],
+                client_time_zone: Some("UTC".into()),
+            },
+        }
+    ));
+    assert!(
+        !app.can_create(),
+        "an in-flight submission refuses the press"
+    );
+    assert!(app.pending.is_empty() || !app.can_create());
+}

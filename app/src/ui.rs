@@ -11584,8 +11584,17 @@ impl App {
             .style(|_| panel(SURFACE))
             .into()
     }
+    /// Whether a new conversation can start. The two conditions beyond the smoke/ready/pending
+    /// ones are the same ones the command fence applies before the press reaches its handler
+    /// (`App::update`'s lost-observations and in-flight-submission gate): a control that is drawn
+    /// pressable must not have its press discarded, which is what the row select and the `⋯`
+    /// gate already do for the same states.
     fn can_create(&self) -> bool {
-        self.options.smoke.is_none() && self.ready && !self.new_pending
+        self.options.smoke.is_none()
+            && self.ready
+            && !self.new_pending
+            && !self.observations_lost
+            && self.pending.is_empty()
     }
     fn observe_title(&mut self, seq: i64, value: serde_json::Value) {
         let Some(id) = self.selected.clone() else {
