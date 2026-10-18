@@ -51,6 +51,23 @@ Reports contain exact commands, outcomes, toolchain details and before/after sou
 
 The fake-wire suite needs the existing `transport/tests` dependencies and `/usr/bin/node`; CI prepares them. The runner does not replace Node or install npm dependencies. Existing tests own their isolated fixtures and cleanup.
 
+## Suite state at the audit rounds (2026-10-17)
+
+`python3 -B scripts/verify-native.py --suite test` run after rounds 327-333 reports two failures,
+both recorded rather than repaired to make the run green:
+
+- **`binary-freshness`** — `app/target/release/dsh-native-app` is dated 06:52 and predates every
+  source change in those rounds, so the guard is right: the present artifact cannot launch the code
+  the rest of the suite describes. It was **not** rebuilt to clear the check; the stale artifact is
+  the signal. Each round's own battery ran the test targets directly, and the capture artifact
+  (`app/target/release/examples/layout_smoke`) was rebuilt warning-free before every capture.
+- **`wayland-drops`** — unchanged environment limit: `as-raw-xcb-connection v1.0.1` is absent from
+  the offline cache (`~/.cargo/registry/cache` carries no such entry), so `--offline` cannot fetch
+  it.
+
+Every other check passed: core, core-transport, transport, app, app-public, layout_smoke,
+scroll_app_smoke, bridge, script-guards, benchmark-guards, app-guards, release-guards.
+
 ## Resolved codex trace-read race
 
 `codex-app-server.test.mjs` counted the fake child's request log (`PUBLIC-requests.jsonl`) right
