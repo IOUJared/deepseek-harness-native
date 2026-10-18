@@ -14523,6 +14523,9 @@ impl App {
             );
             let write_enabled = enabled
                 && self.terminal.environment().is_some()
+                // A follow that ended leaves no attachment; offering Write there would refuse for
+                // a reason the button itself could have prevented.
+                && self.terminal.attached()
                 && !self.terminal.write_pending()
                 && !self.terminal.input().is_empty()
                 && self.terminal.input().len() as u64 <= self.terminal.max_input_bytes();
@@ -14576,6 +14579,11 @@ impl App {
             Notice::LimitsUnavailable => label(
                 "This Session has no registered Agent, so Host limits are unavailable; history is read-only here.",
                 MUTED,
+            )
+            .size(11),
+            Notice::Detached => label(
+                "The Host attachment ended. Select the terminal again before writing; nothing was written.",
+                DANGER,
             )
             .size(11),
             Notice::Busy => label(

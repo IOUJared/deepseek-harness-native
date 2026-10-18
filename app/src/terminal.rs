@@ -183,6 +183,8 @@ pub enum Notice {
     LimitsUnavailable,
     /// Another terminal operation is outstanding, so a drawn control's press was not admitted.
     Busy,
+    /// The Host attachment this panel held has ended; nothing can be written until it reattaches.
+    Detached,
     CreateReview,
     Creating,
     CreateFailed,
@@ -455,6 +457,11 @@ impl Terminal {
     pub fn environment(&self) -> Option<&TerminalEnvironment> {
         self.environment.as_ref()
     }
+    /// Whether this panel holds the live attachment a write needs. A follow that ended clears it,
+    /// so the Write control can be disabled instead of refusing with unrelated copy.
+    pub fn attached(&self) -> bool {
+        self.attachment.is_some()
+    }
     pub fn selected(&self) -> Option<&WebTerminalId> {
         self.selected.as_ref()
     }
@@ -678,7 +685,9 @@ impl Terminal {
                     self.notice = Notice::WritePending;
                 } else if self.input.len() as u64 > self.max_input_bytes {
                     self.notice = Notice::InputRefused;
-                } else {
+                } else if matches!(self.notice, Notice::InputRefused | Notice::WriteRefused) {
+                    // Typing is how the operator fixes those two; every other notice states an
+                    // event (a detached follow, a failed read) that a keystroke must not erase.
                     self.notice = Notice::None;
                 }
             }
@@ -691,7 +700,13 @@ impl Terminal {
             {
                 let (Some(id), Some(attachment)) = (self.selected.clone(), self.attachment.clone())
                 else {
-                    self.notice = Notice::InputRefused;
+                    // A detached follow is not an empty field or a missing selection: say what
+                    // actually happened so the operator reattaches instead of retyping.
+                    self.notice = if self.selected.is_some() {
+                        Notice::Detached
+                    } else {
+                        Notice::InputRefused
+                    };
                     return None;
                 };
                 if self.input.is_empty() || self.input.len() as u64 > self.max_input_bytes {
@@ -1144,6 +1159,40 @@ mod tests {
         assert!(output.truncated() - before > CHUNK_BYTES);
         output.clear();
         assert_eq!(output.truncated(), 0);
+    }
+    #[test]
+    fn a_detached_follow_refuses_a_write_by_name_and_keeps_its_warning() {
+        let mut terminal = opened();
+        let follow = select(&mut terminal);
+        assert!(terminal.attached());
+        let t = ticket(&terminal);
+        let _ = terminal.apply(
+            Action::EditInput {
+                ticket: t.clone(),
+                text: "PUBLIC input".into(),
+            },
+            &context(),
+        );
+        // The Host retires the attachment; the panel must say so and stop offering a write.
+        terminal.follow_ended(&follow, None);
+        assert!(!terminal.attached());
+        assert_eq!(terminal.notice(), &Notice::FollowEnded);
+        // Typing is not an event that erases the warning.
+        let _ = terminal.apply(
+            Action::EditInput {
+                ticket: t.clone(),
+                text: "PUBLIC input, retyped".into(),
+            },
+            &context(),
+        );
+        assert_eq!(
+            terminal.notice(),
+            &Notice::FollowEnded,
+            "a keystroke must not hide a detached follow"
+        );
+        // And a write with text still in the field names the real cause, not an empty field.
+        assert!(terminal.apply(Action::Write(t), &context()).is_none());
+        assert_eq!(terminal.notice(), &Notice::Detached);
     }
     #[test]
     fn a_press_the_admission_guard_refuses_names_its_condition() {

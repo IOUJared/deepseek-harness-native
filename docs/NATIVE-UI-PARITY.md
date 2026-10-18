@@ -7241,3 +7241,30 @@ removes a pane rather than drawing a new one.
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+### Round 340 — a detached follow stops offering to write
+
+**Another terminal-audit finding.** `follow_ended` clears the panel's attachment
+(`terminal.rs:927-936`) but `write_enabled` never checked it (`ui.rs:14524-14528`), so the Write
+button stayed live after the Host retired the follow; pressing it produced `InputRefused`, whose
+copy blames a missing selection, an empty field or the size bound — none of which was true. Worse,
+one keystroke in the field reset the notice to `None` (`terminal.rs:660-666`), erasing the
+`FollowEnded` warning that explained the state.
+
+Now `Terminal::attached()` gates the Write control, the write refusal distinguishes a detached
+follow from a missing selection with its own `Detached` notice ("The Host attachment ended. Select
+the terminal again before writing; nothing was written."), and an edit only clears the two notices
+it is the fix for (`InputRefused`, `WriteRefused`) — every other notice states an event a keystroke
+must not erase. One model test, `a_detached_follow_refuses_a_write_by_name_and_keeps_its_warning`.
+
+**Battery (round 340).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1238 passed**, 1 ignored |
+| app, default | **0** | **1231 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 88 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
