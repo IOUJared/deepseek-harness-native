@@ -275,26 +275,33 @@ impl App {
         order.swap(index, other);
         Some(order)
     }
-    /// Whether one destination is the conversation's current sidebar group. The panel draws it as
-    /// its current value rather than a button: `sidebar_organization` refuses a move to the group a
-    /// conversation already holds, so the press would be inert.
+    /// Whether choosing one destination would leave the conversation in the group it is already
+    /// drawn in. Both sides resolve the same way, because `Original` names whatever group the
+    /// roster puts the conversation in: comparing the *stored* locations instead made a group's
+    /// own row pressable whenever the stored value was still `Original`, and the press only moved
+    /// the "Current" marker.
     pub(super) fn sidebar_destination_current(
         &self,
         target: &SessionId,
         location: &Location,
     ) -> bool {
-        self.sidebar_organization.location(target) == *location
+        self.sidebar_group(target) == self.destination_group(target, location)
     }
-    pub(super) fn sidebar_group(&self, target: &SessionId) -> Option<WorkspaceId> {
-        match self.sidebar_organization.location(target) {
+    /// The group one destination names for this conversation, independent of where it is stored.
+    fn destination_group(&self, target: &SessionId, location: &Location) -> Option<WorkspaceId> {
+        match location {
             Location::Original => self
                 .workspaces
                 .iter()
                 .find(|w| w.session_ids.contains(target))
                 .map(|w| w.workspace_id.clone()),
-            Location::Workspace(id) => Some(id),
+            Location::Workspace(id) => Some(id.clone()),
             Location::Ungrouped => None,
         }
+    }
+    pub(super) fn sidebar_group(&self, target: &SessionId) -> Option<WorkspaceId> {
+        let location = self.sidebar_organization.location(target);
+        self.destination_group(target, &location)
     }
     /// One workspace destination: a pressable row for every group the conversation is not in, and
     /// a plain "Current" line for the one it holds. Drawing an inert button there was the bug: the
@@ -304,10 +311,10 @@ impl App {
         name: String,
         location: Location,
         stamp: &Stamp,
-        current: &Location,
+        current: bool,
         enabled: bool,
     ) -> Element<'a, Message> {
-        if *current == location {
+        if current {
             return row![
                 label(name, MUTED).size(12),
                 label("Current", MUTED).size(10),
@@ -474,30 +481,32 @@ impl App {
                 })
                 .unwrap_or("Ungrouped");
             body = body.push(label(format!("SIDEBAR WORKSPACE · {group_name}"), MUTED).size(10));
-            let current = self.sidebar_organization.location(&stamp.target);
+            let current =
+                |location: &Location| self.sidebar_destination_current(&stamp.target, location);
             let mut destinations = column![
                 self.sidebar_destination_row(
                     "Original workspace".to_owned(),
                     Location::Original,
                     &stamp,
-                    &current,
+                    current(&Location::Original),
                     enabled,
                 ),
                 self.sidebar_destination_row(
                     "Ungrouped".to_owned(),
                     Location::Ungrouped,
                     &stamp,
-                    &current,
+                    current(&Location::Ungrouped),
                     enabled,
                 ),
             ]
             .spacing(3);
             for workspace in self.workspaces.iter().take(128) {
+                let location = Location::Workspace(workspace.workspace_id.clone());
                 destinations = destinations.push(self.sidebar_destination_row(
                     short(&workspace.title, 52),
-                    Location::Workspace(workspace.workspace_id.clone()),
+                    location.clone(),
                     &stamp,
-                    &current,
+                    current(&location),
                     enabled,
                 ));
             }

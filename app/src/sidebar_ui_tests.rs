@@ -327,6 +327,10 @@ fn every_destination_the_store_would_refuse_is_drawn_as_the_current_group() {
     assert!(app.sidebar_destination_current(&id("b"), &Location::Original));
     assert!(!app.sidebar_destination_current(&id("b"), &Location::Ungrouped));
     assert!(!app.sidebar_destination_current(&id("b"), &Location::Workspace(workspace("w2"))));
+    // Its original workspace IS w1 through the roster, so naming w1 leaves it in the group it is
+    // already drawn in: the row must read Current rather than offering a press that only moves the
+    // marker from "Original workspace" to "w1".
+    assert!(app.sidebar_destination_current(&id("b"), &Location::Workspace(workspace("w1"))));
     // The store refuses that move, which is why the drawn button could only be inert.
     let stamp = app.sidebar_organization.stamp().unwrap();
     assert!(
