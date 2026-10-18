@@ -56,6 +56,48 @@ async fn plugin_projection_and_revisioned_scalar_write_use_exact_private_wire() 
 }
 
 #[tokio::test]
+async fn the_agent_preset_default_uses_the_settings_update_wire_the_reference_uses() {
+    // The live Host answers this namespace with autoGenerate:false
+    // (docs/NATIVE-LIVE-VERIFICATION.md), so the config-form mutate path cannot write it: the
+    // reference writes through settings/update and so does this app.
+    let mut fixture = NodeHostFixture::start("normal").await;
+    let client = fixture.connect(Limits::default()).await.unwrap();
+    let view = client.agent_preset_default("ptc").await.unwrap();
+    assert_eq!(view.ns, "agent-preset-registry");
+    assert!(!view.auto_generate);
+    // The roster re-read confirms the write; the reply itself carries no projected field.
+    assert!(view.fields.is_empty());
+    assert_eq!(
+        client.agent_preset_default("").await,
+        Err(Error::InvalidDto)
+    );
+    assert_eq!(
+        client.agent_preset_default("ptc\u{0}").await,
+        Err(Error::InvalidDto)
+    );
+    client.close().await;
+    fixture.stop().await;
+}
+
+#[tokio::test]
+async fn agent_preset_default_classifies_refusals_and_rejects_a_foreign_namespace() {
+    for (mode, expected) in [
+        ("agent-preset-refused", Error::SettingsRejected),
+        ("agent-preset-conflict", Error::SettingsConflict),
+        ("agent-preset-wrong-ns", Error::Correlation),
+        ("agent-preset-malformed", Error::InvalidDto),
+    ] {
+        let mut fixture = NodeHostFixture::start(mode).await;
+        let client = fixture.connect(Limits::default()).await.unwrap();
+        let error = client.agent_preset_default("ptc").await.unwrap_err();
+        assert_eq!(error, expected, "{mode}");
+        assert!(!format!("{error:?} {error}").contains("PRIVATE"));
+        client.close().await;
+        fixture.stop().await;
+    }
+}
+
+#[tokio::test]
 async fn plugin_errors_never_echo_host_messages_or_config() {
     for mode in ["failure", "wrong-rpc", "plugin-readonly"] {
         let mut fixture = NodeHostFixture::start(mode).await;

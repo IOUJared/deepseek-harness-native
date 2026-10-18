@@ -10,6 +10,7 @@ let origin, cookieName;
 let nextSelfReplyEvent = () => {};
 let selfReplyEventNumber = 0;
 let pluginRevision = 3, pluginCount = 4, pluginMutations = 0, pluginDescriptions = 0;
+let agentPresetDefault = null, agentPresetWrites = 0;
 const claims = new Map();
 let claimOpens = 0, claimCancels = 0, claimReplyRequests = 0, claimRejects = 0, claimDisconnects = 0, claimLateFramesSent = 0;
 const claimMethods = Object.create(null);
@@ -18,6 +19,10 @@ function endClaims() {
   claims.clear();
 }
 const pluginNamespace = () => ({ ns: 'probe', revision: pluginRevision, autoGenerate: true, applies: 'live', schema: { uid: 1, refs: { 1: { type: 'object', meta: {}, dict: { count: 2, apiKey: 3, provider: 4 } }, 2: { type: 'number', meta: { min: 1, max: 8, step: 1 } }, 3: { type: 'string', meta: { role: 'secret' } }, 4: { type: 'string', meta: { role: 'credential-ref' } } } }, value: { count: pluginCount, apiKey: 'PRIVATE_PLUGIN_SENTINEL', provider: 'PRIVATE_REFERENCE_SENTINEL' }, base: {}, user: { count: pluginCount }, secrets: [{ path: ['apiKey'], set: true }] });
+const agentPresetNamespace = () => ({ ns: 'agent-preset-registry', revision: 0, autoGenerate: false, applies: 'live',
+  schema: { uid: 4115, refs: { 4114: { type: 'string', meta: {} }, 4115: { type: 'object', meta: { default: {} }, dict: { selectedDefault: 4114 } } } },
+  value: agentPresetDefault === null ? {} : { selectedDefault: agentPresetDefault }, base: {},
+  user: agentPresetDefault === null ? {} : { selectedDefault: agentPresetDefault }, secrets: [] });
 const cookieValue = 'v1.fixture.signature';
 const terminalInfo = () => ({ id: 'PUBLIC-terminal-1', title: 'PUBLIC terminal', shell: { path: '/bin/PUBLIC-shell', args: ['-l'], name: 'PUBLIC shell' }, cwd: '/PUBLIC/cwd', cols: 80, rows: 24, state: 'running', exitCode: null });
 const terminalAgent = 'session / terminal opaque:%';
@@ -222,6 +227,16 @@ const server = http.createServer(async (request, response) => {
       if (mode === 'plugin-custom-page') value.namespaces[0].autoGenerate = false;
       if (mode === 'plugin-changed-value' && pluginDescriptions > 1) value.namespaces[0].value.count = 6;
       break;
+    case 'settings/update':
+      // The reference's own write: the namespace and its one string field, no expectedRevision,
+      // and nothing else in the body. Anything else is a fixture failure, not a Host behaviour.
+      agentPresetWrites++;
+      if (!isDeepStrictEqual(args, { ns: 'agent-preset-registry', patch: { selectedDefault: 'ptc' } })) { response.writeHead(400); response.end(); return; }
+      if (!['agent-preset-refused', 'agent-preset-conflict'].includes(mode)) agentPresetDefault = 'ptc';
+      value = agentPresetNamespace();
+      if (mode === 'agent-preset-wrong-ns') value = { ...value, ns: 'probe' };
+      if (mode === 'agent-preset-malformed') value = { ...value, schema: 'PRIVATE_SETTINGS_SENTINEL', revision: 'not-a-number' };
+      break;
     case 'settings/mutate':
       pluginMutations++;
       if (!isDeepStrictEqual(args, { ns: 'probe', ops: [{ op: 'set', path: ['count'], value: 5 }], expectedRevision: 3 })) { response.writeHead(400); response.end(); return; }
@@ -298,6 +313,7 @@ const server = http.createServer(async (request, response) => {
   }
   const output = { type: 'server-response', rpcId: mode === 'wrong-rpc' ? 'wrong' : envelope.rpcId, result: { ok: true, ...(value === undefined ? {} : { value }) } };
   if (mode === 'missing-available') delete output.result.value.items[0].agentAvailable;
+  if (envelope.method === 'settings/update' && ['agent-preset-refused', 'agent-preset-conflict'].includes(mode)) output.result = { ok: false, error: { code: mode === 'agent-preset-conflict' ? 'settings/conflict' : 'settings/rejected', message: 'PRIVATE_SETTINGS_SENTINEL', details: {} } };
   if (envelope.method === 'settings/mutate' && ['plugin-conflict', 'plugin-rejected', 'plugin-postcommit'].includes(mode)) output.result = { ok: false, error: { code: mode === 'plugin-conflict' ? 'settings/conflict' : mode === 'plugin-rejected' ? 'settings/rejected' : 'gateway/internal', message: 'PRIVATE_PLUGIN_SENTINEL', details: {} } };
   if (mode === 'commands-context-missing' && envelope.method === 'commands/list') output.result = { ok: false, error: { code: 'gateway/context-not-found', message: 'PRIVATE_CONTEXT_SENTINEL', details: {} } };
   if (mode === 'fork-unavailable') output.result = { ok: false, error: { code: 'session/fork-unavailable', message: 'PRIVATE_FORK_SENTINEL', details: {} } };

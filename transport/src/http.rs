@@ -184,6 +184,7 @@ enum Endpoint {
     JobKill,
     PluginSettings,
     PluginMutate,
+    SettingsUpdate,
     TerminalCreate,
     TerminalList,
     TerminalShells,
@@ -259,6 +260,7 @@ impl Endpoint {
             Self::JobKill => "job/kill",
             Self::PluginSettings => "settings/describe",
             Self::PluginMutate => "settings/mutate",
+            Self::SettingsUpdate => "settings/update",
             Self::TerminalCreate => "terminal/create",
             Self::TerminalList => "terminal/list",
             Self::TerminalShells => "terminal/shells",
@@ -482,11 +484,15 @@ impl NativeClient {
                 Err(
                     match (endpoint, error.get("code").and_then(Value::as_str)) {
                         (
-                            Endpoint::PluginSettings | Endpoint::PluginMutate,
+                            Endpoint::PluginSettings
+                            | Endpoint::PluginMutate
+                            | Endpoint::SettingsUpdate,
                             Some("settings/conflict"),
                         ) => Error::SettingsConflict,
                         (
-                            Endpoint::PluginSettings | Endpoint::PluginMutate,
+                            Endpoint::PluginSettings
+                            | Endpoint::PluginMutate
+                            | Endpoint::SettingsUpdate,
                             Some("settings/rejected"),
                         ) => Error::SettingsRejected,
                         // A fork refusal before child creation is deterministic; the attach
@@ -1178,6 +1184,33 @@ impl NativeClient {
             )
             .await?,
         )
+    }
+    /// Make one roster preset the default for sessions created later. The reference writes the
+    /// settings namespace field this way (`ui-agent-preset/src/client/settings-store.ts:35`:
+    /// `settings.update('agent-preset-registry', { selectedDefault: id })`) and sends no
+    /// `expectedRevision` there, so this app sends none either; the roster re-read is what
+    /// confirms the write, and a refusal is reported rather than retried.
+    pub async fn agent_preset_default(
+        &self,
+        preset: &str,
+    ) -> Result<crate::plugin::SettingsNamespaceView> {
+        if !crate::plugin::valid_preset_id(preset) {
+            return Err(Error::InvalidDto);
+        }
+        let view = crate::plugin::project_namespace(
+            self.invoke(
+                Endpoint::SettingsUpdate,
+                json!({
+                    "ns": crate::plugin::AGENT_PRESET_NAMESPACE,
+                    "patch": { "selectedDefault": preset },
+                }),
+            )
+            .await?,
+        )?;
+        if view.ns != crate::plugin::AGENT_PRESET_NAMESPACE {
+            return Err(Error::Correlation);
+        }
+        Ok(view)
     }
     /// Metadata-only global Loader rows; no installation or enablement authority.
     pub async fn plugin_inventory(&self) -> Result<crate::plugin::PluginInventorySnapshot> {

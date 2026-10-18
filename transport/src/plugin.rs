@@ -13,6 +13,17 @@ const MAX_ITEMS: usize = 32768;
 const MAX_BYTES: usize = 1024 * 1024;
 const MAX_REVISION: u64 = 9_007_199_254_740_991;
 
+/// The Host settings namespace the new-session preset default lives in. The reference names the
+/// same string once (`ui-agent-preset/src/client/settings-store.ts:12`) and writes its
+/// `selectedDefault` field through `settings.update`.
+pub const AGENT_PRESET_NAMESPACE: &str = "agent-preset-registry";
+
+/// One roster preset id: the bounded printable text the bridge already enforces on a roster row,
+/// so a write can only name a preset the read would have accepted.
+pub fn valid_preset_id(value: &str) -> bool {
+    text(value, 128)
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct PluginInventorySnapshot {
     pub entries: Vec<PluginEntry>,

@@ -89,6 +89,28 @@ No reply diverged from the native DTOs. The optional `reasoningEffort` on the se
 Host's committed default, and our type keeps it optional. These are shape and business-error
 observations, not a claim that a queued turn, goal mutation or terminal session succeeded.
 
+## Fourth pass — the agent-preset settings namespace
+
+A third probe booted the pinned runtime the same way (isolated home, desktop profile, cleared
+environment) and asked the composed Host directly, then repeated the write over the BFF with the
+launch-token cookie and the exact ClientRPC envelope:
+
+| Call, exact body | Result |
+| --- | --- |
+| `settings.describe()` → `agent-preset-registry` | `{revision:0, autoGenerate:false, value:{}}`, schema `{selectedDefault: string}` |
+| `agentPresets.remoteExportList()` (what the bridge reads) | `{presets:[{id:"standard",order:1,isDefault:true},{id:"ptc",order:2,isDefault:false},{id:"minimal",…},{id:"cordis",…}]}` |
+| `POST settings/update` `{"ns":"agent-preset-registry","patch":{"selectedDefault":"ptc"}}` | `{ok:true}` with the namespace view carrying `value:{selectedDefault:"ptc"}`, `user:{selectedDefault:"ptc"}`, `autoGenerate:false`, `revision:0` |
+| `settings.describe()` again | the field now reads `selectedDefault:"ptc"` |
+| `POST settings/update` with a stale `expectedRevision:0` | accepted (no conflict): this namespace's revision is not a working CAS fence |
+| `settings.mutate('agent-preset-registry', …)` | accepted, but the native config-form path cannot use it: its local guard refuses a namespace with `autoGenerate:false` |
+| `agentPresets.read(id)` | **absent** in this build (`presets.read is not a function`), so the reference's read-only composition viewer has no wire here |
+
+**What this establishes.** The new-session preset default is a settings namespace field written with
+`settings/update`, not `settings/mutate`, and the native client now sends exactly that body
+(`NativeClient::agent_preset_default`, fake-wire-tested for the exact envelope and the refusal
+codes). It does **not** establish a live write from the app: the probe used the same body over the
+BFF but not through `dsh-native-transport`, and nothing in the app issued it yet.
+
 ## Findings
 
 1. **`messageFeedback/put` sent `null` for absent optional strings.** A plain rating or a note

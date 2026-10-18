@@ -6849,3 +6849,35 @@ separate load-induced `STARTUP_TIMEOUT` in the same file is recorded in
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | tree | — | clean before the commit |
+
+### Round 330 — the preset default's wire (transport half)
+
+**The fourth settings-audit finding's write path had no endpoint, and a live probe showed which
+one it is.** Settings → Agent presets is a nav row over one static paragraph, while the reference
+mounts a real section whose `makeDefault` writes `agent-preset-registry`'s `selectedDefault`
+through `settings.update` (`ui-agent-preset/src/client/settings-store.ts:12,35`). A probe against
+the pinned runtime — the same desktop composition, isolated home and cleared environment the app
+uses — found that namespace at `autoGenerate:false`, so the app's existing config-form write
+(`settings/mutate`, whose local guard refuses a non-auto-generated namespace) **cannot** write it,
+while `settings/update` accepts the reference's exact body. [Observed results and
+limits](NATIVE-LIVE-VERIFICATION.md#fourth-pass--the-agent-preset-settings-namespace).
+
+The transport gained `Endpoint::SettingsUpdate` (`settings/update`), the fixed `settings/conflict`
+and `settings/rejected` mappings for it, `plugin::AGENT_PRESET_NAMESPACE` and
+`plugin::valid_preset_id`, and `NativeClient::agent_preset_default`, which sends exactly
+`{ns:"agent-preset-registry", patch:{selectedDefault:<id>}}` and no `expectedRevision` (the
+reference sends none either; that namespace's revision is not a working fence). The reply is
+projected like every other settings view and a foreign namespace is refused as a correlation
+failure.
+
+Two fake-wire tests pin it: the exact envelope plus the empty/control-character refusals before any
+transmission, and the four negative modes (`settings/rejected`, `settings/conflict`, a foreign
+namespace, a malformed view). Transport grows from **86** to **88** tests. The UI half follows.
+
+**Battery (round 330).**
+
+| gate | status | result |
+| --- | --- | --- |
+| transport | **0** | 56 + 17 + **88** + 7 |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
