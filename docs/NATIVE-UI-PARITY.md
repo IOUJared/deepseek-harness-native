@@ -7179,3 +7179,36 @@ the Host attachment live, and `NATIVE-TERMINAL.md:45`'s claim that dimensions ar
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+### Round 338 — a refused terminal press says why
+
+**The terminal audit's highest finding: three drawn controls died in the wildcard.** `enabled` in
+the panel is `context.allowed && current && !busy()`, but admission asks more — a create needs
+`environment.is_some()`, the list bound and no outstanding write, and a close review needs no
+outstanding write. Pressing "New terminal…", "Close…" or "Confirm create" while one of those held
+fell through to `_ => {}`: no review, no command, no notice. The primary control was pressable and
+did nothing, most visibly in the `environment: None` case the app already reaches whenever the
+Session has no registered Agent or the best-effort environment read failed.
+
+Each of those actions now has a second arm after its admission guard that names the blocking
+condition: `LimitsUnavailable` when no environment answered, the new `Busy` notice ("Another
+terminal operation is still settling; nothing was admitted. Wait for its acknowledgment.") while a
+create, close or write is outstanding, and `CreateLimit` for the list bound. A stale or foreign
+review still falls through — that is a different event, not a blocked press.
+
+One model test, `a_press_the_admission_guard_refuses_names_its_condition`, presses the real
+`Action`s with no environment and with an outstanding write and asserts the notice and that no
+review opened. No capture: the terminal panel has no fixture mode, and the change is the notice
+line's text inside the existing panel.
+
+**Battery (round 338).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1236 passed**, 1 ignored |
+| app, default | **0** | **1229 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 88 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |

@@ -14566,6 +14566,11 @@ impl App {
                 MUTED,
             )
             .size(11),
+            Notice::Busy => label(
+                "Another terminal operation is still settling; nothing was admitted. Wait for its acknowledgment.",
+                MUTED,
+            )
+            .size(11),
             Notice::CreateReview => label("Review the shell and dimensions, then Confirm.", MUTED).size(11),
             Notice::Creating => label(
                 "Create admitted. Closing does not cancel or undo it; the terminal appears only from the Host acknowledgment.",

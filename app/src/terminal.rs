@@ -181,6 +181,8 @@ pub enum Notice {
     },
     /// The Session has no registered Agent: history lists, but create/write cannot run.
     LimitsUnavailable,
+    /// Another terminal operation is outstanding, so a drawn control's press was not admitted.
+    Busy,
     CreateReview,
     Creating,
     CreateFailed,
@@ -812,6 +814,35 @@ impl Terminal {
                 self.notice = Notice::Closing;
                 return Some(Effect::Close(CloseSubmission { receipt }));
             }
+            // A press that an admission guard refuses is still a user action, and the control stays
+            // drawn. Name the blocking condition here instead of letting the wildcard swallow it
+            // silently; the guarded arms above already matched every admitted press.
+            Action::ReviewCreate(ticket) if self.current(&ticket, context) => {
+                self.notice = if self.environment.is_none() {
+                    Notice::LimitsUnavailable
+                } else if self.busy() || self.write_pending.is_some() {
+                    Notice::Busy
+                } else {
+                    Notice::CreateLimit
+                };
+            }
+            Action::ConfirmCreate(review)
+                if self.current(&review.ticket, context)
+                    && self.create_review.as_ref() == Some(&review) =>
+            {
+                self.notice = Notice::Busy;
+            }
+            Action::ReviewClose { ticket, id }
+                if self.current(&ticket, context) && self.list.iter().any(|info| info.id == id) =>
+            {
+                self.notice = Notice::Busy;
+            }
+            Action::ConfirmClose(review)
+                if self.current(&review.ticket, context)
+                    && self.close_review.as_ref() == Some(&review) =>
+            {
+                self.notice = Notice::Busy;
+            }
             _ => {}
         }
         None
@@ -1113,6 +1144,67 @@ mod tests {
         assert!(output.truncated() - before > CHUNK_BYTES);
         output.clear();
         assert_eq!(output.truncated(), 0);
+    }
+    #[test]
+    fn a_press_the_admission_guard_refuses_names_its_condition() {
+        // No registered Agent: the create control is drawn but the write cannot run.
+        let mut terminal = Terminal::default();
+        let effect = terminal
+            .apply(
+                Action::Open {
+                    view: context().view.unwrap(),
+                },
+                &context(),
+            )
+            .expect("open reads the host list");
+        let Effect::Read(read) = effect else {
+            panic!("opening must only read");
+        };
+        terminal.loaded(
+            &read,
+            Ok(Loaded {
+                list: Vec::new(),
+                shells: vec![shell()],
+                environment: None,
+            }),
+        );
+        let t = ticket(&terminal);
+        assert!(
+            terminal
+                .apply(Action::ReviewCreate(t.clone()), &context())
+                .is_none()
+        );
+        assert_eq!(terminal.notice(), &Notice::LimitsUnavailable);
+        assert!(!terminal.review_create());
+        // An outstanding write blocks a close review, and says so.
+        let mut terminal = opened();
+        let _follow = select(&mut terminal);
+        let t = ticket(&terminal);
+        let _ = terminal.apply(
+            Action::EditInput {
+                ticket: t.clone(),
+                text: "PUBLIC input".into(),
+            },
+            &context(),
+        );
+        assert!(matches!(
+            terminal.apply(Action::Write(t.clone()), &context()),
+            Some(Effect::Write(_))
+        ));
+        assert!(terminal.write_pending());
+        assert!(
+            terminal
+                .apply(
+                    Action::ReviewClose {
+                        ticket: t,
+                        id: tid("PUBLIC-terminal-1"),
+                    },
+                    &context()
+                )
+                .is_none()
+        );
+        assert_eq!(terminal.notice(), &Notice::Busy);
+        assert!(terminal.review_close().is_none());
     }
     #[test]
     fn a_refused_list_read_never_leaves_a_loading_claim() {
