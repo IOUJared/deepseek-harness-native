@@ -7442,3 +7442,29 @@ picker is gone after Cancel and after the page closes.
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+### Round 346 — a failed history page-in keeps what is already shown
+
+**Second finding of the schedules audit.** `Event::ScheduleHistoryLoaded` set
+`schedule_history_page = None` on a failure, and the block drew the error with `else if` before the
+page — so pressing "Load older" on a transient failure wiped the deliveries already on screen and
+removed the retry control with them (it lived inside `if let Some(page)`). Round 293's claim, "a
+failure leaves the existing records and shows the red error", was false for the page-in path.
+
+A failed page-in now keeps the page and its cursor, so the records stay readable and "Load older"
+stays pressable; the error line and the page are drawn together instead of exclusively. One App
+test, `a_failed_page_in_keeps_the_deliveries_already_shown`, loads a page, presses the real
+`Message::ScheduleHistoryOlder`, feeds the failure, and asserts the record count, the error and the
+cursor all survive.
+
+**Battery (round 346).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1246 passed**, 1 ignored |
+| app, default | **0** | **1239 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 88 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |

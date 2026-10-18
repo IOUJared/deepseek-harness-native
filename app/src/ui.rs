@@ -5677,7 +5677,8 @@ impl App {
                                 Some("No retained deliveries for this task.".into());
                         }
                         Err(error) => {
-                            self.schedule_history_page = None;
+                            // A failed page-in keeps what is already on screen: the records stay
+                            // readable and the "Load older" control stays available to retry.
                             self.schedule_history_error = Some(error);
                         }
                     }
@@ -14078,7 +14079,8 @@ impl App {
                 row = row.push(Space::new().height(2));
                 if let Some(error) = &self.schedule_history_error {
                     row = row.push(label(short(error, 140), DANGER).size(10));
-                } else if let Some(page) = &self.schedule_history_page {
+                }
+                if let Some(page) = &self.schedule_history_page {
                     if page.records.is_empty() {
                         row = row.push(label("No retained deliveries.", MUTED).size(10));
                     }
@@ -17743,6 +17745,66 @@ mod tests {
         }));
         assert!(app.schedules.is_empty());
         assert!(app.schedule_busy.is_none());
+    }
+    #[test]
+    fn a_failed_page_in_keeps_the_deliveries_already_shown() {
+        use dsh_native_transport::dto::{
+            ScheduleDeliveryRecord, ScheduleHistory, ScheduleHistoryOutcome,
+        };
+        let (mut app, _receiver) = managed_app();
+        let _ = app.update(Message::OpenSchedules);
+        let session = app.selected.clone().unwrap();
+        let page = ScheduleHistory {
+            id: "PUBLIC-schedule".into(),
+            records: vec![ScheduleDeliveryRecord {
+                scheduled_at: "2026-10-17T09:00:00Z".into(),
+                delivered_at: "2026-10-17T09:00:01Z".into(),
+                message_id: "PUBLIC-delivery".into(),
+                prompt: Some("PUBLIC prompt".into()),
+            }],
+            earlier_records_unavailable: false,
+            earlier_records_pruned: false,
+            retention_days: 7,
+            retention_records: 50,
+            next_before: Some("PUBLIC-cursor".into()),
+        };
+        let _ = app.update(Message::ScheduleHistory(
+            session.clone(),
+            "PUBLIC-schedule".into(),
+        ));
+        let _ = app.update(Message::Worker(Event::ScheduleHistoryLoaded {
+            session: session.clone(),
+            id: "PUBLIC-schedule".into(),
+            result: Ok(ScheduleHistoryOutcome::History(page)),
+        }));
+        assert_eq!(
+            app.schedule_history_page
+                .as_ref()
+                .map(|page| page.records.len()),
+            Some(1)
+        );
+        // A failed "Load older" must not wipe the records that are already on screen.
+        let _ = app.update(Message::ScheduleHistoryOlder);
+        let _ = app.update(Message::Worker(Event::ScheduleHistoryLoaded {
+            session,
+            id: "PUBLIC-schedule".into(),
+            result: Err("PUBLIC transient failure".into()),
+        }));
+        assert_eq!(
+            app.schedule_history_page
+                .as_ref()
+                .map(|page| page.records.len()),
+            Some(1),
+            "the loaded deliveries survive a failed page-in"
+        );
+        assert!(app.schedule_history_error.is_some());
+        // The cursor survives too, so the control can be pressed again.
+        assert_eq!(
+            app.schedule_history_page
+                .as_ref()
+                .and_then(|page| page.next_before.as_deref()),
+            Some("PUBLIC-cursor")
+        );
     }
     #[test]
     fn closing_the_schedule_editor_also_releases_its_picker() {
