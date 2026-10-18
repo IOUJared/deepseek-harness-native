@@ -8148,3 +8148,29 @@ the table is the only place that claimed it.
 | format debt | **0** | 0 files, 0 hunks |
 | DP-2 capture | — | `shots/165-sheet-search.png`, `status: passed` |
 | tree | — | clean before the docs commit |
+
+### Round 364 — the file link shrinks to its path, so the diff totals sit beside it
+
+Round 354 fixed *what* the tool row's path says and left *where the row puts what follows*. The
+target was a filling element for every verb, while the reference makes a file link shrink-to-fit
+(`.fileLink { flex: 0 1 auto }`) and only a plain summary fill (`.summary { flex: 1 1 auto }`,
+`ToolRow.module.css:35-43, 84-104`). So the reference's `+N −N` totals sit immediately after the
+path, and native's were pushed to the row's trailing edge; native's own `Output` suffix went with
+them.
+
+The file link now shrinks. `shots/163-tool-diff.png` shows `Edit · src/PUBLIC-note.txt  +1 −1` and
+`Edit · … +1 −1  Output` adjacent, while the Bash rows keep their trailing marker because a
+non-file summary still fills. `shots/158-…` and `164-…` were re-captured at the same time so the
+archived evidence matches the current layout rather than the earlier one.
+
+This is the one place the reference's flex rules were still unported; the row's own height comes
+from the fixed 24px line box, so nothing in the measurement model changed.
+
+**Battery (round 364).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1273 passed**, 1 ignored |
+| app, default | **0** | **1266 passed**, 1 ignored |
+| DP-2 capture | — | `shots/158-…`, `163-…`, `164-…` re-captured, all `status: passed` |
+| tree | — | clean before the commit |

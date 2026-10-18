@@ -13097,6 +13097,12 @@ impl App {
                 // The web gives tool-row file links a grey dotted affordance;
                 // Iced draws the same resting affordance as a solid MUTED
                 // underline. Commands and generic labels stay plain.
+                //
+                // The file link is shrink-to-fit, not filling: the reference's
+                // `.fileLink { flex: 0 1 auto }` ends its click target where the path text
+                // ends, so the summary suffix and the `+N −N` totals sit immediately after the
+                // path, where `.summary { flex: 1 1 auto }` pushes them to the row's edge for
+                // every other tool (`ToolRow.module.css:35-43, 84-104`).
                 let target_element: Element<'_, Message> =
                     if matches!(verb, "Read" | "Edit" | "Write") {
                         rich_text([span::<(), iced::Font>(short(target, target_limit))
@@ -13104,7 +13110,6 @@ impl App {
                             .underline(true)])
                         .font(FONT)
                         .size(12)
-                        .width(Length::Fill)
                         .into()
                     } else {
                         label(short(target, target_limit), MUTED)
