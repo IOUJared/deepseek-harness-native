@@ -4202,8 +4202,18 @@ impl App {
             }
             Message::GoalEditInput(text) if self.layout_controls_enabled() => {
                 if let Some((_, draft)) = &mut self.goal_edit {
-                    if text.len() <= 4096 {
+                    // The bound is the transport's own (`goal_edit` refuses more than 4096
+                    // bytes before the wire), so the draft must stop here; saying so is what
+                    // keeps a capped field from reading like a lost keystroke.
+                    const MAX_GOAL_BYTES: usize = 4096;
+                    if text.len() <= MAX_GOAL_BYTES {
                         *draft = text;
+                        self.goal_error = None;
+                    } else {
+                        self.goal_error = Some(format!(
+                            "A goal objective is limited to {MAX_GOAL_BYTES} bytes; this edit is {} bytes and was not entered",
+                            text.len()
+                        ));
                     }
                 }
             }
@@ -19024,6 +19034,41 @@ mod tests {
         // An absent goal clears it.
         app.observe_goal_activation(&serde_json::json!({"sessionId": selected.as_str()}));
         assert!(app.goal_activation.is_none());
+    }
+    #[test]
+    fn a_goal_draft_stops_at_the_transport_bound_and_says_so() {
+        use dsh_native_transport::dto::GoalRef;
+        let (mut app, _receiver) = managed_app();
+        app.goal_edit = Some((
+            GoalRef {
+                id: "PUBLIC-goal".into(),
+                revision: 1,
+            },
+            "PUBLIC draft".into(),
+        ));
+        let _ = app.update(Message::GoalEditInput("PUBLIC accepted".into()));
+        assert_eq!(
+            app.goal_edit.as_ref().map(|(_, draft)| draft.as_str()),
+            Some("PUBLIC accepted")
+        );
+        assert!(app.goal_error.is_none());
+        // A draft past the transport's own bound is refused with the bound named, not
+        // dropped as if the keystroke were lost.
+        let _ = app.update(Message::GoalEditInput("x".repeat(4097)));
+        assert_eq!(
+            app.goal_edit.as_ref().map(|(_, draft)| draft.as_str()),
+            Some("PUBLIC accepted"),
+            "the draft stays at the last accepted text"
+        );
+        let error = app.goal_error.clone().expect("a refused draft says why");
+        assert!(error.contains("4096"), "{error}");
+        // Exactly at the bound is accepted, and clears the notice.
+        let _ = app.update(Message::GoalEditInput("y".repeat(4096)));
+        assert_eq!(
+            app.goal_edit.as_ref().map(|(_, draft)| draft.len()),
+            Some(4096)
+        );
+        assert!(app.goal_error.is_none());
     }
     #[test]
     fn schedule_history_opens_fetches_and_closes() {

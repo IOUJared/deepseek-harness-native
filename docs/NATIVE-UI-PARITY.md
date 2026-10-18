@@ -7909,3 +7909,26 @@ offers neither. `shots/162-goal-inactive-resume.png` (DP-2 alongside, `status: p
 | format debt | **0** | 0 files, 0 hunks |
 | DP-2 capture | — | `shots/162-goal-inactive-resume.png`, `status: passed` |
 | tree | — | clean before the commit |
+
+### Round 359 — a capped goal draft says it is capped
+
+The inline goal editor discards any input longer than 4096 bytes — the transport's own bound
+(`goal_edit` refuses more before the wire). It discarded it **silently**, so at the cap the field
+simply stopped accepting characters: the keystroke vanished and the user could not tell a bound from
+a lost input. The reference has no client cap at all, which is why the reference never has this
+state; native keeps the bound (nothing unbounded reaches a wire) and now names it:
+"A goal objective is limited to 4096 bytes; this edit is 4097 bytes and was not entered", in the
+bar's own error line, with the draft left at the last accepted text. Exactly 4096 bytes is accepted
+and clears the notice.
+
+Test: `ui::tests::a_goal_draft_stops_at_the_transport_bound_and_says_so` (refusal, unchanged draft,
+the bound named, and the exact-bound acceptance). No capture: the state is a text line under the
+goal bar whose copy the test pins, and the bar itself is already captured in round 358.
+
+**Battery (round 359).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1261 passed**, 1 ignored |
+| app, default | **0** | **1254 passed**, 1 ignored |
+| tree | — | clean before the commit |
