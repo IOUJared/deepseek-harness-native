@@ -4720,6 +4720,10 @@ impl App {
                 self.filter = value;
                 self.search_results = None;
                 self.search_error = None;
+                // Every change retires the pages already in flight, including a clear or an
+                // over-long query: bumping the serial only for a dispatched query let a late
+                // page land against the emptied box and draw matches for no query.
+                self.content_search_serial = self.content_search_serial.wrapping_add(1);
                 let query = self.filter.trim().to_owned();
                 if query.is_empty() {
                     return Task::none();
@@ -4728,7 +4732,6 @@ impl App {
                     self.search_error = Some("Search query is too long".into());
                     return Task::none();
                 }
-                self.content_search_serial = self.content_search_serial.wrapping_add(1);
                 self.command(worker::Command::Search {
                     generation: self.generation,
                     serial: self.content_search_serial,
@@ -12303,7 +12306,7 @@ impl App {
         ]
         .spacing(8)
         .align_y(iced::Alignment::Center);
-        let sheet = column![
+        let mut sheet = column![
             button(label(
                 if self.new_pending {
                     "Creating…"
@@ -12315,10 +12318,18 @@ impl App {
             .on_press_maybe(self.can_create().then_some(Message::NewSession))
             .style(design::ghost),
             container(self.session_navigation()).height(210),
-            label("WORKSPACES", MUTED).size(11),
-            self.workspace_navigation()
         ]
         .spacing(14);
+        // The compact sheet owns the same search box the expanded sidebar does, so it owns the
+        // same answer: without this the box filtered titles and queried the Host while every
+        // content match, refusal and "too long" line was drawn into a branch this panel never
+        // reaches.
+        if let Some(matches) = self.search_matches() {
+            sheet = sheet.push(matches);
+        }
+        sheet = sheet
+            .push(label("WORKSPACES", MUTED).size(11))
+            .push(self.workspace_navigation());
         container(
             column![
                 toolbar,
@@ -19860,6 +19871,39 @@ mod tests {
         let _ = app.update(Message::Select(first));
         assert!(app.goal_busy.is_none());
     }
+    /// The compact navigation sheet draws the same search answer as the expanded sidebar: its
+    /// box filtered titles and queried the Host while every result was composed into a branch
+    /// the sheet never reached.
+    #[test]
+    fn the_compact_navigation_sheet_has_the_search_answer_to_draw() {
+        use dsh_native_transport::dto::{SessionSearchItem, SessionSearchValue};
+        let (mut app, _receiver) = managed_app();
+        app.sidebar_sheet = true;
+        app.filter = "PUBLIC".into();
+        assert!(
+            app.search_matches().is_none(),
+            "nothing to draw before a reply"
+        );
+        let serial = {
+            let _ = app.update(Message::Filter("PUBLIC".into()));
+            app.content_search_serial
+        };
+        let _ = app.update(Message::Worker(Event::Searched {
+            generation: app.generation,
+            serial,
+            result: Ok(SessionSearchValue {
+                items: vec![SessionSearchItem {
+                    session_id: app.selected.clone().unwrap(),
+                    snippet: "PUBLIC matched content".into(),
+                }],
+                has_more: false,
+            }),
+        }));
+        assert!(
+            app.search_matches().is_some(),
+            "the sheet composes the region it is handed"
+        );
+    }
     #[test]
     fn content_search_is_fenced_and_stale_pages_are_ignored() {
         use dsh_native_transport::dto::{SessionSearchItem, SessionSearchValue};
@@ -19905,6 +19949,46 @@ mod tests {
             app.search_results.as_ref().map(|page| page.items.len()),
             Some(1)
         );
+        // Emptying the box retires the page that is still in flight, so its late answer cannot
+        // be drawn against no query.
+        let _ = app.update(Message::Filter(String::new()));
+        assert!(app.search_results.is_none());
+        let _ = app.update(Message::Worker(Event::Searched {
+            generation: app.generation,
+            serial,
+            result: Ok(SessionSearchValue {
+                items: vec![SessionSearchItem {
+                    session_id: app.selected.clone().unwrap(),
+                    snippet: "PUBLIC stale content".into(),
+                }],
+                has_more: false,
+            }),
+        }));
+        assert!(
+            app.search_results.is_none(),
+            "a page that started before the box was emptied is stale"
+        );
+        // An over-long query is refused *and* retires what was in flight.
+        let _ = app.update(Message::Filter("PUBLIC".into()));
+        let serial = app.content_search_serial;
+        let _ = app.update(Message::Filter("x".repeat(600)));
+        assert!(
+            app.search_error
+                .as_deref()
+                .is_some_and(|error| error.contains("too long"))
+        );
+        let _ = app.update(Message::Worker(Event::Searched {
+            generation: app.generation,
+            serial,
+            result: Ok(SessionSearchValue {
+                items: vec![SessionSearchItem {
+                    session_id: app.selected.clone().unwrap(),
+                    snippet: "PUBLIC refused content".into(),
+                }],
+                has_more: false,
+            }),
+        }));
+        assert!(app.search_results.is_none());
     }
     #[test]
     fn a_queue_mutation_is_admitted_once_and_its_failure_is_announced() {

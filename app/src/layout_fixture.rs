@@ -85,6 +85,7 @@ pub const PRESETS: &[&str] = &[
     "collapsed-wide",
     "tiny-long-model",
     "navigation-tiny",
+    "navigation-search-tiny",
     "settings-cloudflare-oauth-setup",
     "settings-cloudflare-oauth-waiting",
     "settings-cloudflare-oauth-connected",
@@ -264,6 +265,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "tiny-welcome"
         | "tiny-long-model"
         | "navigation-tiny"
+        | "navigation-search-tiny"
         | "file-path-tiny"
         | "model-popup-tiny"
         | "model-submenu-tiny"
@@ -1531,6 +1533,11 @@ pub fn build(
         }
         "menu" => app.conversation_menu = true,
         "navigation" | "navigation-tiny" => app.sidebar_sheet = true,
+        "navigation-search-tiny" => {
+            // The compact sheet owns the search box, so it must own the answer too.
+            app.sidebar_sheet = true;
+            app.seed_search_results();
+        }
         "settings-cloudflare-oauth-setup"
         | "settings-cloudflare-oauth-waiting"
         | "settings-cloudflare-oauth-connected"
@@ -2182,7 +2189,11 @@ pub fn metadata(app: &App, preset: &str) -> Value {
         && !preset.starts_with("assistant-details")
         && !matches!(
             preset,
-            "menu" | "navigation" | "navigation-tiny" | "tool-activity-details"
+            "menu"
+                | "navigation"
+                | "navigation-tiny"
+                | "navigation-search-tiny"
+                | "tool-activity-details"
         );
     let reasoning_expected = matches!(preset, "long-model" | "tiny-long-model")
         || preset.starts_with("model-metadata")
@@ -2213,7 +2224,7 @@ pub fn metadata(app: &App, preset: &str) -> Value {
         "sidebarStoreIoExecuted":false,
         "modelControlsExpected":composer_expected && !composer_replaced,
         "reasoningControlExpected":app.model_controls.is_open() && (app.model_controls.section().is_none() || app.layout_size().width >= 720.0),
-        "headerExpected":!settings_expected && !picker_expected && !sidebar_expected && !matches!(preset, "navigation" | "navigation-tiny"),
+        "headerExpected":!settings_expected && !picker_expected && !sidebar_expected && !matches!(preset, "navigation" | "navigation-tiny" | "navigation-search-tiny"),
         "settingsStateMatchesPreset":app.settings.is_open() == settings_expected,
         "informationStateMatchesPreset":app.capabilities == info_expected
             && app.info_expanded == if preset == "information-expanded" { 3 } else { 0 },
@@ -2368,7 +2379,10 @@ mod tests {
             );
             assert_eq!(
                 app.sidebar_sheet,
-                matches!(preset, "navigation" | "navigation-tiny")
+                matches!(
+                    preset,
+                    "navigation" | "navigation-tiny" | "navigation-search-tiny"
+                )
             );
             assert_eq!(app.conversation_menu, preset == "menu");
             let sidebar_modal = matches!(
