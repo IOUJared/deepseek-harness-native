@@ -51,6 +51,26 @@ Reports contain exact commands, outcomes, toolchain details and before/after sou
 
 The fake-wire suite needs the existing `transport/tests` dependencies and `/usr/bin/node`; CI prepares them. The runner does not replace Node or install npm dependencies. Existing tests own their isolated fixtures and cleanup.
 
+## Resolved codex trace-read race
+
+`codex-app-server.test.mjs` counted the fake child's request log (`PUBLIC-requests.jsonl`) right
+after the handshake. A frame reaches the *child's stdin* when `writeFrame` resolves, but the child
+logs it only when its reader runs, so the `initialized` notification could still be unlogged on a
+loaded machine: the count read 1 where the test expected 2. Reproduced **10/10** with eight busy
+loops (`yes > /dev/null` ×8) and 0/10 idle; with the probe printing the trace, the missing row was
+`initialized` (`AssertionError: ["initialize"]`).
+
+`settledRequests(home, expected)` now waits, at most 2 s in 5 ms steps, for the trace to reach the
+count the following assertion requires. The assertion is unchanged and exact — a frame that never
+arrives still fails — so this removes a read-before-drain race rather than weakening the check.
+Measured after the change: 0/10 failures under the same eight-way load.
+
+**Not fixed, and not a test defect:** under that same load the `initialize wrong-platform` case
+once reported `STARTUP_TIMEOUT` instead of `INITIALIZE_MISMATCH` (1 failure in 3 full-file runs).
+The product's startup deadline fired before validation under CPU starvation. Relaxing it would
+weaken a real containment bound for a synthetic condition, so it stays as measured: the file is
+55/55 normally, and one of three runs under eight busy loops took the timeout branch.
+
 ## Resolved draft-lock test flake
 
 `ui::draft_store::sidebar_storage_tests` used to fail intermittently with `Failure::Busy` in a different test each run, each passing alone (measured 2026-10-10: 7 failures in 1,070 module runs, ~0.7%; one run in three was reported earlier under heavier load). Every failure landed immediately after a completed `Store::save`/`save_checked` (`absent_and_present_...:153`, `checked_save_retains_...:285`, `semantic_cas_...:170`).

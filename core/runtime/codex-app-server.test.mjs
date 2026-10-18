@@ -154,6 +154,20 @@ async function requests(home) {
   return trace.trim().split('\n').map(line => JSON.parse(line));
 }
 
+// A written frame is logged only when the fixture's reader consumes it, and `writeFrame`
+// resolves at the child's stdin, not at its log. A count taken straight after the handshake can
+// therefore miss `initialized` on a loaded machine (measured 10/10 failures under CPU load
+// before this wait). The wait bounds that drain; the assertion stays exact, so a frame that
+// never arrives still fails the test.
+async function settledRequests(home, expected) {
+  let rows = await requests(home);
+  for (let attempt = 0; rows.length < expected && attempt < 400; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 5));
+    rows = await requests(home);
+  }
+  return rows;
+}
+
 // Only the two source files are durable product edits; this generated evidence is ignored.
 test('construction and account methods stay inert until explicit action; start coalesces and stop is idempotent', async t => {
   const { client, codexHome } = await owned(t, 'normal');
@@ -321,7 +335,7 @@ test('abort abandons only its RPC, never claims mutation rollback or sends cance
   await assertion;
   const pre = new AbortController(); pre.abort();
   await rejectsCode(client.logout({ signal: pre.signal }), 'ABORTED', false);
-  assert.deepEqual((await requests(codexHome)).map(row => row.method), ['initialize', 'initialized', 'account/login/start']);
+  assert.deepEqual((await settledRequests(codexHome, 3)).map(row => row.method), ['initialize', 'initialized', 'account/login/start']);
   assert.equal(client.lifecycle.pendingRequests, 0);
   assert.equal(client.lifecycle.state, 'ready');
 });
@@ -371,7 +385,7 @@ test('pending count and outbound frame limits reject without transmission', asyn
   await received;
   await rejectsCode(client.logout(), 'PENDING_LIMIT', false);
   await client.stop(); await assertion;
-  assert.equal((await requests(codexHome)).length, 3);
+  assert.equal((await settledRequests(codexHome, 3)).length, 3);
   const bounded = await owned(t, 'normal'); await start(bounded.client);
   await rejectsCode(bounded.client.startLogin({ type: 'apiKey', apiKey: 'PUBLIC'.repeat(2000) }), 'FRAME_LIMIT', false);
   assert.equal((await requests(bounded.codexHome)).filter(row => row.method === 'account/login/start').length, 0);
@@ -604,7 +618,7 @@ test('Beta token field validation cannot open arbitrary experimental methods or 
   }
   await rejectsCode(client.readAccount({ refreshToken: false, workspaceRouting: true }), 'INVALID_PARAMS');
   await rejectsCode(client.startLogin(tokens, { experimentalApi: true }), 'INVALID_PARAMS');
-  assert.equal((await requests(codexHome)).length, 2);
+  assert.equal((await settledRequests(codexHome, 2)).length, 2);
   assert.equal(client.request, undefined); assert.equal(client.dispatch, undefined);
 });
 
@@ -617,7 +631,7 @@ test('Beta token RPC enforces complete UTF8/escaped frame bounds before any tran
     { accessToken: 'PUBLIC'.repeat(100), chatgptAccountId: 'PUBLIC'.repeat(100) }, { chatgptPlanType: 'PUBLIC'.repeat(200) }]) {
     await rejectsCode(client.startLogin({ ...tokens, ...patch }), 'FRAME_LIMIT', false);
   }
-  assert.equal((await requests(codexHome)).length, 2);
+  assert.equal((await settledRequests(codexHome, 2)).length, 2);
   assert.equal(client.lifecycle.state, 'ready');
 });
 
