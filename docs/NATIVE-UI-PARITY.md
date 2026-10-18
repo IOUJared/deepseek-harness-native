@@ -7554,3 +7554,38 @@ reopened editor whose prompt and `expected` both read the committed text.
 | JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
 | tree | — | clean before the commit |
+
+### Round 350 — an ended task is read-only, and its refusal says it ended
+
+**Third finding of the schedules audit.** The page drew Edit for every row, including a one-shot
+that had already run its last delivery — and the Host refuses *all* updates to such a task
+(`schedule/src/index.ts:366` returns `{updated:false, code:'schedule_ended'}`). Native collapsed
+every `updated:false` into `Missing` (`http.rs:1745`), so pressing Edit → Save closed the editor,
+reported "That task changed or is gone", and reloaded the same unchanged row: an enabled control
+that could never do anything.
+
+- **Transport:** `ScheduleUpdateOutcome` gained `Ended`, and the parser keeps the Host's own reason
+  (`schedule_ended` → `Ended`, anything else `updated:false` → `Missing`). The fake wire now serves
+  `schedule/update` at all — it had no coverage before — with ended, conflict, refused and committed
+  modes, and `a_schedule_update_keeps_the_hosts_reason_for_an_ended_task` asserts all four.
+  Transport grows from **88** to **89** tests.
+- **App:** `schedule_editable(status)` gates the Edit control (the reference draws an ended task
+  read-only), the row shows `Ended · read-only` in its place, and `Ended` reaches the error line as
+  "This task has ended and can no longer be changed." without the pointless catalog reload. One App
+  test, `an_ended_task_is_read_only_and_its_refusal_says_so`.
+
+**Capture.** `shots/155-schedules-ended-readonly.png` (DP-2 alongside, `status: passed`): the active
+row keeps Edit / History / Delete, and the inactive row reads `Ended · read-only` with no Edit.
+
+**Battery (round 350).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1250 passed**, 1 ignored |
+| app, default | **0** | **1243 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + **89** + 7 |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| DP-2 capture | — | `shots/155-schedules-ended-readonly.png`, `status: passed` |
+| tree | — | clean before the commit |

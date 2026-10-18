@@ -507,7 +507,12 @@ pub struct ScheduleCatalogItem {
 /// The compare-and-update outcome: committed title/prompt, a non-mutating miss, or a refusal.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ScheduleUpdateOutcome {
-    Updated { title: String, prompt: String },
+    Updated {
+        title: String,
+        prompt: String,
+    },
+    /// The task already ran its last delivery; the Host refuses to change it.
+    Ended,
     Missing,
     Refused,
 }

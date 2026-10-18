@@ -1742,7 +1742,12 @@ fn schedule_update_outcome(value: &Value) -> Option<ScheduleUpdateOutcome> {
                 prompt: record.prompt,
             })
         }
-        Some(false) => Some(ScheduleUpdateOutcome::Missing),
+        // `{updated:false, code}`: the code is the Host's reason, and `schedule_ended` is not
+        // "the task changed" — a fired one-shot is finished, not missing.
+        Some(false) => Some(match wire.code.as_deref() {
+            Some("schedule_ended") => ScheduleUpdateOutcome::Ended,
+            _ => ScheduleUpdateOutcome::Missing,
+        }),
         None => wire.code.map(|_| ScheduleUpdateOutcome::Refused),
     }
 }

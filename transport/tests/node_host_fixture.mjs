@@ -170,6 +170,17 @@ const server = http.createServer(async (request, response) => {
       };
       break;
     }
+    case 'schedule/update': {
+      // The native body wraps the whole mutation in `request`; the fixture only checks the
+      // identity and that a mutation field is present, then answers the mode's outcome.
+      const request = args.request;
+      if (!request || request.id !== 'PUBLIC-schedule' || (!request.title && !request.prompt && !request.change)) { response.writeHead(400); response.end(); return; }
+      if (mode === 'schedule-update-ended') value = { id: 'PUBLIC-schedule', updated: false, code: 'schedule_ended' };
+      else if (mode === 'schedule-update-conflict') value = { id: 'PUBLIC-schedule', updated: false, code: 'schedule_conflict' };
+      else if (mode === 'schedule-update-refused') value = { id: 'PUBLIC-schedule', code: 'schedule_refused', message: 'PRIVATE_SCHEDULE_SENTINEL' };
+      else value = { id: 'PUBLIC-schedule', updated: true, record: { id: 'PUBLIC-schedule', title: 'PUBLIC title', prompt: 'PUBLIC prompt' } };
+      break;
+    }
     case 'schedule/history': {
       // The first page omits `before` entirely; later pages carry the opaque
       // cursor string. A null cursor fails the Host boundary and this check.

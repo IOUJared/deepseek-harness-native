@@ -56,6 +56,44 @@ async fn plugin_projection_and_revisioned_scalar_write_use_exact_private_wire() 
 }
 
 #[tokio::test]
+async fn a_schedule_update_keeps_the_hosts_reason_for_an_ended_task() {
+    use dsh_native_transport::dto::ScheduleUpdateOutcome;
+    let expected = serde_json::json!({
+        "id": "PUBLIC-schedule", "kind": "daily", "prompt": "PUBLIC old",
+        "time": "09:00:00", "timeZone": "UTC"
+    });
+    for (mode, expected_outcome) in [
+        (
+            "normal",
+            ScheduleUpdateOutcome::Updated {
+                title: "PUBLIC title".into(),
+                prompt: "PUBLIC prompt".into(),
+            },
+        ),
+        ("schedule-update-ended", ScheduleUpdateOutcome::Ended),
+        ("schedule-update-conflict", ScheduleUpdateOutcome::Missing),
+        ("schedule-update-refused", ScheduleUpdateOutcome::Refused),
+    ] {
+        let mut fixture = NodeHostFixture::start(mode).await;
+        let client = fixture.connect(Limits::default()).await.unwrap();
+        let session = SessionId::new("PUBLIC-schedule-session").unwrap();
+        let outcome = client
+            .schedule_update(
+                &session,
+                &expected,
+                Some("PUBLIC title"),
+                Some("PUBLIC prompt"),
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome, expected_outcome, "{mode}");
+        client.close().await;
+        fixture.stop().await;
+    }
+}
+
+#[tokio::test]
 async fn the_agent_preset_default_uses_the_settings_update_wire_the_reference_uses() {
     // The live Host answers this namespace with autoGenerate:false
     // (docs/NATIVE-LIVE-VERIFICATION.md), so the config-form mutate path cannot write it: the

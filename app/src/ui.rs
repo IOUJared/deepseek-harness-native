@@ -5638,6 +5638,11 @@ impl App {
                     self.schedules_loading = true;
                     self.command(worker::Command::ScheduleCatalog);
                 }
+                Ok(dsh_native_transport::dto::ScheduleUpdateOutcome::Ended) => {
+                    // Not "changed or gone": a fired one-shot is finished, and no edit can land.
+                    self.schedules_error =
+                        Some("This task has ended and can no longer be changed.".into());
+                }
                 Ok(dsh_native_transport::dto::ScheduleUpdateOutcome::Missing) => {
                     self.schedules_error = Some("That task changed or is gone; refreshing.".into());
                     self.schedules_loading = true;
@@ -14049,8 +14054,9 @@ impl App {
                     .spacing(4),
                 );
             } else {
-                row = row.push(
-                    row![
+                let mut actions = row![].spacing(4);
+                if schedule_editable(&item.status) {
+                    actions = actions.push(
                         button(label("Edit", MUTED).size(10))
                             .on_press(Message::ScheduleEdit(
                                 item.session_id.clone(),
@@ -14058,6 +14064,12 @@ impl App {
                             ))
                             .style(design::ghost)
                             .padding([2, 6]),
+                    );
+                } else {
+                    actions = actions.push(label("Ended · read-only", MUTED).size(10));
+                }
+                actions = actions
+                    .push(
                         button(
                             label(
                                 if history_open {
@@ -14065,9 +14077,9 @@ impl App {
                                 } else {
                                     "History"
                                 },
-                                MUTED
+                                MUTED,
                             )
-                            .size(10)
+                            .size(10),
                         )
                         .on_press_maybe(if history_open {
                             Some(Message::ScheduleHistoryClose)
@@ -14079,6 +14091,8 @@ impl App {
                         })
                         .style(design::ghost)
                         .padding([2, 6]),
+                    )
+                    .push(
                         button(label("Delete", MUTED).size(10))
                             .on_press(Message::ScheduleDelete(
                                 item.session_id.clone(),
@@ -14086,9 +14100,8 @@ impl App {
                             ))
                             .style(design::ghost)
                             .padding([2, 6]),
-                    ]
-                    .spacing(4),
-                );
+                    );
+                row = row.push(actions);
             }
             if history_open {
                 row = row.push(Space::new().height(2));
@@ -15665,6 +15678,12 @@ fn binding_names(bindings: &[(String, crate::mcp::Secret)]) -> String {
         .join(", ")
 }
 
+/// Whether the page may offer an edit for one task. A one-shot that already ran its last delivery
+/// is finished, not editable: the Host refuses every update to it (`schedule/src/index.ts:366`),
+/// and the reference draws it read-only.
+fn schedule_editable(status: &str) -> bool {
+    status != "inactive"
+}
 fn background_message(message: &Message) -> bool {
     matches!(
         message,
@@ -17866,6 +17885,40 @@ mod tests {
                 .as_ref()
                 .and_then(|page| page.next_before.as_deref()),
             Some("PUBLIC-cursor")
+        );
+    }
+    #[test]
+    fn an_ended_task_is_read_only_and_its_refusal_says_so() {
+        use dsh_native_transport::dto::ScheduleCatalogItem;
+        assert!(schedule_editable("active"));
+        assert!(!schedule_editable("inactive"));
+        let (mut app, _receiver) = managed_app();
+        let _ = app.update(Message::OpenSchedules);
+        let session = app.selected.clone().unwrap();
+        let item = ScheduleCatalogItem {
+            id: "PUBLIC-ended".into(),
+            title: "PUBLIC finished one-shot".into(),
+            kind: "at".into(),
+            session_id: session.clone(),
+            status: "inactive".into(),
+            scheduled_at: Some("2026-10-16T09:00:00Z".into()),
+            last_delivery: None,
+            record: serde_json::Map::new(),
+        };
+        let _ = app.update(Message::Worker(Event::SchedulesLoaded(Ok(vec![item]))));
+        // The Host refuses every update to a fired one-shot, and the panel says why.
+        let _ = app.update(Message::Worker(Event::ScheduleUpdated {
+            session,
+            id: "PUBLIC-ended".into(),
+            result: Ok(dsh_native_transport::dto::ScheduleUpdateOutcome::Ended),
+        }));
+        assert_eq!(
+            app.schedules_error.as_deref(),
+            Some("This task has ended and can no longer be changed.")
+        );
+        assert!(
+            !app.schedules_loading,
+            "an ended task is not refreshed as if it had moved"
         );
     }
     #[test]
