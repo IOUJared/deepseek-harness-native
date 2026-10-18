@@ -356,7 +356,19 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    row in `reducer`, moving the output into that row's expanded body, and re-basing every row-index
    assertion and the scroll/virtualization vectors on the new counts — a structural round, not a
    view tweak. It is the largest remaining chat-surface difference.
-8. **Permission default row in Settings — a second surface, not yet built.** The reference
+8. **The expanded tool body's card family.** The reference picks a structured card per tool before
+   any text card (`ToolRow.tsx:169-170`: ask-user, terminal, diff, read, image, search, web,
+   details, then the IN/OUT text card) and draws it with the shared primitive
+   (`:258-341`). Native draws the diff card (round 362) and recorded text for everything else, so
+   a `read` result is the envelope's text rather than the reference's line-numbered `ReadBlock`
+   with its "Showing N of M lines" label (`ReadBlock.tsx`, `read-card-model.ts`), and `bash`
+   output is text rather than the reference's `TerminalBlock` card. Two of the cards also need
+   data native keeps private: `readCardModel` reads the result's opaque `meta` (path, offset,
+   line numbers, totalLines) and a `str_replace_editor` call, neither of which the compact
+   summary exposes; exposing a typed read-only projection of that metadata is the first slice.
+   Until then this is a **deliberate difference — structured tool cards replaced by recorded
+   text** — and the diff, which needs only arguments, is the one card that does not need it.
+9. **Permission default row in Settings — a second surface, not yet built.** The reference
    has *two* permission pickers, and only the composer one is done here. `PermissionRow.tsx`
    is "the default preset for subsequently created sessions", mounted in the
    `settings.general.item` slot, with its own `RiskConfirmation` and its own write path:
