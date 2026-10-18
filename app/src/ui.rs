@@ -12357,7 +12357,23 @@ impl App {
     fn activity_is_expanded(&self, row: &DisplayRow) -> bool {
         self.activity_expanded.contains(&row.key) && !activity_body_source(row).is_empty()
     }
+    /// The line box the expanded per-turn accounting adds under the action row. Drawn for every
+    /// non-human row that carries usage, formatted or not, so both geometry branches reserve it.
+    fn usage_height(&self, key: u64) -> f32 {
+        if self.usage_expanded.contains(&key) && self.transcript.turn_usage_detail(key).is_some() {
+            design::content_secondary(self.content_font_size).max(12.0) + 2.0
+        } else {
+            0.0
+        }
+    }
     fn row_geometry(&self, row: &DisplayRow, lane: f32) -> chat_geometry::Geometry {
+        let mut geometry = self.row_geometry_base(row, lane);
+        // The per-turn accounting line is drawn for every non-human row that carries usage,
+        // whichever path measured the body, so it is reserved once here rather than in one branch.
+        geometry.height += self.usage_height(row.key);
+        geometry
+    }
+    fn row_geometry_base(&self, row: &DisplayRow, lane: f32) -> chat_geometry::Geometry {
         if row.kind == "tool-workflow/run-start" {
             let width = (lane - 8.0).clamp(37.0, design::MAX_CHAT);
             let height = self.workflow_height(row.key);
@@ -12382,24 +12398,11 @@ impl App {
             } else {
                 0.0
             };
-            // The expanded per-turn accounting line is drawn under the action row, so
-            // its line box must be reserved here or the fixed row height clips it.
-            let usage = if self.usage_expanded.contains(&row.key)
-                && self.transcript.turn_usage_detail(row.key).is_some()
-            {
-                design::content_secondary(self.content_font_size).max(12.0) + 2.0
-            } else {
-                0.0
-            };
             let changes = self.changes_height(row);
             return chat_geometry::Geometry {
                 width,
                 body_height,
-                height: chat_geometry::chrome_height(&row.role)
-                    + body_height
-                    + actions
-                    + usage
-                    + changes,
+                height: chat_geometry::chrome_height(&row.role) + body_height + actions + changes,
             };
         }
         let mut geometry = self.chat_geometry.geometry(
@@ -18646,6 +18649,58 @@ mod tests {
         assert!(app.goal_busy.is_none());
         assert_eq!(app.goal_error.as_deref(), Some("Goal: remote-failure"));
         assert_eq!(GoalPhase::Active, GoalPhase::Active);
+    }
+    #[test]
+    fn an_expanded_usage_line_is_reserved_above_both_geometry_paths() {
+        let (mut app, _receiver) = managed_app();
+        app.transcript = reducer::Transcript::new(0);
+        app.transcript
+            .apply(
+                0,
+                serde_json::from_value(serde_json::json!({
+                    "type": "snapshot",
+                    "records": [{"type": "event", "event": {
+                        "type": "assistant/message", "seq": 0, "time": 1000, "surfaceOp": "append",
+                        "data": {"turn": 1, "step": 1,
+                            "usage": {"inputTokens": 100, "cacheReadTokens": 40,
+                                      "cacheWriteTokens": 10, "outputTokens": 20, "totalTokens": 170},
+                            "stream": [{"type": "text-chunks", "time0": 1000, "index": 0,
+                                        "dt": [], "texts": ["PUBLIC assistant output"]}]
+                        }
+                    }}],
+                    "cursor": 0,
+                    "hasMore": false,
+                    "header": {"version": 4, "id": "public-managed-session", "createdAt": 1000, "isSeeded": false},
+                    "projections": {"asOfSeq": 0, "values": {}},
+                    "assistantStream": {"revision": 0}
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        let row = app
+            .transcript
+            .rows()
+            .iter()
+            .find(|row| row.role.starts_with("Assistant"))
+            .cloned()
+            .expect("the assistant row is drawn");
+        assert!(app.transcript.turn_usage_detail(row.key).is_some());
+        let lane = app.chat_lane();
+        let collapsed = app.row_geometry(&row, lane).height;
+        app.usage_expanded.insert(row.key);
+        let expanded = app.row_geometry(&row, lane).height;
+        assert!(
+            expanded > collapsed,
+            "the expanded accounting line must be reserved ({collapsed} -> {expanded})"
+        );
+        assert_eq!(expanded - collapsed, app.usage_height(row.key));
+        // The reservation sits above both geometry paths, so the branch a row takes cannot lose
+        // it: the same record measured through the fallback path keeps the line.
+        let unformatted = app.row_geometry_base(&row, lane).height;
+        assert_eq!(
+            app.row_geometry(&row, lane).height - unformatted,
+            app.usage_height(row.key)
+        );
     }
     #[test]
     fn steering_on_an_idle_session_explains_itself_instead_of_doing_nothing() {

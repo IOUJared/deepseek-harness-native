@@ -7304,3 +7304,35 @@ rows with Edit/Steer/Remove and the red refusal beneath them.
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/154-queue-steer-refusal.png`, `status: passed` |
 | tree | — | clean before the commit |
+
+### Round 342 — the usage line is reserved above both geometry paths
+
+**The last composer-audit finding.** "Usage N tok ▸" is drawn for every non-human row that carries
+usage (`ui.rs:12976`), but the line box was reserved only inside the formatted-reply branch
+(`if let Some(reply) = self.reply_parts(row.key)`, `ui.rs:12306`). A row that took the other path —
+any assistant message the parts projector rejects — flipped the chevron and then had its accounting
+rows clipped by the row's own `clip(true)`, contradicting round 285's "the row geometry reserves the
+extra line when expanded".
+
+The reservation is now one line of `row_geometry`, applied after the branch that measured the body
+(the former body is `row_geometry_base`), so no path can lose it and the two branches cannot drift
+again. `usage_height` holds the single rule.
+
+One App test, `an_expanded_usage_line_is_reserved_above_both_geometry_paths`, folds a real
+assistant/message record with usage through a snapshot, then asserts that collapsing and expanding
+differ by exactly `usage_height` and that `row_geometry` minus `row_geometry_base` is that same line
+— the structural property the old code lacked. No capture: neither the layout fixture nor a
+reachable Host frame can produce the clipped case (the fixture's assistant records carry text
+streams, which take the formatted path), so the geometry contract is asserted rather than painted.
+
+**Battery (round 342).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1240 passed**, 1 ignored |
+| app, default | **0** | **1233 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 88 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
