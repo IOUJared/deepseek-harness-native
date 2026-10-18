@@ -325,6 +325,9 @@ pub enum Message {
     PickDirectory,
     /// Lists one directory level in the in-app folder browser.
     BrowseWorkspace(Option<String>),
+    /// Closes the in-app folder browser. Distinct from [`Self::BrowseWorkspace`]: `None` asks
+    /// the Host for its home directory, it does not dismiss the panel.
+    HideFolderBrowser,
     /// Uses the browsed directory as the workspace path.
     UseBrowsedDirectory,
     /// Rates one assistant message positive.
@@ -3963,6 +3966,9 @@ impl App {
             }
             Message::BrowseWorkspace(path) => {
                 self.command(worker::Command::ListDirectory { path });
+            }
+            Message::HideFolderBrowser => {
+                self.directory_listing = None;
             }
             Message::UseBrowsedDirectory => {
                 if let Some(listing) = &self.directory_listing {
@@ -12259,7 +12265,7 @@ impl App {
                 column![
                     folders,
                     button(label("Hide folders", MUTED).size(9))
-                        .on_press(Message::BrowseWorkspace(None))
+                        .on_press(Message::HideFolderBrowser)
                         .style(design::ghost)
                         .padding([1, 4]),
                 ]
@@ -18566,6 +18572,15 @@ mod tests {
         assert_eq!(app.directory_picker_browse, Some(true));
         let _ = app.update(Message::UseBrowsedDirectory);
         assert_eq!(app.workspace_path, "/PUBLIC");
+        // "Hide folders" hides them. `BrowseWorkspace(None)` means "list the Host home", so it
+        // used to re-list a different directory and leave the panel drawn; only a failed
+        // listing closed it.
+        let _ = app.update(Message::HideFolderBrowser);
+        assert!(app.directory_listing.is_none());
+        assert!(
+            receiver.try_recv().is_err(),
+            "hiding starts no directory read"
+        );
     }
     #[test]
     fn the_directory_picker_falls_back_to_the_folder_list() {
