@@ -7068,3 +7068,41 @@ alongside.
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 captures | — | `shots/151`, `shots/152`, `status: passed` |
 | tree | — | clean before the commit |
+
+### Round 335 — the goal bar and the usage disclosure are session-scoped
+
+**Two more composer-audit findings, one root cause: state that outlived the session that produced
+it.**
+
+- **The goal bar's in-flight flag was global.** `Event::GoalUpdated` cleared `goal_busy` only while
+  the selection matched (`ui.rs:5686`), `submit_goal` refused while it was set, and `choose()`
+  never reset it — so switching sessions during a goal mutation left the new session's bar stuck on
+  "Working…" with Pause/Resume/Edit/Clear hidden, no command in flight and no error. The flag is
+  now `Option<SessionId>`: a reply settles the write it raised even after the user moved on, one
+  session's write no longer blocks another bar, and the bar only says "Working…" for its own
+  session. The edit draft, the clear confirmation and the last refusal are cleared on a switch
+  because they belong to the old session's goal.
+- **The per-turn usage disclosure was keyed by a seq that is not unique across sessions.**
+  `usage_expanded` was never cleared by `choose()`, while `thoughts_expanded` and
+  `activity_expanded` were (`ui.rs:2635-2636`), so expanding "Usage ▸" on session A's seq N opened
+  session B's seq N row. It is cleared with its siblings now.
+
+One App test, `a_goal_bar_state_and_an_open_usage_row_do_not_follow_a_session_switch`, drives the
+real `Message::Select`, presses `Message::GoalResume` against the second session's own goal
+snapshot and asserts its `Command::Goal` is admitted while the first session's write is still in
+flight, that the first session's late reply clears only its own flag, and that no error or draft
+crosses the switch. The existing
+`goal_operations_are_admitted_once_and_the_failure_is_announced` now asserts the session-scoped
+flag.
+
+**Battery (round 335).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1232 passed**, 1 ignored |
+| app, default | **0** | **1225 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 88 + 7 (unchanged this round) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |

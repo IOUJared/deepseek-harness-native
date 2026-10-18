@@ -1130,8 +1130,10 @@ pub struct App {
     goal_edit: Option<(dsh_native_transport::dto::GoalRef, String)>,
     /// The goal revision whose clear waits for a second press.
     goal_clear: Option<dsh_native_transport::dto::GoalRef>,
-    /// A goal mutation is in flight.
-    goal_busy: bool,
+    /// The session whose goal mutation is in flight. Scoped by session so a selection change
+    /// cannot leave the new session's bar stuck in another session's write, and so a late reply
+    /// for the old session still clears the flag it raised.
+    goal_busy: Option<SessionId>,
     /// The last goal mutation's redacted failure.
     goal_error: Option<String>,
     /// The latest full-text search page, fenced by query and serial.
@@ -1463,7 +1465,7 @@ impl App {
                 schedule_history_before: None,
                 goal_edit: None,
                 goal_clear: None,
-                goal_busy: false,
+                goal_busy: None,
                 goal_error: None,
                 search_results: None,
                 content_search_serial: 0,
@@ -2634,6 +2636,14 @@ impl App {
         self.reply_content = Default::default();
         self.thoughts_expanded.clear();
         self.activity_expanded.clear();
+        // The usage disclosure is keyed by record seq, which is not unique across sessions, so a
+        // seq that was open here would open the new session's same-numbered row.
+        self.usage_expanded.clear();
+        // Goal drafts and the last refusal belong to the session that produced them. A write that
+        // is still in flight keeps its own session-scoped flag.
+        self.goal_edit = None;
+        self.goal_clear = None;
+        self.goal_error = None;
         self.edit_review = None;
         self.draft_review = None;
         self.search_open = false;
@@ -5683,8 +5693,12 @@ impl App {
                 }
             }
             Event::GoalUpdated { session, result } => {
+                // The reply settles the write it raised even when the user has moved on; only the
+                // outcome (drafts and the error line) belongs to the bar that is still showing it.
+                if self.goal_busy.as_ref() == Some(&session) {
+                    self.goal_busy = None;
+                }
                 if self.selected.as_ref() == Some(&session) {
-                    self.goal_busy = false;
                     match result {
                         Ok(()) => {
                             self.goal_edit = None;
@@ -10173,14 +10187,16 @@ impl App {
     }
     /// Admit one goal mutation; a second is refused while one is in flight.
     fn submit_goal(&mut self, operation: crate::goal_ui::Operation) {
-        if self.goal_busy {
-            return;
-        }
         let Some(session) = self.selected.clone() else {
             return;
         };
+        // One admission per session: a write for another session is still in flight and cannot be
+        // rolled back, but it no longer blocks this bar.
+        if self.goal_busy.as_ref() == Some(&session) {
+            return;
+        }
         self.goal_error = None;
-        self.goal_busy = true;
+        self.goal_busy = Some(session.clone());
         self.command(worker::Command::Goal { session, operation });
     }
     /// Admit one queue mutation for the selected session. A second mutation is refused while
@@ -10262,7 +10278,11 @@ impl App {
             );
         } else {
             let mut actions = row![].spacing(4);
-            if self.goal_busy {
+            let busy = matches!(
+                (&self.goal_busy, &self.selected),
+                (Some(busy), Some(selected)) if busy == selected
+            );
+            if busy {
                 actions = actions.push(label("Working…", MUTED).size(10));
             } else {
                 if goal.phase == dsh_native_transport::dto::GoalPhase::Active {
@@ -18541,7 +18561,7 @@ mod tests {
             revision: 2,
         };
         app.submit_goal(crate::goal_ui::Operation::Pause(reference.clone()));
-        assert!(app.goal_busy);
+        assert_eq!(app.goal_busy.as_ref(), Some(&session));
         let mut operations = 0;
         while let Ok(command) = receiver.try_recv() {
             if let Command::Goal { session: sent, .. } = command {
@@ -18558,9 +18578,104 @@ mod tests {
             session,
             result: Err("Goal: remote-failure".into()),
         }));
-        assert!(!app.goal_busy);
+        assert!(app.goal_busy.is_none());
         assert_eq!(app.goal_error.as_deref(), Some("Goal: remote-failure"));
         assert_eq!(GoalPhase::Active, GoalPhase::Active);
+    }
+    #[test]
+    fn a_goal_bar_state_and_an_open_usage_row_do_not_follow_a_session_switch() {
+        use dsh_native_transport::dto::GoalRef;
+        let (mut app, mut receiver) = managed_app();
+        let first = app.selected.clone().unwrap();
+        let second = SessionId::new("PUBLIC-second-session").unwrap();
+        app.sessions.insert(
+            second.clone(),
+            dsh_native_transport::dto::SessionSummary {
+                agent_available: true,
+                session_id: second.clone(),
+                updated_at: 0,
+                running: false,
+                blank: true,
+                parent_session_id: None,
+                origin: None,
+                cwd: None,
+                projections: None,
+            },
+        );
+        let reference = GoalRef {
+            id: "PUBLIC-goal".into(),
+            revision: 3,
+        };
+        app.submit_goal(crate::goal_ui::Operation::Pause(reference.clone()));
+        assert_eq!(app.goal_busy.as_ref(), Some(&first));
+        let mut first_writes = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if matches!(command, Command::Goal { .. }) {
+                first_writes += 1;
+            }
+        }
+        assert_eq!(
+            first_writes, 1,
+            "the first session's write is admitted once"
+        );
+        // An open per-turn usage row is keyed by record seq, which is not unique across sessions.
+        app.usage_expanded.insert(7);
+        app.goal_edit = Some((reference.clone(), "PUBLIC draft".into()));
+        app.goal_clear = Some(reference.clone());
+        app.goal_error = Some("Goal: remote-failure".into());
+        let _ = app.update(Message::Select(second.clone()));
+        assert_eq!(app.selected.as_ref(), Some(&second));
+        assert!(app.usage_expanded.is_empty(), "seq 7 must not open here");
+        assert!(app.goal_edit.is_none() && app.goal_clear.is_none());
+        assert!(
+            app.goal_error.is_none(),
+            "another session's failure is gone"
+        );
+        // The first session's write is still in flight, but it does not block this session: its
+        // bar draws the goal this session's own snapshot reports and admits its own mutation.
+        app.transcript = reducer::Transcript::new(0);
+        app.transcript
+            .apply(
+                0,
+                serde_json::from_value(serde_json::json!({
+                    "type": "snapshot",
+                    "records": [],
+                    "cursor": 4,
+                    "hasMore": false,
+                    "header": {"version": 4, "id": "PUBLIC-second-session", "createdAt": 1000, "isSeeded": false},
+                    "projections": {"asOfSeq": 4, "values": {"goal": {"goal": {
+                        "id": "PUBLIC-second-goal", "revision": 2, "objective": "PUBLIC second goal",
+                        "phase": "paused", "maxGoalRounds": 8
+                    }, "roundsStarted": 1, "createdAt": 1000, "updatedAt": 1000}}},
+                    "assistantStream": {"revision": 0}
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(app.goal_busy.as_ref(), Some(&first));
+        let _ = app.update(Message::GoalResume);
+        let mut goals = Vec::new();
+        while let Ok(command) = receiver.try_recv() {
+            if let Command::Goal { session, .. } = command {
+                goals.push(session);
+            }
+        }
+        assert_eq!(
+            goals,
+            vec![second.clone()],
+            "the new session's bar admits its own mutation"
+        );
+        // Its late reply clears the flag it raised and leaves this bar's error line alone.
+        app.goal_busy = Some(first.clone());
+        let _ = app.update(Message::Worker(Event::GoalUpdated {
+            session: first.clone(),
+            result: Err("Goal: remote-failure".into()),
+        }));
+        assert!(app.goal_busy.is_none());
+        assert!(app.goal_error.is_none());
+        // Switching back cannot find the bar stuck in a write that already settled.
+        let _ = app.update(Message::Select(first));
+        assert!(app.goal_busy.is_none());
     }
     #[test]
     fn content_search_is_fenced_and_stale_pages_are_ignored() {
