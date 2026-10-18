@@ -11195,20 +11195,9 @@ impl App {
             chat_usage::Severity::Tight => TEXT,
             chat_usage::Severity::Critical => DANGER,
         };
-        // The todo dock carries the same standing plan with its items; the
-        // metadata chip is the fallback when the dock has no list to show.
-        let plan = if self.transcript.work().plan_items().is_empty() {
-            self.transcript
-                .work()
-                .plan()
-                .map(|(done, total, next)| match next {
-                    Some(next) => format!("Plan · {done}/{total} · next: {next}"),
-                    None if done == total => format!("Plan · {done}/{total} · complete"),
-                    None => format!("Plan · {done}/{total}"),
-                })
-        } else {
-            None
-        };
+        // The todo dock is the only plan reading: the work store writes the item list and
+        // its counts together, so there is no counts-only state a metadata chip could
+        // cover (round 361 removed the branch that claimed one).
         let mut metadata = row![];
         // Plan mode's actionable control now rides the card's own control row as
         // the reference draws it (`PlanModeControl.module.css`), so the strip
@@ -11219,9 +11208,6 @@ impl App {
             if control.pending {
                 metadata = metadata.push(label(mode.label(), ACCENT).size(10));
             }
-        }
-        if let Some(plan) = plan {
-            metadata = metadata.push(label(short(&plan, 60), MUTED).size(10));
         }
         // The reference's compact stats pill (`StatsPills.tsx:281-300`): whole-log tokens
         // and cache-hit share, from the same `tokenUsage` projection the catalog rows read.

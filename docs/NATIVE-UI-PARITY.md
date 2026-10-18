@@ -6188,9 +6188,11 @@ remain unverified.
 **The current standing plan now sits above the input as the reference's collapse/expand dock.** The
 work store keeps the newest `todo/write` list in wire order and exposes it; the composer draws
 **☑ Todos** with per-status counts (`N done · N active · N pending`, zero segments omitted),
-collapsed by default, expanding to one row per item with a ✓/●/○ marker and its content. When the
-dock has a list, the separate metadata **Plan · d/t · next** chip is suppressed so the same plan is
-not stated twice; the chip remains the fallback when only the counts are retained.
+collapsed by default, expanding to one row per item with a ✓/●/○ marker and its content. The
+separate metadata **Plan · d/t · next** chip was written as the fallback "when only the counts are
+retained"; that state cannot occur, because `work_panel` writes the item list and its counts in the
+same fold and clears them together, so the chip could never render and round 361 removed it. The dock
+is the single place the standing plan appears.
 `shots/141-todo-dock.png` shows the expanded dock over the composer with the plan chip gone; the
 report is `status: passed`.
 
@@ -7976,4 +7978,29 @@ this round changes which facts reach that drawing, not how it looks.
 | transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
 | core (`--lib`) | **0** | **115 passed** (unchanged) |
 | format debt | **0** | 0 files, 0 hunks |
+| tree | — | clean before the commit |
+
+### Round 361 — the plan metadata chip could never render, so it is gone
+
+A read-only audit of goals and todos found a branch that promised a state the store cannot produce.
+The composer drew a `Plan · d/t · next` metadata chip "when the dock has no list to show", i.e. when
+`work().plan_items()` is empty and `work().plan()` is not. But `work_panel` writes the item list and
+its counts in the same fold and clears them together (`work_panel.rs:249-267`), so
+`plan().is_some()` implies a non-empty item list: the chip's condition was never true and the label
+was unreachable. `shots/141-todo-dock.png` had been captured with `planChipSimulated: true` for a
+preset that seeded a real todo list, which is how the fiction survived.
+
+Removed: the dead branch and the chip. The fixture's report keys now say what can be observed
+(`todoPlanProjected`, `todoDockItemCount`) instead of what was simulated, and its `plan-chip` arm
+asserts the invariant directly — four projected items behind the counts, not a counts-only fallback.
+The paragraph in round 311 that described the fallback is corrected above.
+
+No visible change, so no capture: this is the removal of a branch nothing could reach.
+
+**Battery (round 361).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1263 passed**, 1 ignored |
+| app, default | **0** | **1256 passed**, 1 ignored |
 | tree | — | clean before the commit |

@@ -1792,6 +1792,9 @@ pub fn build(
                 app.transcript.work().plan(),
                 Some((1, 4, Some("PUBLIC fix the fold")))
             );
+            // The item list and its counts are written together, so the dock always has the
+            // rows the counts describe: there is no counts-only state to fall back to.
+            assert_eq!(app.transcript.work().plan_items().len(), 4);
         }
         "work-panel" => {
             // Reached through the existing More menu, exactly as a user would.
@@ -2096,7 +2099,6 @@ pub fn metadata(app: &App, preset: &str) -> Value {
     // The MCP panel is a full-pane page like Schedules: it owns the body and hides the composer.
     let mcp_expected = preset == "mcp";
     let context_expected = preset.starts_with("context-management");
-    let plan_expected = preset == "plan-chip";
     let plan_projected = app.transcript.work().plan().is_some();
     let context_warning = app.composer_visible() && app.context_policy_open;
     let picker_expected = preset == "file-picker";
@@ -2189,8 +2191,8 @@ pub fn metadata(app: &App, preset: &str) -> Value {
         "schedulesPanelStateMatchesPreset":app.schedules_open == schedules_expected,
         "contextManagementSimulated":context_expected,
         "contextTrajectoryShown":context_expected && app.records_expanded,
-        "planChipSimulated":plan_expected,
-        "planChipProjected":plan_projected,
+        "todoPlanProjected":plan_projected,
+        "todoDockItemCount":app.transcript.work().plan_items().len(),
         "planModeSimulated":preset.starts_with("plan-mode"),
         "planModeLabel":super::plan_mode::mode(app.transcript.projections()).map(super::plan_mode::Mode::label),
         "planControlPressable":app.plan_control().visible(),
