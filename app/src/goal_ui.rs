@@ -61,6 +61,33 @@ pub fn phase_label(phase: GoalPhase) -> &'static str {
     }
 }
 
+/// The bar's action set, read from the phase and whether an active goal is disarmed.
+/// The reference draws Pause only while the goal is armed and active, Resume while it is
+/// paused or active-but-disarmed, and neither for a blocked goal
+/// (`GoalBar.tsx:130-154`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Actions {
+    pub pause: bool,
+    pub resume: bool,
+}
+
+pub fn actions(phase: GoalPhase, disarmed: bool) -> Actions {
+    Actions {
+        pause: phase == GoalPhase::Active && !disarmed,
+        resume: phase == GoalPhase::Paused || (phase == GoalPhase::Active && disarmed),
+    }
+}
+
+/// The bar's label. An active goal whose activation is disarmed is the reference's
+/// own "Inactive Goal", not the active label (`GoalBar.tsx:37-40`, `:130`).
+pub fn bar_label(phase: GoalPhase, disarmed: bool) -> &'static str {
+    if phase == GoalPhase::Active && disarmed {
+        "Inactive Goal"
+    } else {
+        phase_label(phase)
+    }
+}
+
 /// One admitted goal mutation, fenced to the session it was built for.
 #[derive(Clone, Debug)]
 pub enum Operation {
@@ -102,5 +129,24 @@ mod tests {
             parse(&blocked).unwrap().blocked.as_deref(),
             Some("PUBLIC blocked")
         );
+    }
+
+    /// The reference's own table: armed active pauses, disarmed active resumes, paused
+    /// resumes, blocked offers neither (`GoalBar.tsx:130-154`).
+    #[test]
+    fn the_action_set_follows_the_phase_and_the_disarmed_state() {
+        for (phase, disarmed, pause, resume, label) in [
+            (GoalPhase::Active, false, true, false, "Ongoing Goal"),
+            (GoalPhase::Active, true, false, true, "Inactive Goal"),
+            (GoalPhase::Paused, false, false, true, "Paused Goal"),
+            (GoalPhase::Paused, true, false, true, "Paused Goal"),
+            (GoalPhase::Blocked, false, false, false, "Blocked Goal"),
+            (GoalPhase::Blocked, true, false, false, "Blocked Goal"),
+        ] {
+            let actions = actions(phase, disarmed);
+            assert_eq!(actions.pause, pause, "{phase:?} disarmed={disarmed}");
+            assert_eq!(actions.resume, resume, "{phase:?} disarmed={disarmed}");
+            assert_eq!(bar_label(phase, disarmed), label, "{phase:?}");
+        }
     }
 }

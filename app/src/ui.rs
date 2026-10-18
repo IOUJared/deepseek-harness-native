@@ -10486,17 +10486,36 @@ impl App {
                 (&self.goal_busy, &self.selected),
                 (Some(busy), Some(selected)) if busy == selected
             );
+            // A goal that is active but disarmed is the reference's "Inactive Goal": it
+            // offers Resume, never Pause, and a paused goal offers Resume while a blocked
+            // one offers neither (`GoalBar.tsx:130-154`).
+            let disarmed = matches!(
+                (&self.goal_activation, goal.phase),
+                (
+                    Some((
+                        session,
+                        id,
+                        revision,
+                        dsh_native_transport::dto::GoalActivation::Disarmed,
+                    )),
+                    dsh_native_transport::dto::GoalPhase::Active,
+                ) if self.selected.as_ref() == Some(session)
+                    && id == &goal.reference.id
+                    && *revision == goal.reference.revision
+            );
+            let offered = crate::goal_ui::actions(goal.phase, disarmed);
             if busy {
                 actions = actions.push(label("Working…", MUTED).size(10));
             } else {
-                if goal.phase == dsh_native_transport::dto::GoalPhase::Active {
+                if offered.pause {
                     actions = actions.push(
                         button(label("Pause", MUTED).size(10))
                             .on_press(Message::GoalPause)
                             .style(design::ghost)
                             .padding([2, 6]),
                     );
-                } else {
+                }
+                if offered.resume {
                     actions = actions.push(
                         button(label("Resume", MUTED).size(10))
                             .on_press(Message::GoalResume)
@@ -10520,27 +10539,7 @@ impl App {
             }
             bar = bar.push(
                 row![
-                    label(
-                        match (&self.goal_activation, goal.phase) {
-                            (
-                                Some((
-                                    session,
-                                    id,
-                                    revision,
-                                    dsh_native_transport::dto::GoalActivation::Disarmed,
-                                )),
-                                dsh_native_transport::dto::GoalPhase::Active,
-                            ) if self.selected.as_ref() == Some(session)
-                                && id == &goal.reference.id
-                                && *revision == goal.reference.revision =>
-                            {
-                                "Inactive Goal"
-                            }
-                            _ => crate::goal_ui::phase_label(goal.phase),
-                        },
-                        MUTED,
-                    )
-                    .size(10),
+                    label(crate::goal_ui::bar_label(goal.phase, disarmed), MUTED).size(10),
                     label(short(&goal.objective, 80), TEXT)
                         .size(12)
                         .width(Length::Fill),

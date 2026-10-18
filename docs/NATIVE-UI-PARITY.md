@@ -7882,3 +7882,30 @@ Goal" is unreachable for a goal disarmed while another session was selected; and
 | transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
 | core (`--lib`) | **0** | **115 passed** (unchanged) |
 | tree | — | clean before the commit |
+
+### Round 358 — the goal bar offers the action the phase and the activation allow
+
+Round 357 made the projection reach the bar. It then drew the wrong controls for three of its five
+states. The rule was `if phase == Active { Pause } else { Resume }`, which is not the reference's:
+`showResume = paused || (active && disarmed)` and Pause only for `active && armed`
+(`GoalBar.tsx:131-132, 141`). So an **Inactive Goal** — active but disarmed — offered Pause and no
+Resume, costing two presses to re-arm, and a **blocked** goal offered a Resume it cannot honour.
+`shots/134-goal-inactive.png` had captured exactly the wrong pair and the doc had read it as proof
+of the label alone.
+
+The decision now lives in one pure owner, `goal_ui::actions(phase, disarmed)` and
+`goal_ui::bar_label(phase, disarmed)`, which the bar reads for both the action set and the label —
+so the two cannot disagree about what "disarmed" means. The test is the reference's own table:
+armed-active pauses only, disarmed-active resumes and reads "Inactive Goal", paused resumes, blocked
+offers neither. `shots/162-goal-inactive-resume.png` (DP-2 alongside, `status: passed`) shows
+`Inactive Goal … Resume Edit Clear`; it supersedes shot 134, which had the wrong action row.
+
+**Battery (round 358).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1260 passed**, 1 ignored |
+| app, default | **0** | **1253 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks |
+| DP-2 capture | — | `shots/162-goal-inactive-resume.png`, `status: passed` |
+| tree | — | clean before the commit |
