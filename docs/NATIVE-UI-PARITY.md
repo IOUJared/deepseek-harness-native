@@ -8311,3 +8311,52 @@ decisions and one is deleted code.
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | app bin | — | **20** pre-existing dead-code warnings (unchanged) |
 | tree | — | clean before the commit |
+
+### Round 368 — the details, Work and deliverables surface: five findings
+
+A read-only audit of the details panel, the Work page and the changed-file deliverables found the
+opener leases, copy admission, Escape stamping, formatted/source eligibility and the overflow
+accounting consistent — then five defects, three of them silent.
+
+- **A failed comparison was stored and never read.** `/api/changes.diff` failing left
+  `ChangesDiffState::Failed` in the cache and `pending_diff` still set, and the only reader folded
+  `Failed` into "never asked". Pressing a changed file then did nothing and said nothing, and the
+  next press fell into the `Loading` arm and did nothing again. The press now names the failure
+  ("Could not read the changes for this file; retrying."), the receipt settles the pair either way,
+  and the same press is the retry. The reference states the same fact (`FileDiff.tsx:148`).
+- **A comparison could cross sessions.** The changed-file caches are keyed by the session's own
+  event seq, and `choose` cleared `changes` but not `changes_diffs`/`changes_expanded`/
+  `pending_diff` — the comment three lines away already records that hazard for `usage_expanded`.
+  A second conversation could open the *previous* session's diff for a same-numbered file, and a
+  read in flight across a switch popped a sheet for a file nobody had opened there. All three clear
+  with the selection now.
+- **The Work opener did not retire the Details pane.** Its peers (terminal, MCP, schedules) do;
+  Work owned the body while `detail` stayed set, so `detail_visible` was false and `HideDetails`
+  could not clear it. "Back to conversation" then landed on the stale sheet instead of the
+  conversation — contradicting the documented one-pane rule. Work now clears it like the others.
+- **The comparison dropped its own qualifications.** `open_changed_detail` ignored `before`,
+  `after`, `coarse` and an empty hunk list, so a timed-out comparison drawn as a whole-file
+  replacement read as an exact line diff, a created or deleted file carried no label, and an
+  unchanged file opened an empty body. The three notes the reference states above the hunks are
+  now stated the same way (`FileDiff.tsx:128-131, 229`; copy from `locales.ts:127-130`).
+- **A module comment claimed a control that does not exist** — "opening, closing and section
+  expansion" on a panel whose `Action` has only `Open`/`Close` and whose sections never collapse.
+
+Tests: `opening_a_changed_file_reads_and_shows_its_diff` (the failure, its retry, the created+coarse
+notes and the unchanged note), `actual_select_and_reload_routes_retire_old_openers_and_back` (no
+comparison or in-flight pair crosses a selection), and
+`opening_work_records_replaces_the_schedule_page_so_escape_closes_it` (Details retires). No
+capture: three are state decisions and two are copy.
+
+**Battery (round 368).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1280 passed**, 1 ignored |
+| app, default | **0** | **1273 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| tree | — | clean before the commit |

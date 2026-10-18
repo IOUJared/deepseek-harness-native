@@ -436,6 +436,11 @@ fn actual_select_and_reload_routes_retire_old_openers_and_back() {
         let stale_back = open(&mut app);
         app.ready = true;
         app.selected = Some(SessionId::new("PUBLIC-details").unwrap());
+        // A changed-file comparison cached for this session (and one still in flight) belongs to
+        // this session's event seqs; a new selection must not inherit either.
+        app.changes_diffs.insert((2, 0), ChangesDiffState::Loading);
+        app.changes_expanded.insert(2);
+        app.pending_diff = Some((2, 0));
         let previous_generation = app.generation;
         drop(app.update(if reload {
             Message::Reload
@@ -443,6 +448,12 @@ fn actual_select_and_reload_routes_retire_old_openers_and_back() {
             Message::Select(SessionId::new("PUBLIC-other").unwrap())
         }));
         assert!(app.generation > previous_generation);
+        assert!(
+            app.changes_diffs.is_empty(),
+            "no comparison crosses sessions"
+        );
+        assert!(app.changes_expanded.is_empty());
+        assert!(app.pending_diff.is_none());
         assert!(
             matches!(queue.try_recv().unwrap(),Command::Select{generation,..} if generation==app.generation)
         );

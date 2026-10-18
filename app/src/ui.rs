@@ -2666,6 +2666,12 @@ impl App {
         self.exporter.dismiss();
         self.selected = Some(session.clone());
         self.changes.clear();
+        // The changed-file caches are keyed by the session's own event seq, which is not unique
+        // across sessions: a cached comparison (or a read still in flight) from the previous
+        // session would open that file's diff in this one.
+        self.changes_diffs.clear();
+        self.changes_expanded.clear();
+        self.pending_diff = None;
         self.feedback.clear();
         self.completion_unread.remove(&session);
         self.generation += 1;
@@ -4391,25 +4397,35 @@ impl App {
                 self.command(worker::Command::OpenWorkspacePath { path });
             }
             Message::OpenChanged(seq, index) if self.layout_controls_enabled() => {
-                match self.changes_diffs.get(&(seq, index)) {
-                    Some(ChangesDiffState::Ready(diff)) => {
-                        self.open_changed_detail(seq, index, diff.clone());
-                    }
-                    Some(ChangesDiffState::Loading) => {}
-                    _ => {
-                        let Some(session) = self.selected.clone() else {
-                            return Task::none();
-                        };
-                        self.changes_diffs
-                            .insert((seq, index), ChangesDiffState::Loading);
-                        self.pending_diff = Some((seq, index));
-                        self.command(worker::Command::ChangesDiff {
-                            session,
-                            seq,
-                            index,
-                        });
-                    }
+                if let Some(ChangesDiffState::Ready(diff)) = self.changes_diffs.get(&(seq, index)) {
+                    self.open_changed_detail(seq, index, diff.clone());
+                    return Task::none();
                 }
+                if matches!(
+                    self.changes_diffs.get(&(seq, index)),
+                    Some(ChangesDiffState::Loading)
+                ) {
+                    return Task::none();
+                }
+                // A stored failure is a state, not "never asked": say so, then let this same
+                // press be the retry it looks like.
+                if matches!(
+                    self.changes_diffs.get(&(seq, index)),
+                    Some(ChangesDiffState::Failed)
+                ) {
+                    self.status = "Could not read the changes for this file; retrying.".into();
+                }
+                let Some(session) = self.selected.clone() else {
+                    return Task::none();
+                };
+                self.changes_diffs
+                    .insert((seq, index), ChangesDiffState::Loading);
+                self.pending_diff = Some((seq, index));
+                self.command(worker::Command::ChangesDiff {
+                    session,
+                    seq,
+                    index,
+                });
             }
             Message::ToggleTurnUsage(key) if self.layout_controls_enabled() => {
                 if !self.usage_expanded.remove(&key) {
@@ -5076,6 +5092,10 @@ impl App {
                 self.close_schedule_editor();
                 self.dismiss_terminal();
                 self.mcp.dismiss();
+                // The Details pane is a full-pane opener too, so it retires like the others.
+                // Leaving it set made "Back to conversation" land on a stale sheet that
+                // `detail_visible` could not dismiss while Work owned the body.
+                self.detail = None;
             }
             Message::Work(work_panel_ui::Action::Close) if self.work_open => {
                 self.work_open = false;
@@ -5677,10 +5697,12 @@ impl App {
                     Ok(diff) => ChangesDiffState::Ready(diff),
                     Err(_) => ChangesDiffState::Failed,
                 };
-                if self.pending_diff == Some((seq, index))
-                    && let ChangesDiffState::Ready(diff) = &state
-                {
-                    self.open_changed_detail(seq, index, diff.clone());
+                if self.pending_diff == Some((seq, index)) {
+                    if let ChangesDiffState::Ready(diff) = &state {
+                        self.open_changed_detail(seq, index, diff.clone());
+                    }
+                    // A failure settles the pair too: leaving it pending made the next press
+                    // fall into the `Loading` arm and do nothing.
                     self.pending_diff = None;
                 }
                 self.changes_diffs.insert((seq, index), state);
@@ -10154,8 +10176,29 @@ impl App {
     ) {
         use dsh_native_transport::dto::ChangesDiff;
         let (display, body) = match diff {
-            ChangesDiff::Text { display, hunks, .. } => {
+            ChangesDiff::Text {
+                display,
+                before,
+                after,
+                coarse,
+                hunks,
+                ..
+            } => {
                 let mut text = String::new();
+                // The comparison's own qualifications, in the reference's order above the hunks
+                // (`FileDiff.tsx:128-131, 229`): a created or deleted file, a pair whose sides
+                // hold the same lines, and a timed-out comparison drawn as a whole-file
+                // replacement. Without them a coarse replacement read as an exact line diff.
+                if !before {
+                    text.push_str("Created in this turn\n");
+                } else if !after {
+                    text.push_str("Deleted in this turn\n");
+                } else if hunks.is_empty() {
+                    text.push_str("Both sides hold the same lines\n");
+                }
+                if coarse {
+                    text.push_str("Line comparison timed out; shown as a whole-file replacement\n");
+                }
                 for hunk in hunks {
                     text.push_str(&format!(
                         "@@ -{},{} +{},{} @@\n",
@@ -18379,7 +18422,12 @@ mod tests {
         let (mut app, _receiver) = managed_app();
         let _ = app.update(Message::OpenSchedules);
         assert!(app.schedules_open);
+        // The Details pane is a full-pane opener as well: Work retires it, so "Back to
+        // conversation" reaches the conversation instead of a stale sheet.
+        app.open_detail("PUBLIC detail".into(), "PUBLIC body".into(), None, false);
+        assert!(app.detail.is_some());
         let _ = app.update(Message::Work(work_panel_ui::Action::Open));
+        assert!(app.detail.is_none());
         assert!(app.work_open);
         assert!(
             !app.schedules_open,
@@ -19291,6 +19339,76 @@ mod tests {
         assert!(detail.source.contains("+new"), "{}", detail.source);
         assert!(detail.source.contains("@@ -1,1 +1,1 @@"));
         assert!(app.pending_diff.is_none());
+        // A refusal is a state the press can recover from: it says so, settles the pair, and the
+        // next press is a real retry. A stored `Failed` nothing read looked like "never asked".
+        app.detail = None;
+        app.changes_diffs.remove(&(2, 0));
+        let _ = app.update(Message::OpenChanged(2, 0));
+        while receiver.try_recv().is_ok() {}
+        let _ = app.update(Message::Worker(Event::ChangesDiffLoaded {
+            seq: 2,
+            index: 0,
+            result: Err("PUBLIC comparison failed".into()),
+        }));
+        assert!(app.pending_diff.is_none(), "a failure settles the pair");
+        assert!(matches!(
+            app.changes_diffs.get(&(2, 0)),
+            Some(ChangesDiffState::Failed)
+        ));
+        let _ = app.update(Message::OpenChanged(2, 0));
+        assert!(
+            app.status.contains("Could not read the changes"),
+            "{}",
+            app.status
+        );
+        let mut retries = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if matches!(command, Command::ChangesDiff { .. }) {
+                retries += 1;
+            }
+        }
+        assert_eq!(retries, 1, "the press retries the read it failed");
+        // The comparison states its own qualifications above the hunks.
+        let _ = app.update(Message::Worker(Event::ChangesDiffLoaded {
+            seq: 2,
+            index: 0,
+            result: Ok(ChangesDiff::Text {
+                path: "src/main.rs".into(),
+                display: "src/main.rs".into(),
+                before: false,
+                after: true,
+                coarse: true,
+                hunks: Vec::new(),
+            }),
+        }));
+        let source = &app.detail.as_ref().unwrap().source;
+        assert!(source.contains("Created in this turn"), "{source}");
+        assert!(
+            source.contains("Line comparison timed out; shown as a whole-file replacement"),
+            "{source}"
+        );
+        // An unchanged pair says so instead of opening an empty body.
+        app.detail = None;
+        app.changes_diffs.remove(&(2, 0));
+        let _ = app.update(Message::OpenChanged(2, 0));
+        while receiver.try_recv().is_ok() {}
+        let _ = app.update(Message::Worker(Event::ChangesDiffLoaded {
+            seq: 2,
+            index: 0,
+            result: Ok(ChangesDiff::Text {
+                path: "src/main.rs".into(),
+                display: "src/main.rs".into(),
+                before: true,
+                after: true,
+                coarse: false,
+                hunks: Vec::new(),
+            }),
+        }));
+        let source = &app.detail.as_ref().unwrap().source;
+        assert!(
+            source.contains("Both sides hold the same lines"),
+            "{source}"
+        );
     }
     #[test]
     fn schedule_history_loads_older_pages_with_the_cursor() {
