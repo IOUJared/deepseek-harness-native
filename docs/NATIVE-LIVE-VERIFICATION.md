@@ -190,6 +190,17 @@ property and the catalog fallback (round 324). The probe was deleted after the r
 - Desktop-open success (`session/openWorkspacePath` on an existing file launches the desktop
   handler; only the failure path was safe to run).
 - OAuth and any charged model execution. Those remain separate claims.
+- **The control stream's worker hop.** Round 357 added `mux.control()` to the worker's required
+  streams, the only channel the Host pushes projections on. The transport opener is proven against
+  the Node host fixture (`transport/tests/transport.rs` asserts `mux.control()` yields
+  `ControlFrame::Baseline`) and the Application hop is proven by
+  `transcript_projection_tests::a_pushed_projection_reaches_the_goal_and_the_roster_with_higher_seq_wins`,
+  but the worker's `operation(... mux.control())` + publish arm has no simulated test. What would
+  settle it: boot the fork Host exactly as the Harness does (the probe below), start the native app
+  against it, type `/goal <objective> · 4 rounds` in the composer, and watch the goal strip appear
+  and then change phase after the goal mutates — one screenshot before and after the mutation. No
+  model turn is needed for the command itself, so this is a free read; the app's own GUI press is
+  the part a script cannot perform.
 
 ## Gates after the fixes
 
