@@ -146,6 +146,9 @@ pub(super) fn surface_update(
     Ok(())
 }
 
+/// One command run's row, as Chat states it (`command.ts:36-70`).
+pub type CommandRow = crate::reducer::command_row::Row;
+
 /// The typed failure row for a terminal turn ending, mirroring the reference's
 /// `TurnErrorItem`/`TurnMaxTokensItem`: a title, the mapped reason, and the recorded code.
 /// `None` for every other ending — those keep their single notice line.

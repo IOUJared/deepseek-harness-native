@@ -6388,7 +6388,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab) |
 | Goals, plan mode, permissions, approvals/questions, jobs, subagents, session log | cloned |
 | Tool rows: one row per call with the folded result, relative path, `+N −N`, and the structured cards — diff, read, terminal, search, web, ask-user | cloned (no per-tool glyphs — the reference's SVGs have no DejaVu equivalent — and no process-group or turn-process fold above the rows) |
-| Model-retry row, turn duration, failure and output-limit rows, card Copy control, created-task (`schedule_create`) card, skill row | cloned (the skill row has no `Inspect` action: native has no right Sidebar to open it in) |
+| Model-retry row, command row, turn duration, failure and output-limit rows, card Copy control, created-task (`schedule_create`) card, skill row | cloned (the skill row has no `Inspect` action: native has no right Sidebar to open it in) |
 | Composer usage pill: tokens, cache hit, speed, turn/step counts, and the Host's session-statistics dialog | cloned |
 | Deliverables: summary, file list, diffs, desktop open | cloned (no right-Sidebar review tab) |
 | Message feedback: ratings, categories, note | cloned (session `/feedback` remains a Host command) |
@@ -9312,4 +9312,43 @@ falling back to the recorded-arguments label rather than a guess) plus the prese
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/189-skill-row.png`, `status: passed` |
 | app bin | — | **20** dead-code warnings (unchanged) |
+| tree | — | clean before the commit |
+
+### Round 390 — the command row
+
+A slash command's run was invisible in Chat. `command/run` and `command/done` are log events in
+native's bookkeeping list (`known.rs:10-11`), so `chat_visible` refused them and the transcript showed
+nothing — while the reference draws one row per run: the command's name, `Running…` or its outcome,
+and the multi-line output behind a disclosure (`command.ts:36-70`, `GenericCommandCard.tsx:30-90`).
+
+**The row** folds by `commandId` the way the retry chain folds by `retryId`: the `command/run` opens
+it, its own `command/done` settles it, both records stay in Trajectory. The summary is the
+reference's — `Running…` while unsettled, the outcome's text when it is a single line, otherwise
+`Completed` or `Command failed` — and a multi-line text becomes the expandable body, drawn one row per
+line in the code face with its height reserved (the first capture drew all three lines over the next
+row because the geometry still measured only the summary; the reservation now counts the unfolded
+lines, capped at ten).
+
+Evidence: `shots/190-command-row.png` (DP-2 alongside, `status: passed`) in the new `command-row`
+preset: `▾ /compact · Completed` over its three output lines.
+
+Tests: five in `command_row` (a run's name and `Running…`, the outcome's three summary shapes, a
+record that cannot name a command, an unknown outcome kind, and the quiet `Debug`) and three in
+`command_row_tests` (one row per run with both records kept, the running and failed shapes, and a
+nameless run contributing no Chat row) plus the preset's assertions.
+
+**Battery (round 390).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1377 passed**, 1 ignored |
+| app, default | **0** | **1365 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/190-command-row.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings (20 before; the command row adds one) |
 | tree | — | clean before the commit |

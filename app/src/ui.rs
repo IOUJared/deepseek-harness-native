@@ -12867,6 +12867,7 @@ impl App {
             failed: false,
             retry: None,
             notice: None,
+            command: None,
         });
         let rows: Vec<_> = self
             .transcript
@@ -12970,6 +12971,25 @@ impl App {
         geometry
     }
     fn row_geometry_base(&self, row: &DisplayRow, lane: f32) -> chat_geometry::Geometry {
+        // A command row states one line, plus its output lines when they are unfolded
+        // (`GenericCommandCard.tsx:54-90`). The reservation has to include them or the body
+        // overlaps the next row.
+        if let Some(command) = &row.command {
+            let width = (lane - 8.0).clamp(37.0, design::MAX_CHAT);
+            let line = design::LINE_BODY + self.content_delta();
+            let lines = 1.0
+                + command
+                    .body()
+                    .filter(|_| self.activity_expanded.contains(&row.key))
+                    .map(|body| body.lines().count().min(10) as f32)
+                    .unwrap_or(0.0);
+            let height = line * lines + design::COMMAND_ROW_PAD;
+            return chat_geometry::Geometry {
+                width,
+                body_height: height,
+                height,
+            };
+        }
         if row.kind == "tool-workflow/run-start" {
             let width = (lane - 8.0).clamp(37.0, design::MAX_CHAT);
             let height = self.workflow_height(row.key);
@@ -13181,6 +13201,7 @@ impl App {
                     failed: false,
                     retry: None,
                     notice: None,
+                    command: None,
                 },
                 lane,
             )
@@ -14075,6 +14096,7 @@ impl App {
             failed: false,
             retry: None,
             notice: None,
+            command: None,
         });
         let len = self.transcript.display_rows(true).count() + usize::from(partial.is_some());
         let rendered: Vec<&DisplayRow> = self
@@ -14344,6 +14366,61 @@ impl App {
                     activity_column = activity_column.push(body);
                 }
                 activity_column.into()
+            } else if let Some(command) = record.command.clone() {
+                // The reference's command row (`GenericCommandCard.tsx:54-90`): the command's name,
+                // its outcome, and the multi-line output behind a disclosure.
+                let expanded = self.activity_expanded.contains(&record.key);
+                let body = command.body();
+                let mut header = row![
+                    label(
+                        if expanded && body.is_some() {
+                            "▾"
+                        } else {
+                            "▸"
+                        },
+                        MUTED
+                    )
+                    .size(10),
+                    label(command.name.clone(), TEXT).size(12),
+                    label("·", MUTED).size(12),
+                    label(
+                        command.summary(),
+                        if command.state == crate::reducer::command_row::State::Failed {
+                            DANGER
+                        } else {
+                            MUTED
+                        }
+                    )
+                    .size(11),
+                    Space::new().width(Length::Fill),
+                ]
+                .spacing(6)
+                .align_y(iced::Alignment::Center);
+                let mut block = column![
+                    button(header)
+                        .on_press_maybe(body.map(|_| Message::ToggleActivity {
+                            generation: self.generation,
+                            key: record.key,
+                        }))
+                        .style(design::ghost)
+                        .padding([4, 0])
+                        .width(Length::Fill),
+                ]
+                .spacing(2);
+                if expanded && let Some(body) = body {
+                    // A pre-like block: one row per line, capped at the ten the geometry reserves.
+                    for line in body.lines().take(10) {
+                        block = block.push(
+                            label(short(line, 200), MUTED)
+                                .size(design::CODE_FONT)
+                                .font(MONO),
+                        );
+                    }
+                }
+                container(block)
+                    .padding([6, 14])
+                    .width(geometries[index].width)
+                    .into()
             } else if let Some(notice) = record.notice.clone() {
                 // The reference's terminal-failure row (`MessageItem.tsx:129-160`): a red dot, the
                 // title, the mapped reason and — when the Host recorded one — the code chip.
@@ -18322,6 +18399,7 @@ mod tests {
             failed: false,
             retry: None,
             notice: None,
+            command: None,
         }
     }
     #[test]
@@ -21347,6 +21425,7 @@ mod tests {
             failed: false,
             retry: None,
             notice: None,
+            command: None,
         };
         assert_eq!(activity_body_source(&row), "let a = 1;\nlet b = 2;");
     }

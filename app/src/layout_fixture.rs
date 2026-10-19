@@ -152,6 +152,7 @@ pub const PRESETS: &[&str] = &[
     "turn-max-tokens",
     "schedule-create",
     "skill-row",
+    "command-row",
     "context-injects",
     "assistant-tool-call",
     "assistant-tool-call-expanded",
@@ -237,6 +238,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "turn-error" | "turn-max-tokens" => Some((Size::new(1040.0, 620.0), 1.0)),
         "schedule-create" => Some((Size::new(1040.0, 700.0), 1.0)),
         "skill-row" => Some((Size::new(1040.0, 700.0), 1.0)),
+        "command-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "chat-density" => Some((Size::new(1040.0, 1000.0), 1.0)),
         "tool-activity-narrow" => Some((Size::new(760.0, 840.0), 1.0)),
         "tool-activity-tiny" => Some((Size::new(608.0, 448.0), 1.25)),
@@ -694,6 +696,47 @@ fn public_tool_applied_records() -> Vec<Value> {
         }
     }
     records
+}
+
+/// One prompt and one slash-command run, so the reference's command row draws its name, outcome and
+/// multi-line output. Synthetic PUBLIC metadata; no command ran.
+fn public_command_records() -> Vec<Value> {
+    let event = |seq: u64, kind: &str, data: Value| {
+        json!({"type":"event", "event":{
+            "type":kind, "seq":seq, "time":1000+seq, "data":data, "surfaceOp":"append"
+        }})
+    };
+    vec![
+        event(
+            0,
+            "user/message",
+            json!({"role":"user", "id":"PUBLIC-command-user", "source":{"kind":"user"},
+                "content":[{"type":"text","text":"PUBLIC command fixture · no command ran."}]}),
+        ),
+        event(
+            1,
+            "command/run",
+            json!({"commandId":"PUBLIC-command-1", "name":"/compact",
+                "args":"keep the plan"}),
+        ),
+        // Three lines, so the row's output is the expandable body rather than the summary.
+        event(
+            2,
+            "command/done",
+            json!({"commandId":"PUBLIC-command-1", "kind":"success",
+                "text":"PUBLIC first output line
+PUBLIC second output line
+PUBLIC third output line"}),
+        ),
+        event(
+            3,
+            "assistant/message",
+            json!({"turn":1, "step":2,
+                "stream":[{"type":"text-chunks", "time0":1003, "index":0, "dt":[],
+                    "texts":["PUBLIC synthetic assistant text · the command row states the recorded run."]}]
+            }),
+        ),
+    ]
 }
 
 /// One prompt and one `skill` load, so the reference's skill row draws its `Skill · <name>` label
@@ -1441,6 +1484,8 @@ pub fn build(
         public_retry_records()
     } else if preset == "turn-total" {
         public_turn_total_records()
+    } else if preset == "command-row" {
+        public_command_records()
     } else if preset == "skill-row" {
         public_skill_records()
     } else if preset == "schedule-create" {
@@ -2314,6 +2359,34 @@ pub fn build(
                     .as_deref(),
                 Some("Retry delay: 4s\nFailure reason: PUBLIC upstream unavailable · synthetic")
             );
+        }
+        "command-row" => {
+            let (key, name, args, body, text) = {
+                let row = app
+                    .transcript
+                    .rows()
+                    .iter()
+                    .find(|row| row.command.is_some())
+                    .expect("the command row");
+                let command = row.command.as_ref().unwrap();
+                (
+                    row.key,
+                    command.name.clone(),
+                    command.args.clone(),
+                    command.body().is_some(),
+                    row.text.clone(),
+                )
+            };
+            assert_eq!(name, "/compact");
+            assert_eq!(args.as_deref(), Some("keep the plan"));
+            // Three output lines make the body expandable, so the summary is the verdict.
+            assert!(body);
+            assert_eq!(text, "/compact · Completed");
+            drop(app.update(Message::ToggleActivity {
+                generation: app.generation,
+                key,
+            }));
+            assert!(app.activity_expanded.contains(&key));
         }
         "skill-row" => {
             let summary = app

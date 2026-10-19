@@ -338,6 +338,8 @@ pub fn chat_width_drag(base: f32, origin_x: f32, current_x: f32, side: WidthSide
 /// steps `neutral-bluish-850` over `-900`, which this palette expresses as `LINE`
 /// over `OVERLAY`.
 pub const CODE_FONT: u32 = 11;
+/// A command row's own padding above and below its lines (`GenericCommandCard.module.css`).
+pub const COMMAND_ROW_PAD: f32 = 12.0;
 pub const CODE_LINE: f32 = 19.0;
 pub const CODE_PAD: f32 = 16.0;
 pub const CODE_BANNER_PAD: iced::Padding = iced::Padding {

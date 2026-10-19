@@ -10,6 +10,9 @@ pub mod activity;
 pub mod ask_card;
 #[path = "assistant_parts.rs"]
 mod assistant_parts;
+/// The reference's command row for a slash-command run.
+#[path = "command_row.rs"]
+pub mod command_row;
 /// The reference's inline diff card for a file-mutation tool row. Declared here, beside
 /// `activity`, because every fixture example that embeds `ui.rs` or `activity.rs` also embeds
 /// this module root; a crate-root declaration would have to be repeated in each of them.
@@ -110,6 +113,9 @@ pub struct DisplayRow {
     /// `Referenced session · labels` (`ui-chat/src/client/chat/MessageItem.tsx:225-229`,
     /// labels from `conversation-nodes/event-projection.ts:83-87`).
     pub references: Vec<String>,
+    /// The command row for a slash-command run (`command_row`). One row per `commandId`, patched by
+    /// its own `command/done`.
+    pub command: Option<chat_presentation::CommandRow>,
     /// The typed failure row for a terminal turn ending (`chat_presentation::notice_for`): a
     /// title, the mapped reason and the recorded code. `None` for every other row.
     pub notice: Option<chat_presentation::Notice>,
@@ -854,6 +860,8 @@ impl Transcript {
         let mut calls: std::collections::BTreeMap<(String, u64, u64), u64> = Default::default();
         // Retry id → the Chat row that states the chain.
         let mut retries: BTreeMap<String, u64> = BTreeMap::new();
+        // Command id → the Chat row that states the run.
+        let mut commands: BTreeMap<String, u64> = BTreeMap::new();
         let mut paired_calls: BTreeMap<u64, u64> = BTreeMap::new();
         for event in self.records.values() {
             if self
@@ -984,6 +992,7 @@ impl Transcript {
                 output: None,
                 failed: false,
                 retry: None,
+                command: None,
                 notice: (kind == "turn/end")
                     .then(|| chat_presentation::notice_for(&event.data["reason"]))
                     .flatten(),
@@ -1039,6 +1048,43 @@ impl Transcript {
                 }
                 // The record itself stays in Trajectory; the chain row above is what Chat draws.
                 if retry_id.is_empty() || retries.get(retry_id) != Some(&event.seq) {
+                    row.chat = false;
+                }
+                rows.push(row);
+                continue;
+            }
+            // One row per command run (`command.ts:36-70`): the `command/run` opens it and its
+            // `command/done` settles it. The records stay in Trajectory; the row is Chat's.
+            if kind == "command/run" || kind == "command/done" {
+                let id = event.data["commandId"]
+                    .as_str()
+                    .filter(|id| !id.is_empty())
+                    .map(str::to_owned);
+                match (kind, id.as_deref().and_then(|id| commands.get(id)).copied()) {
+                    ("command/run", None) => {
+                        if let Some((id, patched)) = crate::reducer::command_row::run(&event.data) {
+                            row.command = Some(patched.clone());
+                            row.role = "Command".into();
+                            row.text = format!("{} · {}", patched.name, patched.summary());
+                            row.chat = true;
+                            commands.insert(id, event.seq);
+                        }
+                    }
+                    ("command/run" | "command/done", Some(key)) => {
+                        if let Some(target) = rows.iter_mut().find(|row| row.key == key)
+                            && let Some(command) = target.command.as_mut()
+                        {
+                            if kind == "command/done" {
+                                crate::reducer::command_row::done(command, &event.data);
+                            }
+                            target.text = format!("{} · {}", command.name, command.summary());
+                        }
+                    }
+                    _ => {}
+                }
+                // Every record stays in Trajectory; Chat draws the run once.
+                if id.is_none() || id.as_deref().and_then(|id| commands.get(id)) != Some(&event.seq)
+                {
                     row.chat = false;
                 }
                 rows.push(row);
@@ -2134,6 +2180,107 @@ mod settled_diff_tests {
         let lines = lines(&transcript);
         assert!(lines.contains(&"intended".to_owned()), "{lines:?}");
         assert!(!lines.contains(&"applied b".to_owned()), "{lines:?}");
+    }
+}
+
+#[cfg(test)]
+mod command_row_tests {
+    //! One Chat row per command run, settled by its own `done`, with both records kept in
+    //! Trajectory.
+    use super::*;
+
+    fn event(seq: u64, kind: &str, data: serde_json::Value) -> Value {
+        serde_json::json!({"type":"event","event":{"type":kind,"seq":seq,"time":1000+seq,"data":data}})
+    }
+    fn frame(records: Vec<Value>) -> SessionFollowFrame {
+        serde_json::from_value(serde_json::json!({
+            "type": "snapshot", "records": records, "cursor": 3, "hasMore": false,
+            "header": {"version": 4, "id": "PUBLIC-command", "createdAt": 0, "isSeeded": false},
+            "projections": {"asOfSeq": 3, "values": {}},
+            "assistantStream": {"revision": 0}
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_run_and_its_done_draw_one_row() {
+        let mut transcript = Transcript::new(0);
+        transcript
+            .apply(0, frame(vec![
+                event(1, "command/run", serde_json::json!({"commandId": "c1", "name": "/compact"})),
+                event(2, "command/done", serde_json::json!({"commandId": "c1", "kind": "success", "text": "Compacted 12 records"})),
+            ]))
+            .unwrap();
+        let chat: Vec<_> = transcript.display_rows(false).collect();
+        assert_eq!(chat.len(), 1, "one row per run");
+        let command = chat[0].command.as_ref().expect("the command row");
+        assert_eq!(command.name, "/compact");
+        assert_eq!(command.state, crate::reducer::command_row::State::Ok);
+        assert_eq!(chat[0].text, "/compact · Compacted 12 records");
+        // Trajectory keeps both records.
+        assert_eq!(transcript.display_rows(true).count(), 2);
+    }
+
+    #[test]
+    fn an_running_command_says_so_and_a_failure_keeps_its_body() {
+        let mut transcript = Transcript::new(0);
+        transcript
+            .apply(
+                0,
+                frame(vec![event(
+                    1,
+                    "command/run",
+                    serde_json::json!({"commandId": "c1", "name": "/goal"}),
+                )]),
+            )
+            .unwrap();
+        assert_eq!(transcript.rows()[0].text, "/goal · Running…");
+
+        let mut transcript = Transcript::new(0);
+        transcript
+            .apply(
+                0,
+                frame(vec![
+                    event(
+                        1,
+                        "command/run",
+                        serde_json::json!({"commandId": "c1", "name": "/goal"}),
+                    ),
+                    event(
+                        2,
+                        "command/done",
+                        serde_json::json!({"commandId": "c1", "kind": "error", "text": "first line
+second line"}),
+                    ),
+                ]),
+            )
+            .unwrap();
+        let row = &transcript.rows()[0];
+        assert_eq!(row.text, "/goal · Command failed");
+        assert_eq!(
+            row.command.as_ref().and_then(|command| command.body()),
+            Some(
+                "first line
+second line"
+            )
+        );
+    }
+
+    #[test]
+    fn a_run_that_cannot_name_a_command_contributes_no_chat_row() {
+        let mut transcript = Transcript::new(0);
+        transcript
+            .apply(
+                0,
+                frame(vec![event(
+                    1,
+                    "command/run",
+                    serde_json::json!({"name": "/goal"}),
+                )]),
+            )
+            .unwrap();
+        assert!(transcript.rows().iter().all(|row| row.command.is_none()));
+        assert_eq!(transcript.display_rows(false).count(), 0);
     }
 }
 
