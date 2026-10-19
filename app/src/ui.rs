@@ -12405,8 +12405,8 @@ impl App {
                 .padding(design::CRUMB_PAD);
             // The panel is anchored to the action, the way the preset seat's list is anchored to
             // its chip. Its sections and status words come from the reference's own English copy
-            // (`locales.ts:56-69`); a row's state dot is not drawn because `StateDot`'s form is
-            // unread, and the status word is the part the copy names.
+            // (`locales.ts:56-69`); each row does draw a state dot glyph, which stands in for
+            // `StateDot`'s animated form — a static capture cannot show a spinner.
             crumbs = crumbs.push(
                 container(anchored_popup::anchored_below(
                     action.into(),

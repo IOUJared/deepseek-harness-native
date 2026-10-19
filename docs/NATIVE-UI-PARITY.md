@@ -11156,3 +11156,36 @@ for that round.
 | capture | — | none: the preset resolved to an empty conversation |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 439 — the jobs panel's stale note, and why its frame is still missing
+
+The jobs audit found a comment in `jobs_panel_view` that still said the reference's state dot was
+"deliberately absent" while `job_row` has drawn a dot glyph for some time. A comment that contradicts
+the code is worse than no comment: it is the thing the next reader trusts instead of the render. It now
+says what the code does — each row draws a dot glyph standing in for `StateDot`'s animated form, which
+a static capture cannot show.
+
+**The capture is still missing, and the reason is now pinned down.** Two more attempts built a
+`jobs-panel` preset: one inherited nothing (empty hero), the next inherited the `conversation` branch
+correctly — and the transcript rendered — but the jobs action still did not appear. The action lives in
+`header_crumbs`, which this layout draws in the sidebar identity header, not above the conversation, so
+the preset showed the conversation with no crumb trail at all. The preset was removed rather than
+shipped as evidence of nothing, and the panel's frame needs either a preset that renders the sidebar
+header's crumb trail or a decision that the crumb lives where the conversation header can show it —
+a layout question, not a fixture one.
+
+**Battery (round 439).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1432 passed**, 1 ignored |
+| app, default | **0** | **1411 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: the crumb trail is not drawn in this layout |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
