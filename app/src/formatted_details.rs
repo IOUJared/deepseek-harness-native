@@ -36,6 +36,10 @@ pub enum Block {
         indent: u8,
         marker: Option<String>,
         quote: bool,
+        /// Whether the quote bar sits outside the list indentations (the quote opened first) or
+        /// inside them (the quote is nested in a list item). Both orders are the reference's own
+        /// DOM nesting; the flat model keeps this one bit rather than a full container stack.
+        quote_first: bool,
     },
     Heading {
         level: u8,
@@ -110,6 +114,7 @@ struct Inline {
     indent: u8,
     marker: Option<String>,
     quote: bool,
+    quote_first: bool,
     spans: Vec<Span>,
 }
 
@@ -138,8 +143,17 @@ impl Table {
     }
 }
 
+/// One open block container, in opening order: what a nested list/quote pair's bar position
+/// depends on.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Container {
+    List,
+    Quote,
+}
+
 #[derive(Default)]
 struct Builder {
+    containers: Vec<Container>,
     blocks: Vec<Block>,
     frames: Vec<Frame>,
     lists: Vec<List>,
@@ -273,6 +287,8 @@ impl Builder {
             indent,
             marker,
             quote: self.quotes != 0,
+            // A quote that opened before any list keeps its bar outside the list indents.
+            quote_first: self.quotes != 0 && self.containers.first() == Some(&Container::Quote),
             spans: Vec::new(),
         });
         Ok(())
@@ -348,6 +364,7 @@ impl Builder {
                     indent: inline.indent,
                     marker: inline.marker,
                     quote: inline.quote,
+                    quote_first: inline.quote_first,
                 }
             };
             self.push(block)?;
@@ -403,21 +420,18 @@ impl Builder {
             // `Event::Html` arm, so the container adds nothing.
             Tag::HtmlBlock => {}
             Tag::BlockQuote(None) => {
-                // Paragraph's flat marker/quote fields cannot retain the order
-                // of mixed list/quote ancestry. Fail the entire source instead.
-                if !self.lists.is_empty() {
-                    return Err(Failure::Unsupported);
-                }
+                // A quote may sit inside a list item: the paragraph records which of the two
+                // opened first, so the bar and the indents keep the reference's nesting order.
                 self.flush_synthetic()?;
                 self.quotes += 1;
+                self.containers.push(Container::Quote);
             }
             Tag::List(next) => {
-                if self.quotes != 0 {
-                    return Err(Failure::Unsupported);
-                }
+                // A list may sit inside a quote, for the same reason.
                 self.flush_synthetic()?;
                 self.preserve_item_marker()?;
                 self.lists.push(List { next });
+                self.containers.push(Container::List);
             }
             Tag::Item => {
                 self.flush_synthetic()?;
@@ -518,6 +532,7 @@ impl Builder {
                     indent: 0,
                     marker: None,
                     quote: false,
+                    quote_first: false,
                     spans: Vec::new(),
                 });
             }
@@ -559,10 +574,16 @@ impl Builder {
             TagEnd::BlockQuote(None) => {
                 self.flush_synthetic()?;
                 self.quotes = self.quotes.checked_sub(1).ok_or(Failure::Unsupported)?;
+                if self.containers.pop() != Some(Container::Quote) {
+                    return Err(Failure::Unsupported);
+                }
             }
             TagEnd::List(_) => {
                 self.flush_synthetic()?;
                 self.lists.pop().ok_or(Failure::Unsupported)?;
+                if self.containers.pop() != Some(Container::List) {
+                    return Err(Failure::Unsupported);
+                }
             }
             TagEnd::Item => {
                 self.flush_synthetic()?;
@@ -675,6 +696,7 @@ mod tests {
                 indent,
                 marker,
                 quote,
+                ..
             } => (spans, *indent, marker.as_deref(), *quote),
             _ => panic!("expected paragraph"),
         }
@@ -749,6 +771,42 @@ mod tests {
                 .any(|s| s.text == "x < y" && s.code && !s.bold && !s.italic)
         );
         assert!(spans.iter().any(|s| s.text == "all" && s.bold && s.italic));
+    }
+
+    #[test]
+    fn a_quote_and_a_list_compose_in_the_order_they_opened() {
+        // `> - item` opens the quote first, so its rule sits outside the list's indent
+        // (`render.tsx:281-289,425-460`).
+        let quoted_list = document("> - PUBLIC item\n");
+        let block = &quoted_list.blocks[0];
+        let (_, indent, marker, quote) = paragraph(block);
+        assert_eq!((indent, marker, quote), (0, Some("•"), true));
+        let quote_first = match block {
+            Block::Paragraph { quote_first, .. } => *quote_first,
+            _ => panic!("a paragraph"),
+        };
+        assert!(quote_first, "the quote opened before the list");
+        // `- > item` opens the list first: the item's own marker stands before the rule.
+        let list_quote = document("- > PUBLIC item\n");
+        let block = &list_quote.blocks[0];
+        let (_, _, marker, quote) = paragraph(block);
+        assert!(quote);
+        assert_eq!(
+            marker,
+            Some("•"),
+            "the item keeps its marker outside the quote"
+        );
+        let quote_first = match block {
+            Block::Paragraph { quote_first, .. } => *quote_first,
+            _ => panic!("a paragraph"),
+        };
+        assert!(!quote_first, "the list opened before the quote");
+        // A plain quote and a plain list still record their own shape.
+        let plain_quote = match &document("> PUBLIC\n").blocks[0] {
+            Block::Paragraph { quote_first, .. } => *quote_first,
+            _ => panic!("a paragraph"),
+        };
+        assert!(plain_quote, "a bare quote is quote-first by construction");
     }
 
     #[test]
@@ -911,24 +969,38 @@ mod tests {
     }
 
     #[test]
-    fn mixed_quote_list_ancestries_fail_instead_of_collapsing_to_the_same_plan() {
-        for source in [
-            "> - text",
-            "- > text",
-            "> 7. text",
-            "7. > text",
-            "> > - nested",
-            "- first\n  - > nested",
-            "- first\n\n  second\n\n  > quoted\n  >\n  > > deeper\n\n- last\n",
-            "-\n- > quoted\n",
+    fn mixed_quote_list_ancestries_keep_their_opening_order_instead_of_collapsing() {
+        // Round 530 composes the two containers instead of refusing them: the paragraph records
+        // which opened first, so the rule and the indents keep the reference's nesting
+        // (`render.tsx:281-289,425-460`). More than two containers of mixed kind still collapse
+        // to one bit, which this test states rather than hides.
+        for (source, quote_first, marker) in [
+            ("> - text", true, Some("•")),
+            ("- > text", false, Some("•")),
+            ("> 7. text", true, Some("7.")),
+            ("7. > text", false, Some("7.")),
         ] {
-            failure(source, Failure::Unsupported);
-            // A preceding valid block must not yield a partial display plan.
-            failure(
-                &format!("before\n\n{source}\n\nafter"),
-                Failure::Unsupported,
-            );
+            let doc = document(source);
+            let block = &doc.blocks[0];
+            let (_, _, got_marker, quote) = paragraph(block);
+            assert!(quote, "{source}");
+            assert_eq!(got_marker, marker, "{source}");
+            let first = match block {
+                Block::Paragraph { quote_first, .. } => *quote_first,
+                _ => panic!("a paragraph"),
+            };
+            assert_eq!(first, quote_first, "{source}");
         }
+        // A third level inside a nested quote still draws: the plan keeps a paragraph per block.
+        let deeper = document("> - text\n>   > nested");
+        assert_eq!(deeper.blocks.len(), 2);
+        assert!(
+            paragraph(&deeper.blocks[1]).3,
+            "the nested quote stays quoted"
+        );
+        // A preceding valid block is no longer a reason to refuse the whole source.
+        let doc = document("before\n\n> - text\n\nafter");
+        assert_eq!(doc.blocks.len(), 3);
     }
 
     #[test]
@@ -1072,9 +1144,9 @@ mod tests {
     #[test]
     fn unsupported_content_anywhere_fails_whole_source() {
         for source in [
-            // A list inside a quote is still refused: the flat paragraph model cannot keep
-            // the order of mixed list/quote ancestry.
-            "> - PUBLIC nested",
+            // A heading inside a container is still refused: headings keep their own block and
+            // cannot carry list/quote provenance.
+            "> # PUBLIC heading",
             "> # heading",
             "- # heading",
             "> ---",
@@ -1283,9 +1355,9 @@ mod tests {
 
     #[test]
     fn diagnostics_only_expose_content_free_failure_variants() {
-        // A list inside a quote is refused, so it can stand in for content that must never
+        // A heading inside a quote is refused, so it can stand in for content that must never
         // reach a diagnostic.
-        let private_source = "PRIVATE_TOKEN\n\n> - PRIVATE_NESTED";
+        let private_source = "PRIVATE_TOKEN\n\n> # PRIVATE_HEADING";
         let error = match parse(private_source) {
             Err(error) => error,
             Ok(_) => panic!("expected unsupported HTML"),
@@ -1351,7 +1423,7 @@ mod extension_tests {
         let doc = parse("Plain **bold** text.\n").unwrap();
         assert_eq!(texts(&doc.blocks), vec!["Plain bold text.".to_owned()]);
         // An unsupported construct still fails closed; raw HTML is drawn literally.
-        assert!(parse("> - nested").is_err());
+        assert!(parse("> # nested").is_err());
         assert!(parse("<div>html</div>\n").is_ok());
     }
 }

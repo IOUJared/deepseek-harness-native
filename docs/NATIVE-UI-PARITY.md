@@ -15006,3 +15006,46 @@ separate fields and cannot keep their order. That is the renderer's remaining st
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 capture | — | `shots/323-markdown-titled.png`, `status: passed`, 1040x760 |
 | app bin | — | **21** warnings |
+
+### Round 530 — a quote and a list compose instead of failing the reply
+
+**The gap.** The last structural refusal from round 529: `> - item` (a list inside a quote) and `- > item`
+(a quote inside a list item) failed the whole document, because the flat paragraph model stored list
+depth and quote membership in separate fields and could not say which container opened first — the
+reference nests them in DOM order (`ui-primitives/src/markdown/render.tsx:281-289,425-460`).
+
+**The change.** The builder keeps a small container stack and records one bit on each paragraph:
+`quote_first`, true when the quote opened before any list. The renderer draws the rule on the outside of
+the indents in that case and after the item's own marker otherwise — so `> - item` renders rule, indent,
+bullet, text and `- > item` renders bullet, rule, text, exactly the two nestings the reference draws.
+Both refusals are gone. A quoting paragraph still measures the same total inset, so heights are
+unchanged; `Block::Paragraph` patterns elsewhere ignore the new field with `..`.
+
+**Frame.** `shots/324-markdown-nested.png` (1040x760, new `markdown-nested` preset): "A quote first:"
+over `> - quoted list item` / `> - second item` (rule outside, bullet inside), then
+`- item with a quote inside` with its nested `quoted inside the item` rule after the bullet.
+
+**Tests.** `a_quote_and_a_list_compose_in_the_order_they_opened` (both orders, the marker's side, and a
+bare quote) and the rewritten
+`mixed_quote_list_ancestries_keep_their_opening_order_instead_of_collapsing` — which used to assert all
+eight mixed sources failed, and now asserts four of them keep their order, a third nested level still
+draws, and a preceding valid block no longer poisons the source. The "inert markup" exemplars across
+five tests moved to **a heading inside a container**, which is still refused.
+
+**Recorded limits.** One bit cannot express more than two mixed containers: `> - > item` collapses to
+the outermost order. The renderer also draws one rule per paragraph, so two adjacent quoted paragraphs
+show a gap between their rules where the reference's single `<blockquote>` bar is continuous — the
+frame shows the first limit's neighbour, not the second (a single quoted paragraph is exact).
+
+**Battery (round 530).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1533 passed**, 1 ignored |
+| app, default | **0** | **1477 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-eewf9du9`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-5qntla2b`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 capture | — | `shots/324-markdown-nested.png`, `status: passed`, 1040x760 |
+| app bin | — | **21** warnings |

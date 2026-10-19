@@ -1141,6 +1141,7 @@ fn block_height(
             indent,
             marker,
             quote,
+            ..
         } => inline_height(
             spans,
             width
@@ -1221,6 +1222,7 @@ pub(crate) fn document_first_offset(
                 indent,
                 marker,
                 quote,
+                ..
             } => first_offset(
                 inline_runs(spans),
                 query,
@@ -1342,31 +1344,53 @@ fn document_view(
                 indent,
                 marker,
                 quote,
+                quote_first,
             } => {
-                let mut line =
-                    row![iced::widget::Space::new().width(*indent as f32 * 18.0)].spacing(0);
-                if *quote {
+                // The reference nests the containers it draws: a quote opened before the list
+                // puts its rule outside the indents, and a quote inside a list item puts it
+                // after them (`render.tsx:281-289,425-460`).
+                let mut line = row![].spacing(0);
+                let bar = || {
                     // `MarkdownText.module.css:151-156`: a 2px caption-coloured rule
                     // with 14px of padding after it (8px on the compact ladder). Its
                     // height is the paragraph's own measured height, so the rule spans
                     // exactly the text it marks.
-                    let bar =
+                    let height =
                         inline_height(spans, width - ladder.quote_inset(), text_size, text_line);
-                    line = line.push(
+                    (
                         container(Space::new().width(design::QUOTE_BAR))
-                            .height(bar)
+                            .height(height)
                             .style(|_| container::Style {
                                 background: Some(design::MUTED.into()),
                                 ..Default::default()
                             }),
-                    );
-                    line = line.push(Space::new().width(ladder.quote_inset() - design::QUOTE_BAR));
+                        Space::new().width(ladder.quote_inset() - design::QUOTE_BAR),
+                    )
+                };
+                if *quote && *quote_first {
+                    let (rule, pad) = bar();
+                    line = line.push(rule).push(pad);
                 }
-                if let Some(marker) = marker {
-                    line = line.push(
-                        container(label(marker.clone(), MUTED).size(text_size.round() as u32))
-                            .width(36),
-                    );
+                line = line.push(iced::widget::Space::new().width(*indent as f32 * 18.0));
+                // The item's marker sits on the item's own level, so a quote nested inside the
+                // item opens after it (`render.tsx:425-460`).
+                let marker_view = |marker: &String| {
+                    container(label(marker.clone(), MUTED).size(text_size.round() as u32)).width(36)
+                };
+                if let Some(marker) = marker
+                    && (!*quote || *quote_first)
+                {
+                    line = line.push(marker_view(marker));
+                }
+                if *quote && !*quote_first {
+                    let (rule, pad) = bar();
+                    line = line.push(rule).push(pad);
+                }
+                if let Some(marker) = marker
+                    && *quote
+                    && !*quote_first
+                {
+                    line = line.push(marker_view(marker));
                 }
                 line.push(inline_view(
                     spans,
@@ -1737,8 +1761,8 @@ mod tests {
         assert!(p.matches("let value"));
         assert!(p.matches("supplied reasoning"));
         assert!(!p.matches("absent"));
-        // A list inside a quote is inert markup: the whole source stays searchable text.
-        let raw = cache.prepare(1, 3, String::new(), "> - PUBLIC inert".into());
+        // A heading inside a quote is inert markup: the whole source stays searchable text.
+        let raw = cache.prepare(1, 3, String::new(), "> # PUBLIC inert".into());
         assert!(raw.document.is_none());
         assert!(raw.matches("PUBLIC inert"));
     }
@@ -1836,12 +1860,14 @@ mod tests {
             indent: 0,
             marker: None,
             quote: false,
+            quote_first: false,
         };
         let item = |indent| formatted::Block::Paragraph {
             spans: Vec::new(),
             indent,
             marker: Some("-".into()),
             quote: false,
+            quote_first: false,
         };
         let heading = |level| formatted::Block::Heading {
             level,
@@ -2102,7 +2128,7 @@ mod tests {
     #[test]
     fn unsupported_markup_is_inert_full_source_not_partial_formatting() {
         let cache = Cache::default();
-        let source = "> - PUBLIC inert";
+        let source = "> # PUBLIC inert";
         let p = cache.prepare(1, 0, String::new(), source.into());
         assert!(p.document.is_none());
         assert_eq!(p.answer, source);

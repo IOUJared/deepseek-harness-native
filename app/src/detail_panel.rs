@@ -288,6 +288,7 @@ fn view(document: &formatted::Document) -> Element<'_, Message> {
                 indent,
                 marker,
                 quote,
+                ..
             } => {
                 // Gaps are explicit so the blockquote's inset is exactly the
                 // reference's 2px rule plus 14px of padding
