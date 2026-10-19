@@ -27,7 +27,7 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > 2. Measure the baselines rather than trusting this file:
 >    - fixture: `cargo test --manifest-path app/Cargo.toml --locked --offline --jobs 2 --features public-layout-fixture --bin dsh-native-app -- --test-threads=2`
 >    - default: the same without `--features`
->    - at handover: **1486** fixture / **1447** default, 1 ignored each.
+>    - at handover: **1499** fixture / **1456** default, 1 ignored each (round 510).
 > 3. Load `.agents/skills/native-ui-parity/SKILL.md` (and `.agents/skills/impeccable-rust/SKILL.md` for
 >    Rust changes) — `AGENTS.md` makes both mandatory for this work. Then read `docs/SESSION-PROMPT.md`
 >    (capture conventions, next shot number), `docs/VERIFICATION.md`, and the coverage table at the end
@@ -65,18 +65,19 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 >   frame (same window size, same sidebar state, same conversation data).
 >
 > ### Live backlog at handover (verify each before working it)
-> 1. **Header reminders chip** — the reference registers an icon-only clock with "{count} reminders" and a
->    popover (`ui-schedule/src/client/index.ts:208-216`, `order: -5`); native's only entry is the sidebar
->    row. Not yet built.
-> 2. **Split (side-by-side) diff view** — named deliberate second layout; wrapping and the `Wrap`/`No
->    wrap` toggle exist, split does not.
+> 1. **Vertical rhythm — mostly closed in round 510.** The inner padding and the assistant footer's
+>    6px gap are gone; what is left from that round: the reference's 16px `turn-process` rung has no
+>    native Chat row to apply to, and the fixture's group composition still puts 54px between two
+>    tool lines the reference draws 30px apart (a fixture-state difference, not a rule).
+> 2. **`reference.png` measurements are paired, not pixel-diffed.** The frame was read as "collapsed
+>    rail, no header" through round 509; round 510 measured every band in its left 520px and found no
+>    ink, so it is a **crop**. A pixel diff needs a fixture preset that reproduces a crop — or a
+>    cropped capture of the native frame at the same offsets.
 > 3. **Context meter ring** — the reference's 14px ring trigger; native draws the occupancy text. This
 >    needs iced's `canvas` feature (a sub-crate absent from the lockfile) → **user approval required**.
-> 4. **Pixel comparison against `reference.png`** — the screenshot is now in the workspace root and
->    hash-matching; round 502 measured the bubble line (22px, fixed). Recorded and still open: native's
->    message rows carry a 14px horizontal pad the reference does not (reference text at lane +1, native
->    +19), and a pixel-level diff needs a **matching-state preset** (collapsed sidebar, no header,
->    scrolled) before any 1-to-1 claim.
+> 4. **Settled-turn and historical-turn presentation** — the fixture's tool rows sit under two process
+>    seats where the reference frame shows a flat run; verify the seat's grouping against the
+>    reference's `stepGrouping` before treating the difference as data.
 > 5. **Blocked on the Host, not on work**: settings' "Open configuration file" and the account
 >    balance/usage rows (no RPC serves them); session-level feedback (native transport has only
 >    per-message routes — `/feedback <text>` keeps the Host command path); terminal screen emulation and
@@ -84,6 +85,10 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 >    thumbnails anywhere (native draws attachment chips by design).
 > 6. **User-only**: `canvas` approval, image fetch policy (https / local-only / neither), one window-edge
 >    drag below 520×600 with a close-timing run, and the control-stream worker hop.
+>
+> Closed since the last handover: the header reminders chip (round 503), the split diff view (round
+> 505), the comparison layout's persistence (round 509), and the message rows' horizontal and
+> vertical insets (rounds 504, 510).
 >
 > ### Etiquette
 > Be terse. Prefer numbered lists over tables in replies. Challenge your own claims; walk back anything

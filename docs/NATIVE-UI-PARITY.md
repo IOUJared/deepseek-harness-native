@@ -895,7 +895,9 @@ cell, so new findings go at the end of the file as plain paragraphs.
   `ui.rs::flow_gap_before` is the single owner of the ladder, and both readers use
   it: `row_geometries` reserves `gap − ROW_CHROME` on each row's height and the view
   draws the same value as that row's top padding, so a reserved height cannot
-  disagree with the drawn one. The scroller takes the web's own
+  disagree with the drawn one. (Round 510 made that subtraction conditional: a
+  settled message row no longer carries the 12px chrome at all — `row_outer_chrome`
+  names the rows that still do.) The scroller takes the web's own
   `design::FLOW_INSET` — its `.scroll` padding is `16px …`
   (`ChatView.module.css:26-29`) — which is now where the first row's and the last
   row's clearance lives.
@@ -904,8 +906,10 @@ cell, so new findings go at the end of the file as plain paragraphs.
   fixture reported `1040x1072` measured with `layoutObservation.passed`). At the
   `tool-activity-attachment` preset, consecutive tool-row text tops measure 30px
   apart (24px line box + 6px gap) where the same measurement on the previous
-  capture read 36px (24 + 12); the tool-row-to-assistant distance is unchanged at
-  50px, so only the process rhythm moved; and the first row's attachment card
+  capture read 36px (24 + 12); the tool-row-to-assistant distance stayed at 50px in
+  that round, so only the process rhythm moved there — **round 510** removed the
+  assistant row's inner padding and took that distance to 40px (ink 38 → 28) and the
+  assistant footer's gap to the reference's 16px; and the first row's attachment card
   starts 10px lower (fill top `138` → `148`) because its own 6px top padding became
   the scroller's 16px inset.
   A `turn-process` row would take 16px, but Chat renders none — they are
@@ -6413,10 +6417,13 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Locales (zh/en) | difference: English-only |
 
 **Verification limits.** `reference.png` is present and hash-verified, but visual 1-to-1 is still
-**unverified**: the reference is a different UI state (collapsed sidebar rail, scrolled transcript,
-no header) from the 1980×1319 native fixture, so only rect-level comparisons exist today. The two
-deltas those rects proved are closed in
-[the chat geometry record](NATIVE-CHAT-GEOMETRY.md#the-bubble-draws-a-22px-line-round-502). Live Host
+**unverified**: the reference is a different UI state from the 1980×1319 native fixture, so only
+paired measurements exist today. (Rounds 502–509 read that state as "collapsed sidebar rail, no
+header"; round 510 measured the frame and found the left 520px carry no ink at all, which a 56px rail
+would not produce — the capture is a **crop** of the window that excludes both the sidebar and the
+header.) The two rect deltas those measurements proved are closed in
+[the chat geometry record](NATIVE-CHAT-GEOMETRY.md#the-bubble-draws-a-22px-line-round-502), and the
+vertical rhythm was replaced by the reference's flow margins in round 510. Live Host
 reads/writes were exercised against the desktop-composed alpha Host
 ([record](NATIVE-LIVE-VERIFICATION.md)): session create/rename/page/projections, `@` file and
 session references, feedback list/delete and the put request shape, schedule catalog/history/
@@ -13688,8 +13695,10 @@ assistant), plus the narrow-lane 132 -> 140.
 
 **Still different, and named.** The vertical rhythm is untouched: native still draws a 10px body
 padding and flow gaps where the reference's spacing is entirely flow margins, so a vertical
-comparison needs its own round. The reference frame remains a different state (collapsed rail,
-scrolled transcript, no header), so no pixel-level 1-to-1 claim follows from this one.
+comparison needs its own round — **closed in round 510**, where the padding and the assistant
+footer's gap were replaced by the reference's flow margins and 16px footer offset. The reference
+frame remains a different state (cropped/scrolled), so no pixel-level 1-to-1 claim follows from
+this one.
 
 **Battery (round 504).**
 
@@ -13910,3 +13919,105 @@ shows; the round changes when that layout is applied, not what it looks like. Co
 | transport / core / JS / clippy / examples | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0, clippy core+transport+app, examples both smokes |
 | app bin | — | **21** warnings, measured after the change |
 | DP-2 capture | — | none: layout application, not layout appearance |
+
+### Round 510 — a settled row draws the flow margin, not a card's padding
+
+**The gap.** Round 504 recorded it in its own words: "native still draws a 10px body
+padding and flow gaps where the reference's spacing is entirely flow margins, so a
+vertical comparison needs its own round." The 6/12 flow ladder had landed; the inner
+padding had not. `chat_geometry::chrome_height` returned **32** for every message row —
+16 above its body and 16 below — while the view drew only 10 of those
+(`container(assembled).padding([10, 0])`), and the action row sat 6px under an assistant
+body where the reference puts 16.
+
+**The reference's model**, from its own sheets. `.scroll` pads 16px vertically and is the
+transcript's only box (`ChatView.module.css:26-59`); a flow sibling's whole vertical box is
+its `margin-top` — 6px, 12px around a response, 16px after a turn-process header
+(`:60-95`). Assistant prose has no padding (`AssistantMarkdown.module.css:9-18`) and its
+footer is `margin-top: 16px` under it (`:73-78`). The bubble is the one thing that pads its
+own text, `10px 16px` (`.bubble`, `MessageItem.module.css:22-40`), with the actions a 6px
+gap below it (`.userRow`, `:1-8`). `.actions` is 28px tall and centers its children
+(`MessageIconActions.module.css:5-9`).
+
+**What changed.** `chrome_height` is now the bubble's own 20px for a user row, nothing for
+a settled assistant row, and the live/interrupted status block (24 + 7) on top of either;
+`body_top` follows (10, 0, +31). `RESPONSE_ACTION_GAP` (16) joins `ACTION_GAP` (6) so
+`action_footer` takes the row kind. The assistant container lost its box padding, a
+file-only user row reserves no body and no chrome, and the action row centers its glyphs
+and clocks. Because a settled message row no longer carries the 12px of symmetric chrome
+that `row_geometries` swaps for the flow margin, `row_outer_chrome` now names the rows that
+still do — tool lines, opaque records, command cards, expanded activity — so that
+arithmetic is unchanged everywhere it still applies.
+
+The arithmetic, per row: an assistant row is `body + 16 + 28` (was `body + 66`), a user row
+is `20 + body + 6 + 28` (was `body + 60` reserved, `20 + body + 6 + 28` drawn).
+
+**Measured, before → after, against `reference.png`** (`tool-activity`, both frames at
+1980×1319; the reference is still a different state — cropped, scrolled, its own
+conversation — so these are paired measurements, not a pixel diff):
+
+| measure | reference | native before | native after |
+| --- | --- | --- | --- |
+| tool-line pitch | 30 | 30 | **30** |
+| bubble line pitch | 22 | 22 | **22** |
+| last bubble ink → clock ink | 29 | 27 | 32 |
+| clock + glyph ink band | 13 | 17 | **12** |
+| last tool ink → next row's first ink | 26 (its tool → bubble) | 38 | **28** |
+| assistant line pitch | 24 | 24 | **24** |
+
+The clock moved 3px past the reference's offset (27 → 32 against 29) because the footer's
+28px row now centers children as `.actions` does and DejaVu's `❐` has a taller ink box than
+the web's icon; the band the eye reads (clock plus glyphs) went from 17 to 12 against 13.
+That residue is the glyph, not the row, and the rule is now the reference's.
+
+**A correction to how the reference frame was read.** Rounds 502, 504 and 509 described that
+state as a "collapsed sidebar rail, no header". Measuring every band in the frame's left
+520px found **no ink at all** (nothing above the background's luminance in any row), which
+a 56px rail with its 36px controls would not leave. The capture is a **crop** of the app
+window: it starts left of the message column and below the header. Both the parity doc's
+verification note and `NATIVE-CHAT-GEOMETRY.md` now say so.
+
+Tests: `a_settled_row_reserves_the_bubbles_padding_and_no_other_chrome` (replacing the
+status-only oracle; it pins 20/0 for settled rows, 31 for the status block, and the drawn
+offsets 10/0/31 that `body_top` returns). Seven expectations were re-derived rather than
+loosened, each now naming the reference's value: the cached answerless row in
+`transcript_layout_tests` (`measured.height == measured.body_height` — the disclosure alone
+is the row), the two cached heights in `measured_chat_heights…` (`20 + 22`, `24`), the two
+cached-geometry heights in `same_key_hits…` and `unicode_newlines…` (the bubble's padding
+plus its line, not a fixed 32), the file-only row (`action_footer(false) + card`, no
+chrome), and `conversation_flow_gaps_follow_the_web_ladder`, which now asserts the response
+row keeps `bare + 12` because its bare height never counted chrome.
+
+**Mistakes inside this round.**
+
+1. The first version of the change kept `row_geometries`' unconditional
+   `gap - ROW_CHROME`. That would have cut 12px from every settled message row, because
+   those rows no longer carry the chrome being subtracted. Re-reading the reservation path
+   caught it before the build; `row_outer_chrome` is the fix, and the frame (not the green
+   suite) is what confirms the rows are whole.
+2. The first capture asked for the reference's size without `--width/--height` and got the
+   preset's own 1040×1072, so the "before" measurement was taken again at 1980×1319 before
+   any number was recorded.
+3. The first after-frame (before the action row was centered) measured a 17px clock band; the
+   cause was `.actions { align-items: center }`, which the frame showed and the suite could
+   not.
+
+**Still different, and named.** The reference's `.column` flow gap has one more rung — a
+turn-process header takes 16px — and native's seat title reserves its 24px inside the row
+instead; the fixture's own group composition (two seats for three calls) puts 54px between
+the Read and Edit lines where the reference's flat run is uniformly 30. The formatted-reply
+path keeps its own body box, unchanged here. A true pixel diff still needs a matching-state
+preset (the reference frame is a crop of a scrolled conversation).
+
+**Battery (round 510).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1499 passed**, 1 ignored |
+| app, default | **0** | **1456 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks (`cargo fmt`, then the debt script) |
+| clippy suite | **0** | core, transport and app passed (`verification-nq9q35cr`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-pfnz_4cu`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 capture | — | `shots/301-row-rhythm.png` + `-dp2.png` + `.json`, `status: passed`, 1980×1319 |
+| app bin | — | **21** warnings (the check reports 21 plus its own summary line) |

@@ -103,10 +103,15 @@ fn measured_chat_heights_drive_ranges_spacers_and_resize_consistently() {
             })
             .collect();
         // Role i % 4: "You", "Tool call", "Assistant", "future/required". The bubble
-        // measures at its own 22px line, the assistant at the 24px body line.
-        assert_eq!(heights[0], 32.0 + design::BUBBLE_LINE);
+        // measures at its own 22px line inside its 10px vertical padding, the assistant
+        // at the 24px body line with no padding of its own, the tool line at 24 plus its
+        // outer chrome, and an opaque record at its fixed 156.
+        assert_eq!(
+            heights[0],
+            design::USER_BUBBLE_PAD.top + design::USER_BUBBLE_PAD.bottom + design::BUBBLE_LINE
+        );
         assert_eq!(heights[1], 36.0);
-        assert_eq!(heights[2], 32.0 + design::LINE_BODY);
+        assert_eq!(heights[2], design::LINE_BODY);
         assert_eq!(heights[3], 156.0);
         let total: f32 = heights.iter().sum();
         for offset in [0.0, 87.0, 1000.0, 50_000.0, 1_000_000.0] {
@@ -363,14 +368,9 @@ fn an_answerless_tool_call_row_keeps_only_its_disclosure_without_an_action_row()
     let index = rows.iter().position(|row| row.key == 0).unwrap();
     let measured = geometry[index];
     // No 22px action row is reserved, because the view renders no Copy/Details.
-    // The row's height is its inner chrome, its body and the flow gap the view
-    // draws as top padding — this row is the only one, so that gap is zero.
-    assert_eq!(
-        measured.height,
-        chat_geometry::chrome_height(&rows[index].role) + measured.body_height
-            - chat_geometry::ROW_CHROME
-            + flow_gap_before(&refs, index)
-    );
+    // An assistant row carries no body padding and this is the only row, so its flow
+    // margin is zero as well: the disclosure's own body is the whole row.
+    assert_eq!(measured.height, measured.body_height);
     assert_eq!(
         measured.body_height,
         reply.body_height(measured.width - 28.0, false)

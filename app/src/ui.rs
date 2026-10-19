@@ -688,6 +688,12 @@ const WIDTH_HANDLE_OFFSET: f32 = 24.0;
 /// with a `6px` gap (`MessageItem.module.css` `.userRow`), and the geometry and
 /// the view read these together so a reservation cannot drift from what is drawn.
 const ACTION_GAP: f32 = 6.0;
+/// The gap under an assistant body before its action row. The reference's
+/// `AssistantMarkdown` puts the completion footer 16px below the prose
+/// (`AssistantMarkdown.module.css:73-78`: `margin-top: 16px`), and a turn tail's
+/// `.actions` adds its own `4px` to the tail's `16px` root gap
+/// (`TurnTailNodeView.module.css:1-11`). Native used the user row's 6px here.
+const RESPONSE_ACTION_GAP: f32 = 16.0;
 /// The action row's own height. The web's `.actions` and `.action` are both
 /// `calc(28px + var(--dsh-content-font-delta))` (`MessageIconActions.module.css`),
 /// where native used 18.
@@ -741,9 +747,15 @@ const ACTION_GLYPH_END: u32 = 17;
 /// blocked (docs/NATIVE-UI-PARITY.md), so the `▤` glyph the tool rows already
 /// use for a file stands in at the card's own icon box.
 const ATTACHMENT_GLYPH: &str = "▤";
-/// What a message row reserves for the gap plus the action row.
-fn action_footer(delta: f32) -> f32 {
-    ACTION_GAP + ACTION_HEIGHT + delta
+/// What a message row reserves for the gap plus the action row: the user row's 6px
+/// under its bubble, the assistant row's 16px under its prose.
+fn action_footer(delta: f32, response: bool) -> f32 {
+    (if response {
+        RESPONSE_ACTION_GAP
+    } else {
+        ACTION_GAP
+    }) + ACTION_HEIGHT
+        + delta
 }
 /// True for the row the web draws as an Assistant response part, which takes
 /// the wider flow gap around it (`ChatView.module.css:73-85`).
@@ -763,6 +775,17 @@ fn flow_gap_before(rows: &[&DisplayRow], index: usize) -> f32 {
     } else {
         design::FLOW_GAP
     }
+}
+/// Whether a row's bare geometry still carries `chat_geometry::ROW_CHROME`'s 12px of
+/// symmetric outer padding, which the flow ladder's leading margin replaces.
+///
+/// A settled message row does not: its bare height is the bubble's own `10px 16px`
+/// padding for a user row and nothing at all for an assistant body
+/// (`MessageItem.module.css:22-40`, `AssistantMarkdown.module.css:9-18`,
+/// `chat_geometry::chrome_height`). Every other row — a tool line, an opaque record, a
+/// command card — keeps the chrome its geometry already counted.
+fn row_outer_chrome(row: &DisplayRow) -> bool {
+    !(row.role == "You" || response_row(row))
 }
 /// The right-aligned attachment cards a user message stacks above its bubble,
 /// 8px apart. One fixed `240x64` card per file, as the reference's `.fileCard`
@@ -14817,7 +14840,7 @@ impl App {
             // An answerless reply keeps only its thoughts disclosure, so it has
             // no action row and must not reserve one.
             let actions = if reply.has_answer() {
-                action_footer(self.content_delta())
+                action_footer(self.content_delta(), true)
             } else {
                 0.0
             };
@@ -14854,14 +14877,15 @@ impl App {
         let attachments = !row.files.is_empty();
         let has_bubble = !row.text.is_empty();
         if attachments && !has_bubble {
+            // The cards are the whole body: no text measurement and no bubble
+            // padding is reserved, so the row is its cards plus the action gap.
             geometry.body_height = 0.0;
-            geometry.height = chat_geometry::ROW_CHROME;
+            geometry.height = 0.0;
         }
-        if row.role == "You"
-            || row.role.starts_with("Assistant")
-            || row.role == "Interrupted assistant attempt"
-        {
-            geometry.height += action_footer(self.content_delta());
+        if row.role == "You" {
+            geometry.height += action_footer(self.content_delta(), false);
+        } else if row.role.starts_with("Assistant") || row.role == "Interrupted assistant attempt" {
+            geometry.height += action_footer(self.content_delta(), true);
         }
         if attachments {
             // The cards stack above the bubble inside `.userStack`, so they add
@@ -15099,7 +15123,17 @@ impl App {
                 // puts one leading margin on each row, from the flow ladder.
                 // Reserve that gap here and draw it as the row's top padding,
                 // so the two read the same value.
-                geometry.height += flow_gap_before(rows, index) - chat_geometry::ROW_CHROME;
+                //
+                // A settled message row is the exception: its bare geometry carries no
+                // outer padding, because the bubble's 20px is its own content and an
+                // assistant body has none (`chat_geometry::chrome_height`). Subtracting
+                // chrome there would clip the drawn body by 12px.
+                let chrome = if row_outer_chrome(row) {
+                    chat_geometry::ROW_CHROME
+                } else {
+                    0.0
+                };
+                geometry.height += flow_gap_before(rows, index) - chrome;
                 geometry
             })
             .collect()
@@ -16545,9 +16579,10 @@ impl App {
                         self.active_search(),
                         preview.as_deref(),
                     ))
-                    // The reference's rows have no horizontal inset of their own: the message
-                    // column is the only box they sit in (`ChatView.module.css:54-59`).
-                    .padding([10, 0])
+                    // The reference's rows have no inset of their own: the message column is
+                    // the only box they sit in (`ChatView.module.css:54-59`), and an unboxed
+                    // body starts at the column's flow edge. The row's leading flow margin is
+                    // drawn by the outer container, not here.
                     .width(geometry.width)
                     .style(|_| panel(BASE))
                     .into()
@@ -16591,6 +16626,10 @@ impl App {
                     };
                     let mut footer = row![]
                         .spacing(ACTION_SPACING)
+                        // The reference's `.actions` centers its glyphs and clocks in the
+                        // 28px row (`MessageIconActions.module.css:5-9`: `align-items:
+                        // center`), so a label does not sit at the row's top edge.
+                        .align_y(iced::Alignment::Center)
                         .height(ACTION_HEIGHT + self.content_delta());
                     // Only a user message carries the clock, as the web's
                     // `.timeStart` does; the assistant tail keeps `.timeEnd`.
@@ -16840,7 +16879,9 @@ impl App {
                     } else {
                         let mut assembled = card
                             .push(body)
-                            .push(Space::new().height(ACTION_GAP))
+                            // The reference's completion footer sits 16px under the prose
+                            // (`AssistantMarkdown.module.css:73-78`).
+                            .push(Space::new().height(RESPONSE_ACTION_GAP))
                             .push(footer);
                         if let Some(detail) = &usage_detail {
                             assembled = assembled.push(label(short(detail, 160), MUTED).size(10));
@@ -16848,8 +16889,9 @@ impl App {
                         if let Some(card) = self.changes_card(record) {
                             assembled = assembled.push(card);
                         }
+                        // No box padding: a settled body starts at the row's flow edge, and
+                        // only the bubble pads its own text.
                         container(assembled)
-                            .padding([10, 0])
                             .width(geometry.width)
                             .style(|_| panel(BASE))
                             .into()
@@ -20782,16 +20824,14 @@ mod tests {
             design::attachment_height(1, true)
         );
         // A file-only message draws no bubble, so the card is the whole body and
-        // no gap follows it (`MessageItem.tsx:187`): the row is the inter-row
-        // chrome, the action row and the card, with no bubble padding.
+        // no gap follows it (`MessageItem.tsx:187`): the row is the action row and
+        // the card, with no bubble padding and no body reservation.
         let mut file_only = attached.clone();
         file_only.key = 2;
         file_only.text.clear();
         assert_eq!(
             app.row_geometry(&file_only, lane).height,
-            chat_geometry::ROW_CHROME
-                + action_footer(app.content_delta())
-                + design::ATTACHMENT_CARD_HEIGHT
+            action_footer(app.content_delta(), false) + design::ATTACHMENT_CARD_HEIGHT
         );
         // The text body still reserves only itself; the card never inflates it.
         assert_eq!(
@@ -20815,28 +20855,34 @@ mod tests {
         assert_eq!(flow_gap_before(&rows, 3), design::RESPONSE_GAP);
         assert_eq!(flow_gap_before(&rows, 4), design::RESPONSE_GAP);
         // The reserved height carries that same gap and no longer the row's own
-        // symmetric 12px padding, which is what the view draws as top padding.
+        // symmetric 12px padding, which is what the view draws as top padding — except
+        // for a settled message row, whose bare height never counted that padding and so
+        // keeps its body plus the gap.
         let (app, _) = app();
         let lane = app.chat_lane();
         let geometries = app.row_geometries(&rows);
         for (index, geometry) in geometries.iter().enumerate() {
             let bare = app.row_geometry(rows[index], lane).height;
+            let chrome = if row_outer_chrome(rows[index]) {
+                chat_geometry::ROW_CHROME
+            } else {
+                0.0
+            };
             assert_eq!(
                 geometry.height,
-                bare - chat_geometry::ROW_CHROME + flow_gap_before(&rows, index),
+                bare - chrome + flow_gap_before(&rows, index),
                 "row {index}"
             );
         }
-        // Two process rows are 6px apart where the old uniform padding made them
-        // 12; a response row keeps exactly the height the old 12px padding gave
-        // it, so only the process rhythm moved.
+        // Two process rows are 6px apart where the old uniform padding made them 12,
+        // and a message row adds the flow margin on top of its unpadded body.
         let bare_tool = app.row_geometry(&tool2, lane).height;
         assert_eq!(
             bare_tool - geometries[1].height,
             chat_geometry::ROW_CHROME - design::FLOW_GAP
         );
         let bare_response = app.row_geometry(&assistant, lane).height;
-        assert_eq!(bare_response, geometries[2].height);
+        assert_eq!(geometries[2].height, bare_response + design::RESPONSE_GAP);
     }
     #[test]
     fn native_widget_tree_is_bounded_by_visible_range() {

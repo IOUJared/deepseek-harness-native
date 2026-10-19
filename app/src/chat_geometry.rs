@@ -3,10 +3,11 @@
 //! The caller must supply the same bounded preview it renders, and render its body at
 //! `width - 28` by `body_height`, with DejaVu Sans / 15px / Advanced / default
 //! line-height / Word wrapping. Routine messages have no role header; live and
-//! interrupted responses retain a 24px status plus 7px gap. Inner and outer
-//! padding account for 32px (20 card + 12 row, i.e. a 12px gap between rows,
-//! the web's assistant-response flow gap). The App adds the 22px action row and
-//! gap. Fonts must remain stable after bootstrap; recreate the cache if fonts change.
+//! interrupted responses retain a 24px status plus 7px gap. A settled row reserves
+//! no body padding: only the bubble pads its own text, and the gap between rows is
+//! the web's flow margin, which the view draws as the row's top padding. The App
+//! adds the action row and its gap. Fonts must remain stable after bootstrap;
+//! recreate the cache if fonts change.
 use iced::advanced::text::{self, Paragraph as _};
 use iced::{Font, Pixels, Size, alignment};
 use std::cell::RefCell;
@@ -17,12 +18,49 @@ pub(crate) fn status_header(role: &str) -> bool {
     role == "Assistant · live" || role == "Interrupted assistant attempt"
 }
 
+/// The status line a live or interrupted attempt reserves above its body: the
+/// reference's 24px status line plus the 7px gap under it.
+pub(crate) const STATUS_CHROME: f32 = 31.0;
+
+/// The vertical box a settled row reserves around its body. A row's leading gap is
+/// not part of this: the view draws it as the row's top padding from the flow ladder
+/// (`flow_gap_before`) and `row_geometries` reserves it separately.
+///
+/// The reference pads no unboxed body. Assistant prose starts at the column's flow
+/// edge (`AssistantMarkdown.module.css:9-18`) and only the bubble pads its own text,
+/// `10px 16px` (`MessageItem.module.css:22-40`), so a settled assistant row's height
+/// is its body and a user row's is the bubble's 10px on each side. Native reserved
+/// 16px above and below every message body, so each of those rows measured 32px
+/// taller than the reference's and its first line sat 10px below the flow margin.
 pub(crate) fn chrome_height(role: &str) -> f32 {
-    32.0 + if status_header(role) { 31.0 } else { 0.0 }
+    let padding = if role == "You" {
+        crate::design::USER_BUBBLE_PAD.top + crate::design::USER_BUBBLE_PAD.bottom
+    } else {
+        0.0
+    };
+    padding
+        + if status_header(role) {
+            STATUS_CHROME
+        } else {
+            0.0
+        }
 }
 
+/// The drawn offset from a row's top to its body: the bubble's own 10px for a user
+/// row, nothing for a settled assistant row, and the status block for a live or
+/// interrupted one. The search jump reads this to scroll a hit into view.
 pub(crate) fn body_top(role: &str) -> f32 {
-    16.0 + if status_header(role) { 31.0 } else { 0.0 }
+    let padding = if role == "You" {
+        crate::design::USER_BUBBLE_PAD.top
+    } else {
+        0.0
+    };
+    padding
+        + if status_header(role) {
+            STATUS_CHROME
+        } else {
+            0.0
+        }
 }
 
 const MAX_ENTRIES: usize = 4097;
@@ -355,27 +393,30 @@ mod tests {
     }
 
     #[test]
-    fn routine_headers_are_absent_but_live_and_interrupted_status_keep_their_space() {
+    fn a_settled_row_reserves_the_bubbles_padding_and_no_other_chrome() {
         let cache = Cache::default();
-        for role in [
-            "You",
-            "Assistant",
-            "Assistant · live",
-            "Interrupted assistant attempt",
-        ] {
+        for role in ["You", "Assistant"] {
             let geometry = cache.geometry(1, role, "PUBLIC", 0.0, 700.0);
-            let status = matches!(role, "Assistant · live" | "Interrupted assistant attempt");
-            assert_eq!(status_header(role), status);
-            assert_eq!(body_top(role), if status { 47.0 } else { 16.0 });
-            assert_eq!(
-                geometry.height - geometry.body_height,
-                if status { 63.0 } else { 32.0 }
-            );
-            // App adds 4px gap + 18px actions; no action/header overlaps the body.
-            assert_eq!(
-                geometry.height + 22.0,
-                body_top(role) + geometry.body_height + 38.0
-            );
+            assert!(!status_header(role));
+            // The bubble pads its own text 10px top and bottom
+            // (`MessageItem.module.css:38`); every other settled row's body starts at
+            // the column's flow edge, so its height is the body alone. The leading
+            // flow gap is the view's top padding and not part of this reservation.
+            let (top, chrome) = if role == "You" {
+                (crate::design::USER_BUBBLE_PAD.top, 20.0)
+            } else {
+                (0.0, 0.0)
+            };
+            assert_eq!(body_top(role), top, "{role}");
+            assert_eq!(geometry.height - geometry.body_height, chrome, "{role}");
+        }
+        for role in ["Assistant · live", "Interrupted assistant attempt"] {
+            let geometry = cache.geometry(1, role, "PUBLIC", 0.0, 700.0);
+            assert!(status_header(role));
+            // The reference's status line is 24px with a 7px gap under it.
+            assert_eq!(STATUS_CHROME, 24.0 + 7.0);
+            assert_eq!(body_top(role), STATUS_CHROME);
+            assert_eq!(geometry.height - geometry.body_height, STATUS_CHROME);
         }
     }
 
@@ -556,7 +597,12 @@ mod tests {
     fn same_key_hits_reuse_shapes_and_preview_role_width_changes_invalidate() {
         let cache = Cache::default();
         let first = cache.geometry(7, "You", "Hi", 0.0, 600.0);
-        assert_eq!(first.height, 32.0 + crate::design::BUBBLE_LINE);
+        assert_eq!(
+            first.height,
+            crate::design::USER_BUBBLE_PAD.top
+                + crate::design::USER_BUBBLE_PAD.bottom
+                + crate::design::BUBBLE_LINE
+        );
         for _ in 0..8 {
             assert_eq!(cache.geometry(7, "You", "Hi", 0.0, 600.0), first);
         }
@@ -748,7 +794,9 @@ mod tests {
             Geometry {
                 width: 96.0,
                 body_height: crate::design::BUBBLE_LINE,
-                height: 32.0 + crate::design::BUBBLE_LINE
+                height: crate::design::USER_BUBBLE_PAD.top
+                    + crate::design::USER_BUBBLE_PAD.bottom
+                    + crate::design::BUBBLE_LINE
             }
         );
         let long = "PUBLIC words ".repeat(80);

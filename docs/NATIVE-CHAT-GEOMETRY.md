@@ -145,8 +145,40 @@ line, the bubble's 10/16 padding, the 0.702 cap, the 920px lane, and the 16px co
   row inset and a 28px body inset, for 18px total; both are gone, and every row now starts at the
   lane's edge — measured at lane +0/+1 (`shots/299-lane-flush.png`), with the bubble flush at the
   lane's right edge;
-- the reference is a different state — collapsed sidebar rail, lane centred 33px right of the window
-  centre, scrolled transcript with no header — so a pixel-level diff still needs a matching-state
-  preset before any "1-to-1" claim;
+- the reference is a different state — **a crop**, as round 510 measured: its left 520px carry no
+  ink, which a 56px collapsed rail would not leave, so the capture excludes the sidebar and the
+  header rather than collapsing them — and its lane is centred 33px right of the window centre, so a
+  pixel-level diff still needs a matching-state preset before any "1-to-1" claim;
 - the assistant action row cannot be measured from this screenshot: its turn is still running and
   carries no action row, so only the settled-turn rows in other reference frames can judge it.
+
+## A settled row's vertical box is its flow margin (round 510)
+
+Round 504 closed the horizontal insets and named the vertical half as its own round. This is that
+round: native reserved 32px around every message body (16 above, 16 below) and drew 10 of them as a
+box padding, so each row measured taller than the reference's and its first line sat 10px below the
+flow edge. The reference's sheets state the model:
+
+- `.scroll { padding: 16px … }` and `.column` with no padding — the transcript's only box
+  (`ChatView.module.css:26-59`);
+- one leading `margin-top` per flow sibling: 6px, 12px around an Assistant response, 16px after a
+  turn-process header (`:60-95`);
+- no padding on an assistant body (`AssistantMarkdown.module.css:9-18`) and `margin-top: 16px` on its
+  footer (`:73-78`); `.bubble { padding: 10px 16px }` is the only body padding in the transcript
+  (`MessageItem.module.css:22-40`), with `.userRow { gap: 6px }` to its actions (`:1-8`);
+- `.actions` is `calc(28px + delta)` tall and `align-items: center`
+  (`MessageIconActions.module.css:5-12`).
+
+`chat_geometry::chrome_height` now returns the bubble's 20px for a user row, 0 for a settled
+assistant row, and the live/interrupted status block (24 + 7) on top of either; `body_top` returns the
+drawn offset (10 / 0 / +31). `RESPONSE_ACTION_GAP` (16) is the assistant footer's gap and
+`ACTION_GAP` (6) the user's, so `action_footer(delta, response)` owns both. `row_outer_chrome` marks
+the rows whose bare geometry still carries `ROW_CHROME`'s 12px — tool lines, opaque records, command
+cards, expanded activity — so `row_geometries` keeps replacing real chrome with the flow margin and
+never subtracts chrome a message row does not have.
+
+Measured at 1980×1319 (`shots/301-row-rhythm.png`) against `reference.png`: tool-line pitch 30 (both
+frames), assistant line pitch 24 (both), the last tool line's ink to the next row's first ink 38 → 28
+(the reference's own tool → bubble gap is 26), the clock/glyph ink band 17 → 12 (reference 13). The
+clock itself lands 3px below the reference's offset because DejaVu's `❐` has a taller ink box than
+the web's icon — a glyph difference, not a row one.
