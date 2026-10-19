@@ -2479,7 +2479,10 @@ pub fn build(
         }
         "working-queue" => {
             app.queue_expanded = true;
+            // A running session with two queued messages: the strip offers `Steer all`, which walks
+            // the queue one `updateQueue` at a time (`input/hub.ts:256-270`).
             assert!(app.queue_steer_enabled(), "a running session can steer");
+            assert!(app.transcript.queued().len() == 2);
         }
         "process-group-closed" => {
             let rows: Vec<_> = app.transcript.display_rows(false).collect();

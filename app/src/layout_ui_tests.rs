@@ -103,6 +103,46 @@ fn closing_state_rejects_local_menu_and_info_changes() {
     assert!(!app.conversation_menu && app.info_expanded == 0);
     assert!(queue.try_recv().is_err());
 }
+#[cfg(feature = "public-layout-fixture")]
+#[test]
+fn steer_all_walks_the_queue_one_item_at_a_time() {
+    use dsh_native_transport::dto::QueueAction;
+    // The fixture's running session with two queued messages: a real queue, no Host.
+    let (size, _scale) = super::layout_fixture::preset_size("working-queue").unwrap();
+    let (mut app, mut queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "working-queue",
+        size,
+        None,
+    );
+    assert!(app.queue_steer_enabled(), "the session is running");
+    assert_eq!(app.transcript.queued().len(), 2, "two queued rows");
+    while queue.try_recv().is_ok() {}
+    app.show_queue_steer_all();
+    // The first steer is dispatched; the second waits for the first to settle.
+    let Command::UpdateQueue(submission) = queue.try_recv().expect("the first steer") else {
+        panic!("a steer is an updateQueue call");
+    };
+    assert!(matches!(submission.action, QueueAction::Steer));
+    assert!(queue.try_recv().is_err(), "one at a time");
+    let first = submission.item_id.clone();
+    drop(app.receive(crate::worker::Event::QueueUpdated {
+        submission,
+        result: Ok(()),
+    }));
+    let Command::UpdateQueue(second) = queue.try_recv().expect("the second steer follows") else {
+        panic!("a steer is an updateQueue call");
+    };
+    assert_ne!(second.item_id, first, "each queued item steers once");
+    // A refusal ends the run rather than pressing on.
+    drop(app.receive(crate::worker::Event::QueueUpdated {
+        submission: second,
+        result: Err(crate::queue_update::Failure::Rejected),
+    }));
+    assert!(queue.try_recv().is_err(), "a refusal stops steer-all");
+    assert!(app.queue_error.is_some(), "the refusal is reported");
+}
+
 #[test]
 fn a_command_that_takes_arguments_states_what_to_write() {
     let (mut app, _queue) = app();

@@ -426,6 +426,8 @@ pub enum Message {
     CopyDetailSource(detail_panel::Stamp),
     ToggleThoughts(conversation_content::Ticket),
     /// Expand or collapse one tool row's recorded body inside the conversation.
+    /// Steer every queued message, one at a time, as the reference's empty-draft chord does.
+    QueueSteerAll,
     /// Open or close the composer's attach menu.
     ToggleAttachMenu(bool),
     /// Put a slash in the draft and let the completion menu offer the commands.
@@ -1104,6 +1106,9 @@ pub struct App {
     drop_hover: bool,
     /// The Host's skill catalog for the selected session, as slash candidates.
     skills: Option<Vec<command_menu::Candidate>>,
+    /// Queued items still to steer, in order: the reference's "steer all" walks the queue one
+    /// `updateQueue` at a time and stops at the first refusal (`input/hub.ts:256-270`).
+    queue_steer_all: std::collections::VecDeque<String>,
     /// Whether the skill catalog read is in flight.
     skills_pending: bool,
     /// The queue dock's multi-item list is open.
@@ -1522,6 +1527,7 @@ impl App {
                 attach_menu: false,
                 drop_hover: false,
                 skills: None,
+                queue_steer_all: Default::default(),
                 skills_pending: false,
                 queue_expanded: false,
                 queue_edit: None,
@@ -4492,6 +4498,24 @@ impl App {
             Message::QueueRemoveCancel if self.layout_controls_enabled() => {
                 self.queue_remove_armed = None;
             }
+            Message::QueueSteerAll
+                if self.layout_controls_enabled() && self.queue_steer_enabled() =>
+            {
+                let ids: Vec<String> = self
+                    .transcript
+                    .queued()
+                    .into_iter()
+                    .map(|item| item.id)
+                    .collect();
+                if ids.is_empty() {
+                    self.queue_error = Some("Nothing is queued to steer".into());
+                    return Task::none();
+                }
+                self.queue_remove_armed = None;
+                self.queue_edit = None;
+                self.queue_steer_all = ids.into();
+                self.advance_steer_all();
+            }
             Message::QueueSteer(id) if self.layout_controls_enabled() => {
                 let running = self
                     .selected
@@ -6082,6 +6106,14 @@ impl App {
                         self.queue_remove_armed = None;
                     }
                     Err(failure) => self.queue_error = Some(failure.message().into()),
+                }
+                // A steer-all continues only while each step succeeds; a refusal ends it, as the
+                // reference stops on `steer-unavailable`/`queue-item-not-found`.
+                let steered = matches!(result, Ok(()));
+                if steered {
+                    self.advance_steer_all();
+                } else {
+                    self.queue_steer_all.clear();
                 }
             }
             Event::Renamed { submission, result } => {
@@ -7924,6 +7956,12 @@ impl App {
         self.busy_enter = value;
     }
 
+    /// Fixture-only: press Steer all on a running session, so the sequential dispatch is
+    /// observable without a Host.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn show_queue_steer_all(&mut self) {
+        let _ = self.update(Message::QueueSteerAll);
+    }
     /// Fixture-only: press the real Steer control on a session that is not running, so the
     /// handler's refusal and the strip that carries it are capturable.
     #[cfg(feature = "public-layout-fixture")]
@@ -10878,6 +10916,16 @@ impl App {
     }
     /// Admit one queue mutation for the selected session. A second mutation is refused while
     /// one is in flight; the dock shows the item's pending state instead.
+    /// Dispatch the next queued steer, or stop when the queue is drained.
+    fn advance_steer_all(&mut self) {
+        if self.queue_busy.is_some() {
+            return;
+        }
+        let Some(next) = self.queue_steer_all.pop_front() else {
+            return;
+        };
+        self.submit_queue(next, dsh_native_transport::dto::QueueAction::Steer);
+    }
     fn submit_queue(&mut self, item_id: String, action: dsh_native_transport::dto::QueueAction) {
         if self.queue_busy.is_some() {
             return;
@@ -11060,19 +11108,30 @@ impl App {
             list = list.push(self.queue_steer_note());
         }
         if items.len() > 1 {
+            let mut header = row![
+                label(format!("{} queued messages", items.len()), MUTED).size(11),
+                Space::new().width(Length::Fill),
+            ]
+            .align_y(iced::Alignment::Center);
+            // The reference steers the whole queue from an empty draft; native offers the same
+            // action as a control, since its Ctrl+Enter stays a send alias by the user's choice
+            // (`view-binding.ts:122-127`, `input/hub.ts:256-270`).
+            if self.queue_steer_enabled() {
+                header = header.push(
+                    button(label("Steer all", MUTED).size(10))
+                        .on_press(Message::QueueSteerAll)
+                        .style(design::ghost)
+                        .padding([2, 6]),
+                );
+            }
+            header =
+                header.push(label(if self.queue_expanded { "▾" } else { "▸" }, MUTED).size(11));
             list = list.push(
-                button(
-                    row![
-                        label(format!("{} queued messages", items.len()), MUTED).size(11),
-                        Space::new().width(Length::Fill),
-                        label(if self.queue_expanded { "▾" } else { "▸" }, MUTED).size(11),
-                    ]
-                    .align_y(iced::Alignment::Center),
-                )
-                .on_press(Message::ToggleQueue)
-                .style(design::ghost)
-                .padding([3, 6])
-                .width(Length::Fill),
+                button(header)
+                    .on_press(Message::ToggleQueue)
+                    .style(design::ghost)
+                    .padding([3, 6])
+                    .width(Length::Fill),
             );
         }
         if visible {
