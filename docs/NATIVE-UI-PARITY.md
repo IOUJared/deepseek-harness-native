@@ -6382,7 +6382,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Reference surface | Native status |
 | --- | --- |
 | Chat: renderer, thoughts, turn triggers, copy/branch/edit/fork | cloned (markdown: tables, footnotes and math; math draws its source, since no native typesetter exists — see the renderer note below) |
-| Composer: slash, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned |
+| Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the `+ Attach` control does not open the command menu, the slash menu is one flat list without the reference's groups/sections/breadcrumbs/skeleton, Stop is always drawn and pressable while idle, the running primary button says `Send` instead of `Queue message`/`Steer message` on the default preference, files are chosen one at a time through a path field, no image thumbnails or drag hover overlay, the queue dock's Steer stays pressable while idle, and a pending send is not a queue row; absent: skills in the slash menu, the `File` menu entry, the Cmd/Ctrl+Enter inversion, empty-draft steer-all, the plan-mode placeholder, and the command-argument ghost hint) |
 | Sidebar: sessions, search, pin/archive/trash, workspace filter, navigation sheet | cloned (time-grouped list, not the grouped browser) |
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
 | Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab) |
@@ -9838,4 +9838,49 @@ the suite against the commit that carries it.
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | app bin | — | 20 dead-code warnings (unchanged) |
+| tree | — | clean before the commit |
+
+### Round 404 — the slash menu completes after prose; a composer audit opens a work list
+
+A read-only composer audit (33 reference controls enumerated, 25 checked in depth) produced 15 proven
+divergences. This round closes the smallest one with real behavioural weight and records the rest in
+the coverage table rather than leaving them invisible.
+
+**The slash trigger.** The reference scans back from the caret to whitespace
+(`ui-input-trigger/src/core/detect.ts:61-75`), so `say /co` opens the command menu; a slash inside a
+path does not. Native required the draft to *begin* with `/`, so a slash typed after any text never
+completed. `command_menu::query` now reads the draft's last whitespace-separated word, rejects a
+second slash (a path, not a command), and keeps the "moved on to prose" rule for a trailing word.
+
+Evidence: `shots/220-slash-mid-draft.png` (DP-2 alongside, `status: passed`) in the new
+`command-menu-mid-draft` preset — the draft `PUBLIC say /co` with `/compact` offered beneath it.
+
+**The remaining list** is now in the coverage table with what differs, so it can be worked item by
+item: the `+ Attach` control opens the file editor rather than the command menu; the menu is a flat
+list without the reference's group titles, sections, breadcrumbs, loading skeleton or drill rows; a
+`Stop` button is always drawn and pressable while idle (the reference turns its *primary* button into
+stop while running); the running primary label ignores the Queue preference's `Queue message`/
+`Steer message`; files are chosen one at a time through a path field rather than a multi-select;
+there are no image thumbnails in the rail and no drag-hover overlay; the queue dock's Steer stays
+pressable while idle; and a pending send is not a queue row. Absent entirely: skills in the slash
+menu, the `File` menu entry, the Cmd/Ctrl+Enter inversion, empty-draft steer-all, the plan-mode
+placeholder and the command-argument ghost hint.
+
+Tests: five in `query_tests` (a slash after prose and after a newline, a trailing word, a path, an
+empty draft and plain text) plus the new preset's assertion.
+
+**Battery (round 404).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1399 passed**, 1 ignored |
+| app, default | **0** | **1384 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/220-slash-mid-draft.png`, `status: passed` |
+| app bin | — | **20** dead-code warnings |
 | tree | — | clean before the commit |

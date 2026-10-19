@@ -36,14 +36,19 @@ impl Completion<'_> {
     }
 }
 
-/// The token being completed, when the draft is a leading command line.
+/// The command token the caret sits in: the draft's last whitespace-separated word.
 ///
-/// Returns the text after the slash, which may be empty (the user just typed
-/// `/`). A slash anywhere else, a second slash, or any whitespace before the end
-/// ends completion: the user has moved on to arguments or prose.
+/// The reference scans back from the caret to whitespace (`detect.ts:61-75`), so a slash opens the
+/// menu anywhere in the draft — `say /co` completes, while `say /about it` has moved on to prose and
+/// completes nothing. The returned text is what follows the slash and may be empty (the user just
+/// typed `/`).
 pub fn query(draft: &str) -> Option<&str> {
-    let rest = draft.strip_prefix('/')?;
-    if rest.contains([' ', '\t', '\n']) {
+    let token = draft
+        .rsplit(|character: char| character.is_whitespace())
+        .next()?;
+    let rest = token.strip_prefix('/')?;
+    // A second slash inside the word is a path, not a command name.
+    if rest.contains('/') {
         return None;
     }
     Some(rest)
@@ -185,5 +190,31 @@ mod tests {
         // word typed cannot join the command name.
         assert!(!accepted("/", "help").is_empty());
         assert!(accepted("/", "help").ends_with(' '));
+    }
+}
+
+#[cfg(test)]
+mod query_tests {
+    //! The reference scans back from the caret to whitespace (`detect.ts:61-75`), so the menu opens
+    //! for a slash anywhere in the draft, not only at its start.
+    use super::*;
+
+    #[test]
+    fn a_slash_opens_the_menu_after_prose() {
+        assert_eq!(query("/co"), Some("co"));
+        assert_eq!(query("/"), Some(""));
+        assert_eq!(
+            query("say /co"),
+            Some("co"),
+            "prose before the slash is fine"
+        );
+        assert_eq!(query("line one\nsay /goal"), Some("goal"));
+        // A trailing space means the user moved on to words.
+        assert_eq!(query("say /co now"), None);
+        assert_eq!(query("say /about it"), None);
+        // A second slash is a path, not a command.
+        assert_eq!(query("/usr/bin"), None);
+        assert_eq!(query(""), None);
+        assert_eq!(query("plain text"), None);
     }
 }
