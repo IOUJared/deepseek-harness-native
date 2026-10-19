@@ -72,6 +72,45 @@ pub fn counts(categories: impl IntoIterator<Item = &'static str>) -> Vec<Count> 
         .collect()
 }
 
+/// The reference's live label for a running group: `message.stepProcess.<activity>`
+/// (`locale.ts:201-214`), which names what the group is doing rather than summarizing it.
+const LIVE_LABELS: &[(&str, &str)] = &[
+    ("read", "Reading files"),
+    ("readImage", "Reading images"),
+    ("write", "Writing files"),
+    ("search", "Searching code"),
+    ("edit", "Editing files"),
+    ("commands", "Running commands"),
+    ("code", "Running code"),
+    ("webSearch", "Searching the web"),
+    ("webFetch", "Visiting web pages"),
+    ("subagents", "Coordinating subagents"),
+    ("plan", "Updating the plan"),
+    ("questions", "Waiting for your action"),
+    ("tools", "Calling tools"),
+];
+
+/// `message.stepProcess.<activity>` for a live group, or `Analyzing the request` when the group has
+/// no tool activity yet (the reference's `thinking` default).
+pub fn live_label(category: Option<&str>) -> &'static str {
+    category
+        .and_then(|category| {
+            LIVE_LABELS
+                .iter()
+                .find_map(|(key, label)| (*key == category).then_some(*label))
+        })
+        .unwrap_or("Analyzing the request")
+}
+
+/// The seat's title. A running group names its current activity, as the reference's live header
+/// does; a settled group states the composed summary.
+pub fn seat_title(counts: &[Count], live: Option<&str>) -> String {
+    match live {
+        Some(category) => live_label(Some(category)).to_owned(),
+        None => title(counts),
+    }
+}
+
 /// `message.stepProcess.done.*` for one category.
 pub fn label(category: &str) -> &'static str {
     DONE_LABELS
@@ -328,5 +367,36 @@ mod group_tests {
         };
         let debug = format!("{group:?}");
         assert!(debug.contains("members: 3"), "{debug}");
+    }
+}
+
+#[cfg(test)]
+mod live_title_tests {
+    //! A running group names its activity; a settled one summarizes it.
+    use super::*;
+
+    #[test]
+    fn a_live_group_names_its_current_activity() {
+        assert_eq!(live_label(Some("commands")), "Running commands");
+        assert_eq!(live_label(Some("read")), "Reading files");
+        assert_eq!(live_label(Some("tools")), "Calling tools");
+        // No activity recorded yet is the reference's `thinking` default.
+        assert_eq!(live_label(None), "Analyzing the request");
+        assert_eq!(live_label(Some("schedule_create")), "Analyzing the request");
+    }
+
+    #[test]
+    fn the_seat_title_prefers_the_live_label_and_falls_back_to_the_summary() {
+        let ranked = counts(["grep", "read"].map(category));
+        assert_eq!(
+            seat_title(&ranked, Some("commands")),
+            "Running commands",
+            "a live group names what it is doing"
+        );
+        assert_eq!(
+            seat_title(&ranked, None),
+            "Searched code and read files",
+            "a settled group states the summary"
+        );
     }
 }

@@ -13200,11 +13200,33 @@ impl App {
                     .get(&key)
                     .copied()
                     .unwrap_or(!settled);
+                // A running group names what it is doing — the last member's category — while a
+                // settled one states the composed summary (`ChatGroupSeat.tsx:107-120`).
+                let live = (!settled)
+                    .then(|| {
+                        group
+                            .members
+                            .iter()
+                            .rev()
+                            .find_map(|index| names.get(*index).copied().flatten())
+                            .map(crate::reducer::process_group::category)
+                    })
+                    .flatten();
+                let title = crate::reducer::process_group::seat_title(
+                    &crate::reducer::process_group::counts(
+                        group
+                            .members
+                            .iter()
+                            .filter_map(|index| names.get(*index).copied().flatten())
+                            .map(crate::reducer::process_group::category),
+                    ),
+                    live,
+                );
                 (
                     group.first,
                     Seat {
                         key,
-                        title: group.title,
+                        title,
                         members: group.members,
                         open,
                     },

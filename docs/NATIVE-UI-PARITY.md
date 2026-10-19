@@ -9612,3 +9612,40 @@ The retake set was then re-cut, because the seat's size change shifts every grou
 | DP-2 captures | — | eight frames, all `status: passed` |
 | app bin | — | **20** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 398 — a live group names what it is doing
+
+The reference's seat has two titles, not one: a settled group states the composed summary, while a
+group that is still running names its **current activity** — `Running commands`, `Reading files`,
+`Calling tools`, or `Preparing to …` while the call is being prepared
+(`ChatGroupSeat.tsx:107-120`, `locale.ts:201-227`). Native drew the summary in both states, so a
+running group claimed to have finished.
+
+`process_group::live_label` now carries the reference's live labels and `seat_title` picks between
+them: live activity from the group's last recorded tool, the summary once the turn has ended. This
+also settles what the presets actually are — `tool-activity` records no turn end and is therefore
+*live* (`▲ Running commands`), while `process-group-closed` records one and is settled
+(`▼ Read files, edited files, ran commands`). Two of my own arms had the distinction backwards, and
+one had been duplicated by an earlier patch; both are corrected here rather than papered over.
+
+Evidence: `shots/215-process-seat-live.png` and `shots/216-process-seat-settled.png` (DP-2 frames
+alongside, both `status: passed`) — the same three tool rows under the two states.
+
+Tests: two in `live_title_tests` (the live label table with its `thinking` default, and the seat
+title choosing between live and summary) plus the corrected preset arms and the seat-click test.
+
+**Battery (round 398).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1390 passed**, 1 ignored |
+| app, default | **0** | **1376 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 captures | — | two frames, both `status: passed` |
+| app bin | — | **20** dead-code warnings |
+| tree | — | clean before the commit |

@@ -2429,38 +2429,6 @@ pub fn build(
             assert!(!seat.open, "a settled turn's group starts closed");
             assert_eq!(seat.title, "Read files, edited files, ran commands");
         }
-        "tool-activity" => {
-            // A settled turn's group is closed; the seat states the title and its members are not
-            // drawn until the disclosure is clicked.
-            let (key, title, open) = {
-                let rows: Vec<_> = app.transcript.display_rows(false).collect();
-                let seats = app.process_seats(&rows);
-                assert_eq!(seats.len(), 1, "one group over the three tool rows");
-                let seat = seats.values().next().unwrap();
-                (seat.key, seat.title.clone(), seat.open)
-            };
-            assert!(open, "a running turn's group starts open");
-            assert_eq!(title, "Read files, edited files, ran commands");
-            let settled_rows: Vec<_> = app.transcript.display_rows(false).collect();
-            let settled = app.process_seats(&settled_rows);
-            assert_eq!(
-                settled.keys().copied().collect::<Vec<_>>(),
-                vec![
-                    settled_rows
-                        .iter()
-                        .position(|row| row.role == "Tool call")
-                        .unwrap()
-                ]
-            );
-            // Clicking the seat closes it, which hides its members.
-            drop(app.update(Message::ToggleProcessGroup {
-                generation: app.generation,
-                key,
-            }));
-            let rows: Vec<_> = app.transcript.display_rows(false).collect();
-            let seats = app.process_seats(&rows);
-            assert!(!seats.values().next().unwrap().open, "the click closes it");
-        }
         "manual-compaction" => {
             // One marker, stating the counts the compaction summary recorded.
             let rows: Vec<_> = app
@@ -3407,19 +3375,7 @@ mod tests {
             (rows.len(), key, open)
         };
         let _ = rows;
-        assert!(
-            !open,
-            "this preset's turn has ended, so its group starts folded"
-        );
-        drop(app.update(Message::ToggleProcessGroup {
-            generation: app.generation,
-            key,
-        }));
-        let unfolded = {
-            let rows: Vec<_> = app.transcript.display_rows(false).collect();
-            app.process_seats(&rows).values().next().unwrap().open
-        };
-        assert!(unfolded, "the click opens it");
+        assert!(open, "a live group stands open");
         drop(app.update(Message::ToggleProcessGroup {
             generation: app.generation,
             key,
@@ -3428,7 +3384,16 @@ mod tests {
             let rows: Vec<_> = app.transcript.display_rows(false).collect();
             !app.process_seats(&rows).values().next().unwrap().open
         };
-        assert!(folded, "the second click folds it again");
+        assert!(folded, "the click folds it");
+        drop(app.update(Message::ToggleProcessGroup {
+            generation: app.generation,
+            key,
+        }));
+        let unfolded = {
+            let rows: Vec<_> = app.transcript.display_rows(false).collect();
+            app.process_seats(&rows).values().next().unwrap().open
+        };
+        assert!(unfolded, "the second click unfolds it again");
     }
 
     #[test]
