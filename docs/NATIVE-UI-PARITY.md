@@ -351,15 +351,10 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    `/home/jared/Documents/deepseek-harness/default-workspace/` would let those be measured
    from pixels instead.
 
-7. **The two-row tool model is a structural divergence, not a formatting one.** The reference
-   folds a call and its result into one `ToolCallBlock` and draws **one row per call**
-   (`tool-call-tree.ts`, `ToolCallTree.tsx`); native's reducer keeps `tool/call` and `tool/result`
-   as two rows, so every tool call occupies two activity lines and carries the native-authored
-   `Output` / `Recorded error` suffix the reference has no equivalent for. The diff card (round
-   362) lives on the call row because of this. Closing it means folding the result into the call
-   row in `reducer`, moving the output into that row's expanded body, and re-basing every row-index
-   assertion and the scroll/virtualization vectors on the new counts — a structural round, not a
-   view tweak. It is the largest remaining chat-surface difference.
+7. **The two-row tool model — closed in round 371.** Chat now folds a paired `tool/result` onto
+   its `tool/call` and draws one row per call, as the reference does; the result record remains a
+   Trajectory-only row, so nothing is lost. See that round for the pairing rules and the rows that
+   changed.
 8. **The expanded tool body's card family.** The reference picks a structured card per tool before
    any text card (`ToolRow.tsx:169-170`: ask-user, terminal, diff, read, image, search, web,
    details, then the IN/OUT text card) and draws it with the shared primitive
@@ -8454,4 +8449,51 @@ retry dispatches the same read).
 | format debt | **0** | 0 files, 0 hunks |
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| tree | — | clean before the commit |
+
+### Round 371 — one row per tool call
+
+The largest remaining chat-surface divergence, closed. The reference folds a call and its result
+into one `ToolCallBlock` and draws **one row per call** (`tool-call-tree.ts`,
+`ToolCallTree.tsx`); native kept `tool/call` and `tool/result` as two rows, so every tool call took
+two activity lines and the second carried a native-authored `Output` marker.
+
+`reducer::rebuild` now pairs a result with its call by the wire's own identifiers — the result's
+`message.toolCallId`, its `source.callId`, `role: "tool"`, and the same `turn`/`step` — the same
+pairing `activity` already used for labels. A paired result folds `output` (its bounded body) and
+`failed` (its exact `isError`) onto the call row and is marked `chat: false`: Chat draws the call
+once, and **Trajectory still lists every record**, so the raw result is never lost. An unpaired
+result keeps its own Chat row — a result that names no call is information, not a duplicate — and a
+result for another step does not fold.
+
+What the fold changed in the view: a call's expanded body is now the result it recorded (the read
+body without its envelope, a bash output, an unpaired result's text), the edit call's body is still
+the diff card, the failure marker reads the folded `failed` instead of the call's missing result,
+and the `+N −N` totals drop on a failed call exactly as before.
+
+Evidence, all DP-2 alongside with `status: passed`: `shots/167-tool-rows-folded.png` (the three-row
+transcript that replaces six), `168-tool-row-read-body.png` (a read call expanding to the two
+content lines it folded), `169-tool-row-diff.png` and `170-tool-row-diff-folded.png` (the edit call's
+diff and its fold). These supersede `158-…`, `163-…`, `164-…` and `166-…`, which show the two-row
+shape; the numbers are kept because each is the same surface re-captured, and the older files stay
+as history.
+
+Tests: three reducer cases — `a_paired_result_folds_onto_its_call_and_trajectory_keeps_the_record`,
+`an_unpaired_result_keeps_its_own_row`, `a_result_for_another_step_does_not_fold` — plus the updated
+`chat_visibility_tests` and fixture assertions, which now pin the folded Chat count *and* check that
+Trajectory still counts every record.
+
+**Battery (round 371).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1289 passed**, 1 ignored |
+| app, default | **0** | **1282 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/167-…`–`170-…`, all `status: passed` |
 | tree | — | clean before the commit |

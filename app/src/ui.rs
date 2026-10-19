@@ -12653,6 +12653,8 @@ impl App {
             trigger: None,
             time: 0,
             surface: false,
+            output: None,
+            failed: false,
         });
         let rows: Vec<_> = self
             .transcript
@@ -12910,6 +12912,8 @@ impl App {
                     trigger: None,
                     time: 0,
                     surface: false,
+                    output: None,
+                    failed: false,
                 },
                 lane,
             )
@@ -13131,6 +13135,8 @@ impl App {
             trigger: None,
             time: 0,
             surface: false,
+            output: None,
+            failed: false,
         });
         let len = self.transcript.display_rows(true).count() + usize::from(partial.is_some());
         let rendered: Vec<&DisplayRow> = self
@@ -13251,7 +13257,7 @@ impl App {
                 // expanded — at rest they stay muted. A failed call drops them
                 // (`ToolRow.tsx:185-190, 248-250`, `ToolRow.module.css:64-77`).
                 if let Some((added, removed)) = activity.edits
-                    && !activity.failed
+                    && !record.failed
                 {
                     let cue = hovered || expanded;
                     line = line.push(
@@ -13278,7 +13284,9 @@ impl App {
                     );
                 }
                 // Suffix stays outside the clipped label; output cannot look like a new call.
-                if activity.failed {
+                // A call that recorded a failure says so; a paired result is folded into the
+                // call's body, so only an unpaired result record still needs its own marker.
+                if record.failed {
                     line = line.push(label("Recorded error", DANGER).size(10));
                 } else if record.role == "Tool result" {
                     line = line.push(label("Output", MUTED).size(10));
@@ -16935,6 +16943,11 @@ fn diff_line_view(
         .into()
 }
 fn activity_body_source(row: &DisplayRow) -> &str {
+    // A call's folded result is the body Chat draws: the reference has one row per call with
+    // the result inside it, and the recorded arguments stay in Trajectory and Details.
+    if let Some(output) = &row.output {
+        return read_body(output).unwrap_or(output).trim();
+    }
     let text = row.text.trim();
     if row.role == "Tool call" {
         text.split_once('\n').map_or("", |(_, body)| body.trim())
@@ -17193,6 +17206,8 @@ mod tests {
             trigger: None,
             time: 1000,
             surface: false,
+            output: None,
+            failed: false,
         }
     }
     #[test]
@@ -20214,6 +20229,8 @@ mod tests {
             trigger: None,
             time: 0,
             surface: false,
+            output: None,
+            failed: false,
         };
         assert_eq!(activity_body_source(&row), "let a = 1;\nlet b = 2;");
     }

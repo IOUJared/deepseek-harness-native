@@ -1460,7 +1460,23 @@ pub fn build(
             })));
         }
         app.records_expanded = preset == "title-controls-expanded";
-        assert_eq!(app.transcript.display_rows(app.records_expanded).count(), 8);
+        // Chat draws one row per call, as the reference does, and each call carries its result;
+        // Trajectory still lists every record, so it keeps the three result rows.
+        let records = app.records_expanded;
+        assert_eq!(
+            app.transcript.display_rows(records).count(),
+            if records { 8 } else { 5 },
+            "preset {preset}"
+        );
+        assert_eq!(
+            app.transcript
+                .rows()
+                .iter()
+                .filter(|row| row.role == "Tool call" && row.output.is_some())
+                .count(),
+            3,
+            "every paired call carries its result"
+        );
         assert_eq!(
             app.session_title(app.sessions.get(&selected_id).unwrap()),
             "PUBLIC updated chat title"
@@ -1910,13 +1926,17 @@ pub fn build(
             assert!(app.activity_expanded.contains(&3));
         }
         "tool-activity-read" => {
-            // The read result expands to its content lines, without the protocol envelope the
-            // session stores around them.
-            let row = app.transcript.rows().get(2).cloned();
-            let body = row
-                .as_ref()
-                .map(super::activity_body_source)
-                .unwrap_or_default();
+            // The read call expands to the result it folded, without the protocol envelope the
+            // session stores around it. Key 1 is the call; its result record (seq 2) is
+            // Trajectory-only now that Chat draws one row per call.
+            let call = app
+                .transcript
+                .rows()
+                .iter()
+                .find(|row| row.key == 1)
+                .cloned()
+                .expect("the read call row");
+            let body = super::activity_body_source(&call);
             assert!(
                 !body.contains("<path>") && !body.contains("<content>"),
                 "{body}"
@@ -1924,9 +1944,9 @@ pub fn build(
             assert!(body.contains("PUBLIC note line two"), "{body}");
             drop(app.update(Message::ToggleActivity {
                 generation: app.generation,
-                key: 2,
+                key: 1,
             }));
-            assert!(app.activity_expanded.contains(&2));
+            assert!(app.activity_expanded.contains(&1));
         }
         "tool-activity-expanded" => {
             // The recorded Bash call expands inside the conversation; the detail
@@ -2112,7 +2132,11 @@ pub fn build(
         app.chosen_model = Some(model);
         app.chosen_effort = Some(effort);
         assert_eq!(app.transcript.rows().len(), 10);
-        assert_eq!(app.transcript.display_rows(app.records_expanded).count(), 8);
+        // Chat folds each result into its call (one row per call); Trajectory keeps all records.
+        assert_eq!(
+            app.transcript.display_rows(app.records_expanded).count(),
+            if app.records_expanded { 8 } else { 5 }
+        );
     }
     if preset.starts_with("working-") {
         app.window_active = true; // PUBLIC focused eligibility, not a visibility measurement.

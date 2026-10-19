@@ -904,7 +904,19 @@ fn a_real_recorded_window_projects_its_own_reported_occupancy() {
         "recorded human turns: {kinds:?}"
     );
     assert!(kinds.iter().any(|kind| *kind == "tool/call"));
-    assert!(kinds.iter().any(|kind| *kind == "tool/result"));
+    // A result is folded onto its call instead of becoming a second Chat row; the record itself
+    // stays in Trajectory, and the fold is what the call row carries.
+    assert!(
+        !kinds.iter().any(|kind| *kind == "tool/result"),
+        "chat draws one row per call: {kinds:?}"
+    );
+    assert!(
+        transcript
+            .rows()
+            .iter()
+            .any(|row| row.role == "Tool call" && row.output.is_some()),
+        "a paired call carries its result"
+    );
 
     // Every recorded tool row labels through the real argument shapes.
     let tool_rows = transcript

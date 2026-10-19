@@ -82,6 +82,12 @@ pub struct DisplayRow {
     /// `Referenced session · labels` (`ui-chat/src/client/chat/MessageItem.tsx:225-229`,
     /// labels from `conversation-nodes/event-projection.ts:83-87`).
     pub references: Vec<String>,
+    /// The paired `tool/result`'s recorded body, folded onto its call row. The reference draws
+    /// one row per call with the result inside it (`ToolCallTree.tsx`); native keeps the result
+    /// record as a Trajectory-only row and folds these two facts onto the call.
+    pub output: Option<String>,
+    /// The paired result's exact recorded failure marker.
+    pub failed: bool,
     /// The turn this assistant record belongs to, when the event carries one.
     pub turn: Option<u64>,
     /// The derived assistant message identity, which feedback targets.
@@ -792,6 +798,9 @@ impl Transcript {
             .collect();
         let mut unknown = false;
         let mut work = crate::work_panel::Store::default();
+        // One row per call, as the reference draws it: a `tool/call` is indexed here so its
+        // `tool/result` can fold onto it instead of adding a second activity line to Chat.
+        let mut calls: std::collections::BTreeMap<(String, u64, u64), u64> = Default::default();
         for event in self.records.values() {
             if self
                 .attempt
@@ -901,7 +910,7 @@ impl Transcript {
             let trigger = (kind == "user/message")
                 .then(|| presentation::turn_trigger(&event.data["source"]))
                 .flatten();
-            let row = DisplayRow {
+            let mut row = DisplayRow {
                 key: event.seq,
                 role: trigger.map_or_else(|| bounded(role, 128), |trigger| trigger.title.into()),
                 kind: bounded(kind, 128),
@@ -918,7 +927,47 @@ impl Transcript {
                 trigger,
                 time: event.time,
                 surface,
+                output: None,
+                failed: false,
             };
+            // Pair a result with its call by the wire's own identifiers, exactly as the
+            // activity fold pairs them. A result that names no call keeps its own row: an
+            // unpaired result is information, not a duplicate.
+            if kind == "tool/call"
+                && let (Some(id), Some(turn), Some(step)) = (
+                    event.data["callId"].as_str(),
+                    event.data["turn"].as_u64(),
+                    event.data["step"].as_u64(),
+                )
+            {
+                calls.insert((id.to_owned(), turn, step), event.seq);
+            }
+            if kind == "tool/result" {
+                let message = &event.data["message"];
+                let paired = (|| {
+                    let id = message["toolCallId"].as_str().filter(|id| !id.is_empty())?;
+                    if message["role"].as_str() != Some("tool")
+                        || message["source"]["kind"].as_str() != Some("tool")
+                        || message["source"]["callId"].as_str() != Some(id)
+                    {
+                        return None;
+                    }
+                    let turn = event.data["turn"].as_u64()?;
+                    let step = event.data["step"].as_u64()?;
+                    calls.get(&(id.to_owned(), turn, step)).copied()
+                })();
+                if let Some(call) = paired
+                    && let Some(target) = rows.iter_mut().find(|row| row.key == call)
+                {
+                    target.output = Some(row.text.clone());
+                    target.failed = message["isError"].as_bool() == Some(true);
+                }
+                if paired.is_some() {
+                    // The record stays in Trajectory, where every record is listed; Chat draws
+                    // the call once, with this result folded into it.
+                    row.chat = false;
+                }
+            }
             // A `session-reference` context record carries the labels cited by the
             // message it follows, which the reference draws under that bubble
             // (`conversation-nodes/event-projection.ts:83-87`); it is attributed before
@@ -1707,5 +1756,88 @@ mod tests {
         s.apply(1,frame(json!({"type":"assistant-stream","frame":{"type":"end","revision":17,"attemptId":"active-attempt","index":3,"outcome":{"kind":"committed","seq":3,"eventType":"assistant/message"}}}))).unwrap();
         assert_eq!(s.rows.len(), 7);
         assert!(s.partial().is_none());
+    }
+}
+
+#[cfg(test)]
+mod fold_tests {
+    //! One row per call, as the reference draws it: a paired result folds onto its call and stays
+    //! a Trajectory record. The pairing uses the wire's own identifiers, never proximity.
+    use super::*;
+
+    fn event(seq: u64, kind: &str, data: serde_json::Value) -> Value {
+        serde_json::json!({"type":"event","event":{"type":kind,"seq":seq,"time":1000+seq,"data":data}})
+    }
+
+    fn frame(records: Vec<Value>) -> SessionFollowFrame {
+        serde_json::from_value(serde_json::json!({
+            "type": "snapshot", "records": records, "cursor": 2, "hasMore": false,
+            "header": {"version": 4, "id": "PUBLIC-fold", "createdAt": 0, "isSeeded": false},
+            "projections": {"asOfSeq": 2, "values": {}},
+            "assistantStream": {"revision": 0}
+        }))
+        .unwrap()
+    }
+
+    fn call(seq: u64, turn: u64, step: u64) -> Value {
+        event(
+            seq,
+            "tool/call",
+            serde_json::json!({"callId": "PUBLIC-call", "turn": turn, "step": step,
+                "name": "read", "arguments": "{\"file_path\":\"src/a.rs\"}"}),
+        )
+    }
+
+    fn result(seq: u64, turn: u64, step: u64, error: bool) -> Value {
+        event(
+            seq,
+            "tool/result",
+            serde_json::json!({"turn": turn, "step": step, "message": {
+                "role": "tool", "toolCallId": "PUBLIC-call",
+                "source": {"kind": "tool", "callId": "PUBLIC-call"},
+                "isError": error,
+                "content": [{"type": "text", "text": "PUBLIC read body"}]
+            }}),
+        )
+    }
+
+    #[test]
+    fn a_paired_result_folds_onto_its_call_and_trajectory_keeps_the_record() {
+        let mut transcript = Transcript::new(0);
+        transcript
+            .apply(0, frame(vec![call(1, 1, 1), result(2, 1, 1, true)]))
+            .unwrap();
+        // Chat: one row, the call, carrying the result.
+        let chat: Vec<_> = transcript.display_rows(false).collect();
+        assert_eq!(chat.len(), 1);
+        assert_eq!(chat[0].role, "Tool call");
+        assert_eq!(chat[0].output.as_deref(), Some("PUBLIC read body"));
+        assert!(chat[0].failed);
+        // Trajectory: both records.
+        assert_eq!(transcript.display_rows(true).count(), 2);
+    }
+
+    #[test]
+    fn an_unpaired_result_keeps_its_own_row() {
+        let mut transcript = Transcript::new(0);
+        transcript
+            .apply(0, frame(vec![result(1, 1, 1, false)]))
+            .unwrap();
+        let chat: Vec<_> = transcript.display_rows(false).collect();
+        assert_eq!(chat.len(), 1, "a result with no call is still information");
+        assert_eq!(chat[0].role, "Tool result");
+    }
+
+    #[test]
+    fn a_result_for_another_step_does_not_fold() {
+        let mut transcript = Transcript::new(0);
+        transcript
+            .apply(0, frame(vec![call(1, 1, 1), result(2, 1, 9, false)]))
+            .unwrap();
+        // The call stays alone in Chat, and the unpaired result keeps its own row there.
+        let chat: Vec<_> = transcript.display_rows(false).collect();
+        assert_eq!(chat.len(), 2);
+        assert!(chat[0].output.is_none());
+        assert!(chat.iter().any(|row| row.role == "Tool result"));
     }
 }
