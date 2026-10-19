@@ -143,6 +143,7 @@ pub const PRESETS: &[&str] = &[
     "mcp",
     "changes-card",
     "changes-diff",
+    "changes-split",
     "changes-single",
     "changes-fold",
     "feedback",
@@ -385,6 +386,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "mcp"
         | "changes-card"
         | "changes-diff"
+        | "changes-split"
         | "changes-single"
         | "changes-fold"
         | "feedback"
@@ -1817,6 +1819,7 @@ pub fn build(
         || preset == "changes-fold"
         || preset == "changes-single"
         || preset == "changes-diff"
+        || preset == "changes-split"
     {
         vec![
             json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
@@ -2026,7 +2029,7 @@ pub fn build(
     if preset == "changes-card" {
         app.seed_changes_summary();
     }
-    if preset == "changes-diff" {
+    if preset == "changes-diff" || preset == "changes-split" {
         // The comparison itself, drawn as diff rows: the one surface the card's press opens into.
         app.seed_changes_summary_single();
         app.changes_diffs.insert(
@@ -2056,6 +2059,15 @@ pub fn build(
             }),
         );
         app.open_changed_detail_public(2, 0);
+        if preset == "changes-split" {
+            // The reference's review tab seeds side-by-side, unwrapped for its first file
+            // (`review-store.ts:52-81`); the preset shows that layout with its toggle reading
+            // `Unified`, which is the action pressing it takes.
+            let detail = app.detail.as_mut().expect("the comparison is open");
+            assert!(detail.toggle_diff_split(), "a two-sided comparison splits");
+            assert!(detail.diff_split);
+            detail.diff_wrap = false;
+        }
     }
     if preset == "changes-single" {
         app.seed_changes_summary_single();
@@ -4073,6 +4085,7 @@ pub fn metadata(app: &App, preset: &str) -> Value {
                 | "tool-activity-details"
                 // The comparison panel covers the composer, as the other detail presets do.
                 | "changes-diff"
+                | "changes-split"
         );
     let reasoning_expected = matches!(preset, "long-model" | "tiny-long-model")
         || preset.starts_with("model-metadata")

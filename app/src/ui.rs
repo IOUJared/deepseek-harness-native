@@ -468,6 +468,8 @@ pub enum Message {
     ChangesHoverExpired,
     /// Flip a comparison's wrapping.
     DetailWrap(detail_panel::Stamp),
+    /// Switch the open comparison between one column and side by side.
+    DetailSplit(detail_panel::Stamp),
     /// Open or close the context breakdown panels.
     ToggleContextBreakdown,
     /// Re-read the roster, whose projections the subagent catalog is built from.
@@ -4266,6 +4268,13 @@ impl App {
                     && detail.ticket == Some(ticket)
                 {
                     detail.toggle_diff_wrap();
+                }
+            }
+            Message::DetailSplit(ticket) => {
+                if let Some(detail) = self.detail.as_mut()
+                    && detail.ticket == Some(ticket)
+                {
+                    detail.toggle_diff_split();
                 }
             }
             Message::ToggleContextBreakdown => {
@@ -14263,6 +14272,26 @@ impl App {
             #[cfg(feature = "public-layout-fixture")]
             let wrap = container(wrap).id("native-detail-wrap");
             toolbar = toolbar.push(wrap);
+            // The reference puts the split toggle beside the wrap toggle (`ReviewTab.tsx:130-141`);
+            // its words state the action, and a created or deleted file has none to offer.
+            if detail.split_available() {
+                let split = button(
+                    label(
+                        if detail.diff_split {
+                            "Unified"
+                        } else {
+                            "Split"
+                        },
+                        MUTED,
+                    )
+                    .size(12),
+                )
+                .on_press_maybe(detail.ticket.map(Message::DetailSplit))
+                .style(design::ghost);
+                #[cfg(feature = "public-layout-fixture")]
+                let split = container(split).id("native-detail-split");
+                toolbar = toolbar.push(split);
+            }
         }
         let copy = button(label("Copy source", MUTED).size(12))
             .on_press_maybe(
@@ -20433,6 +20462,115 @@ pub(crate) fn diff_line_view_wrapped(
         })
         .into()
 }
+/// One side-by-side comparison row: the old side, the new side, and the same row height on both, so
+/// the two columns stay aligned (`FileDiff.tsx:199-215`). A cell is a number gutter, its colour bar
+/// and the text, clipped when wrapping is off and wrapped inside its own half when it is on; an empty
+/// cell keeps the row's height so the other side's line stays on its own row.
+pub(crate) fn diff_split_row(
+    left: Option<&crate::reducer::inline_diff::SplitCell>,
+    right: Option<&crate::reducer::inline_diff::SplitCell>,
+    height: f32,
+    wrap: bool,
+) -> Element<'static, Message> {
+    use crate::reducer::inline_diff::Kind;
+    let cell =
+        |cell: Option<&crate::reducer::inline_diff::SplitCell>| -> Element<'static, Message> {
+            let (ink, fill, bar) = match cell.map(|cell| cell.kind) {
+                Some(Kind::Deleted) => (DANGER, Some(design::DIFF_DELETED_FILL), DANGER),
+                Some(Kind::Added) => (design::FOAM, Some(design::DIFF_ADDED_FILL), design::FOAM),
+                _ => (MUTED, None, iced::Color::TRANSPARENT),
+            };
+            let number = cell
+                .and_then(|cell| cell.number)
+                .map(|number| number.to_string())
+                .unwrap_or_default();
+            let text = cell.map(|cell| cell.text.clone()).unwrap_or_default();
+            let content = row![
+                container(label(number, MUTED).size(design::CODE_FONT).font(MONO))
+                    .width(design::DIFF_GUTTER)
+                    .height(height)
+                    .align_x(iced::Alignment::End)
+                    .padding(iced::Padding {
+                        top: 0.0,
+                        right: 4.0,
+                        bottom: 0.0,
+                        left: 0.0,
+                    }),
+                container(Space::new())
+                    .width(design::DIFF_BAR)
+                    .height(height)
+                    .style(move |_| iced::widget::container::Style {
+                        background: Some(bar.into()),
+                        ..Default::default()
+                    }),
+                container(
+                    label(text, ink)
+                        .size(design::CODE_FONT)
+                        .font(MONO)
+                        .wrapping(if wrap {
+                            iced::advanced::text::Wrapping::Word
+                        } else {
+                            iced::advanced::text::Wrapping::None
+                        }),
+                )
+                .padding(iced::Padding {
+                    top: 0.0,
+                    right: 4.0,
+                    bottom: 0.0,
+                    left: design::DIFF_LINE_PAD - design::DIFF_BAR,
+                })
+                .width(Length::Fill)
+                .height(height)
+                .clip(!wrap),
+            ]
+            .height(height);
+            container(content)
+                .width(Length::Fill)
+                .height(height)
+                .style(move |_| iced::widget::container::Style {
+                    background: fill.map(Into::into),
+                    ..Default::default()
+                })
+                .into()
+        };
+    // The two sides are separated by the reference's own hairline
+    // (`FileDiff.module.css:10,18`: `.column + .column`/`.cell + .cell` border-left).
+    let divider = container(Space::new())
+        .width(1)
+        .height(height)
+        .style(|_| panel(design::LINE));
+    row![cell(left), divider, cell(right)]
+        .spacing(0)
+        .width(Length::Fill)
+        .height(height)
+        .into()
+}
+
+/// A side-by-side row that belongs to neither side — the hunk header, a file line, a fold separator —
+/// stated once across the whole width at the reference's own inset (`FileDiff.module.css:14`:
+/// `.hunkHeader { padding: 4px 16px }`), not through the two number gutters.
+pub(crate) fn diff_split_full(
+    line: &crate::reducer::inline_diff::Line,
+    height: f32,
+) -> Element<'static, Message> {
+    container(
+        label(line.text.clone(), MUTED)
+            .size(design::CODE_FONT)
+            .font(MONO)
+            .wrapping(iced::advanced::text::Wrapping::None),
+    )
+    .padding(iced::Padding {
+        top: 0.0,
+        right: 0.0,
+        bottom: 0.0,
+        left: 16.0,
+    })
+    .width(Length::Fill)
+    .height(height)
+    .clip(true)
+    .into()
+}
+
 fn activity_body_source(row: &DisplayRow) -> &str {
     // A call's folded result is the body Chat draws: the reference has one row per call with
     // the result inside it, and the recorded arguments stay in Trajectory and Details.

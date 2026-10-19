@@ -44,6 +44,109 @@ pub struct Diff {
     pub lines: Vec<Line>,
 }
 
+/// One side of a side-by-side row (`SplitRow`'s halves, `FileDiff.tsx:23-27`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SplitCell {
+    pub kind: Kind,
+    pub text: String,
+    /// The number this side shows: the old number on the left, the new one on the right.
+    pub number: Option<u64>,
+}
+
+/// One row of the side-by-side comparison: the old side, the new side, both (a context line), or
+/// neither. A row that belongs to no side — a file header or a fold separator — is `full` and draws
+/// across both columns.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct SplitRow {
+    pub left: Option<SplitCell>,
+    pub right: Option<SplitCell>,
+    pub full: Option<Line>,
+}
+
+/// Pair a comparison's lines for the side-by-side view: each run of deletions is aligned with the run
+/// of additions that follows it, row by row, and a context line sits on both sides
+/// (`FileDiff.tsx:79-104` `splitRows`).
+///
+/// A run that ends with more deletions than additions (or the reverse) leaves the shorter side's
+/// trailing rows empty, so the two columns stay aligned on the same source lines.
+pub fn split_rows(lines: &[Line]) -> Vec<SplitRow> {
+    let mut rows = Vec::new();
+    let mut deletions: Vec<SplitCell> = Vec::new();
+    let mut additions: Vec<SplitCell> = Vec::new();
+    let mut flush = |rows: &mut Vec<SplitRow>,
+                     deletions: &mut Vec<SplitCell>,
+                     additions: &mut Vec<SplitCell>| {
+        for at in 0..deletions.len().max(additions.len()) {
+            rows.push(SplitRow {
+                left: deletions.get(at).cloned(),
+                right: additions.get(at).cloned(),
+                full: None,
+            });
+        }
+        deletions.clear();
+        additions.clear();
+    };
+    for line in lines {
+        match line.kind {
+            Kind::Deleted => deletions.push(SplitCell {
+                kind: Kind::Deleted,
+                text: line.text.clone(),
+                number: line.old,
+            }),
+            Kind::Added => additions.push(SplitCell {
+                kind: Kind::Added,
+                text: line.text.clone(),
+                number: line.new,
+            }),
+            Kind::Context => {
+                flush(&mut rows, &mut deletions, &mut additions);
+                rows.push(SplitRow {
+                    left: Some(SplitCell {
+                        kind: Kind::Context,
+                        text: line.text.clone(),
+                        number: line.old,
+                    }),
+                    right: Some(SplitCell {
+                        kind: Kind::Context,
+                        text: line.text.clone(),
+                        number: line.new,
+                    }),
+                    full: None,
+                });
+            }
+            Kind::Path | Kind::Gap => {
+                flush(&mut rows, &mut deletions, &mut additions);
+                rows.push(SplitRow {
+                    left: None,
+                    right: None,
+                    full: Some(line.clone()),
+                });
+            }
+        }
+    }
+    flush(&mut rows, &mut deletions, &mut additions);
+    rows
+}
+
+/// Whether a comparison is one-sided: every line was added or every line was deleted, so a file was
+/// created or removed and the reference draws it in one column whatever layout was asked for
+/// (`FileDiff.tsx:141-158`).
+pub fn one_sided(diff: &Diff) -> bool {
+    let mut added = false;
+    let mut deleted = false;
+    for line in &diff.lines {
+        match line.kind {
+            Kind::Added => added = true,
+            Kind::Deleted => deleted = true,
+            Kind::Path | Kind::Context | Kind::Gap => {}
+        }
+        if added && deleted {
+            return false;
+        }
+    }
+    added || deleted
+}
+
 /// One row range the card draws: `head` then (when capped) a fold control then `tail`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Shown {
@@ -570,5 +673,133 @@ mod applied_tests {
                 (Kind::Added, "b")
             ]
         );
+    }
+
+    fn line(kind: Kind, text: &str, old: Option<u64>, new: Option<u64>) -> Line {
+        Line {
+            kind,
+            text: text.to_owned(),
+            old,
+            new,
+        }
+    }
+
+    #[test]
+    fn a_split_row_pairs_each_deletion_run_with_the_additions_that_follow_it() {
+        // Two deletions, one addition: the second deletion's row has no right side, and the two
+        // columns stay aligned rather than the addition floating up to the first row.
+        let rows = split_rows(&[
+            line(Kind::Context, "same", Some(1), Some(1)),
+            line(Kind::Deleted, "gone-a", Some(2), None),
+            line(Kind::Deleted, "gone-b", Some(3), None),
+            line(Kind::Added, "new", None, Some(2)),
+            line(Kind::Context, "tail", Some(4), Some(3)),
+        ]);
+        assert_eq!(rows.len(), 4);
+        // A context row carries both numbers, because each side numbers it its own way.
+        assert_eq!(rows[0].left.as_ref().unwrap().number, Some(1));
+        assert_eq!(rows[0].right.as_ref().unwrap().number, Some(1));
+        assert_eq!(rows[1].left.as_ref().unwrap().text, "gone-a");
+        assert_eq!(rows[1].right.as_ref().unwrap().text, "new");
+        assert_eq!(rows[1].left.as_ref().unwrap().number, Some(2));
+        assert_eq!(
+            rows[1].right.as_ref().unwrap().number,
+            Some(2),
+            "the addition's new number, not its position"
+        );
+        // The unpaired deletion keeps the left column alone, so the sides stay on the same rows.
+        assert_eq!(rows[2].left.as_ref().unwrap().text, "gone-b");
+        assert!(rows[2].right.is_none());
+        assert_eq!(rows[3].left.as_ref().unwrap().number, Some(4));
+        assert_eq!(rows[3].right.as_ref().unwrap().number, Some(3));
+    }
+
+    #[test]
+    fn a_split_pairs_a_two_addition_run_with_one_deletion_one_row_at_a_time() {
+        // The shape the fixture's comparison has: one deletion, two additions, a context line, then
+        // one more addition. The second addition and the trailing one each keep their own row with
+        // an empty old side, and the context line keeps its own row on both sides; nothing is
+        // pulled up to fill a gap.
+        let rows = split_rows(&[
+            line(Kind::Path, "@@ -11252,3 +11252,4 @@", None, None),
+            line(Kind::Context, "fn changes_card", Some(11252), Some(11252)),
+            line(Kind::Deleted, "let title = format!", Some(11253), None),
+            line(
+                Kind::Added,
+                "let title = changes_text::title",
+                None,
+                Some(11253),
+            ),
+            line(Kind::Added, "let counts = file_counts", None, Some(11254)),
+            line(
+                Kind::Context,
+                "let mut card = column![]",
+                Some(11254),
+                Some(11255),
+            ),
+            line(
+                Kind::Added,
+                "let clamped = clamped_offset",
+                None,
+                Some(11256),
+            ),
+        ]);
+        assert_eq!(
+            rows.len(),
+            6,
+            "header, context, pair, leftover, context, leftover"
+        );
+        assert_eq!(rows[1].left.as_ref().unwrap().number, Some(11252));
+        assert_eq!(rows[2].right.as_ref().unwrap().number, Some(11253));
+        assert!(
+            rows[3].left.is_none(),
+            "the second addition has no old line"
+        );
+        assert_eq!(rows[3].right.as_ref().unwrap().number, Some(11254));
+        assert_eq!(rows[4].left.as_ref().unwrap().number, Some(11254));
+        assert_eq!(
+            rows[4].right.as_ref().unwrap().number,
+            Some(11255),
+            "the context line numbers each side its own way"
+        );
+        assert!(rows[5].left.is_none());
+        assert_eq!(rows[5].right.as_ref().unwrap().number, Some(11256));
+    }
+
+    #[test]
+    fn a_split_keeps_a_header_or_fold_across_both_columns() {
+        let rows = split_rows(&[
+            line(Kind::Path, "PUBLIC file.rs", None, None),
+            line(Kind::Added, "one", None, Some(1)),
+            line(Kind::Gap, "3 lines", None, None),
+            line(Kind::Deleted, "two", Some(9), None),
+        ]);
+        // The path header spans the row instead of landing in the left column as a deletion would.
+        assert_eq!(rows[0].full.as_ref().unwrap().text, "PUBLIC file.rs");
+        assert!(rows[0].left.is_none() && rows[0].right.is_none());
+        assert_eq!(rows[1].right.as_ref().unwrap().text, "one");
+        assert_eq!(rows[2].full.as_ref().unwrap().text, "3 lines");
+        assert_eq!(rows[3].left.as_ref().unwrap().text, "two");
+        assert!(rows[3].right.is_none(), "the run was flushed at the fold");
+    }
+
+    #[test]
+    fn only_a_comparison_with_one_side_stays_in_one_column() {
+        let added = Diff {
+            lines: vec![
+                line(Kind::Path, "PUBLIC file.rs", None, None),
+                line(Kind::Added, "one", None, Some(1)),
+            ],
+        };
+        assert!(one_sided(&added), "a created file has no old side to pair");
+        let changed = Diff {
+            lines: vec![
+                line(Kind::Deleted, "old", Some(1), None),
+                line(Kind::Added, "new", None, Some(1)),
+            ],
+        };
+        assert!(!one_sided(&changed));
+        // A comparison with no lines at all is not one-sided: there is nothing to draw either way.
+        assert!(!one_sided(&Diff { lines: Vec::new() }));
     }
 }

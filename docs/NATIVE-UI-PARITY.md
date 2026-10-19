@@ -6402,7 +6402,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Reasoning disclosure wording | difference: native says `Thoughts` where the reference says `Thought for a while` (`message.turnProcess.thoughtForAWhile`), by the user's stated preference for the shorter label; a settled row still previews its first line under the `settledReasoningPreview` policy |
 | Model-retry row, command row (a manual `/compact` folded into one marker), turn duration, failure and output-limit rows, card Copy control, created-task (`schedule_create`) card, skill row | cloned (the skill row has no `Inspect` action: native has no right Sidebar to open it in) |
 | Composer usage pill: tokens, cache hit, speed, turn/step counts, and the Host's session-statistics dialog | cloned |
-| Deliverables: summary, file list, per-file diff rows with both gutters and wrapping, desktop open | cloned (rounds 475–491; no right-Sidebar review tab, no split view or wrap toggle) |
+| Deliverables: summary, file list, per-file diff rows with both gutters, wrapping and a side-by-side layout (round 505), desktop open | cloned (rounds 475–491, 505; no right-Sidebar review tab) |
 | Message feedback: ratings, categories, note, refusal/limit states | cloned (rounds 492–497); the rating controls are words rather than thumb icons, and a session-level dialog needs a Host route native lacks |
 | Chat images: a user message's image attachment and markdown images | difference: alt text and a text placeholder — no decode/texture path, and the fetch policy is the user's decision (open item 1) |
 | Right Sidebar: document preview and resource tabs | difference: full-page details panel, no PDF/Office renderers |
@@ -13703,3 +13703,63 @@ scrolled transcript, no header), so no pixel-level 1-to-1 claim follows from thi
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/299-lane-flush.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
+
+### Round 505 — a comparison can be read side by side
+
+**The gap.** The reference's review tab draws a file comparison in two layouts and toggles between
+them in its toolbar: a split control beside the wrap control, both icon-only with action tooltips and
+`aria-pressed` (`ReviewTab.tsx:130-141`; `review-store.ts:52-81` seeds `split: true, wrap: false` for a
+tab's first file). Side by side, its `.columns` is a two-column grid separated by a hairline, each
+column its own horizontally scrolling pane whose scroll is mirrored to the peer; with wrapping on it
+instead draws stacked `splitLine` rows of two `.cell`s (`FileDiff.tsx:176-254`,
+`FileDiff.module.css:6-22`). Native had the wrap toggle and one column; the split layout was a named
+deliberate second layout that did not exist.
+
+**What native does now.** `inline_diff::split_rows` pairs each run of deletions with the additions that
+follow it, row by row, keeps a context line on both sides with each side's own number, leaves the
+shorter side's trailing rows empty, and gives a header or fold a `full` row across both columns
+(`FileDiff.tsx:79-104`). `one_sided` says a created or deleted file has nothing to pair, so the control
+is not offered and the panel stays in one column, as the reference's `split && !oneSided` does. The
+panel's body draws `diff_split_row` — number gutter, colour bar, clipped (or, with wrap on, half-width
+wrapped) text per side, the reference's hairline between them — and `diff_split_full` for a hunk header
+(`padding: 4px 16px`, `FileDiff.module.css:14`). The toolbar gains a `Split`/`Unified` word control with
+the reference's action wording; like its Wrap neighbour it is a word rather than the web's icon, which
+is the recorded icon/accessibility difference.
+
+**Deliberate difference.** The reference seeds a review tab **split and unwrapped**; native keeps its
+wrapped, unified default (the user's stated preference) and offers the same toggle. `changes-split`
+exists to capture the reference's first layout, not to change native's default.
+
+**Evidence and what it does not prove.** `shots/300-changes-split.png` (DP-2 alongside,
+`status: passed`) shows the split layout: the hunk header across the row at the panel's inset, both
+number gutters, the divider, red/green fills on their own sides and the clipped long line.
+**Open for a later round**: in that frame the split rows sit 23px apart where `CODE_LINE` is 19, an
+extra 4px per row I have not explained; and I did not verify the row-by-row alignment against the
+reference pixel for pixel. The pairing itself is pinned by
+`a_split_pairs_a_two_addition_run_with_one_deletion_one_row_at_a_time`, which reproduces this fixture's
+hunk and asserts all six rows, so a drawing defect rather than a pairing defect is what a follow-up
+should look for.
+
+**Mistakes inside this round.** The first capture drew the hunk header through the unified row view, so
+it landed after both empty number gutters and its text began mid-panel; the frame caught it and
+`diff_split_full` replaced it. The first split row also had no divider, which the reference's
+`.column + .column` rule supplies; added.
+
+**Tests.** `a_split_row_pairs_each_deletion_run_with_the_additions_that_follow_it`,
+`a_split_pairs_a_two_addition_run_with_one_deletion_one_row_at_a_time`,
+`a_split_keeps_a_header_or_fold_across_both_columns`,
+`only_a_comparison_with_one_side_stays_in_one_column`, and
+`a_split_needs_a_comparison_with_two_sides` (the panel's toggle refuses a one-sided comparison and a
+text panel).
+
+**Battery (round 505).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1497 passed**, 1 ignored |
+| app, default | **0** | **1456 passed**, 1 ignored |
+| transport / core / JS | — | **not re-run**: only `app` changed; last run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke and scroll_app_smoke passed, re-run after the last edit |
+| DP-2 capture | — | `shots/300-changes-split.png`, `status: passed` |

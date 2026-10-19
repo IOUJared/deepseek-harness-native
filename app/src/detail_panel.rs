@@ -44,6 +44,11 @@ pub struct Detail {
     /// Whether a comparison's rows wrap. On by default, as a native reading of the reference's default;
     /// the toolbar control states the other state (`ReviewTab.tsx:131-142`).
     pub diff_wrap: bool,
+    /// Whether a comparison draws side by side. The reference's review tab seeds this on for its
+    /// first file and offers a toggle beside wrapping (`review-store.ts:52-81`,
+    /// `ReviewTab.tsx:130-141`); native keeps its wrapped unified view as the default, which the
+    /// user asked for, and offers the same toggle.
+    pub diff_split: bool,
 }
 impl std::fmt::Debug for Detail {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -72,6 +77,7 @@ impl Detail {
             plan,
             diff: None,
             diff_wrap: true,
+            diff_split: false,
         }
     }
     /// Draw this panel as a comparison instead of as text. The source stays for copying.
@@ -82,6 +88,31 @@ impl Detail {
         }
         self.diff_wrap = !self.diff_wrap;
         true
+    }
+    /// Switch the comparison between one column and side by side. Only a comparison has the control,
+    /// and only a comparison with two sides: a created or deleted file has nothing to pair
+    /// (`FileDiff.tsx:141-158`, which draws `split && !oneSided`).
+    pub fn toggle_diff_split(&mut self) -> bool {
+        if self.mode != Mode::Diff {
+            return false;
+        }
+        if self
+            .diff
+            .as_ref()
+            .is_none_or(crate::reducer::inline_diff::one_sided)
+        {
+            return false;
+        }
+        self.diff_split = !self.diff_split;
+        true
+    }
+    /// Whether the split control would do anything, which is when it is drawn.
+    pub fn split_available(&self) -> bool {
+        self.mode == Mode::Diff
+            && self
+                .diff
+                .as_ref()
+                .is_some_and(|diff| !crate::reducer::inline_diff::one_sided(diff))
     }
     pub fn set_diff(&mut self, diff: crate::reducer::inline_diff::Diff) {
         if diff.lines.is_empty() {
@@ -129,6 +160,49 @@ impl Detail {
                 .floor()
                 .max(1.0) as usize;
             let height = design::CODE_LINE;
+            // Side by side: the two columns share the row's height, and with wrapping on each cell
+            // wraps inside its own half (`FileDiff.tsx:176-254`: `SplitColumns` when unwrapped, the
+            // stacked `splitLine` rows when wrapped). A one-sided comparison stays in one column.
+            if self.diff_split && !crate::reducer::inline_diff::one_sided(diff) {
+                let half = (AT_DETAIL_WIDTH - design::DIFF_BAR) / 2.0;
+                let chars = ((half - design::DIFF_GUTTER - design::DIFF_BAR)
+                    / crate::ui::changes_text::CODE_CELL)
+                    .floor()
+                    .max(1.0) as usize;
+                let mut rows = Column::new().width(Length::Fill);
+                for row in crate::reducer::inline_diff::split_rows(&diff.lines) {
+                    if let Some(full) = &row.full {
+                        // A header or fold belongs to neither side, so it draws across the row.
+                        rows = rows.push(crate::ui::diff_split_full(full, height));
+                        continue;
+                    }
+                    // Each cell wraps inside its own half, so the row is as tall as its taller side.
+                    let lines = |cell: Option<&crate::reducer::inline_diff::SplitCell>| match (
+                        cell,
+                        self.diff_wrap,
+                    ) {
+                        (Some(cell), true) => crate::ui::changes_text::visual_lines(
+                            &cell.text,
+                            chars as f32 * crate::ui::changes_text::CODE_CELL,
+                        ),
+                        _ => 1,
+                    };
+                    let tall = lines(row.left.as_ref()).max(lines(row.right.as_ref()));
+                    rows = rows.push(crate::ui::diff_split_row(
+                        row.left.as_ref(),
+                        row.right.as_ref(),
+                        height * tall as f32,
+                        self.diff_wrap,
+                    ));
+                }
+                return scrollable(rows)
+                    .direction(scrollable::Direction::Vertical(
+                        scrollable::Scrollbar::default(),
+                    ))
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .into();
+            }
             let mut rows = Column::new().width(Length::Fill);
             for line in &diff.lines {
                 // With wrapping off a row is one clipped line, which is what the reference's unwrapped
@@ -358,6 +432,44 @@ mod diff_wrap_tests {
         assert!(!detail.diff_wrap);
         assert!(detail.toggle_diff_wrap());
         assert!(detail.diff_wrap, "and back");
+    }
+
+    #[test]
+    fn a_split_needs_a_comparison_with_two_sides() {
+        // A created file has no old side, so the reference draws it in one column whatever layout
+        // was requested (`FileDiff.tsx:141-158`); the control is not drawn at all, and a toggle
+        // begun before the file changed cannot leave the panel split.
+        let mut added = comparison();
+        assert!(!added.split_available(), "one side has nothing to pair");
+        assert!(!added.toggle_diff_split());
+        assert!(!added.diff_split);
+        // A comparison with both sides splits, and toggles back.
+        let mut changed = comparison();
+        changed.set_diff(crate::reducer::inline_diff::Diff {
+            lines: vec![
+                crate::reducer::inline_diff::Line {
+                    kind: crate::reducer::inline_diff::Kind::Deleted,
+                    text: "PUBLIC old".into(),
+                    old: Some(1),
+                    new: None,
+                },
+                crate::reducer::inline_diff::Line {
+                    kind: crate::reducer::inline_diff::Kind::Added,
+                    text: "PUBLIC new".into(),
+                    old: None,
+                    new: Some(1),
+                },
+            ],
+        });
+        assert!(changed.split_available());
+        assert!(changed.toggle_diff_split());
+        assert!(changed.diff_split);
+        assert!(changed.toggle_diff_split());
+        assert!(!changed.diff_split, "and back to one column");
+        // A text panel has no comparison, so neither control is offered.
+        let mut plain = Detail::new("Record".into(), "plain".into(), None, false, None);
+        assert!(!plain.split_available());
+        assert!(!plain.toggle_diff_split());
     }
 
     #[test]
