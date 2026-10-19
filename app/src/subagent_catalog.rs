@@ -260,18 +260,26 @@ pub fn tree_rows(
     out
 }
 
-/// The header action's copy, from the reference's `count.total.*`/`count.running.*` strings:
-/// the running count wins while anything runs, otherwise the total.
+/// The header action's copy. The reference always states the **total** here and marks live work with
+/// a state dot instead of words (`SubagentHeaderLineage.tsx:686-694`); its "running" wording is the
+/// button's accessible label, not the text. An earlier version replaced the visible total with the
+/// running count, so "3 subagents, 1 running" read as "1 subagent running".
 pub fn count_label(total: usize, running: usize) -> String {
-    let (count, suffix) = if running > 0 {
-        (running, " running")
+    let _ = running;
+    format!("{total} subagent{}", if total == 1 { "" } else { "s" })
+}
+
+/// The accessible description the reference puts on the same button: the running count while
+/// anything runs, otherwise the total (`SubagentHeaderLineage.tsx:660-665`).
+pub fn count_description(total: usize, running: usize) -> String {
+    if running > 0 {
+        format!(
+            "{running} subagent{} running",
+            if running == 1 { "" } else { "s" }
+        )
     } else {
-        (total, "")
-    };
-    format!(
-        "{count} subagent{}{suffix}",
-        if count == 1 { "" } else { "s" }
-    )
+        count_label(total, running)
+    }
 }
 
 /// The reference's mode labels (`locales.ts` `mode.*`).
@@ -482,10 +490,15 @@ mod tests {
 
     #[test]
     fn the_header_copy_matches_the_reference_plurals_and_modes() {
+        // The visible text is always the total, whatever is running.
         assert_eq!(count_label(1, 0), "1 subagent");
         assert_eq!(count_label(3, 0), "3 subagents");
-        assert_eq!(count_label(3, 1), "1 subagent running");
-        assert_eq!(count_label(3, 2), "2 subagents running");
+        assert_eq!(count_label(3, 1), "3 subagents");
+        assert_eq!(count_label(3, 2), "3 subagents");
+        // The running form is the button's description.
+        assert_eq!(count_description(3, 1), "1 subagent running");
+        assert_eq!(count_description(3, 2), "2 subagents running");
+        assert_eq!(count_description(3, 0), "3 subagents");
         assert_eq!(mode_label(Mode::OneShot), "one-shot");
         assert_eq!(mode_label(Mode::Continuable), "continuable");
         assert_eq!(mode_label(Mode::Unknown), "unknown mode");

@@ -4821,8 +4821,10 @@ back from a missing label to the id, and treats a missing or mistyped catalog as
 hides rather than lying.
 
 The header action is shown only on a **root** selected session with at least one row. It draws the
-reference's running dot when any child runs and its count copy — "N subagent", "N subagents",
-"N subagent running", "N subagents running" (`locales.ts` `count.*`). The dropdown is the app's
+reference's running dot when any child runs and always the **total** — "N subagent" or "N subagents" —
+with the running form as the button's description rather than its text (`locales.ts` `count.*`,
+`SubagentHeaderLineage.tsx:660-694`; corrected in round 463, which found the visible total had been
+replaced by the running count). The dropdown is the app's
 `anchored_below` popup, right-aligned under the action: a "Subagent sessions" list of direct
 children, each with the same activity dot, its label, and the reference's mode label
 (`one-shot`/`continuable`/`unknown mode`). Clicking a row closes the dropdown and selects that
@@ -12008,3 +12010,57 @@ empty string, a relative path, a control character and an over-long value; the p
 | capture | — | none: a stored preference, proved by its parser test |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 463 — the subagent count keeps its total
+
+A subagent audit (52 reference elements, 44 checked in depth) found the header action showing the wrong
+number: the reference always renders the **total** and marks live work with a state dot, keeping the
+running wording for the button's accessible label (`SubagentHeaderLineage.tsx:660-694`). Native
+substituted the running count for the text, so a parent with three children and one running read
+"1 subagent running" and its total vanished.
+
+`count_label` now always states the total and `count_description` carries the running form, which the
+sidebar's own row uses — the reference makes the same distinction between its header action and its
+sidebar row (`tree.ts:390-395`, `Rows.tsx:351-359`).
+
+Evidence: `shots/266-subagent-count.png` (DP-2 alongside, `status: passed`) — `● 2 subagents` in the
+header with the live dot, and the sidebar row reading `1 subagent running`.
+
+Tests: the catalog's count test now asserts both the total-only text and the running description; the
+sidebar test that expected the running label from `count_label` moved to `count_description`, which is
+the surface that actually wants it.
+
+The coverage paragraph that claimed all four forms were drawn is corrected in place.
+
+**Battery (round 463).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1448 passed**, 1 ignored |
+| app, default | **0** | **1423 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/266-subagent-count.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Subagent audit (round 463) — what is left
+
+1. (b) Ancestor subagent crumbs get no sibling menu: the reference renders a lineage slot for every
+   subagent crumb (`ConversationSession.tsx:95-121`); native only for the current one.
+2. (b) The switcher's trigger text uses the session title while its menu shows the catalog label
+   (`SubagentHeaderLineage.tsx:474-479,686` vs `ui.rs:12490,9536`).
+3. (b) Only two activity states: the reference distinguishes `completed` via
+   `subagentTiming.lastTurnCompleted` (`:243-249,334`), which `subagent_catalog::metrics` already reads.
+4. (b) The catalog's expansion set is not cleared by every close path (`:501-518` vs `ui.rs:4785-4789`).
+5. (b) A child whose catalog was not retained shows no chevron, so its descendants are unreachable
+   (`:195-198,319-331` vs `subagent_catalog.rs:236-245`).
+6. (b) The reference opens the switcher on hover after 150ms (`:520-538`); native needs a click.
+7. (c) No catalog **error state or Retry** (`:219-231,601-604`); native has no error branch and no
+   projection refresh anywhere.
+8. (c) No **loading** copy for the child switcher (`:191-193,216-218`).
+9. (c) No **child's own descendant count** action (`:796-803`).

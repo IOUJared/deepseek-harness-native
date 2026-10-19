@@ -12807,7 +12807,7 @@ impl App {
             if running_children > 0 {
                 identity = identity.push(
                     label(
-                        subagent_catalog::count_label(running_children, running_children),
+                        subagent_catalog::count_description(running_children, running_children),
                         design::FOAM,
                     )
                     .size(11),
@@ -22937,7 +22937,10 @@ mod tests {
             "a child is reached through the parent catalog, not the list"
         );
         assert_eq!(app.running_subagent_count(&parent), 1);
-        assert_eq!(subagent_catalog::count_label(1, 1), "1 subagent running");
+        assert_eq!(
+            subagent_catalog::count_description(1, 1),
+            "1 subagent running"
+        );
     }
     #[test]
     fn a_catalog_branch_toggles_and_reads_grandchildren() {
