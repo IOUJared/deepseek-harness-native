@@ -11276,12 +11276,11 @@ With the seed last, the frame shows what the earlier rounds' code produces: the 
 `Lint the app crate` (red), the armed `Stop task Run the test suite` / `Click again to confirm`
 confirmation — and, from round 438, a stop control on the **running** row only.
 
-**The frame is visually verified but its report is not `status: passed`**, and it is not archived as
-such: `expectedControlCountsMatch` is false because the report's control expectations are read from
-per-preset metadata this new preset does not yet emit. Making that metadata describe a jobs panel is
-the first task of the next round; until then the byte evidence lives in
-`app/evidence/jobs-panel-frame-2026-10-19/` with its report beside it, labelled by what it actually
-proves.
+**The frame was visually verified but its report was not `status: passed`** in that round, because
+`expectedControlCountsMatch` compared the drawn controls against a metadata flag that said "every
+non-modal preset draws a stop control". The flag was the wrong predicate: the composer draws a stop
+only while the session runs. It is fixed in the next round, and the frame is archived as passed
+`shots/253-jobs-panel.png`.
 
 **Battery (round 442).**
 
@@ -11296,5 +11295,40 @@ proves.
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | capture | — | frame saved, report `passed: false` (control expectations) |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 443 — the jobs panel frame is evidence now
+
+Round 442 produced the panel's frame and could not call it passed: `expectedControlCountsMatch` was
+false. The cause was the fixture's own `stopExpected` flag, which said "every preset that is not a
+modal draws a stop control". The composer draws one only while the session is running, so an idle
+conversation with the jobs panel open was measured against a control it must not have. The flag now
+asks the same predicate the composer asks (`app.stop_visible()`), which also makes every future
+non-running preset honest rather than lucky.
+
+Evidence: `shots/253-jobs-panel.png` (DP-2 alongside, `status: passed`, window `wayland`) — the header
+crumb `2 background jobs running`, `Running` with the shell job expanded to its recorded output,
+`Build the release binary` mid-stop, `Finished 2` with the completed and failed rows, and the armed
+stop confirmation. It is the first passing evidence for this surface and it shows three of the audit's
+fixes at once: a stop control only on the running row, the whole row toggling its output, and the
+confirm state that now expires on its own.
+
+Tests: unchanged this round — the fixture flag is covered by every preset's existing metadata
+assertions, which still pass at 1434.
+
+**Battery (round 443).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1434 passed**, 1 ignored |
+| app, default | **0** | **1411 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/253-jobs-panel.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |

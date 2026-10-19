@@ -3602,7 +3602,10 @@ pub fn metadata(app: &App, preset: &str) -> Value {
         "composerReplacedExpected":composer_replaced,
         "composerStateMatchesPreset":app.composer_visible() == composer_expected,
         "settingsEntryExpected":!settings_expected && !picker_expected && !sidebar_expected,
-        "stopExpected":!settings_expected && !picker_expected && !sidebar_expected && !composer_replaced,
+        // The expectation follows what the composer actually draws: the reference hides the stop
+        // control unless the session is running (`ConversationComposer`), so a preset's expectation
+        // must be the same predicate rather than "not a modal".
+        "stopExpected":!settings_expected && !picker_expected && !sidebar_expected && !composer_replaced && app.stop_visible(),
         "sidebarOptionsExpected":sidebar_expected,
         "sidebarOrganizationSimulated":preset.starts_with("sidebar-"),
         "sidebarStoreIoExecuted":false,
