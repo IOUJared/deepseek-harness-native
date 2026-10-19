@@ -8531,3 +8531,32 @@ Trajectory still counts every record.
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/167-…`–`170-…`, all `status: passed` |
 | tree | — | clean before the commit |
+
+### Round 372 — the document checked against the code: seventeen stale claims
+
+A read-only audit of the *current-state* parts of this document — the start-here block, the four
+dimension tables, the intentional differences, the coverage table, the open items and the geometry
+doc's limits — against the code found seventeen claims that later rounds had made false. All are
+corrected in place; none of them was a code defect, and the code was not touched.
+
+The largest were whole features reported as unbuilt: the **workflow-run surface** ("not mounted" —
+it has been folded and drawn for many rounds), the **permission menu** ("not built yet … the Auto
+badge and the risk-confirmation step still follow" — all three landed in round 355), the
+**permission chip's** menu metrics still at their pre-chevron 137.9 × 90.7, the **permission default
+row** in Settings ("not yet built" while its own body recorded it landed), **agent-preset selection**
+("specified, not built" while the handoff entry below records it complete end to end), and the
+**session-log row** ("not capture-verified" — `shots/100-…`, `103-…` exist, and round 370 gave it a
+retry). Two deliberate differences had also shrunk: attachment cards are stacked with the
+reference's 8px gap, and a read result is no longer its protocol envelope.
+
+The rest were measurements and caveats: body type at 14px (not 15), code blocks at the web's own
+11/19 (not 13), headings at 22/20/19 (not 18/22/25), the width handles' "not visually verified"
+caveat (the same document records the rect and pixel check), the Details body cap at 96px (not
+78px), and an "inline diff body is still unsupported" line that round 362 had already contradicted.
+
+The open-items list also had two entries numbered 3, two 8 and two 9, because it is an append-only
+journal. A named index now sits above it and states that the numbers below are journal numbering.
+
+**Battery (round 372).** Documentation only — no code, no fixture, no capture. The tree was clean at
+`1d541e0` when the round began; the app profiles were last run green at that commit (fixture
+**1289**, default **1282**) and are unchanged by a docs edit.
