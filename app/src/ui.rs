@@ -133,6 +133,9 @@ mod permission_ui_tests;
 mod plan_control;
 #[path = "plan_mode.rs"]
 mod plan_mode;
+/// The reference's work-details modes and the presentation policy each enables.
+#[path = "work_details.rs"]
+pub mod work_details;
 #[cfg(test)]
 #[path = "prompt_recovery_ui_tests.rs"]
 mod prompt_recovery_ui_tests;
@@ -13184,6 +13187,9 @@ impl App {
             .zip(names.iter())
             .map(|(row, name)| (row.role.as_str(), row.turn, *name))
             .collect();
+        // The default work-details mode's policy decides whether a turn has a seat at all and
+        // whether a settled one starts folded (`presentation-policy.ts:32-36`).
+        let policy = work_details::Mode::default().policy();
         crate::reducer::process_group::groups(&segments)
             .into_iter()
             .map(|group| {
@@ -13199,7 +13205,7 @@ impl App {
                     .process_group_open
                     .get(&key)
                     .copied()
-                    .unwrap_or(!settled);
+                    .unwrap_or(!policy.starts_folded(settled));
                 // A running group names what it is doing — the last member's category — while a
                 // settled one states the composed summary (`ChatGroupSeat.tsx:107-120`).
                 let live = (!settled)
