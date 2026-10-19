@@ -104,6 +104,26 @@ fn closing_state_rejects_local_menu_and_info_changes() {
     assert!(queue.try_recv().is_err());
 }
 #[test]
+fn a_command_that_takes_arguments_states_what_to_write() {
+    let (mut app, _queue) = app();
+    app.ready = true;
+    app.selected = Some(serde_json::from_value(serde_json::json!("PUBLIC-hint")).unwrap());
+    app.editor = iced::widget::text_editor::Content::with_text("plain text");
+    assert_eq!(app.composer_hint(), None, "ordinary prose has no hint");
+    app.editor = iced::widget::text_editor::Content::with_text("/plan");
+    assert_eq!(
+        app.composer_hint(),
+        Some("describe your task to generate plan")
+    );
+    // A trailing argument keeps the hint: the command is still the one being written.
+    app.editor = iced::widget::text_editor::Content::with_text("/plan fix the fold");
+    assert!(app.composer_hint().is_some());
+    // An unknown command has no hint of its own.
+    app.editor = iced::widget::text_editor::Content::with_text("/compact everything");
+    assert_eq!(app.composer_hint(), None, "no hint is invented");
+}
+
+#[test]
 fn a_pending_advertisement_shows_a_loading_row() {
     let (mut app, _queue) = app();
     app.ready = true;

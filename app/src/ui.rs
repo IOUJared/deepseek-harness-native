@@ -10049,6 +10049,22 @@ impl App {
     }
     /// The composer's placeholder. A plan-mode composer states the next action instead of the
     /// default line (`InputBar.tsx:352`, `locale.ts:395`).
+    /// The generated hint the reference shows for a command that takes arguments
+    /// (`InputBar.tsx:322-341`, `locale.ts:392-394`). Native states it under the draft instead of
+    /// inside it, because its editor is a plain text field with no generated content.
+    fn composer_hint(&self) -> Option<&'static str> {
+        let draft = self.editor.text();
+        let command = draft.split_whitespace().next()?;
+        match command {
+            "/plan" => Some("describe your task to generate plan"),
+            "/goal" => Some(if self.goal().is_some() {
+                "goal active — edit / pause / resume / clear"
+            } else {
+                "describe the objective for a long-running task"
+            }),
+            _ => None,
+        }
+    }
     fn composer_placeholder(&self) -> &'static str {
         if plan_mode::mode(self.transcript.projections()).is_some() {
             return "describe your task to generate plan";
@@ -11280,6 +11296,9 @@ impl App {
             inner = inner.push(rail);
         }
         inner = inner.push(editor);
+        if let Some(hint) = self.composer_hint() {
+            inner = inner.push(label(hint, MUTED).size(11));
+        }
         if self.sidebar_organization.failure().is_some() {
             inner = inner.push(row![
                 label(
