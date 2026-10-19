@@ -182,3 +182,10 @@ frames), assistant line pitch 24 (both), the last tool line's ink to the next ro
 (the reference's own tool → bubble gap is 26), the clock/glyph ink band 17 → 12 (reference 13). The
 clock itself lands 3px below the reference's offset because DejaVu's `❐` has a taller ink box than
 the web's icon — a glyph difference, not a row one.
+
+**Four later rounds extend the same model** (510–514): a folded process group draws its seat line
+inside its first member's row and reserves exactly that line (`chat_geometry::seat_height`); an
+expanded seat adds the reference's 8px title gap (`SEAT_TITLE_GAP`); a settled turn states one
+control at `24px line + 8px gap + 1px hairline` (`chat_geometry::turn_control_height`) and hides its
+process rows behind it; and the control's row and the answer below a turn's process take the
+reference's 16px `turn-process` rung (`design::TURN_GAP`, `flow_gap_for`).

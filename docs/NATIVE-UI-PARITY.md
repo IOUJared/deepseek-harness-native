@@ -161,7 +161,7 @@ font stack are a documented difference.
 | Load earlier | centered row · button `4px 12px` · radius sm · `12px` secondary on the hover-solid fill · disabled while loading | `design::fill_solid` + `native-load-older` rect; the duplicate left native's own bar |
 | User bubble max-width | `min(70.2% · content, 82%)` | content-sized, fixed 640 cap (≈70.2% of the widest column) |
 | Assistant text | unboxed, full content column | unboxed, spans the shared content column |
-| Message flow gap | 6 process / 12 response / 16 turn | `design::FLOW_GAP`/`RESPONSE_GAP` ladder 6/12; the 16px `turn-process` row is Trajectory-only |
+| Message flow gap | 6 process / 12 response / 16 turn | `design::FLOW_GAP`/`RESPONSE_GAP`/`TURN_GAP` ladder 6/12/16; the 16px rung sits on a settled turn's control row and on the answer below a turn's process (round 514) |
 | Tool activity | compact unboxed single muted line | compact unboxed single muted line, expands in place |
 | Tool-row file path | `relativizeToCwd` then `abbreviateHomePath` of the recorded argument (`tool-call-model.ts:261`), grey **dotted** underline, the path is a link to the right Sidebar's document preview | same two rules in `activity::path_label` over `PathRoots` (the selected session's `cwd` and `--user-home`), solid `MUTED` underline; no Sidebar, so the press toggles the row and the path is display-only (see the Sidebar difference) |
 | Edit diff stat | `+N -M`, code font 11px, 10px left margin, muted until hover/expanded, dropped on error | same call-argument totals; `DIFF_STAT_*` + ASCII `-`, cued colours, dropped when the row failed |
@@ -912,12 +912,12 @@ cell, so new findings go at the end of the file as plain paragraphs.
   assistant footer's gap to the reference's 16px; and the first row's attachment card
   starts 10px lower (fill top `138` → `148`) because its own 6px top padding became
   the scroller's 16px inset.
-  A `turn-process` row would take 16px, but Chat renders none — they are
-  Trajectory-only — so no native row maps to it; the constant says so at its
-  definition. `ui.rs`'s `conversation_flow_gaps_follow_the_web_ladder` pins the
-  ladder and the height adjustment, and the answerless-row test in
-  `transcript_layout_tests.rs` now reads the same ladder rather than asserting the
-  old symmetric padding.
+  The 16px `turn-process` rung has a native row since round 513 built the settled turn's control
+  and round 514 applied the rung: `design::TURN_GAP`, `flow_gap_for` and
+  `a_turn_control_and_its_answer_take_the_wider_turn_gap` pin it, over the 6/12 ladder that
+  `ui.rs`'s `conversation_flow_gaps_follow_the_web_ladder` still pins, and the answerless-row
+  test in `transcript_layout_tests.rs` reads the same ladder rather than asserting the old
+  symmetric padding.
 - **Sidebar column and row metrics — landed, capture- and rect-verified.**
   The web's sidebar is one set of literal boxes: `.root { padding: 6px
   var(--dsh-sidebar-inline-padding) }` with the inline padding at `12px`
@@ -6402,7 +6402,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
 | Schedules: page, history, edits, pickers, and the Session header's reminder chip with its popover (count, rule, next run, per-row delete; round 503) | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab; the chip states its count as words where the web is icon-only, and its rows' names open the page where the web opens its right-Sidebar tab). A read-only audit of this surface found work still open, recorded in round 417: rows now state their rule, `Enabled`/`Inactive`, and their next-run and delivery instants as local text with a relative next-run form; the page has status tabs (All/Enabled/Inactive), a search field, next-time ordering, the reference's empty-state variants and its retention disclosure, and its `New` action, and a deletion outcome stated on the page where the reference shows a shell toast, and a linked-session control that opens the creating session (with the reference's archived/unavailable sentences when it cannot); a `schedule/changed` live refresh is unverified — the Host's event contract for it has never been observed in a run, so native reads the catalog only on open, Refresh, and after its own writes; a failed history read retries in place |
 | Goals, plan mode, permissions, approvals/questions, jobs, subagents, session log | cloned |
-| Tool rows: one row per call with the folded result, relative path, `+N −N`, and the structured cards — diff, read, terminal, search, web, ask-user | cloned (no per-tool glyphs — the reference's SVGs have no DejaVu equivalent); each run of step activity sits under a process-group seat whose live label, running detail, folding and grouping follow the **Work details** preference — Compact / Standard / Detailed / Verbose, chosen in Settings → General and persisted locally) |
+| Tool rows: one row per call with the folded result, relative path, `+N −N`, and the structured cards — diff, read, terminal, search, web, ask-user | cloned (no per-tool glyphs — the reference's SVGs have no DejaVu equivalent); each run of step activity sits under a process-group seat whose live label, running detail, folding and grouping follow the **Work details** preference — Compact / Standard / Detailed / Verbose, chosen in Settings → General and persisted locally), and a settled turn folds its whole process behind one `Completed in …` / `Stopped` / `Failed` control with a hairline and the reference's 16px rung (rounds 513–514) |
 | Reasoning disclosure wording | difference: native says `Thoughts` where the reference says `Thought for a while` (`message.turnProcess.thoughtForAWhile`), by the user's stated preference for the shorter label; a settled row still previews its first line under the `settledReasoningPreview` policy |
 | Model-retry row, command row (a manual `/compact` folded into one marker), turn duration, failure and output-limit rows, card Copy control, created-task (`schedule_create`) card, skill row | cloned (the skill row has no `Inspect` action: native has no right Sidebar to open it in) |
 | Composer usage pill: tokens, cache hit, speed, turn/step counts, and the Host's session-statistics dialog | cloned |
@@ -14062,7 +14062,9 @@ The folded state has its own frame: `shots/303-seat-folded.png` (`process-group-
 1040×760) shows one header line, `▼ Read files, edited files, ran commands`, with no member
 rows and the assistant paragraph correctly beneath it.
 
-**Tests.** `a_group_seat_sits_inside_its_first_row_and_reserves_only_its_own_line` pins that
+**Tests.** `a_group_seat_sits_inside_its_first_row_and_reserves_only_its_own_line` (renamed in round
+512 to `a_group_seat_starts_folded_and_grows_by_its_title_gap_when_opened`, which keeps these
+assertions and adds the fold) pins that
 the row reserves the flow margin, one seat line and its own line — and that
 `seat_height == LINE_BODY + delta`, so the drawn seat cannot outgrow its space.
 `a_folded_group_reserves_the_seat_line_and_nothing_of_its_members` pins the folded
@@ -14269,3 +14271,52 @@ at the first row, which is what the reference's single flow item does.
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 captures | — | `shots/308-turn-gap.png`, `shots/309-turn-gap-open.png`, both `status: passed` |
 | app bin | — | **21** warnings after removing the unused field |
+
+### Round 515 — replaying rounds 510–514 against the code and the docs
+
+A documentation sweep, not a change round: the last sweep was round 506 and eight rounds have
+landed since. Each note was read against the code, and the five claims that could drift were checked
+mechanically.
+
+**Drift found and fixed (docs and one doc comment; no behaviour changed).**
+
+1. The measurement table's message-flow row still said "the 16px `turn-process` row is
+   Trajectory-only" — false since round 513 built the control. It now names the 6/12/16 ladder and
+   where the 16px rung sits.
+2. The older conversation-flow passage said the same ("Chat renders none — they are
+   Trajectory-only"). It now points at `design::TURN_GAP`, `flow_gap_for` and round 514's test.
+3. `process_group_open`'s field comment still described the pre-512 default ("open while its turn
+   runs, closed once it settles"). It now states the collapsed-whatever-the-state rule.
+4. The coverage table's tool-row entry did not mention the settled-turn control at all; it now names
+   rounds 513–514 beside the seat and the Work details modes.
+5. `NATIVE-CHAT-GEOMETRY.md`'s round-510 vertical model was missing the four extensions built since
+   (seat line, seat title gap, the 33px control, the 16px rung); a closing paragraph lists them.
+6. Round 511's note named `a_group_seat_sits_inside_its_first_row_and_reserves_only_its_own_line`,
+   which round 512 renamed; the note now says so instead of pointing at a test that does not exist.
+
+**Verified and unchanged.** Round 510's `chrome_height` 20/0/31, `body_top`, `RESPONSE_ACTION_GAP`,
+`row_outer_chrome` and its test. Round 511's `seat_height` and the diagnostic that disproved its own
+first guess. Round 512's `starts_folded`, the `or_insert(false)` toggle, `SEAT_TITLE_GAP`, and
+`tool-activity-open`'s three registrations. Round 513's `turn_tail::control`, `turn_control_height`,
+`turn_process_open`, `ToggleTurnProcess`, the removed action-row duration, `process-group-open`, and
+the gating of `turn_duration`/`duration`. Round 514's `TURN_GAP` / `flow_gap_for` / `turn_gaps`, its
+test, and its before/after numbers — re-measured from the archived frames: clock ink to control ink
+**28 → 38**, control ink to answer **48 → 52**. Rounds 507 and 509 were spot-checked too
+(`close_spent_reminders` still runs after both schedule events; `detail_layout` seeds `open_detail`
+and `the_chosen_comparison_layout_carries_to_the_next_file` still exists).
+
+**Counters re-read rather than trusted.** Next shot **310** with 309 newest; baselines **1504**
+fixture / **1457** default; bin **21** warnings (measured; the check prints 21 plus its summary line).
+
+**Battery (round 515).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1504 passed**, 1 ignored |
+| app, default | **0** | **1457 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed (`verification-cc2h5weu`) |
+| examples suite | — | **not re-run**: since its last green run only a doc comment and Markdown changed |
+| transport / core / JS | — | **not re-run**: only `app` comments and docs changed |
+| DP-2 captures | — | none: no visual change |
+| app bin | — | **21** warnings |

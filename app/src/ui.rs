@@ -1591,8 +1591,8 @@ pub struct App {
     thoughts_expanded: std::collections::BTreeSet<u64>,
     activity_expanded: std::collections::BTreeSet<u64>,
     /// Process groups whose disclosure the user has flipped, by the group's first row key. A group
-    /// with no entry follows the reference's default: open while its turn runs, closed once it
-    /// settles (`process-groups.ts:134-180`).
+    /// with no entry follows the reference's default and is folded, whatever its turn's state
+    /// (`use-disclosure.ts` begins collapsed; `ChatGroupSeat.tsx:162` hides the body while folded).
     process_group_open: std::collections::BTreeMap<u64, bool>,
     /// Settled turns whose whole process the reader has opened, by turn number. A settled turn
     /// with no entry is folded behind its control line, as the reference's completed-turn fold
