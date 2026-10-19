@@ -36,6 +36,10 @@ pub fn basename(path: &str) -> String {
         .to_owned()
 }
 
+/// The reference's status line while a comparison is being read (`FileDiff.tsx:147`,
+/// `locales.ts:122`).
+pub const READING: &str = "Reading changes…";
+
 /// What the card draws for a given number of edited files. One file is not a list: the card *is* the
 /// row, so pressing it opens the comparison directly (`ChangedFiles.tsx:54-77` — `singleFile ===
 /// undefined ? header : <>`). Everything else is a header with a list under it.
@@ -103,6 +107,15 @@ mod tests {
         assert_eq!(title(1_234, None), "Edited 1,234 files");
         // A single file whose path cannot be read still counts rather than guessing a name.
         assert_eq!(title(1, None), "Edited 1 files");
+    }
+
+    #[test]
+    fn a_pending_comparison_says_it_is_being_read() {
+        assert_eq!(READING, "Reading changes…");
+        assert!(
+            READING.ends_with('…'),
+            "an ellipsis, as the reference writes it"
+        );
     }
 
     #[test]

@@ -12602,3 +12602,33 @@ header's own `+42 -6`, so the fix removed the duplicate before capture three.
 | DP-2 capture | — | `shots/270-changes-single.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 480 — a comparison that is still reading says so
+
+The changed-files audit's fourth absent element: the reference shows `Reading changes…` while a
+comparison is being fetched (`FileDiff.tsx:147`, `locales.ts:122`). Native returned `Task::none()` when
+the press found a read already in flight, and otherwise asked and waited silently — so the press looked
+dead for as long as the Host took, which on a large file is long enough to press again.
+
+The press now opens the detail panel immediately on that line, from either branch, and records
+`pending_diff` so the answer replaces the body when it arrives. `changes_text::READING` holds the copy.
+
+Tests: `opening_a_comparison_that_is_still_reading_says_so` — with the comparison marked loading, the
+press opens the panel titled `Changes` with `Reading changes…` as its body and the pending pair
+remembered; and a unit test pinning the copy's ellipsis.
+
+**Battery (round 480).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1464 passed**, 1 ignored |
+| app, default | **0** | **1431 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: a press's first frame, proved by its test |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

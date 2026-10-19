@@ -1159,3 +1159,32 @@ fn an_empty_catalog_states_loading_then_the_failure() {
     assert!(app.roster_error.is_none(), "the retry clears the failure");
     assert!(app.roster_refreshing, "and asks again");
 }
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
+fn opening_a_comparison_that_is_still_reading_says_so() {
+    let (size, _scale) = super::layout_fixture::preset_size("changes-card").unwrap();
+    let (mut app, _queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "changes-card",
+        size,
+        None,
+    );
+    // The comparison has not arrived: the press opens the panel on the reading line rather than
+    // looking dead (`FileDiff.tsx:147`).
+    app.changes_diffs
+        .insert((2, 0), crate::ui::ChangesDiffState::Loading);
+    assert!(app.detail.is_none());
+    drop(app.update(Message::OpenChanged(2, 0)));
+    let detail = app.detail.as_ref().expect("the panel opened");
+    assert_eq!(detail.heading, "Changes");
+    assert_eq!(
+        detail.source, "Reading changes…",
+        "the panel states the read"
+    );
+    assert_eq!(
+        app.pending_diff,
+        Some((2, 0)),
+        "and remembers what to fill in"
+    );
+}

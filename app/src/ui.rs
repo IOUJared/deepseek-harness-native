@@ -4819,6 +4819,17 @@ impl App {
                     self.changes_diffs.get(&(seq, index)),
                     Some(ChangesDiffState::Loading)
                 ) {
+                    // The comparison is on its way; open the panel on the reference's own "Reading
+                    // changes…" line instead of looking like the press did nothing
+                    // (`FileDiff.tsx:147`, `locales.ts:122`). The answer replaces the body when it
+                    // arrives (`pending_diff`).
+                    self.open_detail(
+                        "Changes".to_owned(),
+                        changes_text::READING.to_owned(),
+                        Some(format!("File comparison · seq {seq} · file {index}")),
+                        false,
+                    );
+                    self.pending_diff = Some((seq, index));
                     return Task::none();
                 }
                 // A stored failure is a state, not "never asked": say so, then let this same
@@ -4835,6 +4846,14 @@ impl App {
                 self.changes_diffs
                     .insert((seq, index), ChangesDiffState::Loading);
                 self.pending_diff = Some((seq, index));
+                // The same reading line, from the press itself: the card is the only thing that
+                // reacts instantly, and it must not be silent for the length of the read.
+                self.open_detail(
+                    "Changes".to_owned(),
+                    changes_text::READING.to_owned(),
+                    Some(format!("File comparison · seq {seq} · file {index}")),
+                    false,
+                );
                 self.command(worker::Command::ChangesDiff {
                     session,
                     seq,
