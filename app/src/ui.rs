@@ -1399,6 +1399,9 @@ pub struct App {
     plan_toggle_pending: bool,
     /// A roster refresh is in flight, so the catalog's open must not queue a second read.
     roster_refreshing: bool,
+    /// The last roster read's failure, shown in the catalog beside its Retry
+    /// (`SubagentHeaderLineage.tsx:219-231`, `locales.ts:66-67`).
+    roster_error: Option<String>,
     /// The subagent crumb whose siblings an open catalog lists; `None` means the current session's,
     /// which is what the header action opens (`ConversationSession.tsx:95-121`).
     subagent_menu_target: Option<SessionId>,
@@ -1669,6 +1672,7 @@ impl App {
                 subagent_menu: false,
                 subagent_hovered: false,
                 roster_refreshing: false,
+                roster_error: None,
                 subagent_menu_target: None,
                 subagent_expanded: Default::default(),
                 permission_menu: false,
@@ -4123,6 +4127,9 @@ impl App {
             Message::RefreshRoster => {
                 if self.ready && !self.roster_refreshing {
                     self.roster_refreshing = true;
+                    // A retry clears the failure it answers, so the catalog cannot show a stale error
+                    // beside a read that is already in flight.
+                    self.roster_error = None;
                     self.command(Command::RosterRefresh);
                 }
             }
@@ -6496,6 +6503,7 @@ impl App {
                                 .into_iter()
                                 .map(|s| (s.session_id.clone(), s))
                                 .collect();
+                            self.roster_error = None;
                             self.title_updates
                                 .retain(|id, _| self.sessions.contains_key(id));
                             for frame in std::mem::take(&mut self.early_root) {
@@ -6505,7 +6513,12 @@ impl App {
                                 "Real sessions loaded; select one or create a new session".into();
                         }
                     }
-                    Err(error) => self.status = error,
+                    Err(error) => {
+                        // The catalog draws its own error state with a Retry, so the message is kept
+                        // where that state can reach it (`SubagentHeaderLineage.tsx:219-231`).
+                        self.roster_error = Some(error.clone());
+                        self.status = error;
+                    }
                 }
             }
             Event::Workspace(frame) => match frame {
@@ -9686,7 +9699,12 @@ impl App {
     }
     fn subagent_action(&self) -> Option<Element<'_, Message>> {
         let entries = self.subagent_entries();
-        if entries.is_empty() {
+        // With no rows the action still stands while a read is in flight or has failed: the reference
+        // keeps the control visible in both states and answers inside it
+        // (`SubagentHeaderLineage.tsx:191-193,216-231,601-605`).
+        let loading = entries.is_empty() && self.roster_refreshing;
+        let failed = entries.is_empty() && self.roster_error.is_some();
+        if entries.is_empty() && !loading && !failed {
             return None;
         }
         let running = entries
@@ -9697,8 +9715,13 @@ impl App {
         if running > 0 {
             content = content.push(Self::subagent_dot(subagent_catalog::Activity::Running));
         }
-        content = content
-            .push(label(subagent_catalog::count_label(entries.len(), running), MUTED).size(12));
+        let copy = if entries.is_empty() {
+            // No rows yet: the control names itself rather than claiming a count of zero.
+            "Subagents".to_owned()
+        } else {
+            subagent_catalog::count_label(entries.len(), running)
+        };
+        content = content.push(label(copy, MUTED).size(12));
         let trigger: Element<'_, Message> = iced::widget::mouse_area(
             button(content)
                 .on_press(Message::ToggleSubagentMenu(!self.subagent_menu))
@@ -9712,10 +9735,38 @@ impl App {
         .on_enter(Message::SubagentHover(true))
         .on_exit(Message::SubagentHover(false))
         .into();
+        // The popup answers with the rows, the loading line, or the failure and its Retry.
+        let body: Option<Element<'_, Message>> = if !self.subagent_menu {
+            None
+        } else if !entries.is_empty() {
+            Some(self.subagent_menu_view(&entries))
+        } else if loading {
+            Some(
+                container(label("Loading subagents…", MUTED).size(11))
+                    .padding(8)
+                    .into(),
+            )
+        } else {
+            let error = self
+                .roster_error
+                .clone()
+                .unwrap_or_else(|| "The subagent list could not be read.".into());
+            Some(
+                column![
+                    label(short(&error, 140), DANGER).size(11),
+                    button(label("Retry", TEXT).size(11))
+                        .on_press(Message::RefreshRoster)
+                        .style(design::ghost)
+                        .padding([2, 8]),
+                ]
+                .spacing(6)
+                .padding(8)
+                .into(),
+            )
+        };
         Some(anchored_popup::anchored_below(
             trigger,
-            self.subagent_menu
-                .then(|| self.subagent_menu_view(&entries)),
+            body,
             Message::ToggleSubagentMenu(false),
         ))
     }

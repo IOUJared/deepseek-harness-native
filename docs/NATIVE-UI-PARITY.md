@@ -12335,3 +12335,35 @@ examples suites failed until the new arm was added — which is the check doing 
 | capture | — | none: a read on open, proved by its test |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 472 — the catalog says when it is loading and when it failed
+
+Two subagent findings that round 471's read made possible: the reference shows "Loading subagents…"
+while a catalog read is in flight (`SubagentHeaderLineage.tsx:191-193,216-218`) and, on failure, the
+Host's message or its own "could not be loaded" line with a **Retry** (`:219-231,601-604`,
+`locales.ts:66-67`). Native showed nothing at all: with no rows the control simply disappeared, so an
+empty catalog and a broken one looked the same — like a session with no subagents.
+
+The control now stands while either state is true, naming itself `Subagents` instead of claiming a count
+of zero, and the popup answers with `Loading subagents…`, or with the failure in danger ink beside a
+Retry that clears the error and asks again.
+
+Tests: `an_empty_catalog_states_loading_then_the_failure` — no rows and nothing in flight means no
+control; a pending read keeps it; a failure keeps it; and Retry clears the failure while setting the read
+in flight.
+
+**Battery (round 472).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1456 passed**, 1 ignored |
+| app, default | **0** | **1424 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: state visibility, proved by its test |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

@@ -1127,3 +1127,35 @@ fn opening_the_catalog_re_reads_the_roster_once() {
     )))));
     assert!(!app.roster_refreshing);
 }
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
+fn an_empty_catalog_states_loading_then_the_failure() {
+    let (size, _scale) = super::layout_fixture::preset_size("conversation").unwrap();
+    let (mut app, _queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "conversation",
+        size,
+        None,
+    );
+    // No children and nothing in flight: no action at all, as before.
+    assert!(app.subagent_entries().is_empty());
+    assert!(app.subagent_action().is_none());
+    // A read in flight keeps the control, which is where "Loading subagents…" belongs.
+    app.roster_refreshing = true;
+    assert!(
+        app.subagent_action().is_some(),
+        "a pending read keeps the control visible"
+    );
+    // A failure does the same, and a retry clears it while the read is in flight.
+    app.roster_refreshing = false;
+    app.roster_error = Some("PUBLIC roster unavailable".into());
+    assert!(
+        app.subagent_action().is_some(),
+        "a failure keeps the control visible"
+    );
+    app.roster_refreshing = false;
+    drop(app.update(Message::RefreshRoster));
+    assert!(app.roster_error.is_none(), "the retry clears the failure");
+    assert!(app.roster_refreshing, "and asks again");
+}
