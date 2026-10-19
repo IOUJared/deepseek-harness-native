@@ -11495,3 +11495,37 @@ output goes, and the expanded cleared row closes.
 | DP-2 capture | — | `shots/258-jobs-clear.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 449 — the jobs panel is the reference's width, and the height cap stays open
+
+The reference's panel is 500px wide and capped at 480px tall with its own scrollbar
+(`JobListAction.module.css:50-55`). Native was 260px wide, so a job label and its command wrapped
+while half the popup's width went unused.
+
+The width is now the reference's 500. **The height cap is not done**, and this round's attempt is the
+reason it needs a different shape: wrapping the popup's content in a `scrollable` broke the anchored
+layer's measurement — the frame came back without the card's surface, the text sitting directly over
+the sidebar — so that version was reverted rather than shipped. Constraining the rows inside the card,
+with the card's own container left alone, is the approach to try next.
+
+Evidence: `shots/259-jobs-panel-width.png` (DP-2 alongside, `status: passed`) — the wider panel with its
+surface intact, `Copy` and `Clear` now on their own right edge instead of crowding the text.
+
+Tests: width is presentation, so the frame is the evidence; the panel's behaviour tests are unchanged
+and still pass.
+
+**Battery (round 449).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1436 passed**, 1 ignored |
+| app, default | **0** | **1411 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/259-jobs-panel-width.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

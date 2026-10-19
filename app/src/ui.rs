@@ -10192,7 +10192,8 @@ impl App {
         }
         container(panel)
             .id("native-jobs-panel")
-            .width(260)
+            // The reference's panel is 500px wide (`JobListAction.module.css:50-55`).
+            .width(500)
             .padding(6)
             .style(|_| design::card(SURFACE, 10.0))
             .into()
