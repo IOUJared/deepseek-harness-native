@@ -453,6 +453,10 @@ pub enum Message {
     ScheduleHistoryPrompt(String),
     /// Open an ancestor crumb's sibling catalog, keyed by that crumb's session.
     SubagentCrumbMenu(SessionId),
+    /// The pointer entered or left one changed-file row.
+    ChangesHover(Option<(u64, usize)>),
+    /// The hover delay elapsed while the pointer was still on that row.
+    ChangesHoverExpired,
     /// Re-read the roster, whose projections the subagent catalog is built from.
     RefreshRoster,
     /// The pointer entered or left the subagent catalog's trigger.
@@ -1405,6 +1409,10 @@ pub struct App {
     /// The last roster read's failure, shown in the catalog beside its Retry
     /// (`SubagentHeaderLineage.tsx:219-231`, `locales.ts:66-67`).
     roster_error: Option<String>,
+    /// The changed-file row the pointer is on, and the row whose comparison is previewed after the
+    /// reference's 500ms delay (`ChangedFiles.tsx:71-76`).
+    changes_hover: Option<(u64, usize)>,
+    changes_preview: Option<(u64, usize)>,
     /// The subagent crumb whose siblings an open catalog lists; `None` means the current session's,
     /// which is what the header action opens (`ConversationSession.tsx:95-121`).
     subagent_menu_target: Option<SessionId>,
@@ -1674,6 +1682,8 @@ impl App {
                 editor_menu: false,
                 subagent_menu: false,
                 subagent_hovered: false,
+                changes_hover: None,
+                changes_preview: None,
                 roster_refreshing: false,
                 roster_error: None,
                 subagent_menu_target: None,
@@ -4125,6 +4135,36 @@ impl App {
                     return self.update(Message::RefreshRoster);
                 } else {
                     self.close_subagent_menu();
+                }
+            }
+            Message::ChangesHover(hovered) => {
+                self.changes_hover = hovered;
+                match hovered {
+                    Some(pair) => {
+                        // The reference waits 500ms before previewing, so a cursor crossing the card
+                        // does not flash a panel (`ChangedFiles.tsx:71-76`).
+                        let _ = pair;
+                        return Task::perform(
+                            async {
+                                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                            },
+                            |()| Message::ChangesHoverExpired,
+                        );
+                    }
+                    None => self.changes_preview = None,
+                }
+            }
+            Message::ChangesHoverExpired => {
+                if let Some(pair) = self.changes_hover
+                    && matches!(
+                        self.changes_diffs.get(&pair),
+                        Some(ChangesDiffState::Ready(_))
+                    )
+                {
+                    // A preview is a look at something already read. The reference also *fetches* on
+                    // hover; native does not fire a Host read from a passing pointer, which is a
+                    // recorded difference rather than a missing one.
+                    self.changes_preview = Some(pair);
                 }
             }
             Message::RefreshRoster => {
@@ -11020,50 +11060,7 @@ impl App {
         index: usize,
         diff: dsh_native_transport::dto::ChangesDiff,
     ) {
-        use dsh_native_transport::dto::ChangesDiff;
-        let (display, body) = match diff {
-            ChangesDiff::Text {
-                display,
-                before,
-                after,
-                coarse,
-                hunks,
-                ..
-            } => {
-                let mut text = String::new();
-                // The comparison's own qualifications, in the reference's order above the hunks
-                // (`FileDiff.tsx:128-131, 229`): a created or deleted file, a pair whose sides
-                // hold the same lines, and a timed-out comparison drawn as a whole-file
-                // replacement. Without them a coarse replacement read as an exact line diff.
-                if !before {
-                    text.push_str("Created in this turn\n");
-                } else if !after {
-                    text.push_str("Deleted in this turn\n");
-                } else if hunks.is_empty() {
-                    text.push_str("Both sides hold the same lines\n");
-                }
-                if coarse {
-                    text.push_str("Line comparison timed out; shown as a whole-file replacement\n");
-                }
-                for hunk in hunks {
-                    text.push_str(&format!(
-                        "@@ -{},{} +{},{} @@\n",
-                        hunk.old_start, hunk.old_lines, hunk.new_start, hunk.new_lines
-                    ));
-                    for line in hunk.lines {
-                        text.push_str(&line);
-                        text.push('\n');
-                    }
-                }
-                (display, text)
-            }
-            ChangesDiff::Binary { display, .. } => {
-                (display, "Binary file; no textual comparison.\n".into())
-            }
-            ChangesDiff::Oversized { display, .. } => {
-                (display, "File too large for a textual comparison.\n".into())
-            }
-        };
+        let (display, body) = changes_text::comparison(&diff);
         self.open_detail(
             format!("Changes · {}", short(&display, 60)),
             crate::reducer::bounded(&body, 512 * 1024),
@@ -11402,28 +11399,43 @@ impl App {
                     file.added,
                     file.deleted,
                 );
-                card = card.push(
-                    row![
-                        button(
-                            row![
-                                label(short(&file.display, 70), MUTED)
-                                    .size(10)
-                                    .width(Length::Fill),
-                                label(counts, MUTED).size(10),
-                            ]
-                            .spacing(6),
-                        )
-                        .on_press(Message::OpenChanged(seq, index))
+                let entry: Element<'_, Message> = row![
+                    button(
+                        row![
+                            label(short(&file.display, 70), MUTED)
+                                .size(10)
+                                .width(Length::Fill),
+                            label(counts, MUTED).size(10),
+                        ]
+                        .spacing(6),
+                    )
+                    .on_press(Message::OpenChanged(seq, index))
+                    .style(design::ghost)
+                    .padding([1, 2])
+                    .width(Length::Fill),
+                    button(label("Open", MUTED).size(9))
+                        .on_press(Message::OpenChangedOnDesktop(seq, index))
                         .style(design::ghost)
-                        .padding([1, 2])
-                        .width(Length::Fill),
-                        button(label("Open", MUTED).size(9))
-                            .on_press(Message::OpenChangedOnDesktop(seq, index))
-                            .style(design::ghost)
-                            .padding([1, 2]),
-                    ]
-                    .spacing(2),
-                );
+                        .padding([1, 2]),
+                ]
+                .spacing(2)
+                .into();
+                // A row the pointer rests on previews its comparison after the reference's delay
+                // (`ChangedFiles.tsx:71-76,109-121`).
+                let preview = if self.changes_preview == Some((seq, index)) {
+                    self.changes_preview_panel(seq, index)
+                } else {
+                    None
+                };
+                let anchored: Element<'_, Message> = iced::widget::mouse_area(entry)
+                    .on_enter(Message::ChangesHover(Some((seq, index))))
+                    .on_exit(Message::ChangesHover(None))
+                    .into();
+                card = card.push(anchored_popup::anchored_below(
+                    anchored,
+                    preview,
+                    Message::ChangesHover(None),
+                ));
             }
         }
         if let Some(fold) = changes_text::fold_label(summary.files.len(), open) {
@@ -11435,6 +11447,36 @@ impl App {
             );
         }
         Some(card.into())
+    }
+    /// The preview a rested pointer shows: the first lines of a comparison already read, never a read
+    /// of its own.
+    fn changes_preview_panel(&self, seq: u64, index: usize) -> Option<Element<'_, Message>> {
+        let Some(ChangesDiffState::Ready(diff)) = self.changes_diffs.get(&(seq, index)) else {
+            return None;
+        };
+        let (display, body) = changes_text::comparison(diff);
+        let lines: Vec<&str> = body.lines().take(12).collect();
+        Some(
+            container(
+                column![
+                    label(short(&display, 60), TEXT).size(10),
+                    label(lines.join("\n"), MUTED).size(9),
+                ]
+                .spacing(4),
+            )
+            .padding(8)
+            .max_width(460.0)
+            .style(|_| container::Style {
+                background: Some(OVERLAY.into()),
+                border: iced::Border {
+                    color: design::LINE,
+                    width: 1.0,
+                    radius: design::USER_BUBBLE_RADIUS.into(),
+                },
+                ..Default::default()
+            })
+            .into(),
+        )
     }
     /// The changed-files card's reserved height for a reply row.
     fn changes_height(&self, row: &DisplayRow) -> f32 {

@@ -12632,3 +12632,38 @@ remembered; and a unit test pinning the copy's ellipsis.
 | capture | — | none: a press's first frame, proved by its test |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 481 — a rested pointer previews a comparison it already has
+
+The changed-files audit's third absent element: the reference wraps its card in a `HoverCard` with
+`openDelayMs={500}` and renders a file preview when the pointer rests (`ChangedFiles.tsx:71-76,109-121`).
+Native had no hover state on the card at all, so previewing a comparison meant leaving the conversation
+for the detail panel.
+
+The card's rows now carry pointer enter/leave, the entry arms a 500ms timer, and its expiry previews the
+row **only if the comparison has already been read** — the same body the detail panel would show, through
+a `changes_text::comparison` that both paths share so they cannot describe a file differently. Leaving
+dismisses it.
+
+**Recorded difference**: the reference also *fetches* on hover; native does not fire a Host read from a
+passing pointer. A read per hover is a cost decision, not a rendering one, so the preview is a look at
+something in hand rather than a new request.
+
+Tests: `a_rested_pointer_previews_only_a_comparison_already_read` — a hover with nothing read previews
+nothing, the same hover previews once the comparison is in hand, and leaving dismisses it.
+
+**Battery (round 481).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1465 passed**, 1 ignored |
+| app, default | **0** | **1431 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: a pointer rule, proved by its test |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

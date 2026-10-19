@@ -36,6 +36,57 @@ pub fn basename(path: &str) -> String {
         .to_owned()
 }
 
+/// One comparison's display name and body, as the detail panel renders it.
+///
+/// Shared so a preview and the panel it opens into cannot describe the same file differently.
+pub fn comparison(diff: &dsh_native_transport::dto::ChangesDiff) -> (String, String) {
+    use dsh_native_transport::dto::ChangesDiff;
+    let (display, body) = match diff {
+        ChangesDiff::Text {
+            display,
+            before,
+            after,
+            coarse,
+            hunks,
+            ..
+        } => {
+            let mut text = String::new();
+            // The comparison's own qualifications, in the reference's order above the hunks
+            // (`FileDiff.tsx:128-131, 229`): a created or deleted file, a pair whose sides
+            // hold the same lines, and a timed-out comparison drawn as a whole-file
+            // replacement. Without them a coarse replacement read as an exact line diff.
+            if !before {
+                text.push_str("Created in this turn\n");
+            } else if !after {
+                text.push_str("Deleted in this turn\n");
+            } else if hunks.is_empty() {
+                text.push_str("Both sides hold the same lines\n");
+            }
+            if *coarse {
+                text.push_str("Line comparison timed out; shown as a whole-file replacement\n");
+            }
+            for hunk in hunks {
+                text.push_str(&format!(
+                    "@@ -{},{} +{},{} @@\n",
+                    hunk.old_start, hunk.old_lines, hunk.new_start, hunk.new_lines
+                ));
+                for line in &hunk.lines {
+                    text.push_str(line);
+                    text.push('\n');
+                }
+            }
+            (display, text)
+        }
+        ChangesDiff::Binary { display, .. } => {
+            (display, "Binary file; no textual comparison.\n".into())
+        }
+        ChangesDiff::Oversized { display, .. } => {
+            (display, "File too large for a textual comparison.\n".into())
+        }
+    };
+    (display.clone(), body)
+}
+
 /// The reference's status line while a comparison is being read (`FileDiff.tsx:147`,
 /// `locales.ts:122`).
 pub const READING: &str = "Reading changes…";

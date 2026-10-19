@@ -1188,3 +1188,33 @@ fn opening_a_comparison_that_is_still_reading_says_so() {
         "and remembers what to fill in"
     );
 }
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
+fn a_rested_pointer_previews_only_a_comparison_already_read() {
+    let (size, _scale) = super::layout_fixture::preset_size("changes-card").unwrap();
+    let (mut app, _queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "changes-card",
+        size,
+        None,
+    );
+    // Nothing read: a hover must not preview, and must not fire a read of its own.
+    drop(app.update(Message::ChangesHover(Some((2, 0)))));
+    drop(app.update(Message::ChangesHoverExpired));
+    assert!(app.changes_preview.is_none(), "no comparison, no preview");
+    // Once the comparison is in hand, the same hover previews it.
+    app.changes_diffs.insert(
+        (2, 0),
+        crate::ui::ChangesDiffState::Ready(dsh_native_transport::dto::ChangesDiff::Binary {
+            display: "src/lib.rs".into(),
+            path: "src/lib.rs".into(),
+        }),
+    );
+    drop(app.update(Message::ChangesHover(Some((2, 0)))));
+    drop(app.update(Message::ChangesHoverExpired));
+    assert_eq!(app.changes_preview, Some((2, 0)));
+    // Leaving the row dismisses it.
+    drop(app.update(Message::ChangesHover(None)));
+    assert!(app.changes_preview.is_none());
+}
