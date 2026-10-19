@@ -86,6 +86,50 @@ fn every_line(seconds: u64) -> String {
     format!("Every {seconds} seconds")
 }
 
+/// The schedules page's status filter (`TaskManagerPage.tsx:124-136`, `task-manager-locales.ts:22-24`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Filter {
+    #[default]
+    All,
+    Enabled,
+    Inactive,
+}
+
+impl Filter {
+    /// The reference's tab labels, in its own order.
+    pub const ALL: [Filter; 3] = [Filter::All, Filter::Enabled, Filter::Inactive];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Filter::All => "All",
+            Filter::Enabled => "Enabled",
+            Filter::Inactive => "Inactive",
+        }
+    }
+
+    /// Whether one row belongs to this filter. A status this build does not know counts as
+    /// inactive, because only `active` runs.
+    pub fn admits(self, status: &str) -> bool {
+        let enabled = status.eq_ignore_ascii_case("active");
+        match self {
+            Filter::All => true,
+            Filter::Enabled => enabled,
+            Filter::Inactive => !enabled,
+        }
+    }
+
+    /// Whether the page's search matches one row: a case-insensitive substring of its title or
+    /// instruction, which is what the user can see and edit.
+    pub fn matches(query: &str, title: &str, prompt: Option<&str>) -> bool {
+        let needle = query.trim().to_lowercase();
+        if needle.is_empty() {
+            return true;
+        }
+        title.to_lowercase().contains(&needle)
+            || prompt.is_some_and(|prompt| prompt.to_lowercase().contains(&needle))
+    }
+}
+
 /// The reference's localized rule for one recorded schedule row, read from the row's own timing
 /// fields (`schedule-format.ts:249-300`, `frequency-locales.ts:75-81`). The card's `narrow` needs a
 /// complete task; a row only needs its rule, so this shares the same wording without the identity.
@@ -421,5 +465,46 @@ mod row_frequency_tests {
             None
         );
         assert_eq!(frequency_from(&record(json!({})), "sometimes"), None);
+    }
+}
+
+#[cfg(test)]
+mod filter_tests {
+    //! The schedules page's tabs and search, as the reference applies them.
+    use super::*;
+
+    #[test]
+    fn the_tabs_admit_the_statuses_they_name() {
+        assert!(Filter::All.admits("active"));
+        assert!(Filter::All.admits("inactive"));
+        assert!(Filter::Enabled.admits("active"));
+        assert!(!Filter::Enabled.admits("inactive"));
+        assert!(Filter::Inactive.admits("inactive"));
+        assert!(!Filter::Inactive.admits("active"));
+        // Only `active` runs, so a status this build does not know counts as inactive.
+        assert!(Filter::Inactive.admits("ended"));
+        assert_eq!(
+            Filter::ALL.map(Filter::label),
+            ["All", "Enabled", "Inactive"]
+        );
+    }
+
+    #[test]
+    fn the_search_matches_a_title_or_instruction_case_insensitively() {
+        assert!(Filter::matches("", "PUBLIC", Some("x")));
+        assert!(Filter::matches("  ", "PUBLIC", None));
+        assert!(Filter::matches("public", "PUBLIC reminder", None));
+        assert!(Filter::matches("REMINDER", "PUBLIC reminder", None));
+        assert!(Filter::matches(
+            "instruction",
+            "PUBLIC",
+            Some("The INSTRUCTION text")
+        ));
+        assert!(!Filter::matches(
+            "nightly",
+            "PUBLIC reminder",
+            Some("daily text")
+        ));
+        assert!(!Filter::matches("nightly", "PUBLIC", None));
     }
 }

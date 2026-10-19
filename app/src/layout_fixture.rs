@@ -119,6 +119,7 @@ pub const PRESETS: &[&str] = &[
     "schedules-delete",
     "schedules-conflict",
     "schedules-history",
+    "schedules-search",
     "mcp",
     "changes-card",
     "feedback",
@@ -327,6 +328,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "schedules-delete"
         | "schedules-conflict"
         | "schedules-history"
+        | "schedules-search"
         | "mcp"
         | "changes-card"
         | "feedback"
@@ -1659,6 +1661,7 @@ pub fn build(
             | "schedules-delete"
             | "schedules-conflict"
             | "schedules-history"
+            | "schedules-search"
             | "subagent-catalog"
             | "subagent-readonly"
             | "subagent-sibling"
@@ -2010,6 +2013,24 @@ pub fn build(
             next_before: None,
         });
         app.schedule_history_loading = false;
+    }
+
+    if preset == "schedules-search" {
+        // The list controls with a search applied: one row matches, the other is filtered out.
+        app.schedule_query = "daily".into();
+        app.schedule_filter = crate::reducer::schedule_card::Filter::All;
+        let matching = app
+            .schedules
+            .iter()
+            .filter(|item| {
+                crate::reducer::schedule_card::Filter::matches(
+                    &app.schedule_query,
+                    &item.title,
+                    item.record.get("prompt").and_then(|prompt| prompt.as_str()),
+                )
+            })
+            .count();
+        assert_eq!(matching, 1, "one row matches the search");
     }
     if preset == "chat-thoughts" {
         let ticket = app.reply_parts(1).unwrap().ticket.unwrap();

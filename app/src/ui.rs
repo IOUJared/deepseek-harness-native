@@ -429,6 +429,10 @@ pub enum Message {
     CopyDetailSource(detail_panel::Stamp),
     ToggleThoughts(conversation_content::Ticket),
     /// Expand or collapse one tool row's recorded body inside the conversation.
+    /// Set the schedules page's search text.
+    ScheduleSearch(String),
+    /// Set the schedules page's status filter.
+    ScheduleFilter(crate::reducer::schedule_card::Filter),
     /// Unfold or fold one delivery record's saved prompt.
     ScheduleHistoryPrompt(String),
     /// Steer every queued message, one at a time, as the reference's empty-draft chord does.
@@ -1114,6 +1118,9 @@ pub struct App {
     /// Delivery records whose saved prompt is unfolded, by message id: the reference clamps a long
     /// prompt and offers Expand/Collapse (`DeliveryHistory.tsx:55-60`).
     schedule_history_expanded: std::collections::BTreeSet<String>,
+    /// The schedules page's own search text and status filter (`TaskManagerPage.tsx:124-149`).
+    schedule_query: String,
+    schedule_filter: crate::reducer::schedule_card::Filter,
     /// Queued items still to steer, in order: the reference's "steer all" walks the queue one
     /// `updateQueue` at a time and stops at the first refusal (`input/hub.ts:256-270`).
     queue_steer_all: std::collections::VecDeque<String>,
@@ -1536,6 +1543,8 @@ impl App {
                 drop_hover: false,
                 skills: None,
                 schedule_history_expanded: Default::default(),
+                schedule_query: String::new(),
+                schedule_filter: crate::reducer::schedule_card::Filter::All,
                 queue_steer_all: Default::default(),
                 skills_pending: false,
                 queue_expanded: false,
@@ -4342,6 +4351,12 @@ impl App {
                     limit: 20,
                     before: None,
                 });
+            }
+            Message::ScheduleSearch(query) if self.schedules_open => {
+                self.schedule_query = query;
+            }
+            Message::ScheduleFilter(filter) if self.schedules_open => {
+                self.schedule_filter = filter;
             }
             Message::ScheduleHistoryPrompt(id) if self.schedules_open => {
                 if !self.schedule_history_expanded.remove(&id) {
@@ -15940,6 +15955,33 @@ impl App {
         ]
         .spacing(6)
         .align_y(iced::Alignment::Center);
+        // The list controls the reference puts above the rows: status tabs and a search field
+        // (`TaskManagerPage.tsx:124-149`). Native's rows are the Host's catalog, so the controls
+        // filter what it already returned rather than re-reading.
+        let mut filters = row![].spacing(4);
+        for filter in crate::reducer::schedule_card::Filter::ALL {
+            filters = filters.push(
+                button(
+                    label(
+                        filter.label(),
+                        if self.schedule_filter == filter {
+                            TEXT
+                        } else {
+                            MUTED
+                        },
+                    )
+                    .size(11),
+                )
+                .on_press(Message::ScheduleFilter(filter))
+                .style(design::ghost)
+                .padding([4, 8]),
+            );
+        }
+        let search = text_input("Search automation tasks", &self.schedule_query)
+            .on_input(Message::ScheduleSearch)
+            .size(11)
+            .padding(6)
+            .width(260);
         let mut body = column![
             header,
             label(
@@ -15947,6 +15989,7 @@ impl App {
                 MUTED
             )
             .size(11),
+            row![filters, search].spacing(10).align_y(iced::Alignment::Center),
         ]
         .spacing(12);
         if self.schedules_loading && self.schedules.is_empty() {
@@ -15956,9 +15999,48 @@ impl App {
             body = body.push(label(short(error, 160), DANGER).size(11));
         }
         if self.schedules.is_empty() && !self.schedules_loading && self.schedules_error.is_none() {
-            body = body.push(label("No scheduled tasks.", MUTED).size(12));
+            body = body.push(
+                label(
+                    "No tasks yet. Tasks created in your sessions appear here.",
+                    MUTED,
+                )
+                .size(12),
+            );
         }
-        for item in &self.schedules {
+        // Ordered by next run, soonest first, with an ended task after them
+        // (`TaskManagerPage.tsx:64-65`); the Host's order is otherwise kept.
+        let mut visible: Vec<&dsh_native_transport::dto::ScheduleCatalogItem> = self
+            .schedules
+            .iter()
+            .filter(|item| self.schedule_filter.admits(&item.status))
+            .filter(|item| {
+                crate::reducer::schedule_card::Filter::matches(
+                    &self.schedule_query,
+                    &item.title,
+                    item.record.get("prompt").and_then(|prompt| prompt.as_str()),
+                )
+            })
+            .collect();
+        visible.sort_by(|left, right| {
+            let key = |item: &dsh_native_transport::dto::ScheduleCatalogItem| {
+                (item.scheduled_at.is_none(), item.scheduled_at.clone())
+            };
+            key(left).cmp(&key(right))
+        });
+        if visible.is_empty() && !self.schedules.is_empty() {
+            body = body.push(
+                label(
+                    if self.schedule_query.trim().is_empty() {
+                        "No inactive automation tasks"
+                    } else {
+                        "No matching tasks"
+                    },
+                    MUTED,
+                )
+                .size(12),
+            );
+        }
+        for item in visible {
             let busy = self.schedule_busy.as_deref() == Some(item.id.as_str());
             let armed = self
                 .schedule_delete

@@ -6385,7 +6385,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the slash menu groups its two sources as the reference does (`Commands`, then `Skills`), states `Loading…` while the advertisement is in flight and shows a command's argument hint under the draft (the reference draws it inside the editor), but has no breadcrumbs or subagent source, files are chosen one at a time through a path field, no image thumbnails in the rail, and a send awaiting admission is stated by the composer's own banner (with Check, Review and Stop-original) rather than as a queue row;  steering the whole queue is a `Steer all` control on the strip (the reference triggers it from an empty draft); and these deliberate differences: the reference inverts its submission policy on Cmd/Ctrl+Enter (`view-binding.ts:120-130`), while native keeps Ctrl+Enter a plain send alias by the user's explicit confirmation (`docs/SESSION-PROMPT.md`); and native's goal bar states a running goal's controls where the reference adds `hint.goal`/`hint.goal.active` ghost copy beside the draft) |
 | Sidebar: sessions, search, pin/archive/trash, workspace filter, navigation sheet | cloned (time-grouped list, not the grouped browser) |
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
-| Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab). A read-only audit of this surface found work still open, recorded in round 417: rows now state their rule, `Enabled`/`Inactive`, and their next-run and delivery instants as local text with a relative next-run form; retention is one line instead of a disclosure; the page has no search, no All/Enabled/Inactive filter, no New action, no next-time ordering, no empty-state variants, no linked-session control, no deletion notice, no `schedule/changed` refresh and no retry for a failed history read |
+| Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab). A read-only audit of this surface found work still open, recorded in round 417: rows now state their rule, `Enabled`/`Inactive`, and their next-run and delivery instants as local text with a relative next-run form; retention is one line instead of a disclosure; the page has status tabs (All/Enabled/Inactive), a search field, next-time ordering and the reference's empty-state variants, but no New action, no linked-session control, no deletion notice, no `schedule/changed` refresh and no retry for a failed history read |
 | Goals, plan mode, permissions, approvals/questions, jobs, subagents, session log | cloned |
 | Tool rows: one row per call with the folded result, relative path, `+N −N`, and the structured cards — diff, read, terminal, search, web, ask-user | cloned (no per-tool glyphs — the reference's SVGs have no DejaVu equivalent); each run of step activity sits under a process-group seat whose live label, running detail, folding and grouping follow the **Work details** preference — Compact / Standard / Detailed / Verbose, chosen in Settings → General and persisted locally) |
 | Reasoning disclosure wording | difference: native says `Thoughts` where the reference says `Thought for a while` (`message.turnProcess.thoughtForAWhile`), by the user's stated preference for the shorter label; a settled row still previews its first line under the `settledReasoningPreview` policy |
@@ -10502,5 +10502,40 @@ coarse and signed shapes.
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/236-schedule-local-times.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 422 — the schedules page filters, searches and orders
+
+The schedules audit found the page had no way to narrow its list: every task the Host returned was
+drawn in Host order, with one empty-state sentence. The reference has status tabs, a search field and
+next-time ordering (`TaskManagerPage.tsx:64-65,120-159`, `task-manager-locales.ts:14-24`).
+
+Native's page now carries the same controls: **All / Enabled / Inactive** tabs, a search field
+matching a task's title or instruction case-insensitively, rows ordered by next run with ended tasks
+after them, and the reference's own empty-state variants — "No tasks yet. Tasks created in your
+sessions appear here.", "No inactive automation tasks", "No matching tasks". The controls filter what
+the Host already returned; no extra read is made.
+
+Evidence: `shots/237-schedules-search.png` (DP-2 alongside, `status: passed`) in the new
+`schedules-search` preset — the tabs with `All` selected, a `daily` query, and only the matching row.
+
+Tests: two in `filter_tests` (each tab's admission rules including an unknown status counting as
+inactive, and the search matching a title or instruction case-insensitively) plus the preset's
+assertion that exactly one row matches its query.
+
+**Battery (round 422).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1416 passed**, 1 ignored |
+| app, default | **0** | **1399 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/237-schedules-search.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
