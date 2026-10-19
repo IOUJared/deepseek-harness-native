@@ -104,6 +104,41 @@ fn closing_state_rejects_local_menu_and_info_changes() {
     assert!(queue.try_recv().is_err());
 }
 #[test]
+fn a_hovered_drop_draws_the_overlay_and_a_drop_clears_it() {
+    let (mut app, _queue) = app();
+    let window = window::Id::unique();
+    app.own_window = Some(window);
+    app.ready = true;
+    app.selected = Some(serde_json::from_value(serde_json::json!("PUBLIC-drop")).unwrap());
+    assert!(
+        !app.drop_hover,
+        "no overlay before a file hovers the window"
+    );
+    drop(app.update(Message::FileHovered(
+        window,
+        "/PUBLIC-dropped-file.txt".into(),
+    )));
+    assert!(app.drop_hover, "a hovered file draws the overlay");
+    // A drop consumes the file and clears the overlay.
+    drop(app.update(Message::FileDropped(
+        window,
+        "/PUBLIC-dropped-file.txt".into(),
+    )));
+    assert!(!app.drop_hover, "the drop clears the overlay");
+    // Leaving the window clears it too.
+    drop(app.update(Message::FileHovered(window, "/PUBLIC-another.txt".into())));
+    assert!(app.drop_hover);
+    drop(app.update(Message::FileDropCancelled(window)));
+    assert!(!app.drop_hover, "leaving the window clears the overlay");
+    // A drag in another window is ignored.
+    drop(app.update(Message::FileHovered(
+        window::Id::unique(),
+        "/PUBLIC-elsewhere.txt".into(),
+    )));
+    assert!(!app.drop_hover);
+}
+
+#[test]
 fn the_attach_menu_offers_files_and_commands() {
     let (mut app, mut queue) = app();
     app.ready = true;

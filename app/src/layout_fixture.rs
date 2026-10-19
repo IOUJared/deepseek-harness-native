@@ -129,6 +129,7 @@ pub const PRESETS: &[&str] = &[
     "command-menu",
     "command-menu-mid-draft",
     "attach-menu",
+    "drop-overlay",
     "plan-mode",
     "plan-mode-applying",
     "plan-mode-leaving",
@@ -329,6 +330,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "command-menu"
         | "command-menu-mid-draft"
         | "attach-menu"
+        | "drop-overlay"
         | "plan-mode"
         | "plan-mode-applying"
         | "plan-mode-leaving"
@@ -379,7 +381,7 @@ fn public_context_pressure_records(preset: &str) -> Option<Vec<Value>> {
     }
     if matches!(
         preset,
-        "command-menu" | "command-menu-mid-draft" | "attach-menu"
+        "command-menu" | "command-menu-mid-draft" | "attach-menu" | "drop-overlay"
     ) {
         return Some(vec![
             json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
@@ -2642,6 +2644,18 @@ pub fn build(
                 crate::reducer::turn_tail::label(Some(duration)),
                 "Completed in 2m 23s"
             );
+        }
+        "drop-overlay" => {
+            // A file hovering the window draws the reference's drop banner with its limits.
+            // The fixture has no OS window id, so a synthetic one stands in: the handler only
+            // compares it with `own_window`, which the arm sets first.
+            let window = iced::window::Id::unique();
+            app.own_window = Some(window);
+            drop(app.update(Message::FileHovered(
+                window,
+                "/PUBLIC-dropped-file.txt".into(),
+            )));
+            assert!(app.drop_hover, "the overlay is drawn");
         }
         "attach-menu" => {
             // The left control offers files and commands in one popup, so a mouse user reaches

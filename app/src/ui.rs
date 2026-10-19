@@ -175,6 +175,9 @@ pub enum Message {
     FilePickerRead(std::sync::Arc<attachment_picker::Completion>),
     FileDropped(window::Id, std::path::PathBuf),
     FileDropCancelled(window::Id),
+    /// A dragged file hovers the window: the reference draws its drop overlay while it does
+    /// (`ComposerAttachments.tsx:43-49`).
+    FileHovered(window::Id, std::path::PathBuf),
     FilePreview(attachment_draft::EditorStamp),
     FilePreviewRead(
         attachment_ui::PreviewTicket,
@@ -1097,6 +1100,8 @@ pub struct App {
     /// Whether the composer's `+ Attach` menu is open: the reference's left control offers files
     /// and commands in one listbox (`InputBar.tsx:428-437`).
     attach_menu: bool,
+    /// Whether a file is being dragged over the window, so the drop overlay is drawn.
+    drop_hover: bool,
     /// The queue dock's multi-item list is open.
     queue_expanded: bool,
     /// Expanded turn-trigger notices, by record key.
@@ -1511,6 +1516,7 @@ impl App {
                 busy_enter,
                 work_details,
                 attach_menu: false,
+                drop_hover: false,
                 queue_expanded: false,
                 queue_edit: None,
                 queue_remove_armed: None,
@@ -1715,6 +1721,7 @@ impl App {
                 window::Event::Resized(size) => Some(Message::Resized(size)),
                 window::Event::FileDropped(path) => Some(Message::FileDropped(id, path)),
                 window::Event::FilesHoveredLeft => Some(Message::FileDropCancelled(id)),
+                window::Event::FileHovered(path) => Some(Message::FileHovered(id, path)),
                 window::Event::Focused => Some(Message::WindowActive(true)),
                 window::Event::Unfocused | window::Event::Closed => {
                     Some(Message::WindowActive(false))
@@ -3129,13 +3136,21 @@ impl App {
             Message::FilePicker(action) => return self.file_picker_action(action),
             Message::FilePreview(stamp) => return self.start_file_preview(stamp),
             Message::FileDropped(id, path) if self.own_window == Some(id) => {
+                self.drop_hover = false;
                 return self.choose_local_file(path);
             }
-            Message::FileDropCancelled(id)
-                if self.own_window == Some(id) && self.file_context().allowed =>
-            {
-                self.status =
-                    "Drop canceled or unsupported. Attach up to 4 local files (4 MiB each).".into();
+            Message::FileHovered(id, _path) if self.own_window == Some(id) => {
+                self.drop_hover = true;
+            }
+            // The overlay clears whatever the context: a drag that leaves while the composer is
+            // momentarily unavailable must not leave a drop banner on screen.
+            Message::FileDropCancelled(id) if self.own_window == Some(id) => {
+                self.drop_hover = false;
+                if self.file_context().allowed {
+                    self.status =
+                        "Drop canceled or unsupported. Attach up to 4 local files (4 MiB each)."
+                            .into();
+                }
             }
             Message::FileOpen => {
                 let context = self.file_context();
@@ -11567,6 +11582,36 @@ impl App {
         let mut shell = column![];
         if let Some(todos) = self.todo_dock() {
             shell = shell.push(todos);
+        }
+        if self.drop_hover {
+            // The reference draws a drop overlay over the composer while a file hovers it
+            // (`ComposerAttachments.tsx:43-49`), stating the title and — when it can accept the
+            // drop — the limits, or that it cannot accept one right now.
+            let allowed = self.file_context().allowed && !self.files.at_capacity();
+            // The reference's copy: a title, then the limits it can take (`locales.ts:411-413`).
+            let copy = if allowed {
+                format!(
+                    "Drag files or images here to add them · up to {} files, 4 MiB each",
+                    attachment_draft::MAX_ATTACHMENTS
+                )
+            } else {
+                "Files and images cannot be added right now".to_owned()
+            };
+            let ink = if allowed { ACCENT } else { DANGER };
+            shell = shell.push(
+                container(label(copy, if allowed { TEXT } else { DANGER }).size(11))
+                    .padding([8, 12])
+                    .width(Length::Fill)
+                    .style(move |_| iced::widget::container::Style {
+                        background: Some(OVERLAY.into()),
+                        border: iced::Border {
+                            color: ink,
+                            width: 1.0,
+                            radius: design::RADIUS_SM.into(),
+                        },
+                        ..Default::default()
+                    }),
+            );
         }
         if let Some(goal) = self.goal_bar() {
             shell = shell.push(goal);
