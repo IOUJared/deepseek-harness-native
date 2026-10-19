@@ -11577,7 +11577,14 @@ impl App {
         // The completion menu sits directly above the card, so it reads as an
         // extension of the composer rather than a floating panel.
         if let Some(menu) = self.completion() {
-            let mut rows = column![].spacing(1);
+            // The reference groups candidates by source and titles each group
+            // (`MenuView.tsx:146`, `ui-input-trigger/src/client/locales.ts:16`). Native advertises
+            // one source — the command list — so the group title is stated once, above its rows.
+            let mut rows = column![].spacing(1).push(
+                container(label("Commands", MUTED).size(10))
+                    .padding([2, 7])
+                    .width(Length::Fill),
+            );
             for (index, candidate) in menu.matches.iter().enumerate() {
                 let selected = index == menu.selected;
                 let row = container(
