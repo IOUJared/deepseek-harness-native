@@ -12667,3 +12667,43 @@ nothing, the same hover previews once the comparison is in hand, and leaving dis
 | capture | — | none: a pointer rule, proved by its test |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 482 — a comparison is drawn as a diff, not as prose
+
+The last changed-files gap, and the one the docs had carried as unbuilt since the deliverables index was
+written: native built one string of `@@ … @@` and `+`/`-` lines and rendered it as a wrapped proportional
+label, so a comparison read like prose. The reference draws numbered gutters, colour-barred additions and
+deletions, monospace, and split/wrap controls (`FileDiff.tsx:246-253`, `FileDiff.module.css:5,24-28`).
+
+The detail panel gained a `Diff` mode that draws the same rows the inline tool diff already used
+(`diff_line_view` with its colour bar, fill and monospace), and `changes_text::diff_lines` maps a
+readable comparison's hunks onto those rows — `@@ … @@` as a path row, `+` as added, `-` as deleted,
+everything else as context. A comparison with nothing textual (binary, oversized, identical sides) keeps
+the prose body that says why.
+
+Tests: `a_comparison_becomes_rows_the_diff_widget_can_draw` (kinds and header text, and `None` for
+nothing drawable) and `a_readable_comparison_opens_as_diff_rows_not_prose` (the panel's mode is `Diff`
+for a readable comparison and `Source` for a binary one).
+
+Evidence: `shots/271-changes-diff.png` (DP-2 alongside, `status: passed`) — a hunk header, context rows
+in muted monospace, one deletion and two additions with their bars and fills.
+
+**Still unbuilt, and now the only part of this gap left**: the two numbered gutters, the split view and
+the wrap control. They are named here rather than implied, and `NATIVE-FORMATTED-DETAILS.md`'s "rich
+diffs remain incomplete" is now corrected to say what does and does not exist.
+
+**Battery (round 482).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1467 passed**, 1 ignored |
+| app, default | **0** | **1432 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/271-changes-diff.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

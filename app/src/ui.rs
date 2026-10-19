@@ -8121,9 +8121,14 @@ impl App {
             }),
         );
     }
-
-    /// Fixture-only: seed the in-app folder listing, which a real run reads from the Host.
-    #[cfg(feature = "public-layout-fixture")]
+    /// Open one seeded comparison, for a fixture that shows the panel it fills.
+    pub(crate) fn open_changed_detail_public(&mut self, seq: u64, index: usize) {
+        let Some(ChangesDiffState::Ready(diff)) = self.changes_diffs.get(&(seq, index)) else {
+            return;
+        };
+        let diff = diff.clone();
+        self.open_changed_detail(seq, index, diff);
+    }
     /// A turn that edited exactly one file, which the card draws as its own row
     /// (`ChangedFiles.tsx:54-77`).
     pub(crate) fn seed_changes_summary_single(&mut self) {
@@ -11067,6 +11072,14 @@ impl App {
             Some(format!("File comparison · seq {seq} · file {index}")),
             false,
         );
+        // A readable comparison is drawn as rows — colour-barred additions and deletions in monospace
+        // — rather than as prose with `+`/`-` characters (`FileDiff.tsx:246-253`,
+        // `FileDiff.module.css:24-28`). Everything else keeps the text body, which states why.
+        if let Some(rows) = changes_text::diff_lines(&diff)
+            && let Some(detail) = self.detail.as_mut()
+        {
+            detail.set_diff(rows);
+        }
     }
     /// The durable workflow card: name, run status and phase-grouped members.
     fn workflow_card<'a>(&'a self, run: &crate::reducer::WorkflowRun) -> Element<'a, Message> {
@@ -13549,6 +13562,7 @@ impl App {
                 #[cfg(feature = "public-layout-fixture")]
                 let control = container(control).id(match mode {
                     detail_panel::Mode::Formatted => "native-detail-formatted",
+                    detail_panel::Mode::Diff => "native-detail-diff",
                     detail_panel::Mode::Source => "native-detail-source",
                 });
                 toolbar = toolbar.push(control);
@@ -19594,7 +19608,7 @@ fn read_line_view(
     .align_y(iced::Alignment::Center)
     .into()
 }
-fn diff_line_view(
+pub(crate) fn diff_line_view(
     line: &crate::reducer::inline_diff::Line,
     height: f32,
 ) -> Element<'static, Message> {

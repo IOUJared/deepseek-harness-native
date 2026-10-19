@@ -87,6 +87,46 @@ pub fn comparison(diff: &dsh_native_transport::dto::ChangesDiff) -> (String, Str
     (display.clone(), body)
 }
 
+/// A readable comparison as the diff widget's own lines: each hunk's header as a path row, its
+/// additions and deletions marked, and everything else context (`FileDiff.tsx:165-253` draws the
+/// header and the `+`/`-` rows this way). Returns `None` when the comparison has nothing to draw as
+/// lines — a binary, an oversized file, or a pair with the same text on both sides.
+pub fn diff_lines(
+    diff: &dsh_native_transport::dto::ChangesDiff,
+) -> Option<crate::reducer::inline_diff::Diff> {
+    use dsh_native_transport::dto::ChangesDiff;
+    let ChangesDiff::Text { hunks, .. } = diff else {
+        return None;
+    };
+    if hunks.is_empty() {
+        return None;
+    }
+    // The transport's own bound is already the card's; this guard keeps a malformed reply from
+    // building an unbounded row set.
+    let mut lines = Vec::new();
+    for hunk in hunks.iter().take(64) {
+        lines.push(crate::reducer::inline_diff::Line {
+            kind: crate::reducer::inline_diff::Kind::Path,
+            text: format!(
+                "@@ -{},{} +{},{} @@",
+                hunk.old_start, hunk.old_lines, hunk.new_start, hunk.new_lines
+            ),
+        });
+        for line in hunk.lines.iter().take(4_000) {
+            let kind = match line.chars().next() {
+                Some('+') => crate::reducer::inline_diff::Kind::Added,
+                Some('-') => crate::reducer::inline_diff::Kind::Deleted,
+                _ => crate::reducer::inline_diff::Kind::Context,
+            };
+            lines.push(crate::reducer::inline_diff::Line {
+                kind,
+                text: line.clone(),
+            });
+        }
+    }
+    (!lines.is_empty()).then_some(crate::reducer::inline_diff::Diff { lines })
+}
+
 /// The reference's status line while a comparison is being read (`FileDiff.tsx:147`,
 /// `locales.ts:122`).
 pub const READING: &str = "Reading changes…";
@@ -158,6 +198,57 @@ mod tests {
         assert_eq!(title(1_234, None), "Edited 1,234 files");
         // A single file whose path cannot be read still counts rather than guessing a name.
         assert_eq!(title(1, None), "Edited 1 files");
+    }
+
+    #[test]
+    fn a_comparison_becomes_rows_the_diff_widget_can_draw() {
+        use dsh_native_transport::dto::{ChangesDiff, ChangesHunk};
+        let hunk = |lines: &[&str]| ChangesHunk {
+            old_start: 3,
+            old_lines: 2,
+            new_start: 3,
+            new_lines: 3,
+            lines: lines.iter().map(|line| line.to_string()).collect(),
+        };
+        let text = ChangesDiff::Text {
+            path: "src/lib.rs".into(),
+            display: "src/lib.rs".into(),
+            before: true,
+            after: true,
+            coarse: false,
+            hunks: vec![hunk(&[" context", "-gone", "+new", "+added"])],
+        };
+        let rows = diff_lines(&text).expect("a readable comparison has rows");
+        let kinds: Vec<_> = rows.lines.iter().map(|line| line.kind).collect();
+        use crate::reducer::inline_diff::Kind;
+        assert_eq!(
+            kinds,
+            [
+                Kind::Path,
+                Kind::Context,
+                Kind::Deleted,
+                Kind::Added,
+                Kind::Added
+            ]
+        );
+        assert_eq!(rows.lines[0].text, "@@ -3,2 +3,3 @@");
+        // A comparison with no hunks, or one with nothing textual, draws nothing.
+        let empty = ChangesDiff::Text {
+            path: "src/lib.rs".into(),
+            display: "src/lib.rs".into(),
+            before: true,
+            after: true,
+            coarse: false,
+            hunks: vec![],
+        };
+        assert!(diff_lines(&empty).is_none());
+        assert!(
+            diff_lines(&ChangesDiff::Binary {
+                path: "src/lib.rs".into(),
+                display: "src/lib.rs".into(),
+            })
+            .is_none()
+        );
     }
 
     #[test]

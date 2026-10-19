@@ -1191,6 +1191,54 @@ fn opening_a_comparison_that_is_still_reading_says_so() {
 
 #[cfg(feature = "public-layout-fixture")]
 #[test]
+fn a_readable_comparison_opens_as_diff_rows_not_prose() {
+    use super::detail_panel::Mode;
+    use dsh_native_transport::dto::{ChangesDiff, ChangesHunk};
+    let (size, _scale) = super::layout_fixture::preset_size("changes-card").unwrap();
+    let (mut app, _queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "changes-card",
+        size,
+        None,
+    );
+    let hunk = ChangesHunk {
+        old_start: 4,
+        old_lines: 1,
+        new_start: 4,
+        new_lines: 2,
+        lines: vec![" context".into(), "-old".into(), "+new".into()],
+    };
+    let text = ChangesDiff::Text {
+        path: "src/main.rs".into(),
+        display: "src/main.rs".into(),
+        before: true,
+        after: true,
+        coarse: false,
+        hunks: vec![hunk],
+    };
+    app.changes_diffs
+        .insert((2, 0), crate::ui::ChangesDiffState::Ready(text.clone()));
+    drop(app.update(Message::OpenChanged(2, 0)));
+    let detail = app.detail.as_ref().expect("the panel opened");
+    assert_eq!(
+        detail.mode,
+        Mode::Diff,
+        "a readable comparison is drawn as rows"
+    );
+    // A comparison with nothing textual keeps the text body that explains why.
+    let binary = ChangesDiff::Binary {
+        path: "src/main.rs".into(),
+        display: "src/main.rs".into(),
+    };
+    app.changes_diffs
+        .insert((2, 1), crate::ui::ChangesDiffState::Ready(binary));
+    drop(app.update(Message::OpenChanged(2, 1)));
+    let detail = app.detail.as_ref().expect("the panel reopened");
+    assert_eq!(detail.mode, Mode::Source);
+}
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
 fn a_rested_pointer_previews_only_a_comparison_already_read() {
     let (size, _scale) = super::layout_fixture::preset_size("changes-card").unwrap();
     let (mut app, _queue) = super::layout_fixture::build(

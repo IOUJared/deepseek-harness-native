@@ -137,6 +137,7 @@ pub const PRESETS: &[&str] = &[
     "schedules-linked",
     "mcp",
     "changes-card",
+    "changes-diff",
     "changes-single",
     "changes-fold",
     "feedback",
@@ -368,6 +369,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "schedules-linked"
         | "mcp"
         | "changes-card"
+        | "changes-diff"
         | "changes-single"
         | "changes-fold"
         | "feedback"
@@ -1780,7 +1782,11 @@ pub fn build(
                     "stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],
                         "texts":["PUBLIC synthetic answer carrying a positive rating."]}]}}}),
         ]
-    } else if preset == "changes-card" || preset == "changes-fold" || preset == "changes-single" {
+    } else if preset == "changes-card"
+        || preset == "changes-fold"
+        || preset == "changes-single"
+        || preset == "changes-diff"
+    {
         vec![
             json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
                 "surfaceOp":"append","data":{"role":"user","id":"PUBLIC-changes-message",
@@ -1928,6 +1934,34 @@ pub fn build(
     }
     if preset == "changes-card" {
         app.seed_changes_summary();
+    }
+    if preset == "changes-diff" {
+        // The comparison itself, drawn as diff rows: the one surface the card's press opens into.
+        app.seed_changes_summary_single();
+        app.changes_diffs.insert(
+            (2, 0),
+            super::ChangesDiffState::Ready(dsh_native_transport::dto::ChangesDiff::Text {
+                path: "app/src/ui.rs".into(),
+                display: "app/src/ui.rs".into(),
+                before: true,
+                after: true,
+                coarse: false,
+                hunks: vec![dsh_native_transport::dto::ChangesHunk {
+                    old_start: 11252,
+                    old_lines: 3,
+                    new_start: 11252,
+                    new_lines: 4,
+                    lines: vec![
+                        " fn changes_card(&self, row: &DisplayRow) {".into(),
+                        "-    let title = format!(\"Changed files · {} files\", total);".into(),
+                        "+    let title = changes_text::title(total, single);".into(),
+                        "+    let counts = changes_text::file_counts(..);".into(),
+                        "     let mut card = column![];".into(),
+                    ],
+                }],
+            }),
+        );
+        app.open_changed_detail_public(2, 0);
     }
     if preset == "changes-single" {
         app.seed_changes_summary_single();
@@ -3807,6 +3841,8 @@ pub fn metadata(app: &App, preset: &str) -> Value {
                 | "navigation-tiny"
                 | "navigation-search-tiny"
                 | "tool-activity-details"
+                // The comparison panel covers the composer, as the other detail presets do.
+                | "changes-diff"
         );
     let reasoning_expected = matches!(preset, "long-model" | "tiny-long-model")
         || preset.starts_with("model-metadata")
@@ -3906,7 +3942,7 @@ pub fn metadata(app: &App, preset: &str) -> Value {
         "assistantDetailsSnapshotSimulated":preset.starts_with("assistant-details"),
         "detailVisible":app.detail_visible(),
         "detailFormattedAvailable":app.detail.as_ref().is_some_and(|detail|detail.formatted_available()),
-        "detailMode":app.detail.as_ref().map(|detail|match detail.mode {super::detail_panel::Mode::Formatted=>"formatted",super::detail_panel::Mode::Source=>"source"}),
+        "detailMode":app.detail.as_ref().map(|detail|match detail.mode {super::detail_panel::Mode::Formatted=>"formatted",super::detail_panel::Mode::Diff=>"diff",super::detail_panel::Mode::Source=>"source"}),
         "detailSourceBytes":app.detail.as_ref().map(|detail|detail.source.len()),
         "detailsLinksOrImagesOpened":false,
         "detailsCodeExecuted":false,

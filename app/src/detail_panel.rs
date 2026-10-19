@@ -28,6 +28,9 @@ pub struct Opening {
 pub enum Mode {
     Source,
     Formatted,
+    /// A comparison drawn as diff rows: colour-barred additions and deletions in monospace, the way
+    /// the reference's `FileDiff` renders one (`FileDiff.tsx:246-253`).
+    Diff,
 }
 
 pub struct Detail {
@@ -37,6 +40,7 @@ pub struct Detail {
     pub ticket: Option<Stamp>,
     pub mode: Mode,
     plan: Option<Result<formatted::Document, formatted::Failure>>,
+    diff: Option<crate::reducer::inline_diff::Diff>,
 }
 impl std::fmt::Debug for Detail {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -63,7 +67,16 @@ impl Detail {
             ticket,
             mode: Mode::Source,
             plan,
+            diff: None,
         }
+    }
+    /// Draw this panel as a comparison instead of as text. The source stays for copying.
+    pub fn set_diff(&mut self, diff: crate::reducer::inline_diff::Diff) {
+        if diff.lines.is_empty() {
+            return;
+        }
+        self.mode = Mode::Diff;
+        self.diff = Some(diff);
     }
     /// Copy only the nonempty bounded display source, never metadata or rendered output.
     pub fn copy_available(&self) -> bool {
@@ -92,6 +105,24 @@ impl Detail {
         }
     }
     pub fn body(&self) -> Element<'_, Message> {
+        if self.mode == Mode::Diff
+            && let Some(diff) = &self.diff
+        {
+            // One row per line, in the same widget the inline tool diff uses, so a comparison read
+            // here and one read in a tool row cannot disagree about colour or rhythm.
+            let height = design::CODE_LINE;
+            let mut rows = Column::new().width(Length::Fill);
+            for line in &diff.lines {
+                rows = rows.push(crate::ui::diff_line_view(line, height));
+            }
+            return scrollable(rows)
+                .direction(scrollable::Direction::Vertical(
+                    scrollable::Scrollbar::default(),
+                ))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into();
+        }
         if self.mode == Mode::Formatted
             && let Some(Ok(document)) = &self.plan
         {
