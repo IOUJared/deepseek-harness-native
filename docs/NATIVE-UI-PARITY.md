@@ -14320,3 +14320,56 @@ fixture / **1457** default; bin **21** warnings (measured; the check prints 21 p
 | transport / core / JS | — | **not re-run**: only `app` comments and docs changed |
 | DP-2 captures | — | none: no visual change |
 | app bin | — | **21** warnings |
+
+### Round 516 — a seat states its activity until the pointer or the disclosure brings the chevron
+
+**The gap.** Round 515's handover named it: the reference's seat leads with a 16px box holding the
+*activity's* icon at rest, and swaps that icon for the disclosure chevron on hover, on focus, or while
+the members are shown (`ChatGroupSeat.tsx:113-127` swaps the two by opacity; the chevron points up
+while `aria-expanded`; `.title` is a 6px-gapped row with a 16px leading box,
+`ChatGroupSeat.module.css:5-20,30-78`). Native printed a permanent `▲`/`▼` in front of the title, so
+every seat stated a fold state it was not in.
+
+**The change.** A seat now carries its activity category: the live one while its turn runs, and the
+summary's top-counted category once it settles (`process_group::counts`). `activity_glyph` maps each
+category to one glyph the tool rows already speak — read `▤`, search and web `◎`, edit and write `↳`,
+commands `>_`, code `λ`, subagents `⇄`, plan `☑`, questions `?`, tools `•` — and `seat_leading`
+returns the activity glyph at rest, `▾` while the pointer rests on the seat and `▴` while the members
+are shown. The seat's row is the reference's `[16px leading box][6px][title]`, and
+`Message::SeatHover`/`SeatHoverEnd` (via `mouse_area`) set `App.seat_hover`, cleared on session switch.
+`mouse_area` is used **without** `on_press`, so the press still reaches the seat's button: iced
+captures the event only when a mouse area owns a press (`iced_widget-0.14.2/src/mouse_area.rs:377-381`),
+which is why the seat keeps toggling.
+
+**Frames** (1040×760). `shots/310-seat-activity.png` (`tool-activity`): the live seat reads
+`>_ Running commands · PUBLIC recorded intent only; never executed` — the activity glyph, no chevron.
+`shots/311-seat-chevron.png` (`tool-activity-open`): the opened seat reads `▴ Running commands · …`
+with its three rows beneath. The hovered state — a folded seat showing `▾` — has no frame: it is
+transient and no preset holds a pointer, so the test is its evidence.
+
+**Glyph coverage, checked rather than assumed.** Every chosen code point is present in
+`/usr/share/fonts/TTF/DejaVuSans.ttf` (fontTools `getBestCmap`): `▤ ⇄ ☑ λ ◎ • ↳ ▾ ▴`. The obvious
+magnifier `⌕` (U+2315) is **not** in DejaVu and is not used.
+
+**Tests.** `a_seat_leading_states_its_activity_until_the_pointer_or_the_disclosure_swaps_the_chevron`
+pins each category's glyph, the rest/hover/open table, and that no category glyph can be mistaken for
+the disclosure. `hovering_a_seat_states_the_disclosure_and_leaving_restores_its_activity` pins the
+live-versus-settled activity choice (commands while running, `read` once settled), the hover enter and
+exit messages, and that leaving a different seat does not clear this one.
+
+**Still different.** The reference's leading marks are SVGs with an ink change on hover
+(`label-tertiary` → `label-secondary`); native substitutes text glyphs in one ink, the palette mapping
+the coverage table already records. The turn control's chevron is likewise a text glyph.
+
+**Battery (round 516).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1506 passed**, 1 ignored |
+| app, default | **0** | **1458 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-7af6byg3`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-ljdq2hlz`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 captures | — | `shots/310-seat-activity.png`, `shots/311-seat-chevron.png`, both `status: passed` |
+| app bin | — | **21** warnings |

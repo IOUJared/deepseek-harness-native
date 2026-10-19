@@ -504,6 +504,10 @@ pub enum Message {
         generation: u64,
         turn: u64,
     },
+    /// The pointer entered a process seat: its leading glyph becomes the disclosure chevron.
+    SeatHover(u64),
+    /// The pointer left that seat again.
+    SeatHoverEnd(u64),
     ToggleActivity {
         generation: u64,
         key: u64,
@@ -761,6 +765,34 @@ fn action_footer(delta: f32, response: bool) -> f32 {
         ACTION_GAP
     }) + ACTION_HEIGHT
         + delta
+}
+/// A process category's leading glyph. The reference draws an SVG per activity; no DejaVu face
+/// carries those, so the tool rows' own vocabulary stands in, one covered glyph per category
+/// (`ChatGroupSeat.tsx:113-127`, and the glyphs the tool rows already use).
+fn activity_glyph(activity: &str) -> &'static str {
+    match activity {
+        "read" | "readImage" => "\u{25a4}",
+        "search" | "webSearch" | "webFetch" => "\u{25ce}",
+        "edit" | "write" => "\u{21b3}",
+        "commands" => ">_",
+        "code" => "\u{3bb}",
+        "subagents" => "\u{21c4}",
+        "plan" => "\u{2611}",
+        "questions" => "?",
+        _ => "\u{2022}",
+    }
+}
+/// The seat's leading glyph: the activity's mark at rest, and the disclosure chevron once the
+/// pointer rests on the seat or its members are shown (`ChatGroupSeat.tsx:113-127` swaps the two
+/// by opacity; the chevron points up while open).
+fn seat_leading(activity: &str, open: bool, hovered: bool) -> &'static str {
+    if open {
+        "\u{25b4}"
+    } else if hovered {
+        "\u{25be}"
+    } else {
+        activity_glyph(activity)
+    }
 }
 /// True for the row the web draws as an Assistant response part, which takes
 /// the wider flow gap around it (`ChatView.module.css:73-85`).
@@ -1186,6 +1218,9 @@ struct SearchMatches {
 struct Seat {
     key: u64,
     title: String,
+    /// The group's activity category: the live one while the turn runs, the top-counted one once
+    /// it settles. The seat's leading box shows its glyph at rest (`ChatGroupSeat.tsx:113-127`).
+    activity: &'static str,
     members: Vec<usize>,
     open: bool,
 }
@@ -1594,6 +1629,9 @@ pub struct App {
     /// with no entry follows the reference's default and is folded, whatever its turn's state
     /// (`use-disclosure.ts` begins collapsed; `ChatGroupSeat.tsx:162` hides the body while folded).
     process_group_open: std::collections::BTreeMap<u64, bool>,
+    /// The process seat the pointer rests on, if any: the reference swaps its leading activity
+    /// glyph for the disclosure chevron while hovered (`ChatGroupSeat.tsx:113-127`).
+    seat_hover: Option<u64>,
     /// Settled turns whose whole process the reader has opened, by turn number. A settled turn
     /// with no entry is folded behind its control line, as the reference's completed-turn fold
     /// is (`ChatGroupSeat.tsx:152-153`, `TurnProcessNodeView.tsx:20-33`).
@@ -1928,6 +1966,7 @@ impl App {
                 thoughts_expanded: Default::default(),
                 activity_expanded: Default::default(),
                 process_group_open: Default::default(),
+                seat_hover: None,
                 turn_process_open: Default::default(),
                 edit_review: None,
                 search_open: false,
@@ -3048,6 +3087,8 @@ impl App {
         // A turn number restarts at 1 in every session, so an open turn here would open the new
         // session's first turn.
         self.turn_process_open.clear();
+        // A seat's hover belongs to the pointer and the row it was over.
+        self.seat_hover = None;
         // The usage disclosure is keyed by record seq, which is not unique across sessions, so a
         // seq that was open here would open the new session's same-numbered row.
         self.usage_expanded.clear();
@@ -5674,6 +5715,12 @@ impl App {
                 if !self.turn_process_open.remove(&turn) {
                     self.turn_process_open.insert(turn);
                 }
+            }
+            Message::SeatHover(key) if self.seat_hover != Some(key) => {
+                self.seat_hover = Some(key);
+            }
+            Message::SeatHoverEnd(key) if self.seat_hover == Some(key) => {
+                self.seat_hover = None;
             }
             Message::ToggleActivity { generation, key }
                 if generation == self.generation && self.composer_visible() =>
@@ -15209,16 +15256,19 @@ impl App {
                             .map(crate::reducer::process_group::category)
                     })
                     .flatten();
-                let mut title = crate::reducer::process_group::seat_title(
-                    &crate::reducer::process_group::counts(
-                        group
-                            .members
-                            .iter()
-                            .filter_map(|index| names.get(*index).copied().flatten())
-                            .map(crate::reducer::process_group::category),
-                    ),
-                    live,
+                let counts = crate::reducer::process_group::counts(
+                    group
+                        .members
+                        .iter()
+                        .filter_map(|index| names.get(*index).copied().flatten())
+                        .map(crate::reducer::process_group::category),
                 );
+                // The leading glyph names the live activity, or the summary's top category once
+                // the group settles — the reference's icon does the same (`ChatGroupSeat.tsx:99-127`).
+                let activity = live
+                    .or_else(|| counts.first().map(|count| count.category))
+                    .unwrap_or("tools");
+                let mut title = crate::reducer::process_group::seat_title(&counts, live);
                 // A live group in a mode that shows process detail states the running command,
                 // path or query after its label (`ChatGroupSeat.tsx:113-120`).
                 if live.is_some() && policy.live_process_detail {
@@ -15236,6 +15286,7 @@ impl App {
                     Seat {
                         key,
                         title,
+                        activity,
                         members: group.members,
                         open,
                     },
@@ -15246,28 +15297,39 @@ impl App {
     /// One group's seat: the reference's disclosure line above its first member
     /// (`ChatGroupSeat.tsx`, `message.stepProcess.done.*`).
     fn process_seat(&self, seat: &Seat) -> Element<'static, Message> {
-        // The reference's seat points **up** when its members are shown and **down** when they are
-        // folded away (`ChatGroupSeat.tsx:124-128`), at the body size and tertiary ink, not a small
-        // caption.
-        let line = format!(
-            "{} {}",
-            if seat.open { "\u{25b2}" } else { "\u{25bc}" },
-            short(&seat.title, 120)
-        );
+        let glyph = seat_leading(seat.activity, seat.open, self.seat_hover == Some(seat.key));
+        let title = label(short(&seat.title, 120), MUTED).size(14);
+        // The reference's `.title` is a 16px leading box and its label, 6px apart
+        // (`ChatGroupSeat.module.css:5-20,30-78`); the leading box holds the activity's icon at
+        // rest and the disclosure chevron on hover or while open (`ChatGroupSeat.tsx:113-127`).
+        let line = row![
+            container(label(glyph, MUTED).size(12))
+                .width(design::LEADING_BOX)
+                .align_x(iced::Alignment::Center),
+            title,
+        ]
+        .spacing(6)
+        .align_y(iced::Alignment::Center)
+        .width(Length::Fill);
+        let key = seat.key;
         container(
-            button(label(line, MUTED).size(14))
-                .on_press(Message::ToggleProcessGroup {
-                    generation: self.generation,
-                    key: seat.key,
-                })
-                .style(design::ghost)
-                // The reference's `.title` pads nothing; the 24px root height and the
-                // centred 16px leading box are its whole vertical box
-                // (`ChatGroupSeat.module.css:1-20`). Native added 6px around the
-                // button, which made the drawn header taller than the line the row
-                // reserved for it.
-                .padding([0, 0])
-                .width(Length::Fill),
+            iced::widget::mouse_area(
+                button(line)
+                    .on_press(Message::ToggleProcessGroup {
+                        generation: self.generation,
+                        key,
+                    })
+                    .style(design::ghost)
+                    // The reference's `.title` pads nothing; the 24px root height and the
+                    // centred 16px leading box are its whole vertical box
+                    // (`ChatGroupSeat.module.css:1-20`). Native added 6px around the
+                    // button, which made the drawn header taller than the line the row
+                    // reserved for it.
+                    .padding([0, 0])
+                    .width(Length::Fill),
+            )
+            .on_enter(Message::SeatHover(key))
+            .on_exit(Message::SeatHoverEnd(key)),
         )
         // `ChatGroupSeat`'s root, title and content carry no horizontal padding
         // (`ChatGroupSeat.module.css:1-20,110-116`), so the seat starts at the column's edge.
@@ -23018,6 +23080,98 @@ mod tests {
             flow_gap_for(&live_refs, live_answer, &live_gaps),
             design::TURN_GAP
         );
+    }
+
+    #[test]
+    fn a_seat_leading_states_its_activity_until_the_pointer_or_the_disclosure_swaps_the_chevron() {
+        // The tool rows' own vocabulary, one covered DejaVu glyph per category: the reference's
+        // SVGs have no face here (`ChatGroupSeat.tsx:113-127`).
+        assert_eq!(activity_glyph("read"), "\u{25a4}");
+        assert_eq!(activity_glyph("search"), "\u{25ce}");
+        assert_eq!(activity_glyph("edit"), "\u{21b3}");
+        assert_eq!(activity_glyph("commands"), ">_");
+        assert_eq!(activity_glyph("code"), "\u{3bb}");
+        assert_eq!(activity_glyph("plan"), "\u{2611}");
+        assert_eq!(activity_glyph("questions"), "?");
+        assert_eq!(activity_glyph("tools"), "\u{2022}");
+        // At rest the seat states what it did; a resting pointer and an open disclosure both
+        // bring the chevron forward, pointing up only while the members are shown.
+        assert_eq!(seat_leading("read", false, false), activity_glyph("read"));
+        assert_eq!(seat_leading("read", false, true), "\u{25be}");
+        assert_eq!(seat_leading("read", true, false), "\u{25b4}");
+        assert_eq!(seat_leading("read", true, true), "\u{25b4}");
+        // No category can accidentally read as a chevron.
+        for activity in [
+            "read",
+            "search",
+            "edit",
+            "commands",
+            "code",
+            "plan",
+            "questions",
+            "tools",
+        ] {
+            let glyph = activity_glyph(activity);
+            assert!(!glyph.is_empty(), "{activity}");
+            assert!(
+                glyph != "\u{25be}" && glyph != "\u{25b4}",
+                "{activity} must not be mistaken for the disclosure"
+            );
+        }
+    }
+
+    #[cfg(feature = "public-layout-fixture")]
+    #[test]
+    fn hovering_a_seat_states_the_disclosure_and_leaving_restores_its_activity() {
+        use layout_fixture;
+        let size = iced::Size::new(1040.0, 760.0);
+        let (mut app, _receiver) =
+            layout_fixture::build(layout_fixture::test_options(), "tool-activity", size, None);
+        let (key, activity) = {
+            let rows: Vec<_> = app.transcript.display_rows(false).collect();
+            let seat = app
+                .process_seats(&rows)
+                .into_values()
+                .next()
+                .expect("a seat");
+            // A live group states the activity it is running, not its summary.
+            (seat.key, seat.activity)
+        };
+        assert_eq!(activity, "commands", "the live group ran a command last");
+        assert_eq!(app.seat_hover, None);
+        drop(app.update(Message::SeatHover(key)));
+        assert_eq!(app.seat_hover, Some(key));
+        assert_eq!(
+            seat_leading(activity, false, app.seat_hover == Some(key)),
+            "\u{25be}"
+        );
+        // Leaving a different seat must not clear this one.
+        drop(app.update(Message::SeatHoverEnd(key + 1)));
+        assert_eq!(app.seat_hover, Some(key));
+        drop(app.update(Message::SeatHoverEnd(key)));
+        assert_eq!(app.seat_hover, None);
+        assert_eq!(
+            seat_leading(activity, false, app.seat_hover == Some(key)),
+            activity_glyph(activity)
+        );
+        // A settled group states its summary's top category instead.
+        let (settled, _receiver) = layout_fixture::build(
+            layout_fixture::test_options(),
+            "process-group-open",
+            size,
+            None,
+        );
+        let rows: Vec<_> = settled.transcript.display_rows(false).collect();
+        let seat = settled
+            .process_seats(&rows)
+            .into_values()
+            .next()
+            .expect("a seat");
+        assert_eq!(
+            seat.activity, "read",
+            "read is the summary's first category"
+        );
+        assert!(!seat.open, "its own disclosure is still folded");
     }
 
     #[cfg(feature = "public-layout-fixture")]

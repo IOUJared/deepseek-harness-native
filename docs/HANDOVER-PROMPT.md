@@ -27,7 +27,7 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > 2. Measure the baselines rather than trusting this file:
 >    - fixture: `cargo test --manifest-path app/Cargo.toml --locked --offline --jobs 2 --features public-layout-fixture --bin dsh-native-app -- --test-threads=2`
 >    - default: the same without `--features`
->    - at handover: **1504** fixture / **1457** default, 1 ignored each (round 515 sweep).
+>    - at handover: **1506** fixture / **1458** default, 1 ignored each (round 516).
 > 3. Load `.agents/skills/native-ui-parity/SKILL.md` (and `.agents/skills/impeccable-rust/SKILL.md` for
 >    Rust changes) — `AGENTS.md` makes both mandatory for this work. Then read `docs/SESSION-PROMPT.md`
 >    (capture conventions, next shot number), `docs/VERIFICATION.md`, and the coverage table at the end
@@ -65,12 +65,11 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 >   frame (same window size, same sidebar state, same conversation data).
 >
 > ### Live backlog at handover (verify each before working it)
-> 1. **The seat title's leading glyph** — the reference swaps a 16px activity icon for a chevron on
->    hover/focus (`ChatGroupSeat.module.css:30-78`); native draws one label with `▲`/`▼`. The turn
->    control has the same difference: a rotating 14px icon against a text glyph.
-> 2. **The turn control's counts** — the reference publishes `data-turn-process-messages`,
+> 1. **The turn control's counts** — the reference publishes `data-turn-process-messages`,
 >    `-tool-calls` and `-subagents` for the control's accessible state
 >    (`TurnProcessNodeView.tsx:38-41`); native's label states only the duration or end state.
+> 2. **Hover ink** — the reference lifts a seat's title from tertiary to secondary ink on hover; native
+>    keeps one ink and only swaps the leading glyph (round 516).
 > 3. **`reference.png` measurements are paired, not pixel-diffed.** The frame was read as "collapsed
 >    rail, no header" through round 509; round 510 measured every band in its left 520px and found no
 >    ink, so it is a **crop**. A pixel diff needs a fixture preset that reproduces a crop — or a
@@ -88,8 +87,9 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > Closed since the last handover: the header reminders chip (round 503), the split diff view (round
 > 505), the comparison layout's persistence (round 509), the message rows' horizontal and vertical
 > insets (rounds 504, 510), the group seat's 24px blank band (round 511), the folded-by-default seat
-> with its expanded title gap (round 512), a settled turn's process control (round 513), and the
-> turn-process 16px flow rung (round 514).
+> with its expanded title gap (round 512), a settled turn's process control (round 513), the
+> turn-process 16px flow rung (round 514), and the seat's activity-to-chevron leading glyph (round
+> 516).
 >
 > ### Etiquette
 > Be terse. Prefer numbered lists over tables in replies. Challenge your own claims; walk back anything
