@@ -220,6 +220,13 @@ pub struct RouteFacts {
 /// The General page's permission row: the deployment's new-session default, the revision a
 /// write must match, whether it is writable at all, and the presets it advertises for new
 /// sessions (`PermissionRow.tsx:1-40`, `settings-store.ts:45-58`).
+/// Which half of a preset's guide is showing (`guide-locales.ts:4-5`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GuideSection {
+    Explanation,
+    Usage,
+}
+
 /// Whether one permission value is the full-access preset, which always needs a risk
 /// acknowledgement before it can become the new-session default (`PermissionRow.tsx:81-87`).
 pub fn is_full_access(value: &str) -> bool {
@@ -340,6 +347,8 @@ pub enum Action {
     PermissionDefault(String),
     /// The acknowledged full-access choice, which writes.
     PermissionDefaultConfirmed(String),
+    /// Unfold one preset's guide section, or fold it when the same one is already showing.
+    PresetGuide(String, GuideSection),
     /// Untick or tick the risk acknowledgement.
     FullAccessAcknowledge(bool),
     /// Close the risk confirmation without writing.
@@ -434,6 +443,9 @@ pub struct Settings {
     pub(crate) preference_error: Option<String>,
     /// The permission default row's preset list is open.
     permission_open: bool,
+    /// The preset whose guide is unfolded, and which of its two sections shows
+    /// (`AgentPresetSection.tsx:142-147`).
+    pub(crate) preset_guide_open: Option<(String, GuideSection)>,
     /// The permission-default choice awaiting the reference's risk confirmation; full access never
     /// commits on a single press (`PermissionRow.tsx:81-87,105-125`).
     pub full_access_confirm: Option<String>,
@@ -474,6 +486,7 @@ impl Default for Settings {
             preference_error: None,
             permission_open: false,
             full_access_confirm: None,
+            preset_guide_open: None,
             full_access_acknowledged: false,
             api_help_open: false,
             context_policy_open: false,
@@ -962,6 +975,13 @@ impl Settings {
                 self.permission_open = false;
                 return None;
             }
+        }
+        if let Action::PresetGuide(ref id, section) = action {
+            self.preset_guide_open = match &self.preset_guide_open {
+                Some((open, shown)) if open == id && *shown == section => None,
+                _ => Some((id.clone(), section)),
+            };
+            return None;
         }
         if let Action::FullAccessAcknowledge(ticked) = action {
             self.full_access_acknowledged = ticked;
@@ -1505,6 +1525,64 @@ impl Settings {
                     column![line, label(preset_id_line(row), MUTED).size(10),].spacing(3);
                 if let Some(description) = description {
                     card = card.push(label(description, MUTED).size(12));
+                }
+                // The reference's two guide disclosures, on the shipped presets only
+                // (`AgentPresetSection.tsx:142-147`): a custom preset's description is its help.
+                if let Some(guide) = crate::ui::preset_guide::guide(&row.id) {
+                    card = card.push(label(guide.intro, MUTED).size(11));
+                    let shown = match &self.preset_guide_open {
+                        Some((open, section)) if open == &row.id => Some(*section),
+                        _ => None,
+                    };
+                    card = card.push(
+                        row![
+                            button(
+                                label(
+                                    crate::ui::preset_guide::MODE_DETAILS,
+                                    if shown == Some(GuideSection::Explanation) {
+                                        TEXT
+                                    } else {
+                                        MUTED
+                                    },
+                                )
+                                .size(11),
+                            )
+                            .style(design::ghost)
+                            .padding([0, 4])
+                            .on_press(Action::PresetGuide(
+                                row.id.clone(),
+                                GuideSection::Explanation,
+                            )),
+                            button(
+                                label(
+                                    crate::ui::preset_guide::HOW_TO_USE,
+                                    if shown == Some(GuideSection::Usage) {
+                                        TEXT
+                                    } else {
+                                        MUTED
+                                    },
+                                )
+                                .size(11),
+                            )
+                            .style(design::ghost)
+                            .padding([0, 4])
+                            .on_press(Action::PresetGuide(row.id.clone(), GuideSection::Usage)),
+                        ]
+                        .spacing(4),
+                    );
+                    match shown {
+                        Some(GuideSection::Explanation) => {
+                            for paragraph in guide.explanation.split("\n\n") {
+                                card = card.push(label(paragraph, MUTED).size(11));
+                            }
+                        }
+                        Some(GuideSection::Usage) => {
+                            for paragraph in guide.usage.split("\n\n") {
+                                card = card.push(label(paragraph, MUTED).size(11));
+                            }
+                        }
+                        None => {}
+                    }
                 }
                 body = body.push(card);
             }

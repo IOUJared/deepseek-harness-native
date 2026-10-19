@@ -10838,8 +10838,8 @@ non-full-access choice is not guarded and Cancel leaves nothing behind; and the 
 Recorded here so the next rounds have their list, with the same taxonomy: (b) different, (c) absent.
 
 1. (b) ~~Agent presets ignore the "Show coding view" filter~~ — closed in round 431.
-2. (b) No per-preset "Mode details" / "How to use" help (`AgentPresetSection.tsx:142-147`,
-   `guide-locales.ts:4-5`); the card's preset id landed in round 433, the guide is still open.
+2. (b) ~~No per-preset "Mode details" / "How to use" help~~ — closed in round 434 (the card's id
+   landed in round 433).
 3. (b) ~~The shortcuts list omits the reference's fixed "Menus and dialogs" rows and prints a blank
    key for an unbound command~~ — closed in round 432.
 4. (c) "Open configuration file" header action (`ui-settings-general/src/client/index.ts:221-227`,
@@ -10956,4 +10956,45 @@ cannot pass by coincidence.
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/248-preset-ids.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 434 — a shipped preset explains itself
+
+The settings audit's remaining finding: the reference keeps a curated guide for each shipped mode —
+one sentence on when to choose it, a "Mode details" explanation, and a "How to use" set of worked
+examples — behind two disclosures on the card (`AgentPresetSection.tsx:142-147`,
+`guide-locales.ts:2-79`). Native showed only the picker's one-line description, so nothing in the app
+said what PTC actually changes or what Minimal leaves out.
+
+`preset_guide` now carries the four shipped guides with the reference's own English text — Standard,
+PTC, Minimal and Creator — and each card shows its intro sentence plus the two disclosures, which
+toggle independently and fold on a second press. A custom preset gets no guide, exactly as in the
+reference: its own description is its help.
+
+Evidence: `shots/249-preset-guide.png` (DP-2 alongside, `status: passed`) in the new
+`settings-presets-guide` preset — Standard's card with `How to use` showing, its two example tasks and
+their expected outputs, while the other cards show only their labels and intros.
+
+Tests: two in `preset_guide` — the guide exists for exactly the four shipped ids and not for a custom
+one, with each section non-empty; and each guide names its mode first, explains with a "How it works"
+section and opens its usage with a named example, which is what the disclosure renders.
+
+Not built, and recorded rather than implied: the reference's "Copy" button on an example task, its
+footnotes block, and the Chinese guide text. The first two are small follow-ups; the third belongs with
+the localization work that is already a recorded difference.
+
+**Battery (round 434).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1428 passed**, 1 ignored |
+| app, default | **0** | **1408 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/249-preset-guide.png`, `status: passed` |
+| app bin | — | **22** dead-code warnings |
 | tree | — | clean before the commit |

@@ -133,6 +133,9 @@ mod permission_ui_tests;
 mod plan_control;
 #[path = "plan_mode.rs"]
 mod plan_mode;
+/// Per-preset help for the shipped modes.
+#[path = "preset_guide.rs"]
+pub mod preset_guide;
 #[cfg(test)]
 #[path = "prompt_recovery_ui_tests.rs"]
 mod prompt_recovery_ui_tests;

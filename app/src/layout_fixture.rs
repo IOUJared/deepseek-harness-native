@@ -113,6 +113,7 @@ pub const PRESETS: &[&str] = &[
     "settings-codex-maintenance",
     "settings-presets",
     "settings-presets-coding-off",
+    "settings-presets-guide",
     "information",
     "information-expanded",
     "work-panel",
@@ -231,7 +232,8 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "settings-codex-images"
         | "settings-codex-maintenance"
         | "settings-presets"
-        | "settings-presets-coding-off" => Some((Size::new(1024.0, 900.0), 1.0)),
+        | "settings-presets-coding-off"
+        | "settings-presets-guide" => Some((Size::new(1024.0, 900.0), 1.0)),
         "assistant-details-source"
         | "assistant-details-formatted"
         | "assistant-details-fallback" => Some((Size::new(1040.0, 900.0), 1.0)),
@@ -2399,7 +2401,8 @@ pub fn build(
         | "settings-codex-images"
         | "settings-codex-maintenance"
         | "settings-presets"
-        | "settings-presets-coding-off" => {
+        | "settings-presets-coding-off"
+        | "settings-presets-guide" => {
             use crate::settings::{Action, Page};
             // Default ApiLogin would read metadata. Seed General locally with disabled effects,
             // then exercise actual App Open/navigation. No production defaults/guards change.
@@ -2434,7 +2437,10 @@ pub fn build(
                 || preset.starts_with("settings-general-usage")
             {
                 Page::Codex
-            } else if preset == "settings-presets" || preset == "settings-presets-coding-off" {
+            } else if preset == "settings-presets"
+                || preset == "settings-presets-coding-off"
+                || preset == "settings-presets-guide"
+            {
                 Page::AgentPresets
             } else if preset == "settings-models" {
                 Page::ApiLogin
@@ -2515,7 +2521,10 @@ pub fn build(
                     },
                 });
             }
-            if preset == "settings-presets" || preset == "settings-presets-coding-off" {
+            if preset == "settings-presets"
+                || preset == "settings-presets-coding-off"
+                || preset == "settings-presets-guide"
+            {
                 // The Host's own roster shape, seeded here as its read reply would be: the four
                 // shipped presets, one named declaration and one that failed.
                 app.set_agent_presets_section_roster();
@@ -2524,6 +2533,12 @@ pub fn build(
                 // remain rather than all of them.
                 if preset == "settings-presets-coding-off" {
                     app.coding_view = false;
+                }
+                if preset == "settings-presets-guide" {
+                    // One shipped preset's guide unfolded, the way the two disclosures open
+                    // (`AgentPresetSection.tsx:142-147`).
+                    app.settings.preset_guide_open =
+                        Some(("standard".into(), crate::settings::GuideSection::Usage));
                 }
             }
             if preset.starts_with("settings-codex") || preset.starts_with("settings-general-usage")
