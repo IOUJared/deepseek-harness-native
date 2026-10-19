@@ -708,3 +708,38 @@ fn settings_route_facts_project_deepseek_catalog_rows_without_inventing_models()
     drop(app.view());
     assert!(queue.try_recv().is_err());
 }
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
+fn only_a_running_job_offers_a_stop_and_any_row_opens_it() {
+    let (size, _scale) = super::layout_fixture::preset_size("conversation").unwrap();
+    let (mut app, _queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "conversation",
+        size,
+        None,
+    );
+    // The fixture hook seeds one running shell job and three others in other states.
+    app.set_jobs();
+    let statuses: Vec<String> = app.jobs.iter().map(|job| job.status.clone()).collect();
+    assert!(statuses.iter().any(|status| status == "running"));
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|status| *status == "running")
+            .count(),
+        1,
+        "exactly one row can be stopped: {statuses:?}"
+    );
+    // A press on the row's own body toggles it, and a press on another row moves the expansion.
+    let other = app
+        .jobs
+        .iter()
+        .find(|job| job.id != "shell-1")
+        .map(|job| job.id.clone())
+        .expect("a settled row");
+    drop(app.update(Message::ToggleJobOutput(other.clone())));
+    assert_eq!(app.jobs_expanded.as_deref(), Some(other.as_str()));
+    drop(app.update(Message::ToggleJobOutput(other.clone())));
+    assert!(app.jobs_expanded.is_none(), "a second press folds it");
+}

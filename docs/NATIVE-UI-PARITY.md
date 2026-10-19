@@ -11108,3 +11108,51 @@ rows.
 | DP-2 capture | — | `shots/252-settings-account.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 438 — a job row only stops what can stop, and the whole row opens it
+
+A jobs audit (22 reference elements, checked in depth against `ui-jobs`) found nine behavioural
+differences in a surface this index had called complete. Two are visible in one frame's worth of work
+and are closed here.
+
+The reference adds the kill control to a **running** row and to no other
+(`JobListAction.tsx:495-502`), so a finished row never offers an action that must fail; native drew
+`✕` on every row, and pressing it on a completed job could only produce "Stop failed". And the
+reference makes the **whole row** the expand toggle (`:249-257`), while native's hit target was a
+single 10px chevron.
+
+Both match now: the stop glyph appears only while the status is `running`, and the row's body is one
+button that opens and closes its output.
+
+Tests: `only_a_running_job_offers_a_stop_and_any_row_opens_it` — the seeded panel has exactly one
+running row, so exactly one row can be stopped, and pressing a settled row's body expands it with a
+second press folding it again.
+
+**No capture this round, and the reason is recorded rather than glossed.** A `jobs-panel` preset was
+built, but the jobs action is drawn only beside a real transcript, and the preset's records branch
+never resolved — two attempts photographed the empty-conversation hero. The preset was removed rather
+than shipped broken; the panel's frame is the next round's first task.
+
+The remaining seven audit findings are recorded here for the next rounds: expand offered on rows with
+nothing to expand, no disarm timer on the kill confirmation, no settled-section fold, no producer
+progress/duration in rows (the DTO carries no progress or timestamps), no live-then-newest ordering,
+no height cap or scroller, and stale jobs surviving a session switch. Absent entirely: `Clear`, the
+duration cell, the trigger's state dot, the output panel's Copy, and the inline stream-error notice.
+One stale comment (`ui.rs:10032-10033` still says the state dot is deliberately absent) is also noted
+for that round.
+
+**Battery (round 438).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1432 passed**, 1 ignored |
+| app, default | **0** | **1411 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: the preset resolved to an empty conversation |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

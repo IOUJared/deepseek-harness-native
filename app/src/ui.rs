@@ -18390,12 +18390,14 @@ fn job_row(
         _ => ("○", MUTED),
     };
     let expanded = expanded == Some(job.id.as_str());
-    let head = row![
-        // The reference's chevron control (`row.expandAria`: "Show live output of {label}").
-        button(label(if expanded { "▾" } else { "▸" }, MUTED).size(10))
-            .on_press(Message::ToggleJobOutput(job.id.clone()))
-            .style(design::ghost)
-            .padding([0, 2]),
+    // Only a running job can be stopped: the reference adds the kill control to a running row and
+    // to no other, so a finished row offers nothing that must fail
+    // (`ui-jobs/src/client/JobListAction.tsx:495-502`).
+    let running = job.status == "running";
+    // The whole row is the toggle, not one glyph (`JobListAction.tsx:249-257`): the hit target is
+    // the row the user is reading.
+    let mut head = row![
+        label(if expanded { "▾" } else { "▸" }, MUTED).size(10),
         container(label(glyph, dot_ink).size(11))
             .width(design::CRUMB_SIZE)
             .align_x(iced::Alignment::Center),
@@ -18405,16 +18407,25 @@ fn job_row(
         ]
         .spacing(1)
         .width(Length::Fill),
-        // The reference names the control through a label ("Stop task {label}") and confirms
-        // on a second click; the visible form of the control is unread, so a plain glyph
-        // stands in and the confirmation copy is the reference's own.
-        button(label("✕", MUTED).size(11))
-            .on_press(Message::KillJob(job.id.clone()))
-            .style(design::ghost)
-            .padding([2, 4]),
     ]
     .spacing(6)
     .align_y(iced::Alignment::Center);
+    if running {
+        // The reference names the control through a label ("Stop task {label}") and confirms on a
+        // second click; the visible form of the control is unread, so a plain glyph stands in and
+        // the confirmation copy is the reference's own.
+        head = head.push(
+            button(label("✕", MUTED).size(11))
+                .on_press(Message::KillJob(job.id.clone()))
+                .style(design::ghost)
+                .padding([2, 4]),
+        );
+    }
+    let head = button(head)
+        .on_press(Message::ToggleJobOutput(job.id.clone()))
+        .style(design::ghost)
+        .padding(0)
+        .width(Length::Fill);
     let mut body = column![head].spacing(2).width(Length::Fill);
     if expanded {
         // The reference renders the buffer in a code font; this app has one UI font, so the
