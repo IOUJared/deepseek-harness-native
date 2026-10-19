@@ -781,6 +781,20 @@ fn flow_gap_before(rows: &[&DisplayRow], index: usize) -> f32 {
         design::FLOW_GAP
     }
 }
+/// The web's leading gap for one row with its `turn-process` rung applied: the row that holds a
+/// settled turn's control and the answer of any turn whose process sits above it take 16px
+/// (`ChatView.module.css:87-95`), where the flow ladder would give 6 or 12.
+fn flow_gap_for(
+    rows: &[&DisplayRow],
+    index: usize,
+    turn_gaps: &std::collections::BTreeSet<usize>,
+) -> f32 {
+    if turn_gaps.contains(&index) {
+        design::TURN_GAP
+    } else {
+        flow_gap_before(rows, index)
+    }
+}
 /// Whether a row's bare geometry still carries `chat_geometry::ROW_CHROME`'s 12px of
 /// symmetric outer padding, which the flow ladder's leading margin replaces.
 ///
@@ -15011,6 +15025,35 @@ impl App {
         }
         geometry
     }
+    /// The rows that take the reference's 16px `turn-process` rung: the first process row of a
+    /// settled turn — where its control sits — and the answer of every turn whose process is above
+    /// it, settled or live (`ChatView.module.css:87-95` fixes the gap on
+    /// `[data-chat-flow-kind="turn-process"]` and on `[data-turn-process-answer]`).
+    fn turn_gaps(&self, rows: &[&DisplayRow]) -> std::collections::BTreeSet<usize> {
+        let mut first_process: std::collections::BTreeMap<u64, usize> = Default::default();
+        let mut last_answer: std::collections::BTreeMap<u64, usize> = Default::default();
+        for (index, row) in rows.iter().enumerate() {
+            let Some(turn) = row.turn else {
+                continue;
+            };
+            if crate::reducer::process_group::groups_role(&row.role) {
+                first_process.entry(turn).or_insert(index);
+            }
+            if row.role.starts_with("Assistant") {
+                last_answer.insert(turn, index);
+            }
+        }
+        let mut gaps = std::collections::BTreeSet::new();
+        for (turn, first) in first_process {
+            if self.transcript.turn_ended(turn) {
+                gaps.insert(first);
+            }
+            if let Some(answer) = last_answer.get(&turn) {
+                gaps.insert(*answer);
+            }
+        }
+        gaps
+    }
     /// The settled turns whose process folds behind a control line, keyed by turn, with the rows
     /// each one hides while it is closed.
     ///
@@ -15251,6 +15294,7 @@ impl App {
         let seats = self.process_seats(rows);
         let folds = self.turn_folds(rows);
         let folded = self.folded_rows(&folds);
+        let turn_gaps = self.turn_gaps(rows);
         rows.iter()
             .enumerate()
             .map(|(index, row)| {
@@ -15260,7 +15304,7 @@ impl App {
                 if let Some(turn) = folded.get(&index) {
                     let fold = &folds[turn];
                     let height = if fold.first == index {
-                        flow_gap_before(rows, index)
+                        flow_gap_for(rows, index, &turn_gaps)
                             + chat_geometry::turn_control_height(self.content_delta())
                     } else {
                         0.0
@@ -15288,7 +15332,7 @@ impl App {
                     // line, with the flow margin it takes, is what keeps a folded group
                     // from shifting the rows below it by the seat's own height.
                     let height = if seats.contains_key(&index) {
-                        flow_gap_before(rows, index)
+                        flow_gap_for(rows, index, &turn_gaps)
                             + control
                             + chat_geometry::seat_height(self.content_delta())
                     } else {
@@ -15323,7 +15367,7 @@ impl App {
                 } else {
                     0.0
                 };
-                geometry.height += flow_gap_before(rows, index) - chrome;
+                geometry.height += flow_gap_for(rows, index, &turn_gaps) - chrome;
                 geometry
             })
             .collect()
@@ -16314,6 +16358,7 @@ impl App {
         let seats = self.process_seats(&rendered);
         let folds = self.turn_folds(&rendered);
         let folded = self.folded_rows(&folds);
+        let turn_gaps = self.turn_gaps(&rendered);
         for index in range.clone() {
             let record = rendered[index];
             // An open turn keeps its control line in the first member's box.
@@ -16328,7 +16373,7 @@ impl App {
                 if fold.first == index {
                     contents = contents.push(
                         container(self.turn_control(fold))
-                            .padding([flow_gap_before(&rendered, index), 0.0])
+                            .padding([flow_gap_for(&rendered, index, &turn_gaps), 0.0])
                             .height(geometries[index].height)
                             .width(Length::Fill)
                             .clip(true),
@@ -16353,7 +16398,7 @@ impl App {
                     stack = stack.push(self.process_seat(seat));
                     contents = contents.push(
                         container(stack)
-                            .padding([flow_gap_before(&rendered, index), 0.0])
+                            .padding([flow_gap_for(&rendered, index, &turn_gaps), 0.0])
                             .height(geometries[index].height)
                             .width(Length::Fill)
                             .clip(true),
@@ -17207,7 +17252,7 @@ impl App {
                 .align_x(align)
                 // No horizontal inset: the reference's rows span the message column exactly, and
                 // the column already carries the scroller's 32px side inset.
-                .padding([flow_gap_before(&rendered, index), 0.0])
+                .padding([flow_gap_for(&rendered, index, &turn_gaps), 0.0])
                 .height(geometries[index].height)
                 .width(Length::Fill)
                 .clip(true);
@@ -22864,9 +22909,10 @@ mod tests {
                 .position(|row| row.role.starts_with("Assistant"))
                 .expect("the turn's answer row");
             let heights = app.row_geometries(&refs);
+            let turn_gaps = app.turn_gaps(&refs);
             assert_eq!(
                 heights[fold.first].height,
-                flow_gap_before(&refs, fold.first)
+                flow_gap_for(&refs, fold.first, &turn_gaps)
                     + chat_geometry::turn_control_height(app.content_delta())
             );
             for member in fold.members.iter().filter(|member| **member != fold.first) {
@@ -22891,9 +22937,10 @@ mod tests {
         let heights = app.row_geometries(&refs);
         // The turn is open, but its seat keeps its own fold (round 512): the first process row
         // holds the seat's line and the later members wait behind it.
+        let turn_gaps = app.turn_gaps(&refs);
         assert_eq!(
             heights[first].height,
-            flow_gap_before(&refs, first)
+            flow_gap_for(&refs, first, &turn_gaps)
                 + chat_geometry::turn_control_height(app.content_delta())
                 + chat_geometry::seat_height(app.content_delta()),
             "the control stays above the seat's own line"
@@ -22913,6 +22960,64 @@ mod tests {
         for member in &members {
             assert!(heights[*member].height > 0.0, "member {member}");
         }
+    }
+
+    #[cfg(feature = "public-layout-fixture")]
+    #[test]
+    fn a_turn_control_and_its_answer_take_the_wider_turn_gap() {
+        use layout_fixture;
+        let size = iced::Size::new(1040.0, 760.0);
+        let (app, _receiver) = layout_fixture::build(
+            layout_fixture::test_options(),
+            "process-group-closed",
+            size,
+            None,
+        );
+        let rows: Vec<&DisplayRow> = app.transcript.display_rows(false).collect();
+        let refs = rows.clone();
+        let folds = app.turn_folds(&refs);
+        let fold = folds.get(&1).expect("the settled turn states a control");
+        let answer = refs
+            .iter()
+            .position(|row| row.role.starts_with("Assistant"))
+            .expect("the turn's answer row");
+        let gaps = app.turn_gaps(&refs);
+        // `--dsh-chat-flow-gap: 16px` on the turn-process item and on the answer below it
+        // (`ChatView.module.css:87-95`).
+        assert!(gaps.contains(&fold.first), "the control's row takes it");
+        assert!(gaps.contains(&answer), "the answer takes it");
+        assert_eq!(flow_gap_for(&refs, fold.first, &gaps), design::TURN_GAP);
+        assert_eq!(flow_gap_for(&refs, answer, &gaps), design::TURN_GAP);
+        assert_eq!(design::TURN_GAP, 16.0);
+        // A row inside the process keeps the ordinary ladder.
+        let inside = fold
+            .members
+            .iter()
+            .copied()
+            .find(|member| *member != fold.first)
+            .expect("a second member");
+        assert_eq!(flow_gap_for(&refs, inside, &gaps), design::FLOW_GAP);
+        // A live turn has no control, but its answer still takes the wider gap: the attribute
+        // sits on the answer node, not on the control.
+        let (live, _receiver) =
+            layout_fixture::build(layout_fixture::test_options(), "tool-activity", size, None);
+        let live_rows: Vec<&DisplayRow> = live.transcript.display_rows(false).collect();
+        let live_refs = live_rows.clone();
+        assert_eq!(
+            live.turn_folds(&live_refs).len(),
+            0,
+            "a live turn has no control"
+        );
+        let live_gaps = live.turn_gaps(&live_refs);
+        let live_answer = live_refs
+            .iter()
+            .position(|row| row.role.starts_with("Assistant"))
+            .expect("the live turn's answer row");
+        assert!(live_gaps.contains(&live_answer));
+        assert_eq!(
+            flow_gap_for(&live_refs, live_answer, &live_gaps),
+            design::TURN_GAP
+        );
     }
 
     #[cfg(feature = "public-layout-fixture")]

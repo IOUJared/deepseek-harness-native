@@ -205,10 +205,14 @@ pub fn table_line(delta_secondary: f32) -> iced::advanced::text::LineHeight {
 pub const FLOW_GAP: f32 = 6.0;
 /// The gap around an Assistant response: the response row itself and the row
 /// after it take 12px (`ChatView.module.css:73-85`), the live `.running` status
-/// included (`:118`). A `turn-process` header would take 16px (`:87-95`), but
-/// Chat hides those rows — they are Trajectory-only — so no native row maps to
-/// it.
+/// included (`:118`).
 pub const RESPONSE_GAP: f32 = 12.0;
+/// The gap a settled turn's process control takes, and the gap above the answer of a turn
+/// whose process sits above it: `--dsh-chat-flow-gap: 16px` is set on
+/// `[data-chat-flow-kind="turn-process"]`, on `[data-turn-process-answer]` and on the item
+/// after a turn-process item (`ChatView.module.css:87-95`). Round 513 built the control, so
+/// this rung now has a native row to apply to.
+pub const TURN_GAP: f32 = 16.0;
 /// The transcript scroller's own vertical inset: the web's `.scroll` padding is
 /// `16px calc(clearance + 16px)` (`ChatView.module.css:26-29`), so the first row
 /// starts 16px below the header and the last ends 16px above the composer.

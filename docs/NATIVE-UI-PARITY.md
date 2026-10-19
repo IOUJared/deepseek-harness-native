@@ -14222,3 +14222,50 @@ and subagent counts), and the chevron is a text glyph rather than a rotating 14p
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 captures | — | `shots/306-turn-folded.png`, `shots/307-turn-opened.png`, both `status: passed` |
 | app bin | — | **21** warnings |
+
+### Round 514 — a turn control and its answer take the wider turn gap
+
+**The gap.** Round 513 built the settled-turn control and recorded one difference in the same breath:
+the reference sets `--dsh-chat-flow-gap: 16px` on `[data-chat-flow-kind="turn-process"]`, on
+`[data-turn-process-answer]` and on the item that follows a turn-process item
+(`ChatView.module.css:87-95`), while native used the ordinary ladder everywhere (6 above a process
+row, 12 around a response).
+
+**The change.** `design::TURN_GAP` (16) and `flow_gap_for(rows, index, turn_gaps)`: the ladder stays
+the default and the turn rung wins where it applies. `App::turn_gaps` names those rows from the rows
+alone — the first process row of a **settled** turn (where its control sits) and the answer of **any**
+turn with process content above it, live or settled. The answer rule is the reference's own
+distinction: the attribute sits on the answer node, not on the control, so a live turn's answer takes
+16px even though its control never draws. `flow_gap_before` is unchanged for every other row, and both
+the reserved height and the drawn padding read the new helper, as they did before.
+
+**Measured** (1040×760, `process-group-closed`, before → after): the user's clock ink to the control's
+label ink 28 → 38 pitch (the control's leading gap 6 → 16); the control's label to the answer 52,
++4 over round 513's 48 (the answer's gap 12 → 16). `shots/308-turn-gap.png` shows the folded turn and
+`shots/309-turn-gap-open.png` the opened one with the seat beneath. A live-turn frame
+(`tool-activity`) was inspected unarchived to confirm the answer's wider gap there too.
+
+**Test.** `a_turn_control_and_its_answer_take_the_wider_turn_gap` — the settled turn's control row and
+answer take `TURN_GAP`, a row inside the process keeps `FLOW_GAP`, and a live turn (no fold) still
+gives its answer `TURN_GAP` while having no control.
+
+**One warning found and removed.** The first cut stored the answer index on `TurnFold`; nothing in the
+production path read it, so the bin went 21 → 22 warnings. The field is gone and the test finds the
+answer row itself. The count is back to **21** (measured, not copied).
+
+**Still open.** A `turn-process` row's 16px rung is applied to the first process row of a settled
+turn; if a turn's process is split by a non-process row (a notice, a trigger) the rung still sits once,
+at the first row, which is what the reference's single flow item does.
+
+**Battery (round 514).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1504 passed**, 1 ignored |
+| app, default | **0** | **1457 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-r4b6yjej`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-ioifhi4v`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 captures | — | `shots/308-turn-gap.png`, `shots/309-turn-gap-open.png`, both `status: passed` |
+| app bin | — | **21** warnings after removing the unused field |
