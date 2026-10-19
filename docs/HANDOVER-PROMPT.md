@@ -27,7 +27,7 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > 2. Measure the baselines rather than trusting this file:
 >    - fixture: `cargo test --manifest-path app/Cargo.toml --locked --offline --jobs 2 --features public-layout-fixture --bin dsh-native-app -- --test-threads=2`
 >    - default: the same without `--features`
->    - at handover: **1531** fixture / **1475** default, 1 ignored each (round 527).
+>    - at handover: **1532** fixture / **1476** default, 1 ignored each (round 528).
 > 3. Load `.agents/skills/native-ui-parity/SKILL.md` (and `.agents/skills/impeccable-rust/SKILL.md` for
 >    Rust changes) — `AGENTS.md` makes both mandatory for this work. Then read `docs/SESSION-PROMPT.md`
 >    (capture conventions, next shot number), `docs/VERIFICATION.md`, and the coverage table at the end
@@ -102,7 +102,8 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > `scripts/qualify-turn-outline.py`), the frame-wide quota banner (round 523), the terminal
 > panel's failed-discovery state with its audit list corrected (round 524), a workflow run's
 > interrupted state (round 525), a Turn's usage as the sum of its attempts (round 526), and the
-> reply renderer's struck runs and task items (round 527).
+> reply renderer's struck runs and task items (round 527), and raw HTML kept literal instead of
+> failing the reply (round 528).
 >
 > ### Etiquette
 > Be terse. Prefer numbered lists over tables in replies. Challenge your own claims; walk back anything

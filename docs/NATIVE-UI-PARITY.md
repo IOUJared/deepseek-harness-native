@@ -14923,3 +14923,47 @@ widget-level equivalent.
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 capture | — | `shots/321-markdown-gfm.png`, `status: passed`, 1040x760 |
 | app bin | — | **21** warnings |
+
+### Round 528 — raw HTML stays literal instead of failing the whole reply
+
+**The gap.** The reference runs no HTML parser: a `html` node's `value` is returned as literal text, so
+`<b>` on screen is the four characters `<b>` and the markdown around it still formats
+(`ui-primitives/src/markdown/render.tsx:333-335`). Native refused `Event::Html`/`InlineHtml`, and a
+refusal fails the **whole document** — so one `<br>` or `<div align="center">` in a reply dropped every
+heading, table and code block to plain text.
+
+**The change.** Both events are drawn as literal text; a block-level fragment opens the paragraph it
+will sit in and keeps its trailing line break out of the text, and `TagEnd::HtmlBlock` closes that
+paragraph so the next block does not inherit it. `Tag::HtmlBlock`/`TagEnd::HtmlBlock` are now named
+containers. With every `Event` variant handled, the catch-all arm is gone and the match is exhaustive,
+so a parser upgrade that adds a variant fails to compile instead of landing in an opaque refusal —
+that removed the round's one new warning.
+
+**Frame.** `shots/322-markdown-html.png` (1040x760, new `markdown-html` preset, recaptured from the
+binary built after the exhaustive-match change): `PUBLIC text before <b>markup</b> and after.`, then the
+literal block `<div align="center">PUBLIC literal block</div>` on its own line, then
+`**Markdown still formats** in this paragraph.` drawn bold — three behaviours in one frame: inline
+markup kept literal, a block fragment kept literal, and the surrounding markdown still formatted.
+
+**Tests.** `raw_html_stays_literal_text_in_the_flow` (inline and block fragments keep their characters,
+no span is treated as markup, and a block fragment becomes its own paragraph); the unsupported lists
+that used HTML now use a titled image and a titled link, which stay refused;
+`unsupported_document_preserves_complete_source_and_nonce_exhaustion_disables_actions` and the search
+test gained a titled image as their inert-markup case.
+
+**Recorded difference.** The reference's literal HTML text sits in an HTML flow where whitespace
+collapses; native draws the same characters in a paragraph whose newlines are line breaks, so a
+multi-line HTML block's internal line structure is preserved rather than collapsed.
+
+**Battery (round 528).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1532 passed**, 1 ignored |
+| app, default | **0** | **1476 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-4af_m2ry`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-xhep2vim`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 capture | — | `shots/322-markdown-html.png`, `status: passed`, 1040x760 |
+| app bin | — | **21** warnings |

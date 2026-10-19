@@ -197,6 +197,18 @@ fn build<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<Document, Fa
                 let box_ = if checked { "\u{2611}" } else { "\u{2610}" };
                 *marker = format!("{marker} {box_}");
             }
+            Event::Html(text) | Event::InlineHtml(text) => {
+                // The reference runs no HTML parser: raw HTML stays literal text in the flow
+                // (`ui-primitives/src/markdown/render.tsx:333-335`). A block-level event arrives
+                // outside any inline, so it opens the paragraph it will be drawn in, and its
+                // trailing line break is layout rather than text.
+                if builder.inline.is_none() && builder.alt.is_none() {
+                    builder.begin_inline(None, true)?;
+                    builder.text(text.trim_end_matches('\n'), false)?;
+                } else {
+                    builder.text(&text, false)?;
+                }
+            }
             Event::FootnoteReference(name) => {
                 builder.text(&format!("[{}]", crate::reducer::bounded(&name, 64)), false)?;
             }
@@ -208,9 +220,8 @@ fn build<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<Document, Fa
                 }
                 builder.flush_synthetic()?;
                 builder.push(Block::Rule)?;
-            }
-            // Includes HTML even with pulldown-cmark's default features disabled.
-            _ => return Err(Failure::Unsupported),
+            } // Every `Event` variant is named above: a new one in a parser upgrade must be decided
+              // here rather than swallowed, so the match is exhaustive instead of falling through.
         }
     }
     if !builder.frames.is_empty() || builder.code.is_some() || builder.inline.is_some() {
@@ -388,6 +399,9 @@ impl Builder {
                 }
                 self.begin_inline(Some(level as u8), true)?;
             }
+            // A block-level HTML fragment's own container: its text is drawn literally by the
+            // `Event::Html` arm, so the container adds nothing.
+            Tag::HtmlBlock => {}
             Tag::BlockQuote(None) => {
                 // Paragraph's flat marker/quote fields cannot retain the order
                 // of mixed list/quote ancestry. Fail the entire source instead.
@@ -620,6 +634,8 @@ impl Builder {
                     alt: true,
                 });
             }
+            // The block's own fragment has been drawn as one paragraph; close it here.
+            TagEnd::HtmlBlock => self.flush()?,
             TagEnd::Table => {
                 let table = self.table.take().ok_or(Failure::Unsupported)?;
                 if table.header.is_empty() || table.head {
@@ -737,6 +753,30 @@ mod tests {
                 .any(|s| s.text == "x < y" && s.code && !s.bold && !s.italic)
         );
         assert!(spans.iter().any(|s| s.text == "all" && s.bold && s.italic));
+    }
+
+    #[test]
+    fn raw_html_stays_literal_text_in_the_flow() {
+        // The reference has no HTML parser, so `<b>` is shown as those characters rather than
+        // failing the document or being interpreted (`render.tsx:333-335`).
+        let doc = parse("PUBLIC <b>bold?</b> text <br> next").unwrap_or_else(|_| panic!("valid"));
+        let spans = paragraph(&doc.blocks[0]).0;
+        let text: String = spans.iter().map(|span| span.text.as_str()).collect();
+        assert_eq!(text, "PUBLIC <b>bold?</b> text <br> next");
+        assert!(
+            spans.iter().all(|span| !span.bold),
+            "no span is treated as markup"
+        );
+        // A block-level fragment opens its own paragraph instead of failing.
+        let doc = parse("<div align=\"center\">PUBLIC</div>\n\ntext\n")
+            .unwrap_or_else(|_| panic!("valid block html"));
+        assert_eq!(doc.blocks.len(), 2);
+        let first: String = paragraph(&doc.blocks[0])
+            .0
+            .iter()
+            .map(|span| span.text.as_str())
+            .collect();
+        assert_eq!(first, "<div align=\"center\">PUBLIC</div>");
     }
 
     #[test]
@@ -1030,8 +1070,10 @@ mod tests {
     #[test]
     fn unsupported_content_anywhere_fails_whole_source() {
         for source in [
-            "before <b>html</b> after",
-            "before\n\n<div>html</div>\n",
+            // A titled link and a titled image are still refused; raw HTML is now drawn literally
+            // (`render.tsx:333-335`).
+            "[x](https://PUBLIC \"title\")",
+            "![x](https://PUBLIC \"title\")",
             "> # heading",
             "- # heading",
             "> ---",
@@ -1046,6 +1088,11 @@ mod tests {
         assert_eq!(
             joined(paragraph(&document("\\<b> safe").blocks[0]).0),
             "<b> safe"
+        );
+        // Raw HTML is literal text with its markup intact.
+        assert_eq!(
+            joined(paragraph(&document("a <b>c</b>").blocks[0]).0),
+            "a <b>c</b>"
         );
         assert_eq!(
             code(&document("```\n<div>safe</div>\n```").blocks[0]).1,
@@ -1172,8 +1219,6 @@ mod tests {
             ]
         };
         for event in [
-            Event::InlineHtml("<b>".into()),
-            Event::Html("<div>".into()),
             Event::InlineMath("x".into()),
             Event::DisplayMath("x".into()),
             Event::FootnoteReference("secret".into()),
@@ -1237,9 +1282,9 @@ mod tests {
 
     #[test]
     fn diagnostics_only_expose_content_free_failure_variants() {
-        // Raw HTML stays unsupported, so it can stand in for content that must never
-        // reach a diagnostic.
-        let private_source = "PRIVATE_TOKEN <b>PRIVATE_HTML</b>";
+        // A titled image is refused, so it can stand in for content that must never reach a
+        // diagnostic.
+        let private_source = "PRIVATE_TOKEN ![PRIVATE_ALT](PRIVATE_SRC \"PRIVATE_TITLE\")";
         let error = match parse(private_source) {
             Err(error) => error,
             Ok(_) => panic!("expected unsupported HTML"),
@@ -1305,6 +1350,8 @@ mod extension_tests {
         let doc = parse("Plain **bold** text.\n").unwrap();
         assert_eq!(texts(&doc.blocks), vec!["Plain bold text.".to_owned()]);
         // An unsupported construct still fails closed.
-        assert!(parse("<div>html</div>\n").is_err());
+        // A titled image is still refused; raw HTML is drawn literally.
+        assert!(parse("![alt](src \"title\")").is_err());
+        assert!(parse("<div>html</div>\n").is_ok());
     }
 }

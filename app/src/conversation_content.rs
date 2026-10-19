@@ -1737,9 +1737,15 @@ mod tests {
         assert!(p.matches("let value"));
         assert!(p.matches("supplied reasoning"));
         assert!(!p.matches("absent"));
-        let raw = cache.prepare(1, 3, String::new(), "<script>PUBLIC inert</script>".into());
+        // A titled image is inert markup: the whole source stays searchable text.
+        let raw = cache.prepare(
+            1,
+            3,
+            String::new(),
+            "![PUBLIC inert](https://example.invalid/PUBLIC \"title\")".into(),
+        );
         assert!(raw.document.is_none());
-        assert!(raw.matches("<script>"));
+        assert!(raw.matches("PUBLIC inert"));
     }
 
     #[test]
@@ -2101,7 +2107,7 @@ mod tests {
     #[test]
     fn unsupported_markup_is_inert_full_source_not_partial_formatting() {
         let cache = Cache::default();
-        let source = "<script>PUBLIC no execution</script>\n![image](file:///PUBLIC)";
+        let source = "![PUBLIC no fetch](file:///PUBLIC \"title\")";
         let p = cache.prepare(1, 0, String::new(), source.into());
         assert!(p.document.is_none());
         assert_eq!(p.answer, source);
