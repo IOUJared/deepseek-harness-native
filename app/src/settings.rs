@@ -159,8 +159,15 @@ const PRESET_COPY: [(&str, &str, &str); 4] = [
 /// Whether a row is a shipped preset whose copy comes from the dictionary: the reference's own
 /// rule is "publishes no name and has a copy key", so a declaration that names itself keeps its
 /// own text (`agent-preset-registry/src/display.ts:52-58`).
-pub fn preset_is_built_in(row: &dsh_native_core::AgentPresetRow) -> bool {
+fn preset_is_built_in(row: &dsh_native_core::AgentPresetRow) -> bool {
     row.name.is_none() && PRESET_COPY.iter().any(|(id, ..)| *id == row.id)
+}
+
+/// Whether a shipped preset needs the "Show coding view" preference: only the built-in PTC and
+/// Minimal modes do, named custom presets keep their own behaviour
+/// (`ui-agent-preset/src/client/settings-store.ts:53-55`).
+pub fn requires_coding_tools(row: &dsh_native_core::AgentPresetRow) -> bool {
+    preset_is_built_in(row) && matches!(row.id.as_str(), "ptc" | "minimal")
 }
 
 /// Resolve one row's display name and description, in the reference's order: dictionary copy for a
@@ -1441,9 +1448,14 @@ impl Settings {
                 .into();
         }
         for (heading, built_in) in [(PRESET_BUILT_IN, true), (PRESET_CUSTOM, false)] {
+            // The reference hides the presets that need the coding tools when that preference is
+            // off (`AgentPresetSection.tsx:105-107`, `settings-store.ts:53-55`); the roster's own
+            // names decide, not a count.
+            let coding_tools = route.coding_view;
             let group: Vec<_> = rows
                 .iter()
                 .filter(|row| preset_is_built_in(row) == built_in)
+                .filter(|row| coding_tools || !requires_coding_tools(row))
                 .collect();
             if group.is_empty() {
                 continue;

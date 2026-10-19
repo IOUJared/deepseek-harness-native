@@ -10837,9 +10837,7 @@ non-full-access choice is not guarded and Cancel leaves nothing behind; and the 
 
 Recorded here so the next rounds have their list, with the same taxonomy: (b) different, (c) absent.
 
-1. (b) Agent presets ignore the "Show coding view" filter: the reference hides presets that require
-   coding tools when developer tools are off (`AgentPresetSection.tsx:105-107`,
-   `settings-store.ts:53-55`); native lists all of them, contradicting its own copy.
+1. (b) ~~Agent presets ignore the "Show coding view" filter~~ — closed in round 431.
 2. (b) No per-preset "Mode details" / "How to use" help (`AgentPresetSection.tsx:142-147`,
    `guide-locales.ts:4-5`), and the card omits its preset id (`AgentPresetSection.tsx:136`).
 3. (b) The shortcuts list omits the reference's fixed "Menus and dialogs" rows
@@ -10854,3 +10852,39 @@ Recorded here so the next rounds have their list, with the same taxonomy: (b) di
 6. (c) Models provider directory — rows, Edit/Delete, "Add model provider", catalog fields, delete
    confirmation (`ModelsSection.tsx:387-388,435-505,648-700`); recorded in `FEATURE-PARITY.md:13`, not
    in this index until now.
+
+### Round 431 — the agent presets follow the coding-view preference
+
+The settings audit's second finding: the reference hides the presets that need the coding tools when
+"developer tools" is off (`AgentPresetSection.tsx:105-107`), by its own rule that only the *built-in*
+PTC and Minimal modes require them (`settings-store.ts:53-55`). Native listed every preset regardless,
+so turning the preference off changed the conversation but still offered PTC and Minimal — a control
+that contradicted the copy beside it.
+
+The listing now applies the same rule: a row is hidden only when it is a shipped preset whose id is
+`ptc` or `minimal`; a named custom preset that happens to reuse an id keeps its own behaviour, and no
+other preset depends on the preference.
+
+Evidence: `shots/246-presets-coding-off.png` (DP-2 alongside, `status: passed`) in the new
+`settings-presets-coding-off` preset — with the preference off, the built-in group shows Standard and
+Creator only, while the two custom presets remain.
+
+Tests: `coding_tools_decide_which_presets_are_offered` covers all four cases the rule distinguishes —
+both built-ins that need the tools, a shipped preset that does not, a *named* preset sharing an id,
+and an unknown custom one.
+
+**Battery (round 431).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1423 passed**, 1 ignored |
+| app, default | **0** | **1403 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/246-presets-coding-off.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

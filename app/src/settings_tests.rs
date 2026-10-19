@@ -531,3 +531,27 @@ fn the_full_access_spellings_are_recognised() {
         assert!(!is_full_access(value), "{value}");
     }
 }
+
+/// The coding-view preference hides the presets that need coding tools, by the reference's own rule:
+/// only the built-in PTC and Minimal modes, never a named custom preset.
+#[test]
+fn coding_tools_decide_which_presets_are_offered() {
+    let row = |id: &str, name: Option<&str>| dsh_native_core::AgentPresetRow {
+        id: id.into(),
+        is_default: false,
+        name: name.map(str::to_owned),
+        description: None,
+        broken: None,
+    };
+    assert!(requires_coding_tools(&row("ptc", None)));
+    assert!(requires_coding_tools(&row("minimal", None)));
+    // A shipped preset that does not need coding tools stays.
+    assert!(!requires_coding_tools(&row("standard", None)));
+    // A named custom preset that happens to share an id keeps its own behaviour.
+    assert!(!requires_coding_tools(&row(
+        "ptc",
+        Some("PUBLIC named PTC")
+    )));
+    // An unknown custom preset never depends on the preference.
+    assert!(!requires_coding_tools(&row("PUBLIC-custom", None)));
+}
