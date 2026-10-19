@@ -11332,3 +11332,35 @@ assertions, which still pass at 1434.
 | DP-2 capture | — | `shots/253-jobs-panel.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 444 — the finished jobs fold away
+
+The jobs audit's fifth finding: the reference folds its finished tail behind the "Finished N" heading,
+open by default only when nothing is running, so live work is never crowded out
+(`JobListAction.tsx:333,352,537-549`). Native always drew every settled row underneath the live ones,
+so a chat with a long history of background work pushed the running jobs off the panel.
+
+The heading is now the toggle: `▸ Finished 2` closed while anything runs, `▾` open, and the choice
+belongs to the panel visit rather than to the data — the same shape the reference's `settledOpen` has.
+
+Evidence: `shots/254-jobs-settled-fold.png` (DP-2 alongside, `status: passed`) — the running shell job
+expanded to its output, the stopping build above the fold, and `▸ Finished 2` collapsed beneath them.
+
+Tests: `the_finished_jobs_fold_follows_live_work` — the default is closed while a job runs, one press
+opens it, a second closes it, and with no live rows the default is open.
+
+**Battery (round 444).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1435 passed**, 1 ignored |
+| app, default | **0** | **1411 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/254-jobs-settled-fold.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

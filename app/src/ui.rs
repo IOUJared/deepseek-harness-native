@@ -446,6 +446,8 @@ pub enum Message {
     GuideCopyExpired,
     /// A job's stop confirmation has been armed for its three seconds.
     JobArmExpired(String),
+    /// Open or close the panel's finished section.
+    ToggleJobSettled,
     /// Steer every queued message, one at a time, as the reference's empty-draft chord does.
     QueueSteerAll,
     /// Open or close the composer's attach menu.
@@ -1318,6 +1320,9 @@ pub struct App {
     /// The job whose live output is expanded, and the buffer that output accumulates into.
     jobs_expanded: Option<String>,
     jobs_output: std::collections::BTreeMap<String, String>,
+    /// The finished section's fold: `None` follows the default (open only when nothing runs),
+    /// a value is the user's own choice for this panel visit (`JobListAction.tsx:333,352`).
+    jobs_settled_open: Option<bool>,
     /// A write is in flight; the row is busy until its acknowledgement lands.
     permission_default_saving: bool,
     editor_undo: Vec<String>,
@@ -1643,6 +1648,7 @@ impl App {
                 agent_seat_error: None,
                 jobs: Vec::new(),
                 jobs_open: false,
+                jobs_settled_open: None,
                 jobs_armed: None,
                 jobs_kill_error: None,
                 jobs_expanded: None,
@@ -3951,6 +3957,15 @@ impl App {
             }
             Message::JobArmExpired(id) if self.jobs_armed.as_deref() == Some(id.as_str()) => {
                 self.jobs_armed = None;
+            }
+            Message::ToggleJobSettled => {
+                let live = self
+                    .jobs
+                    .iter()
+                    .filter(|job| job.status == "running" || job.status == "stopping")
+                    .count();
+                let open = self.jobs_settled_open.unwrap_or(live == 0);
+                self.jobs_settled_open = Some(!open);
             }
             Message::ToggleJobOutput(id) => {
                 let opening = self.jobs_expanded.as_deref() != Some(id.as_str());
@@ -10061,6 +10076,7 @@ impl App {
             .filter(|job| job.status == "running" || job.status == "stopping")
             .collect();
         let settled = self.jobs.len() - live.len();
+        let settled_open = self.jobs_settled_open.unwrap_or(live.is_empty());
         let mut panel = Column::new().spacing(4);
         if !live.is_empty() {
             panel = panel.push(label("Running", MUTED).size(11));
@@ -10075,8 +10091,18 @@ impl App {
                 ));
             }
         }
+        // The finished tail folds behind its own heading: open by default only when nothing is
+        // running, so live work is never crowded out (`JobListAction.tsx:333,352,537-549`).
         if settled > 0 {
-            panel = panel.push(label(format!("Finished {settled}"), MUTED).size(11));
+            let arrow = if settled_open { "▾" } else { "▸" };
+            panel = panel.push(
+                button(label(format!("{arrow} Finished {settled}"), MUTED).size(11))
+                    .on_press(Message::ToggleJobSettled)
+                    .style(design::ghost)
+                    .padding([0, 0]),
+            );
+        }
+        if settled > 0 && settled_open {
             for job in self
                 .jobs
                 .iter()

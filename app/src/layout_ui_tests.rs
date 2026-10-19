@@ -802,3 +802,40 @@ fn a_session_switch_drops_the_previous_jobs() {
     assert!(app.jobs_expanded.is_none());
     assert!(app.jobs_output.is_empty());
 }
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
+fn the_finished_jobs_fold_follows_live_work() {
+    let (size, _scale) = super::layout_fixture::preset_size("conversation").unwrap();
+    let (mut app, _queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "conversation",
+        size,
+        None,
+    );
+    app.set_jobs();
+    // Nothing overrides the fold yet: with live work present the finished tail starts closed, as
+    // the reference does so running jobs are not crowded out.
+    assert_eq!(app.jobs_settled_open, None);
+    let settled_open = |app: &super::App| app.jobs_settled_open.unwrap_or(false);
+    assert!(!settled_open(&app));
+    drop(app.update(Message::ToggleJobSettled));
+    assert_eq!(app.jobs_settled_open, Some(true), "one press opens it");
+    drop(app.update(Message::ToggleJobSettled));
+    assert_eq!(
+        app.jobs_settled_open,
+        Some(false),
+        "a second press closes it"
+    );
+    // With no live rows the default is open, so a returning user sees what finished.
+    app.jobs
+        .retain(|job| job.status != "running" && job.status != "stopping");
+    app.jobs_settled_open = None;
+    let live = app
+        .jobs
+        .iter()
+        .filter(|job| job.status == "running" || job.status == "stopping")
+        .count();
+    assert_eq!(live, 0);
+    assert!(app.jobs_settled_open.unwrap_or(live == 0));
+}
