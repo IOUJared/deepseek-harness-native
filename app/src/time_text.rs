@@ -5,6 +5,53 @@
 //! date math — no zone database and no dependency. Only the final display step asks the platform for
 //! the local zone, through the same thread-safe `localtime_r` the chat clock already uses.
 
+/// One instant's local calendar fields, as the platform reports them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LocalStamp {
+    pub year: i64,
+    pub month: i64,
+    pub day: i64,
+    pub hour: i64,
+    pub minute: i64,
+}
+
+impl LocalStamp {
+    /// The reference's message clock (`message-chrome.ts:86-100`): `HH:MM` for today, `M/D HH:MM`
+    /// earlier this year, `Y-M-D HH:MM` before that. Message and trigger rows share it, so an older
+    /// row never reads like today's.
+    pub fn clock(&self, now: &LocalStamp) -> String {
+        let time = format!("{:02}:{:02}", self.hour, self.minute);
+        if self.year == now.year && self.month == now.month && self.day == now.day {
+            return time;
+        }
+        if self.year == now.year {
+            return format!("{}/{} {}", self.month, self.day, time);
+        }
+        format!("{}-{}-{} {}", self.year, self.month, self.day, time)
+    }
+}
+
+/// The platform's local fields for one epoch-millisecond instant.
+pub fn local_stamp(millis: i64) -> Option<LocalStamp> {
+    let seconds = millis.div_euclid(1000);
+    let time = libc::time_t::try_from(seconds).ok()?;
+    let mut tm = std::mem::MaybeUninit::<libc::tm>::uninit();
+    // SAFETY: `localtime_r` writes into the `tm` this frame owns and reads only `time`; it is the
+    // thread-safe form and retains no pointer to either.
+    let filled = unsafe { libc::localtime_r(&time, tm.as_mut_ptr()) };
+    if filled.is_null() {
+        return None;
+    }
+    let tm = unsafe { tm.assume_init() };
+    Some(LocalStamp {
+        year: i64::from(tm.tm_year) + 1900,
+        month: i64::from(tm.tm_mon) + 1,
+        day: i64::from(tm.tm_mday),
+        hour: i64::from(tm.tm_hour),
+        minute: i64::from(tm.tm_min),
+    })
+}
+
 /// Milliseconds since the Unix epoch for one RFC 3339 instant, or `None` when it is not one.
 ///
 /// Accepts `YYYY-MM-DDTHH:MM:SS`, an optional `.fraction`, and a `Z` or `±HH:MM` offset. A value that
@@ -207,5 +254,34 @@ mod tests {
         assert_eq!(relative(-3 * day, 0), "3 days overdue");
         assert_eq!(relative(30_000, 0), "now");
         assert_eq!(relative(-30_000, 0), "overdue");
+    }
+}
+
+#[cfg(test)]
+mod clock_tests {
+    //! The date-aware message clock, at its three cuts.
+    use super::*;
+
+    fn stamp(year: i64, month: i64, day: i64, hour: i64, minute: i64) -> LocalStamp {
+        LocalStamp {
+            year,
+            month,
+            day,
+            hour,
+            minute,
+        }
+    }
+
+    #[test]
+    fn a_message_clock_gains_its_date_outside_today() {
+        let now = stamp(2026, 10, 19, 12, 0);
+        // Today: the time alone.
+        assert_eq!(stamp(2026, 10, 19, 18, 0).clock(&now), "18:00");
+        // Earlier this year: month and day, zero-unpadded as the reference writes them.
+        assert_eq!(stamp(2026, 3, 7, 9, 5).clock(&now), "3/7 09:05");
+        // Another year: the full date.
+        assert_eq!(stamp(2024, 12, 31, 23, 59).clock(&now), "2024-12-31 23:59");
+        // Midnight zero-pads like any other time.
+        assert_eq!(stamp(2026, 10, 19, 0, 0).clock(&now), "00:00");
     }
 }

@@ -13139,3 +13139,43 @@ here for the next round rather than fixed in this one.
 | DP-2 capture | — | `shots/283-feedback-failed.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 493 — an older row states its date, and a long trigger is readable
+
+The two turn-trigger findings from round 492's audit, plus the same clock on every message row.
+
+**A clock outside today gains its date.** The reference appends `M/D` for an earlier day this year and
+`Y-M-D` before that (`message-chrome.ts:86-100`, `locale.ts:385-386`); native printed a bare `HH:MM`, so
+a notification from three days ago read like one from this morning. `LocalStamp::clock` now applies the
+same three cuts, and every row that shows a time — messages, triggers, replies — goes through it.
+
+**An expanded trigger shows the whole notification.** The body was cut at 600 characters; the reference
+draws all of it in a body capped at 240px (`TurnTriggerNodeView.tsx:44-47`,
+`TurnTriggerNodeView.module.css:31`). The body is now a scroller at that cap with the full text.
+
+Tests: `a_message_clock_gains_its_date_outside_today` — today, an earlier day this year, another year,
+and midnight's zero padding.
+
+Evidence: `shots/284-turn-trigger-dated.png` (DP-2 alongside, `status: passed`) — `10/16 11:39` beside a
+trigger and `10/16 11:40` on the reply, with the whole long notification in its scroller.
+
+**A fixture correction this round needed**: the trigger presets used synthetic epoch times, which the
+date-aware clock honestly reported as `1969-12-31 18:00` — correct arithmetic on an unrealistic fixture.
+The preset now records a real three-day-old instant, so the frame proves the format instead of a
+year-zero date.
+
+**Battery (round 493).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1479 passed**, 1 ignored |
+| app, default | **0** | **1441 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/284-turn-trigger-dated.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

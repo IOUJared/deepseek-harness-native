@@ -682,6 +682,10 @@ const ACTION_GAP: f32 = 6.0;
 /// The action row's own height. The web's `.actions` and `.action` are both
 /// `calc(28px + var(--dsh-content-font-delta))` (`MessageIconActions.module.css`),
 /// where native used 18.
+/// The expanded trigger notice's body cap, so one long notification cannot push the conversation
+/// (`TurnTriggerNodeView.module.css:31`).
+const TRIGGER_BODY_MAX: f32 = 240.0;
+/// The height of the message actions row, which the web sets to 28px.
 const ACTION_HEIGHT: f32 = 28.0;
 /// The gap between the actions themselves, which the web sets to 8px.
 const ACTION_SPACING: f32 = 8.0;
@@ -689,17 +693,17 @@ const ACTION_SPACING: f32 = 8.0;
 /// message's actions (`MessageIconActions.module.css:13-19`). `None` when the
 /// platform cannot resolve the zone, so the label is simply omitted.
 fn local_hh_mm(millis: i64) -> Option<String> {
-    let seconds = millis.div_euclid(1000);
-    let time = libc::time_t::try_from(seconds).ok()?;
-    let mut tm = std::mem::MaybeUninit::<libc::tm>::uninit();
-    // SAFETY: `localtime_r` writes into the `tm` this frame owns and reads only
-    // `time`; it is the thread-safe form and retains no pointer to either.
-    let filled = unsafe { libc::localtime_r(&time, tm.as_mut_ptr()) };
-    if filled.is_null() {
-        return None;
-    }
-    let tm = unsafe { tm.assume_init() };
-    Some(format!("{:02}:{:02}", tm.tm_hour, tm.tm_min))
+    // The reference's message clock states the date outside today — `M/D` this year, `Y-M-D` before —
+    // so a trigger or a reply from an earlier day never reads like today's
+    // (`message-chrome.ts:86-100`).
+    let stamp = time_text::local_stamp(millis)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|elapsed| i64::try_from(elapsed.as_millis()).ok())
+        .and_then(time_text::local_stamp)
+        .unwrap_or(stamp);
+    Some(stamp.clock(&now))
 }
 /// Action targets are icon buttons, as the reference draws them (a copy mark and
 /// a pencil), not words. `❐` and `✎` are the shapes DejaVu Sans actually has;
@@ -16035,9 +16039,22 @@ impl App {
                 ]
                 .spacing(2);
                 if expanded {
+                    // The whole notification, not its first 600 characters: the reference scrolls a
+                    // body capped at 240px (`TurnTriggerNodeView.tsx:44-47`,
+                    // `TurnTriggerNodeView.module.css:31`).
                     notice = notice
                         .push(label("This notification triggered this response.", MUTED).size(10))
-                        .push(label(short(&record.text, 600), TEXT).size(12));
+                        .push(
+                            container(
+                                scrollable(
+                                    label(record.text.clone(), TEXT)
+                                        .size(12)
+                                        .width(Length::Fill),
+                                )
+                                .height(Length::Fixed(TRIGGER_BODY_MAX)),
+                            )
+                            .width(Length::Fill),
+                        );
                 }
                 container(notice)
                     .padding([8, 14])

@@ -65,6 +65,7 @@ pub const PRESETS: &[&str] = &[
     "queued-idle",
     "queued-files",
     "turn-trigger",
+    "turn-trigger-long",
     "token-usage",
     "goal-bar",
     "working-phase-6",
@@ -307,6 +308,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "queued-idle"
         | "queued-files"
         | "turn-trigger"
+        | "turn-trigger-long"
         | "token-usage"
         | "goal-bar"
         | "permission-chip"
@@ -1808,15 +1810,28 @@ pub fn build(
             json!({"type":"event","event":{"type":"workspace/changes","seq":2,"time":1002,
                 "data":{"turn":1}}}),
         ]
-    } else if preset == "turn-trigger" {
+    } else if preset == "turn-trigger" || preset == "turn-trigger-long" {
+        // A trigger this old shows the date beside its time, so the fixture's clock is a real recent
+        // instant rather than the epoch: a synthetic 1970 time would prove the format and read as a
+        // bug in the frame.
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(0))
+            .unwrap_or(0);
+        // Three days old, so the frame proves the date the clock adds outside today.
+        let trigger_time = now - 3 * 24 * 60 * 60 * 1000;
         vec![
-            json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
-                "surfaceOp":"append","data":{"role":"user","id":"PUBLIC-trigger-message",
-                    "source":{"kind":"goal"},
-                    "content":[{"type":"text","text":"PUBLIC goal reminder · continue the recorded task without sending a prompt."}]}}}),
-            json!({"type":"event","event":{"type":"assistant/message","seq":1,"time":1001,
+            json!({"type":"event","event":{"type":"user/message","seq":0,"time":trigger_time,
+            "surfaceOp":"append","data":{"role":"user","id":"PUBLIC-trigger-message",
+                "source":{"kind":"goal"},
+                "content":[{"type":"text","text": if preset == "turn-trigger-long" {
+                    format!("PUBLIC restored session · {}", "a long recorded notification that must be readable in full. ".repeat(24))
+                } else {
+                    "PUBLIC goal reminder · continue the recorded task without sending a prompt.".to_owned()
+                }}]}}}),
+            json!({"type":"event","event":{"type":"assistant/message","seq":1,"time":trigger_time + 60_000,
                 "surfaceOp":"append","data":{"turn":1,"step":1,
-                    "stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],
+                    "stream":[{"type":"text-chunks","time0":trigger_time + 60_000,"index":0,"dt":[],
                         "texts":["PUBLIC synthetic answer to the goal reminder."]}]}}}),
         ]
     } else if preset == "goal-bar" {
@@ -2808,6 +2823,17 @@ pub fn build(
         }
         "context-management-chat" => {
             app.records_expanded = false;
+        }
+        "turn-trigger-long" => {
+            // The body open, so the frame shows a long notification in full rather than cut.
+            if let Some(row) = app
+                .transcript
+                .rows()
+                .iter()
+                .find(|row| row.trigger.is_some())
+            {
+                app.trigger_expanded.insert(row.key);
+            }
         }
         "context-breakdown" => {
             // The panel open, so the frame shows the rows the reading names.
