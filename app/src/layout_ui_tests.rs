@@ -104,6 +104,34 @@ fn closing_state_rejects_local_menu_and_info_changes() {
     assert!(queue.try_recv().is_err());
 }
 #[test]
+fn the_attach_menu_offers_files_and_commands() {
+    let (mut app, mut queue) = app();
+    app.ready = true;
+    app.selected = Some(serde_json::from_value(serde_json::json!("PUBLIC-attach-menu")).unwrap());
+    assert!(!app.attach_menu, "the menu starts closed");
+    drop(app.update(Message::ToggleAttachMenu(true)));
+    assert!(app.attach_menu);
+    // Opening the menu starts no request: the entries do.
+    while queue.try_recv().is_ok() {}
+    // The command entry puts a slash in the draft, so the completion menu takes over.
+    app.commands = Some(vec![crate::ui::command_menu::Candidate {
+        name: "compact".into(),
+        description: "PUBLIC".into(),
+    }]);
+    drop(app.update(Message::AttachMenuCommand));
+    assert!(!app.attach_menu, "choosing an entry closes the menu");
+    assert_eq!(app.editor.text(), "/");
+    assert!(
+        app.completion().is_some(),
+        "the slash opens the command menu"
+    );
+    assert!(
+        queue.try_recv().is_err(),
+        "nothing was requested to open a menu"
+    );
+}
+
+#[test]
 fn queue_steering_is_offered_only_while_the_agent_runs() {
     let (mut app, _queue) = app();
     app.ready = true;

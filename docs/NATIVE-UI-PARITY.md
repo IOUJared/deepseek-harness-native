@@ -6382,7 +6382,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Reference surface | Native status |
 | --- | --- |
 | Chat: renderer, thoughts, turn triggers, copy/branch/edit/fork | cloned (markdown: tables, footnotes and math; math draws its source, since no native typesetter exists — see the renderer note below) |
-| Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the `+ Attach` control does not open the command menu, the slash menu is one flat list without the reference's groups/sections/breadcrumbs/skeleton, files are chosen one at a time through a path field, no image thumbnails or drag hover overlay, and a pending send is not a queue row; absent: skills in the slash menu, the `File` menu entry, the Cmd/Ctrl+Enter inversion, empty-draft steer-all, the plan-mode placeholder, and the command-argument ghost hint) |
+| Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the slash menu is one flat list without the reference's groups/sections/breadcrumbs/skeleton, files are chosen one at a time through a path field, no image thumbnails or drag hover overlay, and a pending send is not a queue row; absent: skills in the slash menu, the `File` menu entry, the Cmd/Ctrl+Enter inversion, empty-draft steer-all, the plan-mode placeholder, and the command-argument ghost hint) |
 | Sidebar: sessions, search, pin/archive/trash, workspace filter, navigation sheet | cloned (time-grouped list, not the grouped browser) |
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
 | Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab) |
@@ -9989,5 +9989,40 @@ summary) plus the two presets' assertions — `queued-idle` cannot steer, `worki
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/223-queue-steer-gate.png`, `status: passed` |
+| app bin | — | **20** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 408 — the attach control offers files and commands
+
+The reference's leftmost composer control is one listbox: "Add files or run commands"
+(`InputBar.tsx:428-441`, `aria-haspopup="listbox"`), whose entries are a `File` action and the
+command source (`apply.ts:274-278`). Native's `+ Attach` opened the file editor directly, so the
+command menu had no mouse route at all — a keyboard-only feature in a mouse-driven list.
+
+It is a popup now: `+ Attach` opens a two-entry menu — **Add files…** (the existing file flow) and
+**Run a command…** (puts a slash in the draft so the completion menu takes over). The popup is the
+same anchored control the conversation and model menus use, dismissed by an outside click or Escape,
+and its entries start no request until one is chosen.
+
+Evidence: `shots/224-attach-menu.png` (DP-2 alongside, `status: passed`) in the new `attach-menu`
+preset — the popup open over the draft with both entries.
+
+Tests: `the_attach_menu_offers_files_and_commands` — the menu starts closed, opens without queuing
+anything, and the command entry closes it, writes `/`, and leaves the completion menu open over one
+advertised command.
+
+**Battery (round 408).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1403 passed**, 1 ignored |
+| app, default | **0** | **1387 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/224-attach-menu.png`, `status: passed` |
 | app bin | — | **20** dead-code warnings |
 | tree | — | clean before the commit |

@@ -128,6 +128,7 @@ pub const PRESETS: &[&str] = &[
     "permission-chip",
     "command-menu",
     "command-menu-mid-draft",
+    "attach-menu",
     "plan-mode",
     "plan-mode-applying",
     "plan-mode-leaving",
@@ -327,6 +328,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "plan-chip"
         | "command-menu"
         | "command-menu-mid-draft"
+        | "attach-menu"
         | "plan-mode"
         | "plan-mode-applying"
         | "plan-mode-leaving"
@@ -375,7 +377,10 @@ fn public_context_pressure_records(preset: &str) -> Option<Vec<Value>> {
                     "source":{"kind":"repeat-tool-reminder","form":"notice","summary":"bash × 8"}}}}),
         ]);
     }
-    if matches!(preset, "command-menu" | "command-menu-mid-draft") {
+    if matches!(
+        preset,
+        "command-menu" | "command-menu-mid-draft" | "attach-menu"
+    ) {
         return Some(vec![
             json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
                 "data":{"source":{"kind":"user","rpcId":"PUBLIC-menu-rpc","promptFingerprint":"PUBLIC-opaque"},
@@ -2637,6 +2642,17 @@ pub fn build(
                 crate::reducer::turn_tail::label(Some(duration)),
                 "Completed in 2m 23s"
             );
+        }
+        "attach-menu" => {
+            // The left control offers files and commands in one popup, so a mouse user reaches
+            // the command menu without typing a slash (`InputBar.tsx:428-441`).
+            app.commands = Some(vec![super::command_menu::Candidate {
+                name: "compact".into(),
+                description: "Condense older history into a summary".into(),
+            }]);
+            app.editor = iced::widget::text_editor::Content::with_text("PUBLIC draft");
+            drop(app.update(Message::ToggleAttachMenu(true)));
+            assert!(app.attach_menu, "the menu is open");
         }
         "command-menu-mid-draft" => {
             // The reference scans back from the caret to whitespace (`detect.ts:61-75`), so the

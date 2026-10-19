@@ -423,6 +423,10 @@ pub enum Message {
     CopyDetailSource(detail_panel::Stamp),
     ToggleThoughts(conversation_content::Ticket),
     /// Expand or collapse one tool row's recorded body inside the conversation.
+    /// Open or close the composer's attach menu.
+    ToggleAttachMenu(bool),
+    /// Put a slash in the draft and let the completion menu offer the commands.
+    AttachMenuCommand,
     /// Flip one process group's disclosure.
     ToggleProcessGroup {
         generation: u64,
@@ -1090,6 +1094,9 @@ pub struct App {
     busy_enter: crate::settings::BusyEnter,
     /// The reference's Work details mode: how much of a turn's process Chat shows.
     work_details: work_details::Mode,
+    /// Whether the composer's `+ Attach` menu is open: the reference's left control offers files
+    /// and commands in one listbox (`InputBar.tsx:428-437`).
+    attach_menu: bool,
     /// The queue dock's multi-item list is open.
     queue_expanded: bool,
     /// Expanded turn-trigger notices, by record key.
@@ -1503,6 +1510,7 @@ impl App {
                 coding_view,
                 busy_enter,
                 work_details,
+                attach_menu: false,
                 queue_expanded: false,
                 queue_edit: None,
                 queue_remove_armed: None,
@@ -5026,6 +5034,13 @@ impl App {
             // One tool row expands in place: the conversation never leaves for a
             // separate page, and no request, read or write is started. Like a
             // thought disclosure, the row heights refresh on the next view.
+            Message::ToggleAttachMenu(open) if self.composer_visible() => {
+                self.attach_menu = open;
+            }
+            Message::AttachMenuCommand if self.composer_visible() => {
+                self.attach_menu = false;
+                self.editor = iced::widget::text_editor::Content::with_text("/");
+            }
             Message::ToggleProcessGroup { generation, key }
                 if generation == self.generation && self.composer_visible() =>
             {
@@ -9256,6 +9271,27 @@ impl App {
             Message::ToggleSubagentMenu(false),
         ))
     }
+    /// The attach menu's two entries: choose files, or start a command.
+    fn attach_menu_view(&self) -> Element<'_, Message> {
+        let entry = |label_text: &'static str, message: Message| {
+            button(label(label_text, TEXT).size(12))
+                .on_press(message)
+                .style(design::ghost)
+                .padding([6, 10])
+                .width(Length::Fill)
+        };
+        container(
+            column![
+                entry("Add files…", Message::FileChoose),
+                entry("Run a command…", Message::AttachMenuCommand),
+            ]
+            .spacing(2)
+            .width(200),
+        )
+        .padding(4)
+        .style(|_| panel(BASE))
+        .into()
+    }
     fn header(&self) -> Element<'_, Message> {
         let heading = self
             .selected
@@ -11330,38 +11366,38 @@ impl App {
         // affordance has no counterpart box there, so it keeps its label and takes
         // the chip height. The plan chip follows it, and only exists while the
         // mode is on, so the row's 12px gap cannot leave a phantom slot.
-        let mut controls = row![
-            container(
-                button(
-                    label(
-                        if self.files.count() == 0 {
-                            "+ Attach".to_owned()
-                        } else {
-                            format!(
-                                "+ Attach · {}/{}",
-                                self.files.count(),
-                                attachment_draft::MAX_ATTACHMENTS
-                            )
-                        },
-                        MUTED,
-                    )
-                    .size(11)
-                )
+        // The reference's left control is one listbox that offers files *and* commands
+        // (`InputBar.tsx:428-441`, `apply.ts:274-278`), so a mouse user reaches the command menu
+        // without typing a slash. Native draws the same list as a popup under the button.
+        let attach_label = if self.files.count() == 0 {
+            "+ Attach".to_owned()
+        } else {
+            format!(
+                "+ Attach · {}/{}",
+                self.files.count(),
+                attachment_draft::MAX_ATTACHMENTS
+            )
+        };
+        let attach_state = self.file_context().allowed
+            && !self.files.editor_open()
+            && !self.files.at_capacity()
+            && !self.files.pending()
+            && !self.files.prompt_pending()
+            && !self.local_files.busy();
+        let attach = container(anchored_popup::anchored(
+            button(label(attach_label, MUTED).size(11))
                 .on_press_maybe(
-                    (self.file_context().allowed
-                        && !self.files.editor_open()
-                        && !self.files.at_capacity()
-                        && !self.files.pending()
-                        && !self.files.prompt_pending()
-                        && !self.local_files.busy())
-                    .then_some(Message::FileChoose)
+                    attach_state.then_some(Message::ToggleAttachMenu(!self.attach_menu)),
                 )
                 .style(design::ghost)
                 .padding([6, 9])
                 .height(design::COMPOSER_CHIP_HEIGHT)
-            )
-            .id("native-file-open"),
-        ];
+                .into(),
+            (self.attach_menu && attach_state).then(|| self.attach_menu_view()),
+            Message::ToggleAttachMenu(false),
+        ))
+        .id("native-file-open");
+        let mut controls = row![attach];
         if let Some(chip) = self.plan_chip() {
             controls = controls.push(chip);
         }
