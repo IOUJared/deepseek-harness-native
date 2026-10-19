@@ -46,5 +46,5 @@ python3 qualify_formatted_details.py
 ## Remaining scope
 
 Physical mode/code scrolling, selection/copy, IME/accessibility, compositor fractional scaling and integrated resources/latency remain unqualified. Main-chat Markdown and relative-path navigation/edit counts remain incomplete. Comparisons are
-drawn as diff rows with hunk headers, colour bars, fills and monospace since round 482; their
-numbered gutters, split view and wrap control do not exist. [Package refresh](<NATIVE-DEVELOPMENT-PACKAGE.md>) separately qualifies default/relocated startup, not parity; older artifacts and installed GUI/profile/desktop stay unchanged.
+drawn as diff rows with hunk headers, colour bars, fills, monospace and two numbered gutters
+since rounds 482 and 483; a split view and a wrap control do not exist. [Package refresh](<NATIVE-DEVELOPMENT-PACKAGE.md>) separately qualifies default/relocated startup, not parity; older artifacts and installed GUI/profile/desktop stay unchanged.

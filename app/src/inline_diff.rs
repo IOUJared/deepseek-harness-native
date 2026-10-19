@@ -31,6 +31,12 @@ pub enum Kind {
 pub struct Line {
     pub kind: Kind,
     pub text: String,
+    /// The old-side line number a gutter shows, when this row has one. Tool diffs leave both sides
+    /// unnumbered; a comparison read from the Host carries the numbers its hunks state
+    /// (`FileDiff.tsx:246-253`).
+    pub old: Option<u64>,
+    /// The new-side line number, on the same terms.
+    pub new: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -113,6 +119,8 @@ pub fn file(path: &str, old: Option<&str>, new: &str) -> Option<Diff> {
     let mut lines = vec![Line {
         kind: Kind::Path,
         text: path.lines().next().unwrap_or(path).to_owned(),
+        old: None,
+        new: None,
     }];
     let script = script(&old_lines, &new_lines);
     let mut previous: Option<usize> = None;
@@ -121,6 +129,8 @@ pub fn file(path: &str, old: Option<&str>, new: &str) -> Option<Diff> {
             lines.push(Line {
                 kind: Kind::Gap,
                 text: "⋯".to_owned(),
+                old: None,
+                new: None,
             });
         }
         let (op, text) = &script[index];
@@ -131,6 +141,8 @@ pub fn file(path: &str, old: Option<&str>, new: &str) -> Option<Diff> {
                 Op::Added => Kind::Added,
             },
             text: text.clone(),
+            old: None,
+            new: None,
         });
         previous = Some(index);
     }

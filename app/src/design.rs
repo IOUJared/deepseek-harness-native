@@ -361,6 +361,8 @@ pub const DIFF_PAD_TOP: f32 = 6.0;
 pub const DIFF_PAD_BOTTOM: f32 = 20.0;
 pub const DIFF_LINE_PAD: f32 = 22.0;
 pub const DIFF_BAR: f32 = 3.0;
+/// One of the two line-number gutters a comparison draws (`FileDiff.tsx:246-253`).
+pub const DIFF_GUTTER: f32 = 44.0;
 /// The web's dark diff fills: the success and error hues at 8%
 /// (`--dsw-alias-code-diff-added`/`-deleted`, `design-platform.css:242-243`), expressed
 /// over this palette's `FOAM` and `DANGER` so the row tint and the line ink agree.

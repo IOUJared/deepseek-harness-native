@@ -19618,7 +19618,25 @@ pub(crate) fn diff_line_view(
         Kind::Added => (design::FOAM, Some(design::DIFF_ADDED_FILL), design::FOAM),
         Kind::Path | Kind::Context | Kind::Gap => (MUTED, None, iced::Color::TRANSPARENT),
     };
+    // The reference's two gutters: old number, new number, then the sign column (`FileDiff.tsx:246-253`).
+    // A row that carries no number (a tool diff, a path header, a fold) keeps the plain layout.
+    let gutter = |value: Option<u64>| -> Element<'static, Message> {
+        let text = value.map(|n| n.to_string()).unwrap_or_default();
+        container(label(text, MUTED).size(design::CODE_FONT).font(MONO))
+            .width(design::DIFF_GUTTER)
+            .height(height)
+            .align_x(iced::Alignment::End)
+            .padding(iced::Padding {
+                top: 0.0,
+                right: 4.0,
+                bottom: 0.0,
+                left: 0.0,
+            })
+            .into()
+    };
     let content = row![
+        gutter(line.old),
+        gutter(line.new),
         container(Space::new())
             .width(design::DIFF_BAR)
             .height(height)

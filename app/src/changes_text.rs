@@ -111,16 +111,46 @@ pub fn diff_lines(
                 "@@ -{},{} +{},{} @@",
                 hunk.old_start, hunk.old_lines, hunk.new_start, hunk.new_lines
             ),
+            old: None,
+            new: None,
         });
+        // The reference numbers both sides in its gutters (`FileDiff.tsx:246-253`), so the counters
+        // follow the hunks' own starts: context advances both, a deletion only the old side, an
+        // addition only the new one.
+        let mut old_line = hunk.old_start;
+        let mut new_line = hunk.new_start;
         for line in hunk.lines.iter().take(4_000) {
-            let kind = match line.chars().next() {
-                Some('+') => crate::reducer::inline_diff::Kind::Added,
-                Some('-') => crate::reducer::inline_diff::Kind::Deleted,
-                _ => crate::reducer::inline_diff::Kind::Context,
+            let (kind, old, new) = match line.chars().next() {
+                Some('+') => {
+                    let number = (None, Some(new_line));
+                    new_line += 1;
+                    (crate::reducer::inline_diff::Kind::Added, number.0, number.1)
+                }
+                Some('-') => {
+                    let number = (Some(old_line), None);
+                    old_line += 1;
+                    (
+                        crate::reducer::inline_diff::Kind::Deleted,
+                        number.0,
+                        number.1,
+                    )
+                }
+                _ => {
+                    let numbers = (Some(old_line), Some(new_line));
+                    old_line += 1;
+                    new_line += 1;
+                    (
+                        crate::reducer::inline_diff::Kind::Context,
+                        numbers.0,
+                        numbers.1,
+                    )
+                }
             };
             lines.push(crate::reducer::inline_diff::Line {
                 kind,
                 text: line.clone(),
+                old,
+                new,
             });
         }
     }
@@ -232,6 +262,19 @@ mod tests {
             ]
         );
         assert_eq!(rows.lines[0].text, "@@ -3,2 +3,3 @@");
+        // Both gutters number their own side: the hunk starts at 3 on each, context advances both, a
+        // deletion only the old side and an addition only the new one.
+        let numbers: Vec<_> = rows.lines.iter().map(|line| (line.old, line.new)).collect();
+        assert_eq!(
+            numbers,
+            [
+                (None, None),       // the hunk header
+                (Some(3), Some(3)), // context
+                (Some(4), None),    // the deleted line
+                (None, Some(4)),    // the first added line
+                (None, Some(5)),    // the second
+            ]
+        );
         // A comparison with no hunks, or one with nothing textual, draws nothing.
         let empty = ChangesDiff::Text {
             path: "src/lib.rs".into(),

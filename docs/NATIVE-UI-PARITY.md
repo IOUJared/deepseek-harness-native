@@ -12707,3 +12707,38 @@ diffs remain incomplete" is now corrected to say what does and does not exist.
 | DP-2 capture | — | `shots/271-changes-diff.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 483 — a comparison numbers both of its sides
+
+The last piece named when the diff renderer landed: the reference draws two gutters, the old line number
+and the new one, beside each row (`FileDiff.tsx:246-253`). Native's rows had kind and text only.
+
+`inline_diff::Line` gained optional `old` and `new` numbers — tool diffs leave both unset, so nothing
+changes for them — and `changes_text::diff_lines` fills them from each hunk's own starts: context advances
+both counters, a deletion only the old one, an addition only the new one. The row widget draws the two
+gutters when a number is present and the plain layout when it is not.
+
+Tests: `a_comparison_becomes_rows_the_diff_widget_can_draw` now also asserts the numbering of one hunk
+row by row — header unnumbered, context `3/3`, deletion `4/-`, additions `-/4` and `-/5`.
+
+Evidence: `shots/272-changes-gutter.png` (DP-2 alongside, `status: passed`). The first frame of this round
+was wrong in a way only a picture shows: 34px gutters ran the two numbers together as `1125211252`, so the
+capture was retaken at 44px rather than committed with a measurement that did not fit five-digit numbers.
+
+**Still unbuilt**: the split view and the wrap control.
+
+**Battery (round 483).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1467 passed**, 1 ignored |
+| app, default | **0** | **1432 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/272-changes-gutter.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
