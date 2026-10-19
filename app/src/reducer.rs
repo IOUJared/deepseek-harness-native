@@ -23,6 +23,9 @@ pub mod search_card;
 /// same reason.
 #[path = "terminal_card.rs"]
 pub mod terminal_card;
+/// The reference's web card for a `web_search`/`web_fetch` call.
+#[path = "web_card.rs"]
+pub mod web_card;
 pub use assistant_parts::AssistantParts;
 use assistant_parts::{Block, Kind};
 #[path = "chat_presentation.rs"]

@@ -12863,12 +12863,20 @@ impl App {
                         .and_then(|activity| activity.search)
                 })
                 .flatten();
-            let body = match (&read, &terminal, &search, &diff) {
-                (Some(card), _, _, _) => self.read_card_height(card, row.key),
-                (None, Some(card), _, _) => self.terminal_card_height(card, row.key),
-                (None, None, Some(card), _) => self.search_card_height(card, row.key),
-                (None, None, None, Some(diff)) => self.diff_card_height(diff, row.key),
-                (None, None, None, None) => conversation_content::tool_body_height(
+            let web = (row.role == "Tool call")
+                .then(|| {
+                    self.transcript
+                        .activity(row.key, self.path_roots())
+                        .and_then(|activity| activity.web)
+                })
+                .flatten();
+            let body = match (&read, &terminal, &search, &web, &diff) {
+                (Some(card), _, _, _, _) => self.read_card_height(card, row.key),
+                (None, Some(card), _, _, _) => self.terminal_card_height(card, row.key),
+                (None, None, Some(card), _, _) => self.search_card_height(card, row.key),
+                (None, None, None, Some(card), _) => self.web_card_height(card, row.key),
+                (None, None, None, None, Some(diff)) => self.diff_card_height(diff, row.key),
+                (None, None, None, None, None) => conversation_content::tool_body_height(
                     activity_body_source(row),
                     geometry.width - chat_geometry::BODY_INSET,
                     self.content_delta_secondary(),
@@ -13393,6 +13401,141 @@ impl App {
             })
             .into()
     }
+    /// The web card's drawn height: the retained rows, one fold row, and the truncation note.
+    fn web_card_height(&self, card: &crate::reducer::web_card::Card, key: u64) -> f32 {
+        let rows = card.drawn_rows(self.diff_expanded.contains(&key)) as f32;
+        let line = design::CODE_LINE + self.content_delta_secondary();
+        design::DIFF_PAD_TOP + design::DIFF_PAD_BOTTOM + line * rows
+    }
+    /// The reference's `WebBlock` in a chat row (`WebBlock.tsx:145-190`): the provider answer over
+    /// its numbered sources (title, URL, snippet, date), or the fetched URL with its HTTP status,
+    /// and a truncation note when the provider capped the list or the content.
+    fn web_card(
+        &self,
+        card: &crate::reducer::web_card::Card,
+        key: u64,
+    ) -> Element<'static, Message> {
+        use crate::reducer::web_card::Row;
+        let expanded = self.diff_expanded.contains(&key);
+        let shown = card.shown(expanded);
+        let line = design::CODE_LINE + self.content_delta_secondary();
+        let row_of = |row: &Row| -> Element<'static, Message> {
+            match row {
+                Row::Answer(text) => label(short(text, 160), TEXT).size(design::CODE_FONT).into(),
+                Row::Source { ordinal, source } => {
+                    // The reference links the title and shows the snippet and date beside it; the
+                    // URL is the link's target, drawn only when the provider gave no title.
+                    let title = source.title.clone().unwrap_or_else(|| source.url.clone());
+                    let mut line_row = row![
+                        label(format!("{ordinal}."), MUTED).size(design::CODE_FONT),
+                        label(short(&title, 96), TEXT).size(design::CODE_FONT),
+                    ]
+                    .spacing(6);
+                    if source.title.is_some() {
+                        line_row = line_row.push(label(short(&source.url, 96), MUTED).size(11));
+                    }
+                    if let Some(snippet) = source.snippet.as_ref() {
+                        line_row = line_row.push(label(short(snippet, 96), MUTED).size(11));
+                    }
+                    if let Some(published) = source.published_at.as_ref() {
+                        line_row = line_row.push(label(short(published, 32), MUTED).size(11));
+                    }
+                    line_row
+                        .height(line)
+                        .align_y(iced::Alignment::Center)
+                        .into()
+                }
+                Row::Empty => label("No results found", MUTED)
+                    .size(design::CODE_FONT)
+                    .into(),
+                Row::Fetch { url, status_code } => row![
+                    label(short(url, 128), TEXT).size(design::CODE_FONT),
+                    label(format!("HTTP {status_code}"), MUTED).size(design::CODE_FONT),
+                ]
+                .spacing(8)
+                .height(line)
+                .align_y(iced::Alignment::Center)
+                .into(),
+            }
+        };
+        let mut body = Column::new();
+        for item in &shown.head {
+            body = body.push(
+                container(row_of(item))
+                    .width(Length::Fill)
+                    .padding(iced::Padding {
+                        top: 0.0,
+                        right: 0.0,
+                        bottom: 0.0,
+                        left: design::DIFF_STAT_LEFT,
+                    }),
+            );
+        }
+        if shown.hidden > 0 {
+            let copy = if expanded {
+                "Collapse".to_owned()
+            } else {
+                format!("… {} more sources", shown.hidden)
+            };
+            body = body.push(
+                button(label(copy, MUTED).size(design::CODE_FONT))
+                    .on_press(Message::ToggleDiff(key))
+                    .style(design::ghost)
+                    .padding(iced::Padding {
+                        top: 0.0,
+                        right: 0.0,
+                        bottom: 0.0,
+                        left: design::DIFF_LINE_PAD,
+                    })
+                    .height(line)
+                    .width(Length::Fill),
+            );
+        }
+        for item in &shown.tail {
+            body = body.push(
+                container(row_of(item))
+                    .width(Length::Fill)
+                    .padding(iced::Padding {
+                        top: 0.0,
+                        right: 0.0,
+                        bottom: 0.0,
+                        left: design::DIFF_STAT_LEFT,
+                    }),
+            );
+        }
+        if card.truncated {
+            body = body.push(
+                container(label(card.note(), MUTED).size(11))
+                    .padding(iced::Padding {
+                        top: 0.0,
+                        right: 0.0,
+                        bottom: 0.0,
+                        left: design::DIFF_STAT_LEFT,
+                    })
+                    .height(line),
+            );
+        }
+        container(body)
+            .id("native-tool-web")
+            .width(Length::Fill)
+            .height(self.web_card_height(card, key))
+            .padding(iced::Padding {
+                top: design::DIFF_PAD_TOP,
+                right: 0.0,
+                bottom: design::DIFF_PAD_BOTTOM,
+                left: 0.0,
+            })
+            .clip(true)
+            .style(|_| iced::widget::container::Style {
+                background: Some(design::OVERLAY.into()),
+                border: iced::Border {
+                    radius: design::RADIUS_LG.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .into()
+    }
     /// The read card's own drawn height: one toolbar row (the label and, for a windowed read,
     /// the reference's "Showing N of M lines"), the numbered rows at the code line, and the
     /// card's padding. The reservation and the render read this one function.
@@ -13725,13 +13868,23 @@ impl App {
                                 .and_then(|activity| activity.search)
                         })
                         .flatten();
+                    let web = (record.role == "Tool call")
+                        .then(|| {
+                            self.transcript
+                                .activity(record.key, self.path_roots())
+                                .and_then(|activity| activity.web)
+                        })
+                        .flatten();
                     activity_column =
-                        activity_column.push(match (&read, &terminal, &search, &diff) {
-                            (Some(card), _, _, _) => self.read_card(card, record.key),
-                            (None, Some(card), _, _) => self.terminal_card(card, record.key),
-                            (None, None, Some(card), _) => self.search_card(card, record.key),
-                            (None, None, None, Some(diff)) => self.diff_card(diff, record.key),
-                            (None, None, None, None) => conversation_content::tool_body_view(
+                        activity_column.push(match (&read, &terminal, &search, &web, &diff) {
+                            (Some(card), _, _, _, _) => self.read_card(card, record.key),
+                            (None, Some(card), _, _, _) => self.terminal_card(card, record.key),
+                            (None, None, Some(card), _, _) => self.search_card(card, record.key),
+                            (None, None, None, Some(card), _) => self.web_card(card, record.key),
+                            (None, None, None, None, Some(diff)) => {
+                                self.diff_card(diff, record.key)
+                            }
+                            (None, None, None, None, None) => conversation_content::tool_body_view(
                                 activity_body,
                                 conversation_content::tool_body_height(
                                     activity_body,

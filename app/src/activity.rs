@@ -43,6 +43,8 @@ pub struct Summary {
     pub terminal: Option<crate::reducer::terminal_card::Card>,
     /// The search card for a settled `grep`/`glob` call (`search-card-model.ts:78-100`).
     pub search: Option<crate::reducer::search_card::Card>,
+    /// The web card for a settled `web_search`/`web_fetch` call (`web-card-model.ts:60-99`).
+    pub web: Option<crate::reducer::web_card::Card>,
 }
 
 /// The diff card's rows are file content, so the debug form names the card and its row count
@@ -85,6 +87,13 @@ impl std::fmt::Debug for Summary {
                     .as_ref()
                     .map(|card| format!("{} results", card.total)),
             )
+            .field(
+                "web",
+                &self
+                    .web
+                    .as_ref()
+                    .map(|card| format!("{} rows", card.rows().len())),
+            )
             .finish()
     }
 }
@@ -123,6 +132,7 @@ pub(super) fn summarize_paired<'a>(
                 summary.terminal =
                     crate::reducer::terminal_card::derive(&event.data, &result.data, roots);
                 summary.search = crate::reducer::search_card::derive(&event.data, &result.data);
+                summary.web = crate::reducer::web_card::derive(&event.data, &result.data);
             }
             Some(summary)
         }
@@ -164,6 +174,7 @@ pub(super) fn summarize_paired<'a>(
                     read: None,
                     terminal: None,
                     search: None,
+                    web: None,
                 },
                 |call| text_summary_label(&call.data, true, failed, roots),
             ))
@@ -184,6 +195,7 @@ pub(super) fn summarize_paired<'a>(
             read: None,
             terminal: None,
             search: None,
+            web: None,
         }),
         "compaction/summary" => {
             let range = &event.data["shadowedRange"];
@@ -200,6 +212,7 @@ pub(super) fn summarize_paired<'a>(
                 read: None,
                 terminal: None,
                 search: None,
+                web: None,
             })
         }
         "compaction/end" => event.data["error"].as_str().map_or_else(
@@ -214,6 +227,7 @@ pub(super) fn summarize_paired<'a>(
                     read: None,
                     terminal: None,
                     search: None,
+                    web: None,
                 })
             },
         ),
@@ -276,6 +290,7 @@ fn loop_guard_summary(data: &Value) -> Summary {
             read: None,
             terminal: None,
             search: None,
+            web: None,
         },
         _ => Summary {
             title: "Loop guard · repeated identical call".into(),
@@ -286,6 +301,7 @@ fn loop_guard_summary(data: &Value) -> Summary {
             read: None,
             terminal: None,
             search: None,
+            web: None,
         },
     }
 }
@@ -303,6 +319,7 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
             read: None,
             terminal: None,
             search: None,
+            web: None,
         };
     }
     let verb = match name {
@@ -311,6 +328,8 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
         "edit" | "functions.edit" | "tool-fs/edit" => "Edit",
         "write" | "functions.write" | "tool-fs/write" => "Write",
         "bash" | "functions.bash" | "tool-shell/bash" => "Bash",
+        "web_search" | "functions.web_search" | "tool-web/web_search" => "Web search",
+        "web_fetch" | "functions.web_fetch" | "tool-web/web_fetch" => "Web fetch",
         "grep" | "functions.grep" | "tool-search/grep" => "Grep",
         "glob" | "functions.glob" | "tool-search/glob" => "Glob",
         "shell" | "functions.shell" | "pwsh" | "functions.pwsh" => "Shell",
@@ -330,8 +349,14 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
             }
             let picked = match verb {
                 "Read" | "Edit" | "Write" => pick(&args, &["file_path", "path"]),
-                // A search row names what was searched for, the way a read row names its path.
+                // A search row names what was searched for, the way a read row names its path; a
+                // web row names the query it sent or the URL it read.
                 "Grep" | "Glob" => pick(&args, &["pattern"]),
+                "Web search" => args["queries"]
+                    .as_array()
+                    .and_then(|queries| queries.first())
+                    .and_then(Value::as_str),
+                "Web fetch" => pick(&args, &["url"]),
                 "Bash" | "Shell" => {
                     // Never expose a credential-bearing command through a benign description.
                     if pick(&args, &["command"]).is_some_and(sensitive_text) {
@@ -373,6 +398,7 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
         read: None,
         terminal: None,
         search: None,
+        web: None,
     }
 }
 
@@ -1366,6 +1392,13 @@ mod card_debug_tests {
                 total: 1,
                 truncated: false,
             }),
+            web: Some(crate::reducer::web_card::Card {
+                kind: crate::reducer::web_card::Kind::Search {
+                    answer: Some("PRIVATE-ANSWER".into()),
+                    sources: Vec::new(),
+                },
+                truncated: false,
+            }),
         };
         let debug = format!("{summary:?}");
         assert!(!debug.contains("PRIVATE-"), "{debug}");
@@ -1378,6 +1411,7 @@ mod card_debug_tests {
         summary.read = None;
         summary.terminal = None;
         summary.search = None;
+        summary.web = None;
         assert!(format!("{summary:?}").contains("terminal: None"));
     }
 }

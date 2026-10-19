@@ -372,7 +372,7 @@ the authoritative short form.
    its `tool/call` and draws one row per call, as the reference does; the result record remains a
    Trajectory-only row, so nothing is lost. See that round for the pairing rules and the rows that
    changed.
-8. **The expanded tool body's card family — four of the cards are now built.** The reference
+8. **The expanded tool body's card family — five of the cards are now built.** The reference
    picks a structured card per tool before any text card (`ToolRow.tsx:169-170`: ask-user,
    terminal, diff, read, image, search, web, details, then the IN/OUT text card) and draws it with
    the shared primitive (`:258-341`). Native draws the **diff** card (round 362, arguments only),
@@ -381,9 +381,10 @@ the authoritative short form.
    prompt label from the resolved workdir, the status pill parsed from the trailing
    `[exit code: N]`/`[killed by signal: X]` marker, the output rows and the 16-row fold) and the
    **search** card (round 375: `grep` matches grouped by file or `glob`'s flat path list, with the
-   retained/pre-cap banner). What remains of this family is the `str_replace_editor` shape and the
-   ask-user/image/web cards, so the difference is **text where the reference picks a structured
-   card**, for those families only.
+   retained/pre-cap banner) and the **web** card (round 376: `web_search`'s answer over its numbered
+   sources or `web_fetch`'s URL and HTTP status, with the provider's truncation note). What remains
+   of this family is the `str_replace_editor` shape and the ask-user/image cards, so the difference
+   is **text where the reference picks a structured card**, for those two families only.
 9. **Permission default row in Settings — landed.** The reference has *two* permission pickers;
    both are drawn here now (`settings.rs:1550-1580`, settings-general permission row,
    `shots/70-…`–`73-…`), and the record below is kept because it names the second surface and its
@@ -8706,5 +8707,52 @@ include that must stay valid), and the quiet `Debug` — plus the preset's row-f
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/174-tool-search-card.png`, `status: passed` |
+| app bin | — | **19** dead-code warnings (unchanged) |
+| tree | — | clean before the commit |
+
+### Round 376 — the web card: an answer over its sources, or a fetch's status
+
+The fourth structured tool card. `web_search` records an optional provider answer, its cited sources
+and whether the list was capped; `web_fetch` records the URL, the HTTP status and whether the content
+was capped. The reference draws them as one card with a truncation note, and native drew them as
+text.
+
+**The model** (`reducer/web_card.rs`) follows `web-card-model.ts:60-99`: `web_search` needs a
+non-empty `queries` array of non-blank strings, `web_fetch` a non-blank `url`; `meta` must carry a
+boolean `truncated` and the shape matching the tool — `sources` (each a `url` with optional string
+`title`/`snippet`/`publishedAt`) with an optional string `answer`, or a string `url` with an integer
+`statusCode`. An empty answer is treated as no answer, exactly as the reference's own empty-state
+test does. Any malformed source drops the whole card.
+
+**The card** draws the answer above the numbered sources — the title as the visible line (the URL is
+the citation, drawn beside it) with the snippet and date when the provider gave them — or the fetched
+URL with `HTTP <status>`; it caps the list at 8 with the usual head/tail fold (`… N more sources`)
+and states `Source list truncated` / `Content truncated` when the provider capped it. A search with
+neither an answer nor a source says `No results found`.
+
+The same round named the verbs: `Web search · PUBLIC query` and `Web fetch · <url>` instead of the
+generic `Tool · functions.web_sea… · Tool arguments available` — the last two of the reference's tool
+row labels native did not map.
+
+Evidence: `shots/175-tool-web-card.png` (DP-2 alongside, `status: passed`) in the new
+`tool-activity-web` preset: a truncated search with an answer and two sources.
+
+Tests: seven in `web_card` — the answer-over-sources card, both empty-answer shapes, the capped
+search and fetch notes, the 8-row cap, seven metadata failures, seven call failures, and the quiet
+`Debug` — plus the preset's row-for-row assertion.
+
+**Battery (round 376).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1320 passed**, 1 ignored |
+| app, default | **0** | **1313 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/175-tool-web-card.png`, `status: passed` |
 | app bin | — | **19** dead-code warnings (unchanged) |
 | tree | — | clean before the commit |

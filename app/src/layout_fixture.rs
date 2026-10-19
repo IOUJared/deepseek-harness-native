@@ -141,6 +141,7 @@ pub const PRESETS: &[&str] = &[
     "tool-activity-read",
     "tool-activity-terminal",
     "tool-activity-search",
+    "tool-activity-web",
     "context-injects",
     "assistant-tool-call",
     "assistant-tool-call-expanded",
@@ -211,7 +212,8 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "tool-activity-diff-long"
         | "tool-activity-read"
         | "tool-activity-terminal"
-        | "tool-activity-search" => Some((Size::new(1040.0, 1040.0), 1.0)),
+        | "tool-activity-search"
+        | "tool-activity-web" => Some((Size::new(1040.0, 1040.0), 1.0)),
         "context-injects" | "context-injects-trajectory" => Some((Size::new(1040.0, 900.0), 1.0)),
         "assistant-tool-call" | "assistant-tool-call-expanded" => {
             Some((Size::new(1040.0, 760.0), 1.0))
@@ -651,6 +653,57 @@ fn public_tool_terminal_records() -> Vec<Value> {
         }
     }
     records
+}
+
+/// A conversation whose only tool call is a `web_search`, recorded with the metadata the reference
+/// validates into its web card (`web-card-model.ts:60-99`). Every URL, title and snippet is
+/// synthetic PUBLIC metadata; nothing was fetched and no such page exists.
+fn public_web_records() -> Vec<Value> {
+    let event = |seq: u64, kind: &str, data: Value| {
+        json!({"type":"event", "event":{
+            "type":kind, "seq":seq, "time":1000+seq, "data":data, "surfaceOp":"append"
+        }})
+    };
+    vec![
+        event(
+            0,
+            "user/message",
+            json!({"role":"user", "id":"PUBLIC-web-user", "source":{"kind":"user"},
+                "content":[{"type":"text","text":"PUBLIC web fixture · nothing was fetched."}]}),
+        ),
+        event(
+            1,
+            "tool/call",
+            json!({"callId":"PUBLIC-web-call", "turn":1, "step":2, "name":"functions.web_search",
+                "arguments":json!({"queries":["PUBLIC query"]}).to_string()}),
+        ),
+        event(
+            2,
+            "tool/result",
+            json!({"turn":1, "step":2, "meta":{
+            "truncated":true,
+            "answer":"PUBLIC provider answer · synthetic, not a real search result.",
+            "sources":[
+                {"url":"https://PUBLIC.example/one", "title":"PUBLIC source one",
+                 "snippet":"PUBLIC snippet one", "publishedAt":"PUBLIC 2026-01-01"},
+                {"url":"https://PUBLIC.example/two", "title":"PUBLIC source two"},
+            ]},
+            "message":{
+                "role":"tool", "toolCallId":"PUBLIC-web-call",
+                "source":{"kind":"tool", "callId":"PUBLIC-web-call"},
+                "isError":false,
+                "content":[{"type":"text", "text":"PUBLIC truncated search page."}]
+            }}),
+        ),
+        event(
+            3,
+            "assistant/message",
+            json!({"turn":1, "step":2,
+                "stream":[{"type":"text-chunks", "time0":1003, "index":0, "dt":[],
+                    "texts":["PUBLIC synthetic assistant text · the web card is drawn from recorded metadata, not from a search."]}]
+            }),
+        ),
+    ]
 }
 
 /// A conversation whose only tool call is a `grep`, recorded with the metadata the reference
@@ -1096,6 +1149,8 @@ pub fn build(
         public_tool_terminal_records()
     } else if preset == "tool-activity-search" {
         public_search_records()
+    } else if preset == "tool-activity-web" {
+        public_web_records()
     } else if preset == "tool-activity-diff-long" {
         // The same transcript with a longer edit, so the card's 9-row cap and its fold control
         // are drawn. Every line is synthetic PUBLIC metadata.
@@ -2122,6 +2177,37 @@ pub fn build(
             }));
             assert!(app.activity_expanded.contains(&1));
         }
+        "tool-activity-web" => {
+            assert_eq!(app.transcript.display_rows(false).count(), 3);
+            // The search call expands into the reference's web card: the provider answer over the
+            // numbered sources, then the provider's own truncation note.
+            let card = app
+                .transcript
+                .activity(1, app.path_roots())
+                .and_then(|activity| activity.web)
+                .expect("the web call's card");
+            let rows = card.rows();
+            assert_eq!(rows.len(), 3);
+            assert!(
+                matches!(&rows[0], crate::reducer::web_card::Row::Answer(text)
+                if text.contains("PUBLIC provider answer"))
+            );
+            assert!(
+                matches!(&rows[1], crate::reducer::web_card::Row::Source { ordinal: 1, source }
+                if source.title.as_deref() == Some("PUBLIC source one")
+                    && source.published_at.is_some())
+            );
+            assert!(matches!(
+                &rows[2],
+                crate::reducer::web_card::Row::Source { ordinal: 2, .. }
+            ));
+            assert_eq!(card.note(), "Source list truncated");
+            drop(app.update(Message::ToggleActivity {
+                generation: app.generation,
+                key: 1,
+            }));
+            assert!(app.activity_expanded.contains(&1));
+        }
         "tool-activity-expanded" => {
             // The recorded Bash call expands inside the conversation; the detail
             // panel stays closed and no tool is executed.
@@ -2674,7 +2760,10 @@ mod tests {
             }
             // The search preset carries its own smaller conversation: one grep call records the
             // only tool data its card needs, so it is asserted in its own arm below.
-            if preset.starts_with("tool-activity") && preset != "tool-activity-search" {
+            if preset.starts_with("tool-activity")
+                && preset != "tool-activity-search"
+                && preset != "tool-activity-web"
+            {
                 assert_eq!(app.transcript.rows().len(), 8);
                 assert_eq!(app.transcript.opening_cursor(), 7);
                 assert_eq!(app.transcript.rows()[0].role, "You");
