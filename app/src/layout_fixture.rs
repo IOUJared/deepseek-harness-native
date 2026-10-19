@@ -46,6 +46,7 @@ pub const PRESETS: &[&str] = &[
     "warnings",
     "conversation",
     "jobs-panel",
+    "jobs-panel-error",
     "sidebar-options",
     "sidebar-options-tiny",
     "sidebar-trash-review",
@@ -239,7 +240,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "settings-presets-guide"
         | "settings-presets-copied"
         | "settings-account" => Some((Size::new(1024.0, 900.0), 1.0)),
-        "jobs-panel" => Some((Size::new(1200.0, 820.0), 1.0)),
+        "jobs-panel" | "jobs-panel-error" => Some((Size::new(1200.0, 820.0), 1.0)),
         "assistant-details-source"
         | "assistant-details-formatted"
         | "assistant-details-fallback" => Some((Size::new(1040.0, 900.0), 1.0)),
@@ -280,6 +281,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "wide-welcome"
         | "conversation"
         | "jobs-panel"
+        | "jobs-panel-error"
         | "collapsed-wide"
         | "title-controls"
         | "title-controls-expanded"
@@ -1383,7 +1385,7 @@ pub fn build(
         "running":preset.starts_with("working-") || matches!(preset, "menu" | "navigation" | "navigation-tiny"),
         // A preset that carries a transcript is not a blank session; the reference's own row
         // list and the chat fixtures both depend on this flag.
-        "blank": !matches!(preset, "jobs-panel" | "conversation" | "chat-density" | "chat-markdown" | "chat-thoughts" | "thoughts-preview" | "chat-thoughts-markdown" | "chat-table")
+        "blank": !matches!(preset, "jobs-panel" | "jobs-panel-error" | "conversation" | "chat-density" | "chat-markdown" | "chat-thoughts" | "thoughts-preview" | "chat-thoughts-markdown" | "chat-table")
             && !preset.starts_with("tool-activity"),
 
         "cwd":"/PUBLIC-layout-fixture/workspace",
@@ -1792,7 +1794,11 @@ pub fn build(
                     "stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],
                         "texts":["PUBLIC synthetic answer with a goal projection."]}]}}}),
         ]
-    } else if preset == "conversation" || preset == "jobs-panel" || preset.starts_with("working-") {
+    } else if preset == "conversation"
+        || preset == "jobs-panel"
+        || preset == "jobs-panel-error"
+        || preset.starts_with("working-")
+    {
         let records = vec![
             json!({"type":"event", "event":{"type":"user/message", "seq":0, "time":1000,
                 "data":{"role":"user", "id":"PUBLIC-user-message", "source":{"kind":"user"},
@@ -3515,10 +3521,15 @@ pub fn build(
     } else {
         "Live real session; UTC timestamps; no generation started".into()
     };
-    if preset == "jobs-panel" {
+    if preset == "jobs-panel" || preset == "jobs-panel-error" {
         // Seeded last, after every frame this preset applies, through the same hook the panel's own
         // tests use; the transcript is the conversation the preset inherits.
         app.set_jobs();
+        if preset == "jobs-panel-error" {
+            // A failed output stream: the notice belongs inside the panel, not only in the status
+            // line (`ui-jobs/src/client/locales.ts:76`).
+            app.jobs_error = Some("connection reset".into());
+        }
     }
     (app, receiver)
 }
@@ -3625,7 +3636,7 @@ pub fn metadata(app: &App, preset: &str) -> Value {
         "reasoningStateMatchesPreset":app.chosen_model.as_ref().is_some_and(|m| !m.efforts.is_empty()) == reasoning_expected,
         "durablePublicRecordCount":app.transcript.rows().len(),
         "durablePublicSnapshotCursor":app.transcript.opening_cursor(),
-        "conversationSnapshotSimulated":matches!(preset, "jobs-panel" | "conversation" | "inbox-canceled" | "changes-card" | "feedback" | "workflow-run") || preset.starts_with("tool-activity"),
+        "conversationSnapshotSimulated":matches!(preset, "jobs-panel" | "jobs-panel-error" | "conversation" | "inbox-canceled" | "changes-card" | "feedback" | "workflow-run") || preset.starts_with("tool-activity"),
         "displayedPublicRecordCount":app.transcript.display_rows(app.records_expanded).count(),
         "canceledInboxHeadingExpected":preset == "inbox-canceled",
         "publicToolSnapshotSimulated":preset.starts_with("tool-activity"),

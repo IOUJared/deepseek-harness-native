@@ -1323,6 +1323,9 @@ pub struct App {
     /// The finished section's fold: `None` follows the default (open only when nothing runs),
     /// a value is the user's own choice for this panel visit (`JobListAction.tsx:333,352`).
     jobs_settled_open: Option<bool>,
+    /// The last live-output stream failure, shown inside the panel rather than only in the status
+    /// line (`ui-jobs/src/client/locales.ts:76`).
+    jobs_error: Option<String>,
     /// A write is in flight; the row is busy until its acknowledgement lands.
     permission_default_saving: bool,
     editor_undo: Vec<String>,
@@ -1649,6 +1652,7 @@ impl App {
                 jobs: Vec::new(),
                 jobs_open: false,
                 jobs_settled_open: None,
+                jobs_error: None,
                 jobs_armed: None,
                 jobs_kill_error: None,
                 jobs_expanded: None,
@@ -6762,9 +6766,12 @@ impl App {
                 self.status = error;
             }
             Event::JobsError { generation, error } if generation == self.generation => {
-                // A job panel's own stream failed; the session follow that gates sending
-                // is still healthy, so only the status changes.
-                self.status = error;
+                // A job panel's own stream failed. The session follow that gates sending is still
+                // healthy, so nothing stops; the panel says what happened where it happened, as the
+                // reference does inside the output view (`JobListAction.tsx:291-293`,
+                // `output.error`: "live output stream interrupted: {error}").
+                self.status = error.clone();
+                self.jobs_error = Some(error);
             }
             Event::Inspection(result) if matches!(self.close, Close::Inspecting) => match result {
                 Ok(inspection) if inspection.is_known_idle() && self.pending.is_empty() => {
@@ -6929,6 +6936,7 @@ impl App {
             Event::JobsRows(rows) => {
                 // Whole-set replacement: a reconnect's first frame is already the truth.
                 self.jobs = rows;
+                self.jobs_error = None;
             }
             Event::JobsFollow {
                 job: followed,
@@ -10117,6 +10125,15 @@ impl App {
                         .unwrap_or_default(),
                 ));
             }
+        }
+        if let Some(error) = &self.jobs_error {
+            panel = panel.push(
+                label(
+                    short(&format!("live output stream interrupted: {error}"), 140),
+                    DANGER,
+                )
+                .size(11),
+            );
         }
         if let Some(armed) = &self.jobs_armed {
             let job_label = self

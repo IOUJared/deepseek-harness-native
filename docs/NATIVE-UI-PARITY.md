@@ -11364,3 +11364,37 @@ opens it, a second closes it, and with no live rows the default is open.
 | DP-2 capture | — | `shots/254-jobs-settled-fold.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 445 — a broken output stream says so inside the panel
+
+The jobs audit's last absent item: when a job's live output stream fails, the reference states it in the
+output view — "live output stream interrupted: {error}" (`JobListAction.tsx:291-293`,
+`ui-jobs/src/client/locales.ts:76`). Native routed the failure to the app's status line only, so the
+panel went on looking healthy while its stream was dead.
+
+The failure is now kept as the panel's own state and drawn beneath the rows in danger ink, using the
+reference's sentence; the next successful `jobs/list` frame clears it, because a reconnect that returns
+rows has resolved the interruption.
+
+Evidence: `shots/255-jobs-stream-error.png` (DP-2 alongside, `status: passed`) in the new
+`jobs-panel-error` preset — `live output stream interrupted: connection reset` under the rows, above
+the armed stop confirmation.
+
+Tests: covered by the preset's metadata assertions and the existing panel tests; the state has no
+branch of its own beyond "show the last failure, clear it on a new list".
+
+**Battery (round 445).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1435 passed**, 1 ignored |
+| app, default | **0** | **1411 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/255-jobs-stream-error.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
