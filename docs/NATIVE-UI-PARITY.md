@@ -12780,3 +12780,41 @@ and queued rows lose their attachments.
 | capture | — | none: a label's condition, proved by its test |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 485 — the attachment rail scrolls, so every staged file is reachable
+
+The composer audit's second finding: the reference's rail is `overflow-x: auto` with paging arrows
+(`AttachmentRail.tsx:10-11,136-169`); native laid its cards in a plain row inside a padded container, so
+a full rail cut the last cards at the card's edge.
+
+The audit was honest that it could not say whether the overflow clipped or drew past the edge, so this
+round began with a frame: a new `file-ready-many` preset stages a full rail, and the capture showed the
+third card cut mid-word at the card's edge with nothing to reach the fourth. The rail is now a horizontal
+`scrollable`, and its capture shows three of four cards with a scrollbar whose thumb states the hidden
+extent.
+
+**Recorded difference**: the rail pages by its own scrollbar, not by the reference's arrow buttons. The
+arrows were built first and did not draw at this size — a first capture showed the scrollbar and no
+arrows — so they were removed rather than shipped invisible; a native scroller is the platform's own
+control for exactly this. The reference's "scroll to the newest card" reveal is not implemented either.
+
+Tests: `a_full_rail_overflows_the_composer_and_a_short_one_does_not` — four 240px cards overflow a 520px
+composer and one does not, and the presets stage the counts they claim.
+
+Evidence: `shots/273-attachment-rail.png` (DP-2 alongside, `status: passed`).
+
+**Battery (round 485).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1469 passed**, 1 ignored |
+| app, default | **0** | **1432 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/273-attachment-rail.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

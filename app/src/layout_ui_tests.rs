@@ -1293,3 +1293,29 @@ fn a_command_or_an_uploading_file_is_not_a_queued_message() {
     // Sending always says so, whatever the draft.
     assert_eq!(app.send_label(true), "Sending…");
 }
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
+fn a_full_rail_overflows_the_composer_and_a_short_one_does_not() {
+    // The rail scrolls, so overflow is a property of its content against the composer's width: a
+    // full rail needs more than a narrow card, and a single card never does.
+    let room = |cards: usize| {
+        let content = cards as f32
+            * (crate::design::ATTACHMENT_CARD_WIDTH + crate::design::ATTACH_RAIL_GAP)
+            - crate::design::ATTACH_RAIL_GAP;
+        content - 520.0
+    };
+    assert!(room(4) > 0.0, "four 240px cards overflow a 520px card");
+    assert!(room(1) < 0.0, "one card never overflows it");
+    // The presets stage what they claim: one file, and a rail past the composer's width.
+    for (preset, expected) in [("file-ready", 1usize), ("file-ready-many", 3)] {
+        let (size, _scale) = super::layout_fixture::preset_size(preset).unwrap();
+        let (app, _queue) =
+            super::layout_fixture::build(super::layout_fixture::test_options(), preset, size, None);
+        let staged = app.files.attachments().len();
+        assert!(
+            staged >= expected,
+            "{preset} stages at least {expected} files, got {staged}"
+        );
+    }
+}

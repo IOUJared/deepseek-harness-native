@@ -199,6 +199,7 @@ pub const PRESETS: &[&str] = &[
     "file-path-tiny",
     "file-ready",
     "file-ready-two",
+    "file-ready-many",
     "file-unknown",
     "inbox-canceled",
     "file-picker",
@@ -393,6 +394,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "file-path-review"
         | "file-ready"
         | "file-ready-two"
+        | "file-ready-many"
         | "file-unknown"
         | "inbox-canceled" => Some((Size::new(760.0, 560.0), 1.0)),
         _ => None,
@@ -2383,7 +2385,7 @@ pub fn build(
             app.public_attachment_fixture(preset == "file-picker")
         }
         "file-path-review" | "file-path-tiny" | "file-ready" | "file-ready-two"
-        | "file-unknown" => {
+        | "file-ready-many" | "file-unknown" => {
             // Pure local render metadata only: never execute StageFile/PromptFile or read the path.
             let context = app.file_context();
             assert!(app.files.open(&context));
@@ -2393,7 +2395,10 @@ pub fn build(
                 "/PUBLIC-layout-fixture/PUBLIC review file.bin".into(),
                 &context
             ));
-            if matches!(preset, "file-ready" | "file-ready-two" | "file-unknown") {
+            if matches!(
+                preset,
+                "file-ready" | "file-ready-two" | "file-ready-many" | "file-unknown"
+            ) {
                 let stamp = app.files.editor().unwrap().0;
                 let submission = app.files.stage(stamp, &context).unwrap();
                 let ticket = submission.ticket.clone();
@@ -2428,6 +2433,33 @@ pub fn build(
                         }),
                         &context,
                     );
+                }
+                if preset == "file-ready-many" {
+                    // A full rail — the four the composer allows — overflows the card at ordinary
+                    // widths, which is what the rail's paging is for
+                    // (`AttachmentRail.tsx:10-11,136-169`).
+                    for index in 2..4 {
+                        let context = app.file_context();
+                        assert!(app.files.open(&context));
+                        let stamp = app.files.editor().unwrap().0;
+                        assert!(app.files.edit(
+                            stamp,
+                            format!("/PUBLIC-layout-fixture/PUBLIC file {index}.txt"),
+                            &context
+                        ));
+                        let stamp = app.files.editor().unwrap().0;
+                        let submission = app.files.stage(stamp, &context).unwrap();
+                        let ticket = submission.ticket.clone();
+                        drop(submission);
+                        app.files.complete(
+                            &ticket,
+                            worker::attachments::Outcome::Staged(worker::attachments::Metadata {
+                                name: format!("PUBLIC file {index}.txt"),
+                                bytes: 1200 * index as u64,
+                            }),
+                            &context,
+                        );
+                    }
                 }
                 if preset == "file-unknown" {
                     let request = dsh_native_transport::dto::SessionRequestId::new(

@@ -800,11 +800,21 @@ fn composer_rail(items: Vec<(FileCard, Message)>) -> Option<Element<'static, Mes
         card = card.push(remove);
         cards = cards.push(card);
     }
+    // The reference's rail is `overflow-x: auto` with two arrows that page a viewport at a time
+    // (`AttachmentRail.tsx:10-11,136-169`). Without the scroller a full rail simply cut its last
+    // cards off at the card's edge, and the files past the edge could not be reached at all.
     Some(
-        container(cards)
-            .id("native-composer-rail")
-            .padding(design::ATTACH_RAIL_PAD)
-            .into(),
+        container(
+            scrollable(cards)
+                .id(iced::widget::Id::new("native-composer-rail"))
+                .direction(scrollable::Direction::Horizontal(
+                    scrollable::Scrollbar::default(),
+                ))
+                .height(design::ATTACHMENT_CARD_HEIGHT + design::ATTACH_RAIL_SCROLLBAR),
+        )
+        .id("native-composer-rail-frame")
+        .padding(design::ATTACH_RAIL_PAD)
+        .into(),
     )
 }
 fn attachment_cards(files: Vec<FileCard>) -> Element<'static, Message> {
@@ -8122,6 +8132,7 @@ impl App {
         );
     }
     /// Open one seeded comparison, for a fixture that shows the panel it fills.
+    #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn open_changed_detail_public(&mut self, seq: u64, index: usize) {
         let Some(ChangesDiffState::Ready(diff)) = self.changes_diffs.get(&(seq, index)) else {
             return;
@@ -8131,6 +8142,7 @@ impl App {
     }
     /// A turn that edited exactly one file, which the card draws as its own row
     /// (`ChangedFiles.tsx:54-77`).
+    #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn seed_changes_summary_single(&mut self) {
         self.changes.insert(
             2,
@@ -8152,6 +8164,7 @@ impl App {
     }
     /// A turn that edited more files than the card shows while folded, so the fold control is drawn
     /// (`ChangedFiles.tsx:18`).
+    #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn seed_changes_summary_many(&mut self) {
         let file = |path: &str, added: u64, deleted: u64| dsh_native_transport::dto::ChangedFile {
             path: path.into(),
