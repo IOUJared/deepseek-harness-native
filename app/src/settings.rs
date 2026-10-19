@@ -349,6 +349,8 @@ pub enum Action {
     PermissionDefaultConfirmed(String),
     /// Unfold one preset's guide section, or fold it when the same one is already showing.
     PresetGuide(String, GuideSection),
+    /// Put a guide's example text on the clipboard; the App owns the clipboard, not this crate.
+    CopyGuideText(String),
     /// Untick or tick the risk acknowledgement.
     FullAccessAcknowledge(bool),
     /// Close the risk confirmation without writing.
@@ -1577,6 +1579,20 @@ impl Settings {
                             }
                         }
                         Some(GuideSection::Usage) => {
+                            // Each example is a named task with its prompt and expected output, which
+                            // the reference labels "Example task" (`guide-locales.ts:6`).
+                            card = card.push(
+                                row![
+                                    label(crate::ui::preset_guide::EXAMPLE_TASK, MUTED).size(10),
+                                    // The reference offers Copy beside each example
+                                    // (`guide-locales.ts:6-7`); the App performs the write.
+                                    button(label(crate::ui::preset_guide::COPY, MUTED).size(10))
+                                        .style(design::ghost)
+                                        .padding([0, 4])
+                                        .on_press(Action::CopyGuideText(guide.usage.to_owned())),
+                                ]
+                                .spacing(6),
+                            );
                             for paragraph in guide.usage.split("\n\n") {
                                 card = card.push(label(paragraph, MUTED).size(11));
                             }

@@ -16,6 +16,10 @@ pub struct Guide {
 pub const MODE_DETAILS: &str = "Mode details";
 pub const HOW_TO_USE: &str = "How to use";
 pub const EXAMPLE_TASK: &str = "Example task";
+/// The reference's copy control (`guide-locales.ts:6`). Its "Copied" confirmation is not built:
+/// the App's clipboard write reports through `Message::ClipboardCopied`, and the guide has no
+/// per-card state to show it in yet.
+pub const COPY: &str = "Copy";
 
 const STANDARD: Guide = Guide {
     id: "standard",

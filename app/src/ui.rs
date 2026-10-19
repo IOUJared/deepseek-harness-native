@@ -3622,6 +3622,9 @@ impl App {
                             return self.update(Message::PermissionDefaultPick(name.clone()));
                         }
                     }
+                    crate::settings::Action::CopyGuideText(text) => {
+                        return self.write_clipboard(text.clone());
+                    }
                     crate::settings::Action::PermissionDefaultConfirmed(name) => {
                         // The acknowledged press is the write; the handler below has already
                         // refused any unacknowledged one.

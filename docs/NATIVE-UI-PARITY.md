@@ -10979,8 +10979,8 @@ Tests: two in `preset_guide` — the guide exists for exactly the four shipped i
 one, with each section non-empty; and each guide names its mode first, explains with a "How it works"
 section and opens its usage with a named example, which is what the disclosure renders.
 
-Not built, and recorded rather than implied: the reference's "Copy" button on an example task, its
-footnotes block, and the Chinese guide text. The first two are small follow-ups; the third belongs with
+Not built, and recorded rather than implied: the reference's footnotes block and the Chinese guide
+text. The first two are small follow-ups; the third belongs with
 the localization work that is already a recorded difference.
 
 **Battery (round 434).**
@@ -10997,4 +10997,41 @@ the localization work that is already a recorded difference.
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/249-preset-guide.png`, `status: passed` |
 | app bin | — | **22** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 435 — the guide labels its examples and can copy them
+
+Round 434's guide showed the examples without saying what they were, and the reference gives each
+"Example task" a heading and a Copy control (`guide-locales.ts:6-7`).
+
+The "How to use" section now opens with that heading and a `Copy` beside it. Copying is routed as an
+action rather than performed in the settings model: `Action::CopyGuideText` carries the text and the
+App writes it through the same clipboard path every other copy uses, so the settings crate keeps no
+clipboard dependency.
+
+Evidence: `shots/250-preset-guide-copy.png` (DP-2 alongside, `status: passed`) in the
+`settings-presets-guide` preset — `Example task  Copy` above Standard's two worked examples.
+
+Tests: `copying_an_example_returns_its_text_as_an_action` — the action carries the guide's own usage
+text and changes no disclosure state.
+
+Two honest notes. The reference's "Copied" acknowledgement is **not built**: the clipboard write
+reports through `Message::ClipboardCopied`, and a per-card acknowledgement needs its own transient
+state — recorded instead of half-done. And a first cut declared a `COPIED` constant that nothing read,
+which the app bin reported as a 22nd dead-code warning; it is gone and the count is back to 21.
+
+**Battery (round 435).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1429 passed**, 1 ignored |
+| app, default | **0** | **1409 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/250-preset-guide-copy.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |

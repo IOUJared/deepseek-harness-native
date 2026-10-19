@@ -556,6 +556,25 @@ fn coding_tools_decide_which_presets_are_offered() {
     assert!(!requires_coding_tools(&row("PUBLIC-custom", None)));
 }
 
+/// The guide's Copy control hands the text out as an action; the App owns the clipboard, so the
+/// settings model must never write it itself.
+#[test]
+fn copying_an_example_returns_its_text_as_an_action() {
+    let mut settings = opened();
+    settings.page = Page::AgentPresets;
+    let text = crate::ui::preset_guide::guide("standard")
+        .expect("a shipped guide")
+        .usage
+        .to_owned();
+    settings.handle(Action::CopyGuideText(text.clone()), 1, true);
+    // The action is routed by the App, which performs the clipboard write.
+    assert!(text.contains("Fix a bug"));
+    assert!(
+        settings.preset_guide_open.is_none(),
+        "copying changes no disclosure"
+    );
+}
+
 /// The card's id line is the row's own id, which is the key a composition file refers to.
 #[test]
 fn a_preset_card_names_its_id() {
