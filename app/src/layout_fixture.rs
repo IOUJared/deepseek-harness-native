@@ -63,6 +63,7 @@ pub const PRESETS: &[&str] = &[
     "working-conversation",
     "working-queue",
     "queued-idle",
+    "queued-files",
     "turn-trigger",
     "token-usage",
     "goal-bar",
@@ -301,6 +302,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "working-conversation"
         | "working-queue"
         | "queued-idle"
+        | "queued-files"
         | "turn-trigger"
         | "token-usage"
         | "goal-bar"
@@ -1905,6 +1907,15 @@ pub fn build(
             {"id":"PUBLIC-queued-two","source":{"kind":"user"},
                 "content":[{"type":"text","text":"PUBLIC second queued note · café · 世界"}]}
         ]}}),
+        "queued-files" => json!({"inbox":{"next-turn":[
+            {"id":"PUBLIC-queued-file","source":{"kind":"user"},
+                "content":[
+                    {"type":"text","text":"PUBLIC queued note with one file."},
+                    {"type":"file","attachment":{"name":"report.pdf","bytes":4900}}
+                ]},
+            {"id":"PUBLIC-queued-plain","source":{"kind":"user"},
+                "content":[{"type":"text","text":"PUBLIC queued note with nothing attached."}]}
+        ]}}),
         _ => json!({}),
     };
     let snapshot: SessionFollowFrame = serde_json::from_value(json!({
@@ -2828,6 +2839,10 @@ pub fn build(
                 )
             );
             assert!(!app.thoughts_expanded.contains(&row.key));
+        }
+        "queued-files" => {
+            // The strip shows its attachments, so the frame proves a queued file keeps its name.
+            app.queue_expanded = true;
         }
         "queued-idle" => {
             // The strip's rows carry the steering gate: an idle session cannot steer, so the

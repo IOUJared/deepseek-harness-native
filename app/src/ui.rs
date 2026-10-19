@@ -11924,16 +11924,46 @@ impl App {
                         .padding([2, 6])
                         .into()
                 };
+                // A queued attachment keeps its name and size beside the preview, as the reference
+                // draws its file chip (`QueueDock.tsx:70-79,213-233`); an image would be a thumbnail
+                // there, and native's lack of thumbnails is recorded.
+                let mut attachments = row![].spacing(6);
+                for attachment in &item.attachments {
+                    attachments = attachments.push(
+                        container(
+                            row![
+                                label("◫", MUTED).size(10),
+                                label(short(&attachment.name, 40), MUTED).size(10),
+                                label(attachment.size_text(), MUTED).size(10),
+                            ]
+                            .spacing(4),
+                        )
+                        .padding([1, 4])
+                        .style(|_| container::Style {
+                            background: Some(design::OVERLAY.into()),
+                            border: iced::Border {
+                                radius: 4.0.into(),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        }),
+                    );
+                }
+                let mut entry = column![
+                    row![
+                        label("Queue", MUTED).size(10),
+                        label(short(&item.preview, 160), TEXT)
+                            .size(12)
+                            .width(Length::Fill),
+                    ]
+                    .spacing(6),
+                ];
+                if !item.attachments.is_empty() {
+                    entry = entry.push(attachments);
+                }
                 list = list.push(
                     column![
-                        row![
-                            label("Queue", MUTED).size(10),
-                            label(short(&item.preview, 160), TEXT)
-                                .size(12)
-                                .width(Length::Fill),
-                        ]
-                        .spacing(6)
-                        .align_y(iced::Alignment::Center),
+                        entry,
                         row![
                             Space::new().width(Length::Fill),
                             edit_action,

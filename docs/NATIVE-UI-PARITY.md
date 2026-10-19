@@ -12852,3 +12852,41 @@ the More-options panel, not the slash list, and the change is a dismissal, not a
 | capture | — | none: a dismissal, proved by its test |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 487 — a queued message keeps its attachments
+
+The composer audit's second absent element: the reference names a queued attachment beside its preview —
+a file chip with name and size, a thumbnail for an image (`QueueDock.tsx:70-79,213-233`) — while native
+flattened every attachment into the literal `[file]`, so a queued row could not say which file was waiting
+or how large it was.
+
+`queue_dock::Item` now carries its attachments (name, bytes, image), `Attachment::size_text` writes the
+reference's own `4.9KB` form, and the row draws a chip under the preview. A block whose attachment is
+named no longer also appears as a `[file]` placeholder — the reference draws the chip and no text.
+
+**Recorded difference**: an image is drawn as the same chip rather than a thumbnail. Native has no image
+thumbnails anywhere (the rail's lack is already recorded), and inventing one for the queue alone would be
+a different change than the one this round closes.
+
+Tests: `a_queued_attachment_keeps_its_name_and_size` — a file and an image in one queued message come back
+with their names, `4.9KB` and `1.2MB`, the image flagged, and a row without attachments carries none.
+
+Evidence: `shots/274-queued-files.png` (DP-2 alongside, `status: passed`) — `◫ report.pdf 4.9KB` under the
+row that carries it, and nothing under the plain one. The first frame also showed the redundant `[file]`
+in the preview, which is why the placeholder rule changed before this capture.
+
+**Battery (round 487).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1471 passed**, 1 ignored |
+| app, default | **0** | **1433 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/274-queued-files.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

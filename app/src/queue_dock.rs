@@ -11,6 +11,30 @@ pub const MAX_ITEMS: usize = 16;
 /// Preview characters per row, the reference's `QUEUE_PREVIEW_CHARS`.
 pub const PREVIEW_CHARS: usize = 200;
 
+/// One attachment waiting with a queued message. The reference draws a thumbnail for an image and a
+/// name-plus-size chip for a file (`QueueDock.tsx:70-79,213-233`); native has no image thumbnails
+/// anywhere, so both are drawn as the chip and the difference is recorded rather than faked.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Attachment {
+    pub name: String,
+    pub bytes: u64,
+    pub image: bool,
+}
+
+impl Attachment {
+    /// `4.9KB`, the reference's own size form (`QueueDock.tsx:70-79`, `fileSizeText`).
+    pub fn size_text(&self) -> String {
+        let kb = self.bytes as f64 / 1000.0;
+        if self.bytes < 1000 {
+            format!("{}B", self.bytes)
+        } else if kb < 1000.0 {
+            format!("{kb:.1}KB")
+        } else {
+            format!("{:.1}MB", kb / 1000.0)
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Item {
     pub id: String,
@@ -19,6 +43,8 @@ pub struct Item {
     pub text: String,
     /// True when the row carries an image or file block; such a row cannot be edited.
     pub has_non_text: bool,
+    /// The attachments travelling with the message, in their own order.
+    pub attachments: Vec<Attachment>,
 }
 
 /// One wire content array flattened to the reference's preview form. Non-text blocks become
@@ -35,6 +61,10 @@ fn preview(content: Option<&Value>) -> String {
                     parts.push(text.to_owned());
                 }
             }
+            // An attachment that is named beside the preview does not also appear as a bracketed
+            // placeholder: the reference draws the file chip and no `[file]` text
+            // (`QueueDock.tsx:70-79,213-233`).
+            _ if block.get("attachment").is_some() => {}
             other => parts.push(format!("[{other}]")),
         }
     }
@@ -52,14 +82,33 @@ fn preview(content: Option<&Value>) -> String {
 fn item(id: Option<&str>, content: Option<&Value>, seq: u64, index: usize) -> Item {
     let mut text = Vec::new();
     let mut has_non_text = false;
+    let mut attachments = Vec::new();
     for block in content.and_then(Value::as_array).into_iter().flatten() {
-        match block.get("type").and_then(Value::as_str) {
+        let kind = block.get("type").and_then(Value::as_str);
+        match kind {
             Some("text") => {
                 if let Some(value) = block.get("text").and_then(Value::as_str) {
                     text.push(value);
                 }
             }
-            Some(_) => has_non_text = true,
+            Some(other) => {
+                has_non_text = true;
+                // A queued attachment keeps its own identity: the reference names it and states its
+                // size beside the preview, so `[file]` alone is not the row.
+                if let Some(attachment) = block.get("attachment") {
+                    let name = attachment
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .filter(|name| !name.is_empty() && name.chars().count() <= 255);
+                    if let Some(name) = name {
+                        attachments.push(Attachment {
+                            name: name.to_owned(),
+                            bytes: attachment.get("bytes").and_then(Value::as_u64).unwrap_or(0),
+                            image: other == "image",
+                        });
+                    }
+                }
+            }
             None => {}
         }
     }
@@ -70,6 +119,7 @@ fn item(id: Option<&str>, content: Option<&Value>, seq: u64, index: usize) -> It
         preview: preview(content),
         text: text.join("\n"),
         has_non_text,
+        attachments,
     }
 }
 
@@ -202,6 +252,45 @@ mod tests {
         let items = from_events(&events);
         assert_eq!(items[0].preview, "two lines [image]");
         assert_eq!(items[1].preview, "[file]");
+    }
+
+    #[test]
+    fn a_queued_attachment_keeps_its_name_and_size() {
+        let events = vec![event(
+            0,
+            json!({"target":"next-turn","start":0,"inserted":[
+                {"id":"a","content":[
+                    {"type":"text","text":"look at these"},
+                    {"type":"file","attachment":{"name":"report.pdf","bytes":4900}},
+                    {"type":"image","attachment":{"name":"screen.png","bytes":1234567}}
+                ]}
+            ]}),
+        )];
+        let items = from_events(&events);
+        let names: Vec<_> = items[0]
+            .attachments
+            .iter()
+            .map(|attachment| (attachment.name.as_str(), attachment.size_text()))
+            .collect();
+        // Both are chips: native has no thumbnails, and the audit's recorded difference is that an
+        // image would be a picture in the reference.
+        assert_eq!(
+            names,
+            [
+                ("report.pdf", "4.9KB".to_owned()),
+                ("screen.png", "1.2MB".to_owned())
+            ]
+        );
+        assert!(items[0].attachments[1].image);
+        assert!(!items[0].attachments[0].image);
+        // A row with no attachment carries none.
+        let plain = vec![event(
+            0,
+            json!({"target":"next-turn","start":0,"inserted":[
+                {"id":"b","content":[{"type":"text","text":"plain"}]}
+            ]}),
+        )];
+        assert!(from_events(&plain)[0].attachments.is_empty());
     }
 
     #[test]
