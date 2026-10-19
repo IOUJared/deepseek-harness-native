@@ -10905,6 +10905,19 @@ impl App {
     /// The read-only queue strip above the composer, built from the same inbox splices the
     /// transcript retains. One item renders directly; several collapse under a count header,
     /// as the reference's dock does.
+    /// Whether the queue dock's Steer control can act: only while the agent runs
+    /// (`QueueDock.tsx:305-306`).
+    fn queue_steer_enabled(&self) -> bool {
+        self.selected
+            .as_ref()
+            .and_then(|id| self.sessions.get(id))
+            .is_none_or(|summary| summary.running)
+    }
+    /// The strip's own statement of why Steer is unavailable, shown in place of the reference's
+    /// tooltip.
+    fn queue_steer_note(&self) -> Element<'_, Message> {
+        label("Steer while the agent runs", MUTED).size(10).into()
+    }
     fn queue_dock(&self) -> Option<Element<'_, Message>> {
         let items = self.transcript.queued();
         // A refusal can arrive exactly as the last item leaves the queue — removing the only
@@ -10914,6 +10927,16 @@ impl App {
             return None;
         }
         let mut list = column![].spacing(4);
+        // The note belongs with the rows it explains: on a folded multi-item strip the header is
+        // the only thing shown, and a floating explanation above it reads as noise.
+        let visible = self.queue_edit.is_some()
+            || self.queue_remove_armed.is_some()
+            || self.queue_busy.is_some()
+            || self.queue_expanded
+            || items.len() == 1;
+        if !self.queue_steer_enabled() && visible {
+            list = list.push(self.queue_steer_note());
+        }
         if items.len() > 1 {
             list = list.push(
                 button(
@@ -10930,11 +10953,6 @@ impl App {
                 .width(Length::Fill),
             );
         }
-        let visible = self.queue_edit.is_some()
-            || self.queue_remove_armed.is_some()
-            || self.queue_busy.is_some()
-            || self.queue_expanded
-            || items.len() == 1;
         if visible {
             for item in &items {
                 let busy = self.queue_busy.as_deref() == Some(item.id.as_str());
@@ -11012,13 +11030,18 @@ impl App {
                 };
                 let steer_action: Element<'_, Message> = if busy {
                     Space::new().width(0).into()
-                } else {
-                    // Steering only exists while the agent is running. The reference disables the
-                    // control with a tooltip; native has no tooltip, so the press stays available
-                    // and the handler names the reason in the strip — a drawn control that posts
-                    // nothing was the bug this replaces.
+                } else if self.queue_steer_enabled() {
                     button(label("Steer", MUTED).size(10))
                         .on_press(Message::QueueSteer(item.id.clone()))
+                        .style(design::ghost)
+                        .padding([2, 6])
+                        .into()
+                } else {
+                    // Steering only exists while the agent is running: the reference disables the
+                    // control (`QueueDock.tsx:305-306`). Native has no tooltip, so the disabled
+                    // state is stated once on the strip (`queue_steer_note`) instead of being
+                    // explained by a press that could only fail.
+                    button(label("Steer", MUTED).size(10))
                         .style(design::ghost)
                         .padding([2, 6])
                         .into()

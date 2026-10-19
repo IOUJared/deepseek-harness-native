@@ -6382,7 +6382,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Reference surface | Native status |
 | --- | --- |
 | Chat: renderer, thoughts, turn triggers, copy/branch/edit/fork | cloned (markdown: tables, footnotes and math; math draws its source, since no native typesetter exists — see the renderer note below) |
-| Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the `+ Attach` control does not open the command menu, the slash menu is one flat list without the reference's groups/sections/breadcrumbs/skeleton, files are chosen one at a time through a path field, no image thumbnails or drag hover overlay, the queue dock's Steer stays pressable while idle, and a pending send is not a queue row; absent: skills in the slash menu, the `File` menu entry, the Cmd/Ctrl+Enter inversion, empty-draft steer-all, the plan-mode placeholder, and the command-argument ghost hint) |
+| Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the `+ Attach` control does not open the command menu, the slash menu is one flat list without the reference's groups/sections/breadcrumbs/skeleton, files are chosen one at a time through a path field, no image thumbnails or drag hover overlay, and a pending send is not a queue row; absent: skills in the slash menu, the `File` menu entry, the Cmd/Ctrl+Enter inversion, empty-draft steer-all, the plan-mode placeholder, and the command-argument ghost hint) |
 | Sidebar: sessions, search, pin/archive/trash, workspace filter, navigation sheet | cloned (time-grouped list, not the grouped browser) |
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
 | Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab) |
@@ -9954,5 +9954,40 @@ draws it again; the two pre-existing reachability tests still pass unchanged.
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/222-stop-hidden-idle.png`, `status: passed` |
+| app bin | — | **20** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 407 — queued messages can only be steered while the agent runs
+
+The reference disables the queue dock's Steer control unless the agent is running
+(`QueueDock.tsx:305-306`, with a tooltip naming the reason). Native left it pressable and explained
+the failure after a press, so an idle dock offered a control that could only refuse.
+
+`queue_steer_enabled` now decides: a missing roster entry keeps steering available (unknown is not
+idle, the same rule Stop follows), a known idle summary turns it off, a running one on. The inert row
+control carries no press, and because native has no tooltip, the strip states the reason in place —
+`Steer while the agent runs` — drawn only when the rows it explains are visible, so a folded
+multi-item header is not preceded by a floating explanation.
+
+Evidence: `shots/223-queue-steer-gate.png` (DP-2 alongside, `status: passed`) in the `queued-idle`
+preset, now expanded: the note, `2 queued messages`, and two rows whose `Steer` is inert, under an
+idle composer with no Stop.
+
+Tests: `queue_steering_is_offered_only_while_the_agent_runs` (missing entry, idle summary, running
+summary) plus the two presets' assertions — `queued-idle` cannot steer, `working-queue` can.
+
+**Battery (round 407).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1402 passed**, 1 ignored |
+| app, default | **0** | **1386 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/223-queue-steer-gate.png`, `status: passed` |
 | app bin | — | **20** dead-code warnings |
 | tree | — | clean before the commit |

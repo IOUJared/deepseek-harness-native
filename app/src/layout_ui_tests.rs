@@ -104,6 +104,31 @@ fn closing_state_rejects_local_menu_and_info_changes() {
     assert!(queue.try_recv().is_err());
 }
 #[test]
+fn queue_steering_is_offered_only_while_the_agent_runs() {
+    let (mut app, _queue) = app();
+    app.ready = true;
+    app.selected = Some(serde_json::from_value(serde_json::json!("PUBLIC-steer-gate")).unwrap());
+    // Unknown roster state keeps steering available, matching the Stop policy: unknown is not idle.
+    assert!(app.queue_steer_enabled());
+    let idle: SessionSummary = serde_json::from_value(serde_json::json!({
+        "agentAvailable":true, "sessionId":"PUBLIC-steer-gate", "updatedAt":1000,
+        "running":false, "blank":false, "cwd":"/PUBLIC",
+        "projections":{"kind":"cached", "asOfSeq":-1, "values":{}}
+    }))
+    .unwrap();
+    app.sessions.insert(idle.session_id.clone(), idle);
+    assert!(!app.queue_steer_enabled(), "an idle session cannot steer");
+    let running: SessionSummary = serde_json::from_value(serde_json::json!({
+        "agentAvailable":true, "sessionId":"PUBLIC-steer-gate", "updatedAt":1000,
+        "running":true, "blank":false, "cwd":"/PUBLIC",
+        "projections":{"kind":"cached", "asOfSeq":-1, "values":{}}
+    }))
+    .unwrap();
+    app.sessions.insert(running.session_id.clone(), running);
+    assert!(app.queue_steer_enabled(), "a running session can steer");
+}
+
+#[test]
 fn stop_is_drawn_only_while_the_session_runs() {
     let (mut app, _queue) = app();
     app.ready = true;

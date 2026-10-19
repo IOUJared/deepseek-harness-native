@@ -2451,6 +2451,17 @@ pub fn build(
             );
             assert!(!app.thoughts_expanded.contains(&row.key));
         }
+        "queued-idle" => {
+            // The strip's rows carry the steering gate: an idle session cannot steer, so the
+            // control is drawn inert and the strip states why in place of the reference's tooltip.
+            app.queue_expanded = true;
+            assert!(!app.queue_steer_enabled());
+            assert!(app.transcript.queued().len() == 2);
+        }
+        "working-queue" => {
+            app.queue_expanded = true;
+            assert!(app.queue_steer_enabled(), "a running session can steer");
+        }
         "process-group-closed" => {
             let rows: Vec<_> = app.transcript.display_rows(false).collect();
             let seats = app.process_seats(&rows);
