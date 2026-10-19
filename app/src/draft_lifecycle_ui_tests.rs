@@ -202,6 +202,12 @@ fn a_leading_slash_asks_once_for_the_advertisement_and_prose_does_not() {
         "the ask must be the advertisement read"
     );
     assert!(app.commands_pending, "the ask must be marked in flight");
+    // The same moment reads the second slash source: the session's skill catalog.
+    let skills = queue
+        .try_recv()
+        .expect("the slash must also ask for skills");
+    assert!(matches!(skills, Command::SkillsList(_)));
+    assert!(app.skills_pending, "the skill ask is marked in flight");
 
     // One ask per session: a second character does not dispatch another.
     edit(&mut app, "/plan");
@@ -233,6 +239,9 @@ fn the_host_reply_opens_the_menu_and_accepting_only_rewrites_the_draft() {
         panic!("a leading slash must ask for the advertisement");
     };
     assert_eq!(asked, session);
+    // The same keystroke asks for the skill catalog; drain it so the assertions below speak
+    // about what the *menu* does, not about this second read.
+    assert!(matches!(queue.try_recv(), Ok(Command::SkillsList(_))));
     assert!(
         app.completion().is_none(),
         "no advertisement has arrived yet"
@@ -302,6 +311,10 @@ fn a_failed_advertisement_read_is_retried_by_the_next_keystroke() {
     let session = app.selected.clone().unwrap();
     edit(&mut app, "/");
     let _ = queue.try_recv().expect("the first slash asks");
+    // The same slash asks for the skill catalog; drain it so the retry below is unambiguous.
+    let _ = queue
+        .try_recv()
+        .expect("the first slash also asks for skills");
     assert!(app.commands_pending);
 
     drop(app.update(Message::Worker(Event::CommandsListed {
@@ -330,6 +343,8 @@ fn a_failed_advertisement_read_is_retried_by_the_next_keystroke() {
     else {
         panic!("the retry must be the advertisement read");
     };
+    // The retry asks for the catalog too; drain it so the reply below is unambiguous.
+    assert!(matches!(queue.try_recv(), Ok(Command::SkillsList(_))));
     let session = app.selected.clone().unwrap();
     drop(app.update(Message::Worker(Event::CommandsListed {
         session_id: session,

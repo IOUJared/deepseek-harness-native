@@ -130,6 +130,7 @@ pub const PRESETS: &[&str] = &[
     "command-menu-mid-draft",
     "attach-menu",
     "drop-overlay",
+    "skills-menu",
     "plan-mode",
     "plan-mode-applying",
     "plan-mode-leaving",
@@ -331,6 +332,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "command-menu-mid-draft"
         | "attach-menu"
         | "drop-overlay"
+        | "skills-menu"
         | "plan-mode"
         | "plan-mode-applying"
         | "plan-mode-leaving"
@@ -381,7 +383,7 @@ fn public_context_pressure_records(preset: &str) -> Option<Vec<Value>> {
     }
     if matches!(
         preset,
-        "command-menu" | "command-menu-mid-draft" | "attach-menu" | "drop-overlay"
+        "command-menu" | "command-menu-mid-draft" | "attach-menu" | "drop-overlay" | "skills-menu"
     ) {
         return Some(vec![
             json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
@@ -2645,6 +2647,23 @@ pub fn build(
                 "Completed in 2m 23s"
             );
         }
+        "skills-menu" => {
+            // Two sources in one menu: the Host's commands, then its skill catalog, each titled
+            // as the reference titles its groups (`MenuView.tsx:146`).
+            app.commands = Some(vec![super::command_menu::Candidate::command(
+                "compact".into(),
+                "Condense older history into a summary".into(),
+            )]);
+            app.skills = Some(vec![super::command_menu::Candidate::skill(
+                "impeccable-rust".into(),
+                "Risk-driven Rust review".into(),
+            )]);
+            app.editor = iced::widget::text_editor::Content::with_text("/c");
+            let menu = app.completion().expect("both sources complete");
+            assert_eq!(menu.matches.len(), 2);
+            assert_eq!(menu.matches[0].source, super::command_menu::Source::Command);
+            assert_eq!(menu.matches[1].source, super::command_menu::Source::Skill);
+        }
         "drop-overlay" => {
             // A file hovering the window draws the reference's drop banner with its limits.
             // The fixture has no OS window id, so a synthetic one stands in: the handler only
@@ -2660,10 +2679,10 @@ pub fn build(
         "attach-menu" => {
             // The left control offers files and commands in one popup, so a mouse user reaches
             // the command menu without typing a slash (`InputBar.tsx:428-441`).
-            app.commands = Some(vec![super::command_menu::Candidate {
-                name: "compact".into(),
-                description: "Condense older history into a summary".into(),
-            }]);
+            app.commands = Some(vec![super::command_menu::Candidate::command(
+                "compact".into(),
+                "Condense older history into a summary".into(),
+            )]);
             app.editor = iced::widget::text_editor::Content::with_text("PUBLIC draft");
             drop(app.update(Message::ToggleAttachMenu(true)));
             assert!(app.attach_menu, "the menu is open");
@@ -2671,10 +2690,10 @@ pub fn build(
         "command-menu-mid-draft" => {
             // The reference scans back from the caret to whitespace (`detect.ts:61-75`), so the
             // menu opens for a slash after prose — the case a leading-slash-only rule missed.
-            app.commands = Some(vec![super::command_menu::Candidate {
-                name: "compact".into(),
-                description: "Condense older history into a summary".into(),
-            }]);
+            app.commands = Some(vec![super::command_menu::Candidate::command(
+                "compact".into(),
+                "Condense older history into a summary".into(),
+            )]);
             app.editor = iced::widget::text_editor::Content::with_text("PUBLIC say /co");
             let completion = app
                 .completion()
@@ -2686,18 +2705,18 @@ pub fn build(
             // The composer asked for the advertisement when the slash was typed;
             // this stands in for the Host's own reply, which is the only source.
             app.commands = Some(vec![
-                super::command_menu::Candidate {
-                    name: "plan".into(),
-                    description: "Explore and design before executing".into(),
-                },
-                super::command_menu::Candidate {
-                    name: "compact".into(),
-                    description: "Condense older history into a summary".into(),
-                },
-                super::command_menu::Candidate {
-                    name: "help".into(),
-                    description: "Show the available commands".into(),
-                },
+                super::command_menu::Candidate::command(
+                    "plan".into(),
+                    "Explore and design before executing".into(),
+                ),
+                super::command_menu::Candidate::command(
+                    "compact".into(),
+                    "Condense older history into a summary".into(),
+                ),
+                super::command_menu::Candidate::command(
+                    "help".into(),
+                    "Show the available commands".into(),
+                ),
             ]);
             app.editor = iced::widget::text_editor::Content::with_text("/");
             assert!(

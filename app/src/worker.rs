@@ -185,6 +185,8 @@ pub enum Command {
     /// Read the Host's advertised commands for one session. Read-only, and the
     /// composer asks for it lazily rather than on every selection.
     CommandsList(SessionId),
+    /// Read the Session's skill catalog: the composer's second `/` source.
+    SkillsList(SessionId),
     /// Invoke one Host command without a model turn. Paired with
     /// [`Event::CommandsExecuted`] by session, since no submission id exists.
     CommandsExecute {
@@ -383,6 +385,11 @@ pub enum Event {
     CommandsListed {
         session_id: SessionId,
         result: Result<Vec<CommandDescriptor>, CommandListFailureOutcome>,
+    },
+    /// The session's skill catalog, or the failure that explains why it is absent.
+    SkillsListed {
+        session_id: SessionId,
+        result: Result<Vec<dsh_native_transport::dto::SkillDescriptor>, ()>,
     },
     /// One command's Host-owned outcome. `Option` is meaningful: the Host may
     /// settle a command with no execution record, which is not a success. The
@@ -1120,6 +1127,10 @@ fn rejected(command: Command) -> Event {
         Command::CommandsList(session_id) => Event::CommandsListed {
             session_id,
             result: Err(CommandListFailureOutcome::NotAttempted),
+        },
+        Command::SkillsList(session_id) => Event::SkillsListed {
+            session_id,
+            result: Err(()),
         },
         Command::CommandsExecute { session_id, line } => Event::CommandsExecuted {
             session_id,
@@ -2692,6 +2703,7 @@ async fn run(
                     Command::Cancel{..}=>Event::Fault("Cancellation bypassed priority dispatch".into()),
                     Command::Page{generation,request}=>Event::Page{generation,result:client.session_page(request).await.map_err(|e|format!("History page: {e}"))},
                     Command::CommandsList(session_id)=>Event::CommandsListed{session_id:session_id.clone(),result:client.commands_list(&session_id).await.map_err(|error|CommandListFailureOutcome::Failed{kind:CommandListFailure::of(&error),error})},
+                    Command::SkillsList(session_id)=>Event::SkillsListed{session_id:session_id.clone(),result:client.skills_list(&session_id).await.map_err(|_|())},
                     Command::CommandsExecute{session_id,line}=>Event::CommandsExecuted{session_id:session_id.clone(),line:line.clone(),result:client.commands_execute(&CommandExecuteRequest{session_id:session_id.clone(),line,submitted_attachments:Vec::new()}).await.map_err(|_|())},
                     Command::Cloudflare(_)|Command::PromptFile{..}|Command::StageFile(_)|Command::DiscardFile(_)|Command::Codex(_)|Command::Export(_)|Command::PluginsRead(_)|Command::PluginSave{..}|Command::Manage(_)|Command::Rename(_)|Command::Fork(_)|Command::TerminalRead(_)|Command::TerminalFollow(_)|Command::TerminalCreate(_)|Command::TerminalClose(_)|Command::TerminalWrite(_)|Command::McpRead(_)|Command::McpWrite(_)|Command::KeyMetadata(_)|Command::SaveKey{..}|Command::Inspect|Command::Shutdown|Command::JobOutput{..}=>Event::Fault("Invalid native command state".into()),Command::Select{..}=>Event::Fault("Invalid native command state".into()),
                 }});

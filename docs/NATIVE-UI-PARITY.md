@@ -6382,7 +6382,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Reference surface | Native status |
 | --- | --- |
 | Chat: renderer, thoughts, turn triggers, copy/branch/edit/fork | cloned (markdown: tables, footnotes and math; math draws its source, since no native typesetter exists — see the renderer note below) |
-| Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the slash menu states one group title (`Commands`) instead of the reference's per-source groups, sections, breadcrumbs and loading skeleton, files are chosen one at a time through a path field, no image thumbnails in the rail, and a send awaiting admission is stated by the composer's own banner (with Check, Review and Stop-original) rather than as a queue row; absent: empty-draft steer-all and the command-argument ghost hint (the skills catalog read is landed in transport — `skills/list`, round 412 — and its menu group is the next item); and these deliberate differences: the reference inverts its submission policy on Cmd/Ctrl+Enter (`view-binding.ts:120-130`), while native keeps Ctrl+Enter a plain send alias by the user's explicit confirmation (`docs/SESSION-PROMPT.md`); and native's goal bar states a running goal's controls where the reference adds `hint.goal`/`hint.goal.active` ghost copy beside the draft) |
+| Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the slash menu groups its two sources as the reference does (`Commands`, then `Skills`) but has no breadcrumbs, loading skeleton or subagent source, files are chosen one at a time through a path field, no image thumbnails in the rail, and a send awaiting admission is stated by the composer's own banner (with Check, Review and Stop-original) rather than as a queue row; absent: empty-draft steer-all and the command-argument ghost hint; and these deliberate differences: the reference inverts its submission policy on Cmd/Ctrl+Enter (`view-binding.ts:120-130`), while native keeps Ctrl+Enter a plain send alias by the user's explicit confirmation (`docs/SESSION-PROMPT.md`); and native's goal bar states a running goal's controls where the reference adds `hint.goal`/`hint.goal.active` ghost copy beside the draft) |
 | Sidebar: sessions, search, pin/archive/trash, workspace filter, navigation sheet | cloned (time-grouped list, not the grouped browser) |
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
 | Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab) |
@@ -10171,4 +10171,44 @@ the refusal is exercised rather than assumed.
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | app bin | — | **20** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 413 — the slash menu's second source
+
+The skills catalog read landed last round; this round puts it in the menu. The reference registers
+`skill` as a second `/` source with `order: 2` (`ui-skill/src/client/index.ts:159-161`) and titles
+each source group above its rows (`MenuView.tsx:146`), so a `/c` can offer `Commands` and then
+`Skills`.
+
+`Candidate` now carries its `Source` (with the reference's `Commands`/`Skills` titles), the
+completion merges both sources into one bounded list — commands first, then skills, each in the
+advertised order — and the menu draws a group title whenever the source changes. Picking a skill
+rewrites the draft to `/name ` exactly as a command does, because the reference invokes a skill by
+that same `/name` token.
+
+The catalog is requested with the command list, so one keystroke asks the Host twice; the three
+existing advertisement tests now expect both reads. A failed catalog read offers no skills and is not
+remembered as an answer, so the next keystroke retries.
+
+Evidence: `shots/228-skills-menu.png` (DP-2 alongside, `status: passed`) in the new `skills-menu`
+preset — `Commands` over `/compact`, `Skills` over `/impeccable-rust`.
+
+Tests: two in `source_tests` (a candidate carries its source and titles; matching keeps the given
+order so sources stay grouped) plus the preset's assertions and the three updated advertisement
+tests.
+
+**Battery (round 413).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1406 passed**, 1 ignored |
+| app, default | **0** | **1390 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/228-skills-menu.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings (one new helper awaits a third source) |
 | tree | — | clean before the commit |

@@ -1084,6 +1084,7 @@ impl Fixture {
                 worker::Command::ScheduleHistory { .. } => "ScheduleHistory",
                 worker::Command::ScheduleUpdate { .. } => "ScheduleUpdate",
                 worker::Command::CommandsList(_) => "CommandsList",
+                worker::Command::SkillsList(_) => "SkillsList",
                 worker::Command::CommandsExecute { .. } => "CommandsExecute",
                 worker::Command::TerminalRead(_) => "TerminalRead",
                 worker::Command::TerminalFollow(_) => "TerminalFollow",

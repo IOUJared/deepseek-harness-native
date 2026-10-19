@@ -10,11 +10,50 @@
 //! locally, so a command the Host does not offer can never be completed, and the
 //! menu is empty rather than wrong while the advertisement is still on its way.
 
-/// One completable command, as the Host advertised it.
+/// Which source advertised a candidate: the Host's command list, or its skill catalog.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Source {
+    Command,
+    Skill,
+}
+
+impl Source {
+    /// The reference's group title for this source
+    /// (`ui-input-trigger/src/client/locales.ts:36-40`).
+    pub fn title(self) -> &'static str {
+        match self {
+            Source::Command => "Commands",
+            Source::Skill => "Skills",
+        }
+    }
+}
+
+/// One completable candidate, as the Host advertised it: a command or a skill.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Candidate {
     pub name: String,
     pub description: String,
+    pub source: Source,
+}
+
+impl Candidate {
+    /// A candidate advertised by the command list.
+    pub fn command(name: String, description: String) -> Self {
+        Self {
+            name,
+            description,
+            source: Source::Command,
+        }
+    }
+    /// A candidate advertised by the skill catalog. Its name is invoked as `/name`, like a command
+    /// (`session-controller/src/types.ts:271-272`).
+    pub fn skill(name: String, description: String) -> Self {
+        Self {
+            name,
+            description,
+            source: Source::Skill,
+        }
+    }
 }
 
 /// [`MAX_MATCHES`]: bounded like every other list this app renders.
@@ -23,16 +62,17 @@ pub const MAX_MATCHES: usize = 12;
 /// What the composer should show and act on: the ranked rows for the current
 /// draft, the highlighted one, and the token those rows are completing.
 #[derive(Debug, PartialEq, Eq)]
-pub struct Completion<'a> {
-    pub matches: Vec<&'a Candidate>,
+pub struct Completion {
+    /// The ranked rows, owned because two sources are merged into one bounded list.
+    pub matches: Vec<Candidate>,
     pub selected: usize,
     pub query: String,
 }
 
-impl Completion<'_> {
+impl Completion {
     /// The highlighted candidate.
     pub fn candidate(&self) -> Option<&Candidate> {
-        self.matches.get(self.selected).copied()
+        self.matches.get(self.selected)
     }
 }
 
@@ -111,9 +151,8 @@ mod tests {
     fn candidates(names: &[(&str, &str)]) -> Vec<Candidate> {
         names
             .iter()
-            .map(|(name, description)| Candidate {
-                name: (*name).to_owned(),
-                description: (*description).to_owned(),
+            .map(|(name, description)| {
+                Candidate::command((*name).to_owned(), (*description).to_owned())
             })
             .collect()
     }
@@ -126,10 +165,12 @@ mod tests {
         assert_eq!(query("/"), Some(""));
         assert_eq!(query("/pl"), Some("pl"));
         assert_eq!(query("/plan"), Some("plan"));
-        // Arguments and prose end completion.
+        // Arguments and prose end completion: the last word is no longer a command token.
         assert_eq!(query("/plan "), None);
         assert_eq!(query("/plan off"), None);
         assert_eq!(query("tell me /about it"), None);
+        // A slash after prose completes, as the reference's caret scan does.
+        assert_eq!(query("tell me /ab"), Some("ab"));
         assert_eq!(query(""), None);
         assert_eq!(query("plan"), None);
         // Only the first line is a command position.
@@ -155,10 +196,7 @@ mod tests {
     #[test]
     fn the_menu_is_bounded() {
         let many: Vec<_> = (0..(MAX_MATCHES * 3))
-            .map(|index| Candidate {
-                name: format!("c{index:03}"),
-                description: String::new(),
-            })
+            .map(|index| Candidate::command(format!("c{index:03}"), String::new()))
             .collect();
         assert_eq!(matches(&many, "").len(), MAX_MATCHES);
         assert_eq!(matches(&many, "c").len(), MAX_MATCHES);
@@ -216,5 +254,40 @@ mod query_tests {
         assert_eq!(query("/usr/bin"), None);
         assert_eq!(query(""), None);
         assert_eq!(query("plain text"), None);
+    }
+}
+
+#[cfg(test)]
+mod source_tests {
+    //! Two sources, one bounded list, each titled as the reference titles its groups.
+    use super::*;
+
+    #[test]
+    fn a_candidate_carries_the_source_that_advertised_it() {
+        let command = Candidate::command("plan".into(), "Explore and design".into());
+        let skill = Candidate::skill("impeccable-rust".into(), "Risk-driven Rust".into());
+        assert_eq!(command.source, Source::Command);
+        assert_eq!(skill.source, Source::Skill);
+        assert_eq!(Source::Command.title(), "Commands");
+        assert_eq!(Source::Skill.title(), "Skills");
+    }
+
+    #[test]
+    fn matching_keeps_the_order_it_is_given_so_sources_stay_grouped() {
+        let commands = vec![
+            Candidate::command("compact".into(), "Condense".into()),
+            Candidate::command("plan".into(), "Explore".into()),
+        ];
+        let skills = vec![Candidate::skill("code-review".into(), "Review".into())];
+        let mut merged: Vec<&Candidate> = matches(&commands, "c");
+        merged.extend(matches(&skills, "c"));
+        let names: Vec<&str> = merged
+            .iter()
+            .map(|candidate| candidate.name.as_str())
+            .collect();
+        assert_eq!(names, vec!["compact", "code-review"]);
+        // The sources arrive in order, so the renderer can title each section once.
+        let sources: Vec<Source> = merged.iter().map(|candidate| candidate.source).collect();
+        assert_eq!(sources, vec![Source::Command, Source::Skill]);
     }
 }

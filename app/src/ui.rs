@@ -1102,6 +1102,10 @@ pub struct App {
     attach_menu: bool,
     /// Whether a file is being dragged over the window, so the drop overlay is drawn.
     drop_hover: bool,
+    /// The Host's skill catalog for the selected session, as slash candidates.
+    skills: Option<Vec<command_menu::Candidate>>,
+    /// Whether the skill catalog read is in flight.
+    skills_pending: bool,
     /// The queue dock's multi-item list is open.
     queue_expanded: bool,
     /// Expanded turn-trigger notices, by record key.
@@ -1517,6 +1521,8 @@ impl App {
                 work_details,
                 attach_menu: false,
                 drop_hover: false,
+                skills: None,
+                skills_pending: false,
                 queue_expanded: false,
                 queue_edit: None,
                 queue_remove_armed: None,
@@ -5651,9 +5657,11 @@ impl App {
                             self.commands = Some(
                                 commands
                                     .into_iter()
-                                    .map(|command| command_menu::Candidate {
-                                        name: command.name,
-                                        description: command.description,
+                                    .map(|command| {
+                                        command_menu::Candidate::command(
+                                            command.name,
+                                            command.description,
+                                        )
                                     })
                                     .collect(),
                             );
@@ -5671,6 +5679,25 @@ impl App {
                             self.status = failure.message();
                         }
                     }
+                }
+            }
+            Event::SkillsListed { session_id, result } => {
+                self.skills_pending = false;
+                // A catalog belongs to the session that answered.
+                if self.selected.as_ref() == Some(&session_id) {
+                    self.skills = match result {
+                        Ok(skills) => Some(
+                            skills
+                                .into_iter()
+                                .map(|skill| {
+                                    command_menu::Candidate::skill(skill.name, skill.description)
+                                })
+                                .collect(),
+                        ),
+                        // A failed read offers no skills and is not remembered as an answer, so
+                        // the next completion retries rather than staying empty for the session.
+                        Err(()) => None,
+                    };
                 }
             }
             Event::CommandsExecuted {
@@ -9598,22 +9625,28 @@ impl App {
     /// The composer's completion menu, if the draft is a command token and the
     /// Host has advertised commands. The draft is the only trigger: the menu
     /// disappears the moment the line stops being a command position.
-    fn completion(&self) -> Option<command_menu::Completion<'_>> {
+    fn completion(&self) -> Option<command_menu::Completion> {
         let draft = self.editor.text();
         let query = command_menu::query(&draft)?;
         if self.commands_dismissed.as_deref() == Some(query) {
             return None;
         }
-        let candidates = self.commands.as_deref().unwrap_or_default();
-        let matches = command_menu::matches(candidates, query);
+        // Two sources, one bounded list: the Host's commands first, then its skills, each in the
+        // order it advertised them (`ui-input-trigger` registers `command` then `skill`,
+        // `ui-skill/src/client/index.ts:159-161`).
+        let commands = self.commands.as_deref().unwrap_or_default();
+        let mut matches: Vec<&command_menu::Candidate> = command_menu::matches(commands, query);
+        if let Some(skills) = self.skills.as_deref() {
+            matches.extend(command_menu::matches(skills, query));
+        }
+        matches.truncate(command_menu::MAX_MATCHES);
         if matches.is_empty() {
             return None;
         }
+        let selected = self.command_selected.min(matches.len().saturating_sub(1));
         Some(command_menu::Completion {
-            matches,
-            selected: self
-                .command_selected
-                .min(matches_len(&draft, candidates) - 1),
+            matches: matches.into_iter().cloned().collect(),
+            selected,
             query: query.to_owned(),
         })
     }
@@ -9682,7 +9715,10 @@ impl App {
             return;
         };
         self.commands_pending = true;
-        self.command(Command::CommandsList(session_id));
+        self.command(Command::CommandsList(session_id.clone()));
+        // The reference's second slash source (`ui-skill/src/client/index.ts:159-161`).
+        self.skills_pending = true;
+        self.command(Command::SkillsList(session_id));
     }
     /// Put keyboard focus back in the composer.
     ///
@@ -11625,13 +11661,20 @@ impl App {
             // The reference groups candidates by source and titles each group
             // (`MenuView.tsx:146`, `ui-input-trigger/src/client/locales.ts:16`). Native advertises
             // one source — the command list — so the group title is stated once, above its rows.
-            let mut rows = column![].spacing(1).push(
-                container(label("Commands", MUTED).size(10))
-                    .padding([2, 7])
-                    .width(Length::Fill),
-            );
+            let mut rows = column![].spacing(1);
+            let mut shown: Option<command_menu::Source> = None;
             for (index, candidate) in menu.matches.iter().enumerate() {
                 let selected = index == menu.selected;
+                // The reference titles each source group above its rows
+                // (`MenuView.tsx:146`): a new source starts a new section.
+                if shown != Some(candidate.source) {
+                    shown = Some(candidate.source);
+                    rows = rows.push(
+                        container(label(candidate.source.title(), MUTED).size(10))
+                            .padding([2, 7])
+                            .width(Length::Fill),
+                    );
+                }
                 let row = container(
                     row![
                         label(
@@ -19049,14 +19092,8 @@ mod tests {
     fn accepting_a_command_edits_the_draft_and_asks_for_focus_back() {
         let (mut app, _) = app();
         app.commands = Some(vec![
-            command_menu::Candidate {
-                name: "plan".into(),
-                description: "Enter plan mode".into(),
-            },
-            command_menu::Candidate {
-                name: "compact".into(),
-                description: "Compact the conversation".into(),
-            },
+            command_menu::Candidate::command("plan".into(), "Enter plan mode".into()),
+            command_menu::Candidate::command("compact".into(), "Compact the conversation".into()),
         ]);
         app.editor = text_editor::Content::with_text("/p");
         // "plan" leads on the prefix and "compact" matches by substring, so the
@@ -19069,10 +19106,10 @@ mod tests {
         app.command_selected = 0;
         assert_eq!(
             app.completion().and_then(|menu| menu.candidate().cloned()),
-            Some(command_menu::Candidate {
-                name: "plan".into(),
-                description: "Enter plan mode".into(),
-            })
+            Some(command_menu::Candidate::command(
+                "plan".into(),
+                "Enter plan mode".into()
+            ))
         );
         // A pointer names the row it hit; the highlight must not decide for it.
         let task = app.update(Message::CommandMenuPick("compact".into()));

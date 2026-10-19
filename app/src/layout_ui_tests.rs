@@ -149,10 +149,10 @@ fn the_attach_menu_offers_files_and_commands() {
     // Opening the menu starts no request: the entries do.
     while queue.try_recv().is_ok() {}
     // The command entry puts a slash in the draft, so the completion menu takes over.
-    app.commands = Some(vec![crate::ui::command_menu::Candidate {
-        name: "compact".into(),
-        description: "PUBLIC".into(),
-    }]);
+    app.commands = Some(vec![crate::ui::command_menu::Candidate::command(
+        "compact".into(),
+        "PUBLIC".into(),
+    )]);
     drop(app.update(Message::AttachMenuCommand));
     assert!(!app.attach_menu, "choosing an entry closes the menu");
     assert_eq!(app.editor.text(), "/");
