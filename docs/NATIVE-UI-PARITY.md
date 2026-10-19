@@ -12818,3 +12818,37 @@ Evidence: `shots/273-attachment-rail.png` (DP-2 alongside, `status: passed`).
 | DP-2 capture | — | `shots/273-attachment-rail.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 486 — a press in the conversation closes the composer menu
+
+The composer audit's fourth finding: the reference dismisses its menu on a pointer-down outside the menu
+and the composer card (`MenuView.tsx:81-92`), while native closed it only on Escape — so clicking into the
+transcript left the candidate list hanging over the conversation.
+
+`composer_menu_open` now names the state the keyboard, the composer and the transcript all ask about, and
+while it is true the transcript's overlay layer carries a transparent press area that sends the same
+dismissal Escape sends. The draft is untouched, as the reference's dismissal is.
+
+Tests: `a_press_in_the_conversation_dismisses_the_composer_menu` — with a slash draft and an advertised
+list the menu is open, one dismissal closes it, and the typed draft is kept.
+
+**Recorded**: the press area covers the conversation, which is where a reader clicks to leave the menu; a
+press on the header or the sidebar does not dismiss it. That is narrower than the reference's
+document-level listener and is named rather than implied. No frame is attached: the `menu` preset shows
+the More-options panel, not the slash list, and the change is a dismissal, not a rendering.
+
+**Battery (round 486).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1470 passed**, 1 ignored |
+| app, default | **0** | **1432 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: a dismissal, proved by its test |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

@@ -1319,3 +1319,27 @@ fn a_full_rail_overflows_the_composer_and_a_short_one_does_not() {
         );
     }
 }
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
+fn a_press_in_the_conversation_dismisses_the_composer_menu() {
+    let (size, _scale) = super::layout_fixture::preset_size("conversation").unwrap();
+    let (mut app, _queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "conversation",
+        size,
+        None,
+    );
+    // With a slash draft and the advertised list, the menu is open.
+    app.editor = iced::widget::text_editor::Content::with_text("/p");
+    app.commands = Some(vec![super::command_menu::Candidate::command(
+        "plan".to_owned(),
+        "Plan the work".to_owned(),
+    )]);
+    assert!(app.composer_menu_open(), "the slash list is showing");
+    let draft = app.editor.text();
+    // The press in the conversation dismisses it and keeps what was typed.
+    drop(app.update(Message::CommandMenuDismiss));
+    assert!(!app.composer_menu_open());
+    assert_eq!(app.editor.text(), draft);
+}

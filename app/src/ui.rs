@@ -10860,6 +10860,11 @@ impl App {
         }
         self.command(worker::Command::FileReferences { session, query });
     }
+    /// Whether any composer menu is showing: the slash list or the `@` list. The reference dismisses
+    /// both on a press outside the menu and the composer card (`MenuView.tsx:81-92`).
+    fn composer_menu_open(&self) -> bool {
+        self.completion().is_some() || self.reference_menu_open()
+    }
     /// Whether the `@` menu is showing rows and may claim navigation keys.
     fn reference_menu_open(&self) -> bool {
         self.reference_token.is_some()
@@ -11988,7 +11993,7 @@ impl App {
         let allowed = self.send_allowed() && self.composer_visible();
         let keyboard_allowed = allowed && !self.editor.text().trim().is_empty();
         // The menu claims navigation keys only while it is showing.
-        let menu_open = self.completion().is_some() || self.reference_menu_open();
+        let menu_open = self.composer_menu_open();
         // The reference's placeholder is state-owned: the empty-state hero asks
         // for a build, the docked bar offers the default line
         // (`locales.ts:20, 396-399`). Native's blocked session-less state keeps
@@ -16282,6 +16287,20 @@ impl App {
             .width(Length::Fill)
             .height(Length::Fill)
             .push(scroll);
+        // While a composer menu is open, a press in the conversation dismisses it: the reference
+        // listens for a pointer-down outside the menu and the composer card
+        // (`MenuView.tsx:81-92`). The transcript is the surface a reader clicks to leave it; the
+        // chrome around the composer is recorded as not covered.
+        if self.composer_menu_open() && self.layout_controls_enabled() {
+            overlaid = overlaid.push(
+                iced::widget::mouse_area(
+                    container(Space::new().width(Length::Fill).height(Length::Fill))
+                        .width(Length::Fill)
+                        .height(Length::Fill),
+                )
+                .on_press(Message::CommandMenuDismiss),
+            );
+        }
         if room {
             overlaid = overlaid.push(self.width_handles(lane_width));
         }
