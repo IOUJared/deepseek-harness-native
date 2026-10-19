@@ -61,7 +61,13 @@ pub enum Block {
         rows: Vec<Vec<Cell>>,
         indent: u8,
     },
-    Rule,
+    /// A thematic rule. It keeps its container's indent and rule, and its own line shrinks by that
+    /// inset (`render.tsx:290-291`).
+    Rule {
+        indent: u8,
+        quote: bool,
+        quote_first: bool,
+    },
 }
 
 pub struct Document {
@@ -233,12 +239,15 @@ fn build<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<Document, Fa
             }
             Event::SoftBreak | Event::HardBreak => builder.text("\n", false)?,
             Event::Rule => {
-                // Rule has no field for container provenance.
-                if !builder.frames.is_empty() {
-                    return Err(Failure::Unsupported);
-                }
+                // A rule inside a container keeps that container's indent and rule, so the line it
+                // draws is measured inside them (`render.tsx:290-291`).
                 builder.flush_synthetic()?;
-                builder.push(Block::Rule)?;
+                builder.push(Block::Rule {
+                    indent: builder.indent() + u8::from(!builder.lists.is_empty()),
+                    quote: builder.quotes != 0,
+                    quote_first: builder.quotes != 0
+                        && builder.containers.first() == Some(&Container::Quote),
+                })?;
             } // Every `Event` variant is named above: a new one in a parser upgrade must be decided
               // here rather than swallowed, so the match is exhaustive instead of falling through.
         }
@@ -747,7 +756,7 @@ mod tests {
         let (spans, indent, marker, quote) = paragraph(&doc.blocks[1]);
         assert_eq!(joined(spans), "plain\nsoft\nhard");
         assert_eq!((indent, marker, quote), (0, None, false));
-        assert!(matches!(doc.blocks[2], Block::Rule));
+        assert!(matches!(doc.blocks[2], Block::Rule { .. }));
         assert_eq!(joined(paragraph(&doc.blocks[3]).0), "last");
         let doc = document("setext\n======\n\n###### six");
         assert!(matches!(&doc.blocks[0], Block::Heading { level: 1, .. }));
@@ -776,6 +785,48 @@ mod tests {
                 .any(|s| s.text == "x < y" && s.code && !s.bold && !s.italic)
         );
         assert!(spans.iter().any(|s| s.text == "all" && s.bold && s.italic));
+    }
+
+    #[test]
+    fn a_rule_inside_a_container_keeps_its_rule_and_indent() {
+        // The reference draws `<hr>` inside the same blockquote/list container as any block
+        // (`render.tsx:290-291`), so the line it draws shrinks by that container's inset.
+        let quoted = document("> ---\n");
+        match &quoted.blocks[0] {
+            Block::Rule {
+                indent,
+                quote,
+                quote_first,
+            } => {
+                assert!(*quote, "the rule sits in the quote");
+                assert!(*quote_first);
+                assert_eq!(*indent, 0);
+            }
+            _ => panic!("a rule"),
+        }
+        let listed = document("- ***\n");
+        let rule = listed
+            .blocks
+            .iter()
+            .find_map(|block| match block {
+                Block::Rule {
+                    indent,
+                    quote,
+                    quote_first,
+                } => Some((*indent, *quote, *quote_first)),
+                _ => None,
+            })
+            .expect("the item's rule");
+        assert_eq!(rule, (1, false, false), "inside the item, one indent deep");
+        // A plain rule keeps zero provenance.
+        match &document("---\n").blocks[0] {
+            Block::Rule {
+                indent,
+                quote,
+                quote_first,
+            } => assert_eq!((*indent, *quote, *quote_first), (0, false, false)),
+            _ => panic!("a rule"),
+        }
     }
 
     #[test]
@@ -1191,10 +1242,8 @@ mod tests {
     #[test]
     fn unsupported_content_anywhere_fails_whole_source() {
         for source in [
-            // A thematic rule inside a container is still refused: `Event::Rule` has no field for
-            // its container's provenance.
-            "> ---",
-            "- ***",
+            // A table inside a container is still refused: its cells keep no list/quote provenance.
+            "> | a | b |\n> |---|---|\n> | a | b |",
             "> ```\n> code\n> ```",
             ">     code\n",
             "- > ```\n  > code\n  > ```",
@@ -1401,7 +1450,7 @@ mod tests {
     fn diagnostics_only_expose_content_free_failure_variants() {
         // A heading inside a quote is refused, so it can stand in for content that must never
         // reach a diagnostic.
-        let private_source = "PRIVATE_TOKEN\n\n> ---\n> PRIVATE_RULE";
+        let private_source = "PRIVATE_TOKEN\n\n> | a | b |\n> |---|---|\n> | PRIVATE | x |";
         let error = match parse(private_source) {
             Err(error) => error,
             Ok(_) => panic!("expected unsupported HTML"),
@@ -1467,7 +1516,7 @@ mod extension_tests {
         let doc = parse("Plain **bold** text.\n").unwrap();
         assert_eq!(texts(&doc.blocks), vec!["Plain bold text.".to_owned()]);
         // An unsupported construct still fails closed; raw HTML is drawn literally.
-        assert!(parse("> ---\n> nested").is_err());
+        assert!(parse("> | a | b |\n> |---|---|\n> | nested | x |").is_err());
         assert!(parse("<div>html</div>\n").is_ok());
     }
 }

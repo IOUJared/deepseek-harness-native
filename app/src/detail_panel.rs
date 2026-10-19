@@ -373,7 +373,7 @@ fn view(document: &formatted::Document) -> Element<'_, Message> {
                 super::conversation_content::Ladder::Body,
                 "",
             ),
-            formatted::Block::Rule => container(Space::new().height(1).width(Length::Fill))
+            formatted::Block::Rule { .. } => container(Space::new().height(1).width(Length::Fill))
                 .style(|_| container::Style {
                     background: Some(design::LINE.into()),
                     ..Default::default()

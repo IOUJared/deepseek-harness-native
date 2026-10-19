@@ -176,7 +176,7 @@ impl Prepared {
                                     .is_some_and(|source| contains(&source, query))
                             })
                         }
-                        formatted::Block::Rule => false,
+                        formatted::Block::Rule { .. } => false,
                     })
                 },
             )
@@ -1042,7 +1042,7 @@ pub(crate) fn block_margins(
         // from the neighbouring blocks' collapsed margins. The compact sheet does give
         // it `margin: 4px 0` (`MarkdownText.module.css:192-196,375-378`).
         formatted::Block::Table { .. } => (ladder.gap(), ladder.gap()),
-        formatted::Block::Rule => (ladder.rule_gap(), ladder.rule_gap()),
+        formatted::Block::Rule { .. } => (ladder.rule_gap(), ladder.rule_gap()),
         formatted::Block::Code { .. } => {
             let bottom = if next.is_some() {
                 match ladder {
@@ -1273,7 +1273,7 @@ fn block_height(
             delta_secondary,
             ladder,
         ),
-        formatted::Block::Rule => 1.0,
+        formatted::Block::Rule { .. } => 1.0,
     }
 }
 /// The first match's offset inside a parsed document, measured with the same block
@@ -1378,7 +1378,7 @@ pub(crate) fn document_first_offset(
                 }
                 None
             }
-            formatted::Block::Rule => None,
+            formatted::Block::Rule { .. } => None,
         };
         if let Some(offset) = found {
             return Some(y + gap + offset);
@@ -1685,13 +1685,29 @@ fn document_view(
                 rows,
                 indent,
             } => table_view(header, rows, *indent, width, delta_secondary, ladder, query),
-            formatted::Block::Rule => {
-                container(iced::widget::Space::new().height(1).width(Length::Fill))
+            formatted::Block::Rule {
+                indent,
+                quote,
+                quote_first,
+            } => {
+                // The line spans the width its containers leave, inside the quote's rule and the
+                // list's indent (`render.tsx:290-291`).
+                let line = container(iced::widget::Space::new().height(1).width(Length::Fill))
                     .style(|_| container::Style {
                         background: Some(design::LINE.into()),
                         ..Default::default()
-                    })
-                    .into()
+                    });
+                let mut row = row![].spacing(0);
+                if *quote && *quote_first {
+                    let (rule, pad) = quote_rule(1.0, ladder);
+                    row = row.push(rule).push(pad);
+                }
+                row = row.push(iced::widget::Space::new().width(*indent as f32 * 18.0));
+                if *quote && !*quote_first {
+                    let (rule, pad) = quote_rule(1.0, ladder);
+                    row = row.push(rule).push(pad);
+                }
+                row.push(line).into()
             }
         };
         // A continuation drew its own top margin inside the rule: the element is the same total
@@ -1976,7 +1992,12 @@ mod tests {
         assert!(p.matches("supplied reasoning"));
         assert!(!p.matches("absent"));
         // A heading inside a quote is inert markup: the whole source stays searchable text.
-        let raw = cache.prepare(1, 3, String::new(), "> ---\n> PUBLIC inert".into());
+        let raw = cache.prepare(
+            1,
+            3,
+            String::new(),
+            "> | a | b |\n> |---|---|\n> | PUBLIC inert | x |".into(),
+        );
         assert!(raw.document.is_none());
         assert!(raw.matches("PUBLIC inert"));
     }
@@ -2188,7 +2209,15 @@ mod tests {
             design::CODE_LAST_GAP
         );
         assert_eq!(document_gap(&with_code, 2, Ladder::Body), design::BLOCK_GAP);
-        let rule = vec![paragraph(), formatted::Block::Rule, paragraph()];
+        let rule = vec![
+            paragraph(),
+            formatted::Block::Rule {
+                indent: 0,
+                quote: false,
+                quote_first: false,
+            },
+            paragraph(),
+        ];
         assert_eq!(document_gap(&rule, 1, Ladder::Body), design::RULE_GAP);
         assert_eq!(document_gap(&rule, 2, Ladder::Body), design::RULE_GAP);
         // An h4 against a list tightens both sides to 8px.
@@ -2420,7 +2449,7 @@ mod tests {
     #[test]
     fn unsupported_markup_is_inert_full_source_not_partial_formatting() {
         let cache = Cache::default();
-        let source = "> ---\n> PUBLIC inert";
+        let source = "> | a | b |\n> |---|---|\n> | PUBLIC inert | x |";
         let p = cache.prepare(1, 0, String::new(), source.into());
         assert!(p.document.is_none());
         assert_eq!(p.answer, source);

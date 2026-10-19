@@ -15207,3 +15207,37 @@ container** (`> ---`), which stays refused because `Event::Rule` has no field fo
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 capture | — | `shots/328-heading-quote.png`, `status: passed`, 1040x620 |
 | app bin | — | **21** warnings |
+
+### Round 535 — a thematic rule inside a container keeps its inset
+
+**The gap.** `Event::Rule` refused whenever any container was open, so `> ---` or a rule inside a list
+item failed the whole document. The reference draws `<hr>` inside the same blockquote/list containers as
+any block (`ui-primitives/src/markdown/render.tsx:290-291`).
+
+**The change.** `Block::Rule` carries `indent`, `quote` and `quote_first` like a heading or paragraph;
+the event arm records the builder's container state instead of refusing, and the view draws the 1px line
+inside the quote's rule and the list's indent, so it shrinks to the width its containers leave. The
+third structural refusal falls; `- ***` also parses now, which is the rule inside a list item.
+
+**Frame.** `shots/329-rule-quote.png` (1040x560, new `markdown-rule-quote` preset): a quoted paragraph,
+the rule drawn inside the quote — the bar continuous above and below it — then the quoted paragraph
+beneath. The list-item case is test-covered rather than framed: it sits below the fold in this preset,
+so the preset states only what the picture shows.
+
+**Tests.** `a_rule_inside_a_container_keeps_its_rule_and_indent` (a quoted rule keeps the quote and
+quote-first, a listed rule is one indent deep and not a quote, a plain rule keeps zero provenance). The
+"unsupported" exemplars moved to **a table inside a quote**, which stays refused because a table's cells
+keep no container provenance — the renderer's last structural refusal, recorded for the next round.
+
+**Battery (round 535).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1537 passed**, 1 ignored |
+| app, default | **0** | **1482 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-wvwts2pw`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-58hday9p`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 capture | — | `shots/329-rule-quote.png`, `status: passed`, 1040x560 |
+| app bin | — | **21** warnings |
