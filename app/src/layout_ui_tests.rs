@@ -233,6 +233,52 @@ fn the_header_chip_counts_only_the_open_sessions_live_reminders() {
 
 #[cfg(feature = "public-layout-fixture")]
 #[test]
+fn a_reminder_popover_closes_when_its_last_reminder_goes() {
+    use crate::worker::Event;
+    let (size, _scale) = super::layout_fixture::preset_size("reminders").unwrap();
+    let (mut app, _queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "reminders",
+        size,
+        None,
+    );
+    let session = app.selected.clone().expect("a selected session");
+    // An armed row is part of the popover's state, so it must not survive the popover.
+    drop(app.update(Message::ScheduleDelete(
+        session.clone(),
+        "PUBLIC-reminder-overdue".into(),
+    )));
+    assert!(app.reminders_open && app.schedule_delete.is_some());
+    // A refresh that leaves the open session with no live reminder takes the entry away, and a
+    // later read must not re-open a popover the reader never asked for again
+    // (`ScheduleCatalogAction.tsx:76` unmounts the whole entry).
+    let mut only_inactive = app.schedules.clone();
+    only_inactive.retain(|item| item.status != "active");
+    only_inactive.push(dsh_native_transport::dto::ScheduleCatalogItem {
+        id: "PUBLIC-reminder-elsewhere".into(),
+        title: "PUBLIC other session reminder".into(),
+        kind: "daily".into(),
+        session_id: dsh_native_transport::dto::SessionId::new("PUBLIC-layout-notes")
+            .expect("the fixture's other session"),
+        status: "active".into(),
+        scheduled_at: None,
+        last_delivery: None,
+        record: serde_json::Map::new(),
+    });
+    drop(app.update(Message::Worker(Event::SchedulesLoaded(Ok(only_inactive)))));
+    assert!(
+        !app.reminders_open,
+        "an empty popover closes itself rather than waiting to reopen"
+    );
+    assert!(app.schedule_delete.is_none(), "and its armed row is spent");
+    assert!(
+        app.reminders_action().is_none(),
+        "with no live reminder there is no entry"
+    );
+}
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
 fn a_reminder_deleted_from_the_header_asks_before_it_sends() {
     use crate::worker::Command;
     let (size, _scale) = super::layout_fixture::preset_size("reminders").unwrap();

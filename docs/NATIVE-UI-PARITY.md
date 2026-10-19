@@ -13815,3 +13815,38 @@ one-sided fallback, the divider and the full-width hunk row (505). No code chang
 | format debt | **0** | 0 files, 0 hunks |
 | transport / core / JS / clippy / examples | — | **not re-run**: no source file changed, so their evidence from rounds 504–505 still describes this tree |
 | shot counter | — | unchanged at **301**: this round captured nothing |
+
+### Round 507 — a reminder popover with nothing left closes itself
+
+**The gap.** Round 503's chip unmounts when the open session has no live reminder — the reference's
+`ScheduleCatalogAction` returns `null` in the same case (`ScheduleCatalogAction.tsx:72-76`). But native
+kept `reminders_open` set: after a deletion or a refresh that emptied the list, the popover disappeared
+while its "open" flag survived, so the next successful read that added a reminder would **reopen a
+popover the reader never asked for again**, with an armed delete row possibly still in it.
+
+**The fix.** `close_spent_reminders` clears `reminders_open` and the armed row whenever the open
+session has no live reminder; it runs after a catalog read settles (`Event::SchedulesLoaded`) and after
+a successful delete (`Event::ScheduleDeleted`). The armed row goes with the popover for the same reason
+round 503 gives when the popover is closed by hand: a confirmation must never be waiting for a row the
+reader cannot see.
+
+**Test.** `a_reminder_popover_closes_when_its_last_reminder_goes` — the `reminders` preset with an armed
+delete, then a read that leaves only the other session's live reminder: the popover is closed, the
+armed row is spent, and no entry is offered.
+
+**Deliberately no capture.** The change removes state, not pixels: the frame after it is the ordinary
+conversation with no chip, which `shots/297` already shows on the state side. A capture here would
+prove nothing a suite assertion does not, so none was taken and the counter stays at 301. The rule
+this respects is the one that matters — padding-only rounds need a frame; a state round needs the
+assertion the frame cannot make.
+
+**Battery (round 507).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1498 passed**, 1 ignored |
+| app, default | **0** | **1456 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks |
+| transport / core / JS / clippy / examples | — | **not re-run**: only `app` changed; last run this session was transport 59+17+91+7, core 115, JS 419/0, clippy core+transport+app, examples layout_smoke+scroll_app_smoke |
+| DP-2 capture | — | none: a state change with no new pixels |
+| app bin | — | **21** dead-code warnings (unchanged: no new dead item) |

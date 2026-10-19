@@ -6471,6 +6471,7 @@ impl App {
                     }
                     Err(error) => self.schedules_error = Some(error),
                 }
+                self.close_spent_reminders();
             }
             Event::ScheduleUpdated { id, result, .. } => match result {
                 Ok(dsh_native_transport::dto::ScheduleUpdateOutcome::Updated { title, prompt }) => {
@@ -6569,6 +6570,7 @@ impl App {
                     Ok(dsh_native_transport::dto::ScheduleDeleteOutcome::Deleted) => {
                         self.schedules.retain(|item| item.id != id);
                         self.schedules_error = None;
+                        self.close_spent_reminders();
                         // The reference confirms with a shell toast (`DeleteToast.tsx:80-87`);
                         // native has no toast overlay, so each surface states the outcome in place,
                         // naming what it listed: the page's rows are tasks, the chip's are reminders.
@@ -11262,6 +11264,15 @@ impl App {
         }
         self.goal_activation_read = Some((session.clone(), self.goal_activation_serial));
         self.command(worker::Command::GoalActivationRead { session });
+    }
+    /// A popover with nothing left to list closes itself. The reference unmounts the whole entry when
+    /// its last active task goes (`ScheduleCatalogAction.tsx:76`, which returns `null`), so a later
+    /// read must not re-open a popover the reader never asked for again.
+    fn close_spent_reminders(&mut self) {
+        if self.reminders_open && self.reminder_items().is_empty() {
+            self.reminders_open = false;
+            self.schedule_delete = None;
+        }
     }
     /// Read the Host's schedule catalog once the transport is ready, so the open Session's header
     /// can count its reminders (`ScheduleCatalogAction.tsx:58-76`: the web's header source reads when
