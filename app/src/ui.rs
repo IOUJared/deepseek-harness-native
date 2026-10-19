@@ -12856,11 +12856,19 @@ impl App {
                         .and_then(|activity| activity.terminal)
                 })
                 .flatten();
-            let body = match (&read, &terminal, &diff) {
-                (Some(card), _, _) => self.read_card_height(card, row.key),
-                (None, Some(card), _) => self.terminal_card_height(card, row.key),
-                (None, None, Some(diff)) => self.diff_card_height(diff, row.key),
-                (None, None, None) => conversation_content::tool_body_height(
+            let search = (row.role == "Tool call")
+                .then(|| {
+                    self.transcript
+                        .activity(row.key, self.path_roots())
+                        .and_then(|activity| activity.search)
+                })
+                .flatten();
+            let body = match (&read, &terminal, &search, &diff) {
+                (Some(card), _, _, _) => self.read_card_height(card, row.key),
+                (None, Some(card), _, _) => self.terminal_card_height(card, row.key),
+                (None, None, Some(card), _) => self.search_card_height(card, row.key),
+                (None, None, None, Some(diff)) => self.diff_card_height(diff, row.key),
+                (None, None, None, None) => conversation_content::tool_body_height(
                     activity_body_source(row),
                     geometry.width - chat_geometry::BODY_INSET,
                     self.content_delta_secondary(),
@@ -13263,6 +13271,128 @@ impl App {
             })
             .into()
     }
+    /// The search card's drawn height: its banner row, the retained rows and one fold row.
+    fn search_card_height(&self, card: &crate::reducer::search_card::Card, key: u64) -> f32 {
+        let rows = card.drawn_rows(self.diff_expanded.contains(&key)) as f32;
+        let line = design::CODE_LINE + self.content_delta_secondary();
+        design::DIFF_PAD_TOP + design::DIFF_PAD_BOTTOM + line * (rows + 1.0)
+    }
+    /// The reference's `SearchBlock` in a chat row (`SearchBlock.tsx:173-270`): one banner stating
+    /// the retained and pre-cap counts, then either grouped matches (a file row, its numbered
+    /// lines) or the flat path list, capped with the same head/tail fold the other cards use.
+    fn search_card(
+        &self,
+        card: &crate::reducer::search_card::Card,
+        key: u64,
+    ) -> Element<'static, Message> {
+        use crate::reducer::search_card::{Kind, Row};
+        let expanded = self.diff_expanded.contains(&key);
+        let shown = card.shown(expanded);
+        let line = design::CODE_LINE + self.content_delta_secondary();
+        let banner = if card.empty() {
+            "No results".to_owned()
+        } else {
+            card.summary()
+        };
+        let mut body = Column::new().push(
+            container(label(banner, MUTED).size(design::CODE_FONT))
+                .height(line)
+                .width(Length::Fill)
+                .align_y(iced::Alignment::Center),
+        );
+        let row_of = |row: &Row| -> Element<'static, Message> {
+            match row {
+                Row::File { path, count } => row![
+                    label(short(path, 96), TEXT)
+                        .size(design::CODE_FONT)
+                        .font(MONO),
+                    label(format!("{count}"), MUTED).size(design::CODE_FONT),
+                ]
+                .spacing(8)
+                .height(line)
+                .align_y(iced::Alignment::Center)
+                .into(),
+                Row::Match {
+                    line_number,
+                    line: text,
+                } => label(format!("{line_number}: {text}"), MUTED)
+                    .size(design::CODE_FONT)
+                    .font(MONO)
+                    .into(),
+                Row::Path(path) => label(short(path, 120), MUTED)
+                    .size(design::CODE_FONT)
+                    .font(MONO)
+                    .into(),
+            }
+        };
+        for item in &shown.head {
+            body = body.push(
+                container(row_of(item))
+                    .height(line)
+                    .width(Length::Fill)
+                    .padding(iced::Padding {
+                        top: 0.0,
+                        right: 0.0,
+                        bottom: 0.0,
+                        left: design::DIFF_STAT_LEFT,
+                    }),
+            );
+        }
+        if shown.hidden > 0 {
+            let copy = if expanded {
+                "Collapse".to_owned()
+            } else {
+                format!("… {} more results", shown.hidden)
+            };
+            body = body.push(
+                button(label(copy, MUTED).size(design::CODE_FONT))
+                    .on_press(Message::ToggleDiff(key))
+                    .style(design::ghost)
+                    .padding(iced::Padding {
+                        top: 0.0,
+                        right: 0.0,
+                        bottom: 0.0,
+                        left: design::DIFF_LINE_PAD,
+                    })
+                    .height(line)
+                    .width(Length::Fill),
+            );
+        }
+        for item in &shown.tail {
+            body = body.push(
+                container(row_of(item))
+                    .height(line)
+                    .width(Length::Fill)
+                    .padding(iced::Padding {
+                        top: 0.0,
+                        right: 0.0,
+                        bottom: 0.0,
+                        left: design::DIFF_STAT_LEFT,
+                    }),
+            );
+        }
+        let _ = Kind::Paths(Vec::new());
+        container(body)
+            .id("native-tool-search")
+            .width(Length::Fill)
+            .height(self.search_card_height(card, key))
+            .padding(iced::Padding {
+                top: design::DIFF_PAD_TOP,
+                right: 0.0,
+                bottom: design::DIFF_PAD_BOTTOM,
+                left: 0.0,
+            })
+            .clip(true)
+            .style(|_| iced::widget::container::Style {
+                background: Some(design::OVERLAY.into()),
+                border: iced::Border {
+                    radius: design::RADIUS_LG.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .into()
+    }
     /// The read card's own drawn height: one toolbar row (the label and, for a windowed read,
     /// the reference's "Showing N of M lines"), the numbered rows at the code line, and the
     /// card's padding. The reservation and the render read this one function.
@@ -13588,22 +13718,31 @@ impl App {
                                 .and_then(|activity| activity.terminal)
                         })
                         .flatten();
-                    activity_column = activity_column.push(match (&read, &terminal, &diff) {
-                        (Some(card), _, _) => self.read_card(card, record.key),
-                        (None, Some(card), _) => self.terminal_card(card, record.key),
-                        (None, None, Some(diff)) => self.diff_card(diff, record.key),
-                        (None, None, None) => conversation_content::tool_body_view(
-                            activity_body,
-                            conversation_content::tool_body_height(
+                    let search = (record.role == "Tool call")
+                        .then(|| {
+                            self.transcript
+                                .activity(record.key, self.path_roots())
+                                .and_then(|activity| activity.search)
+                        })
+                        .flatten();
+                    activity_column =
+                        activity_column.push(match (&read, &terminal, &search, &diff) {
+                            (Some(card), _, _, _) => self.read_card(card, record.key),
+                            (None, Some(card), _, _) => self.terminal_card(card, record.key),
+                            (None, None, Some(card), _) => self.search_card(card, record.key),
+                            (None, None, None, Some(diff)) => self.diff_card(diff, record.key),
+                            (None, None, None, None) => conversation_content::tool_body_view(
                                 activity_body,
-                                body_width,
+                                conversation_content::tool_body_height(
+                                    activity_body,
+                                    body_width,
+                                    self.content_delta_secondary(),
+                                    design::body_line(self.content_delta()),
+                                ),
                                 self.content_delta_secondary(),
                                 design::body_line(self.content_delta()),
                             ),
-                            self.content_delta_secondary(),
-                            design::body_line(self.content_delta()),
-                        ),
-                    });
+                        });
                 }
                 activity_column.into()
             } else if let Some(trigger) = record.trigger {

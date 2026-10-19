@@ -41,6 +41,8 @@ pub struct Summary {
     pub read: Option<crate::reducer::read_card::Card>,
     /// The terminal card for a settled `bash`/`pwsh` call (`terminal-card-model.ts:283-341`).
     pub terminal: Option<crate::reducer::terminal_card::Card>,
+    /// The search card for a settled `grep`/`glob` call (`search-card-model.ts:78-100`).
+    pub search: Option<crate::reducer::search_card::Card>,
 }
 
 /// The diff card's rows are file content, so the debug form names the card and its row count
@@ -75,6 +77,13 @@ impl std::fmt::Debug for Summary {
                     .terminal
                     .as_ref()
                     .map(|card| format!("{} lines", card.output.len())),
+            )
+            .field(
+                "search",
+                &self
+                    .search
+                    .as_ref()
+                    .map(|card| format!("{} results", card.total)),
             )
             .finish()
     }
@@ -113,6 +122,7 @@ pub(super) fn summarize_paired<'a>(
                 );
                 summary.terminal =
                     crate::reducer::terminal_card::derive(&event.data, &result.data, roots);
+                summary.search = crate::reducer::search_card::derive(&event.data, &result.data);
             }
             Some(summary)
         }
@@ -153,6 +163,7 @@ pub(super) fn summarize_paired<'a>(
                     diff: None,
                     read: None,
                     terminal: None,
+                    search: None,
                 },
                 |call| text_summary_label(&call.data, true, failed, roots),
             ))
@@ -172,6 +183,7 @@ pub(super) fn summarize_paired<'a>(
             diff: None,
             read: None,
             terminal: None,
+            search: None,
         }),
         "compaction/summary" => {
             let range = &event.data["shadowedRange"];
@@ -187,6 +199,7 @@ pub(super) fn summarize_paired<'a>(
                 diff: None,
                 read: None,
                 terminal: None,
+                search: None,
             })
         }
         "compaction/end" => event.data["error"].as_str().map_or_else(
@@ -200,6 +213,7 @@ pub(super) fn summarize_paired<'a>(
                     diff: None,
                     read: None,
                     terminal: None,
+                    search: None,
                 })
             },
         ),
@@ -261,6 +275,7 @@ fn loop_guard_summary(data: &Value) -> Summary {
             diff: None,
             read: None,
             terminal: None,
+            search: None,
         },
         _ => Summary {
             title: "Loop guard · repeated identical call".into(),
@@ -270,6 +285,7 @@ fn loop_guard_summary(data: &Value) -> Summary {
             diff: None,
             read: None,
             terminal: None,
+            search: None,
         },
     }
 }
@@ -286,6 +302,7 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
             diff: None,
             read: None,
             terminal: None,
+            search: None,
         };
     }
     let verb = match name {
@@ -294,6 +311,8 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
         "edit" | "functions.edit" | "tool-fs/edit" => "Edit",
         "write" | "functions.write" | "tool-fs/write" => "Write",
         "bash" | "functions.bash" | "tool-shell/bash" => "Bash",
+        "grep" | "functions.grep" | "tool-search/grep" => "Grep",
+        "glob" | "functions.glob" | "tool-search/glob" => "Glob",
         "shell" | "functions.shell" | "pwsh" | "functions.pwsh" => "Shell",
         _ => "Tool",
     };
@@ -311,6 +330,8 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
             }
             let picked = match verb {
                 "Read" | "Edit" | "Write" => pick(&args, &["file_path", "path"]),
+                // A search row names what was searched for, the way a read row names its path.
+                "Grep" | "Glob" => pick(&args, &["pattern"]),
                 "Bash" | "Shell" => {
                     // Never expose a credential-bearing command through a benign description.
                     if pick(&args, &["command"]).is_some_and(sensitive_text) {
@@ -351,6 +372,7 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
         diff,
         read: None,
         terminal: None,
+        search: None,
     }
 }
 
@@ -1339,6 +1361,11 @@ mod card_debug_tests {
                 output: vec!["PRIVATE-OUTPUT".into()],
                 status: Some("exit code 1".into()),
             }),
+            search: Some(crate::reducer::search_card::Card {
+                kind: crate::reducer::search_card::Kind::Paths(vec!["PRIVATE-PATH".into()]),
+                total: 1,
+                truncated: false,
+            }),
         };
         let debug = format!("{summary:?}");
         assert!(!debug.contains("PRIVATE-"), "{debug}");
@@ -1350,6 +1377,7 @@ mod card_debug_tests {
         );
         summary.read = None;
         summary.terminal = None;
+        summary.search = None;
         assert!(format!("{summary:?}").contains("terminal: None"));
     }
 }

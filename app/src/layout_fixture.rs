@@ -140,6 +140,7 @@ pub const PRESETS: &[&str] = &[
     "tool-activity-diff-long",
     "tool-activity-read",
     "tool-activity-terminal",
+    "tool-activity-search",
     "context-injects",
     "assistant-tool-call",
     "assistant-tool-call-expanded",
@@ -209,7 +210,8 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "tool-activity-diff"
         | "tool-activity-diff-long"
         | "tool-activity-read"
-        | "tool-activity-terminal" => Some((Size::new(1040.0, 1040.0), 1.0)),
+        | "tool-activity-terminal"
+        | "tool-activity-search" => Some((Size::new(1040.0, 1040.0), 1.0)),
         "context-injects" | "context-injects-trajectory" => Some((Size::new(1040.0, 900.0), 1.0)),
         "assistant-tool-call" | "assistant-tool-call-expanded" => {
             Some((Size::new(1040.0, 760.0), 1.0))
@@ -651,6 +653,58 @@ fn public_tool_terminal_records() -> Vec<Value> {
     records
 }
 
+/// A conversation whose only tool call is a `grep`, recorded with the metadata the reference
+/// validates into its search card (`search-card-model.ts:78-100`). Every string is synthetic
+/// PUBLIC metadata; nothing was searched and no file is named that exists.
+fn public_search_records() -> Vec<Value> {
+    let event = |seq: u64, kind: &str, data: Value| {
+        json!({"type":"event", "event":{
+            "type":kind, "seq":seq, "time":1000+seq, "data":data, "surfaceOp":"append"
+        }})
+    };
+    vec![
+        event(
+            0,
+            "user/message",
+            json!({"role":"user", "id":"PUBLIC-search-user", "source":{"kind":"user"},
+                "content":[{"type":"text","text":"PUBLIC search fixture · no search was run."}]}),
+        ),
+        event(
+            1,
+            "tool/call",
+            json!({"callId":"PUBLIC-grep-call", "turn":1, "step":2, "name":"functions.grep",
+                "arguments":json!({"pattern":"PUBLIC_marker", "path":"src"}).to_string()}),
+        ),
+        event(
+            2,
+            "tool/result",
+            json!({"turn":1, "step":2, "meta":{
+            "shape":"matches", "total":120, "truncated":true,
+            "files":[
+                {"path":"src/PUBLIC-a.rs", "matches":[
+                    {"lineNumber":4, "line":"PUBLIC_marker in a"},
+                    {"lineNumber":9, "line":"PUBLIC_marker again in a"}]},
+                {"path":"src/PUBLIC-b.rs", "matches":[
+                    {"lineNumber":1, "line":"PUBLIC_marker in b"}]},
+            ]},
+            "message":{
+                "role":"tool", "toolCallId":"PUBLIC-grep-call",
+                "source":{"kind":"tool", "callId":"PUBLIC-grep-call"},
+                "isError":false,
+                "content":[{"type":"text", "text":"PUBLIC truncated search page."}]
+            }}),
+        ),
+        event(
+            3,
+            "assistant/message",
+            json!({"turn":1, "step":2,
+                "stream":[{"type":"text-chunks", "time0":1003, "index":0, "dt":[],
+                    "texts":["PUBLIC synthetic assistant text · the search card is drawn from recorded metadata, not from a search."]}]
+            }),
+        ),
+    ]
+}
+
 /// The same records with an optional `file` content part on the first user
 /// message, so a preset can render the attachment card the reference stacks
 /// above the bubble (`MessageItem.tsx:194-221`). A macro body cannot hold the
@@ -1040,6 +1094,8 @@ pub fn build(
         public_tool_edit_error_records()
     } else if preset == "tool-activity-terminal" {
         public_tool_terminal_records()
+    } else if preset == "tool-activity-search" {
+        public_search_records()
     } else if preset == "tool-activity-diff-long" {
         // The same transcript with a longer edit, so the card's 9-row cap and its fold control
         // are drawn. Every line is synthetic PUBLIC metadata.
@@ -2025,6 +2081,47 @@ pub fn build(
             }));
             assert!(app.activity_expanded.contains(&5));
         }
+        "tool-activity-search" => {
+            assert_eq!(app.transcript.display_rows(false).count(), 3);
+            // The grep call expands into the reference's search card: the banner states both the
+            // retained and the pre-cap count, then each file's header and its numbered matches.
+            let card = app
+                .transcript
+                .activity(1, app.path_roots())
+                .and_then(|activity| activity.search)
+                .expect("the grep call's search card");
+            assert_eq!(card.summary(), "Showing 3 of 120 matches · 2 files");
+            assert_eq!(
+                card.rows(),
+                vec![
+                    crate::reducer::search_card::Row::File {
+                        path: "src/PUBLIC-a.rs".into(),
+                        count: 2
+                    },
+                    crate::reducer::search_card::Row::Match {
+                        line_number: 4,
+                        line: "PUBLIC_marker in a".into()
+                    },
+                    crate::reducer::search_card::Row::Match {
+                        line_number: 9,
+                        line: "PUBLIC_marker again in a".into()
+                    },
+                    crate::reducer::search_card::Row::File {
+                        path: "src/PUBLIC-b.rs".into(),
+                        count: 1
+                    },
+                    crate::reducer::search_card::Row::Match {
+                        line_number: 1,
+                        line: "PUBLIC_marker in b".into()
+                    },
+                ]
+            );
+            drop(app.update(Message::ToggleActivity {
+                generation: app.generation,
+                key: 1,
+            }));
+            assert!(app.activity_expanded.contains(&1));
+        }
         "tool-activity-expanded" => {
             // The recorded Bash call expands inside the conversation; the detail
             // panel stays closed and no tool is executed.
@@ -2575,7 +2672,9 @@ mod tests {
                     Ok(Command::PermissionCatalogRead)
                 ));
             }
-            if preset.starts_with("tool-activity") {
+            // The search preset carries its own smaller conversation: one grep call records the
+            // only tool data its card needs, so it is asserted in its own arm below.
+            if preset.starts_with("tool-activity") && preset != "tool-activity-search" {
                 assert_eq!(app.transcript.rows().len(), 8);
                 assert_eq!(app.transcript.opening_cursor(), 7);
                 assert_eq!(app.transcript.rows()[0].role, "You");

@@ -372,17 +372,18 @@ the authoritative short form.
    its `tool/call` and draws one row per call, as the reference does; the result record remains a
    Trajectory-only row, so nothing is lost. See that round for the pairing rules and the rows that
    changed.
-8. **The expanded tool body's card family — three of the cards are now built.** The reference
+8. **The expanded tool body's card family — four of the cards are now built.** The reference
    picks a structured card per tool before any text card (`ToolRow.tsx:169-170`: ask-user,
    terminal, diff, read, image, search, web, details, then the IN/OUT text card) and draws it with
    the shared primitive (`:258-341`). Native draws the **diff** card (round 362, arguments only),
    the **read** card (round 373: a typed, validated `meta` projection, numbered rows, the head/tail
    fold at 8 rows and the "Showing N of M lines" status) and the **terminal** card (round 374: the
    prompt label from the resolved workdir, the status pill parsed from the trailing
-   `[exit code: N]`/`[killed by signal: X]` marker, the output rows and the 16-row fold). What
-   remains of this family is the `str_replace_editor` shape and the ask-user/image/search/web
-   cards, so the difference is **text where the reference picks a structured card**, for those
-   families only.
+   `[exit code: N]`/`[killed by signal: X]` marker, the output rows and the 16-row fold) and the
+   **search** card (round 375: `grep` matches grouped by file or `glob`'s flat path list, with the
+   retained/pre-cap banner). What remains of this family is the `str_replace_editor` shape and the
+   ask-user/image/web cards, so the difference is **text where the reference picks a structured
+   card**, for those families only.
 9. **Permission default row in Settings — landed.** The reference has *two* permission pickers;
    both are drawn here now (`settings.rs:1550-1580`, settings-general permission row,
    `shots/70-…`–`73-…`), and the record below is kept because it names the second surface and its
@@ -8658,5 +8659,52 @@ preset's card assertions, and one that proves neither card prints its content th
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/173-tool-terminal-card.png`, `status: passed` |
+| app bin | — | **19** dead-code warnings (unchanged) |
+| tree | — | clean before the commit |
+
+### Round 375 — the search card: a grep's grouped matches and a glob's paths
+
+The third structured tool card. `grep` and `glob` carry their own result shape in `meta` — matches
+grouped by file, or a flat path list — plus `total` (what the search found) and `truncated`
+(whether the page was capped). The reference treats the pair as one card whose banner states both
+numbers so a capped page cannot read as a complete one, and native drew it as text.
+
+**The model** (`reducer/search_card.rs`) follows `search-card-model.ts:78-100`: `grep`/`glob` (alpha
+spellings included) with `pattern` (non-empty for grep, non-blank for glob), an optional non-blank
+`path`, and for grep an `include` that is neither empty, negated, nor comma-separated outside braces
+— the tool's own alternation syntax, so `*.{rs,md}` stays valid and `*.rs,*.md` does not. `meta`
+must carry a boolean `truncated`, an integer `total`, and the shape matching the tool: `matches`
+with per-file `lineNumber` (1-based) and string `line`, or `paths` of strings. A rule that fails
+keeps the text body.
+
+**The card** draws the reference's banner (`3 matches · 2 files`, or `Showing 3 of 120 matches · 2
+files`; `2 paths` / `Showing 1 of 90 paths`), then the flattened rows — a file header carrying the
+path and its retained count, each match as `N: line`, or one path per row — capped at 8 with the
+head/tail fold behind `… N more results`. An empty result says `No results`.
+
+The same round named the verbs: a `grep`/`glob` row now reads `Grep · PUBLIC_marker` /
+`Glob · **/*.rs` instead of the generic `Tool · … · Tool arguments available`, the same way a read
+row names its path.
+
+Evidence: `shots/174-tool-search-card.png` (DP-2 alongside, `status: passed`) in the new
+`tool-activity-search` preset: a grep whose metadata records 120 matches, 3 retained across 2 files.
+
+Tests: eight in `search_card` — grouping, the capped banner, the glob shapes, the empty result, the
+8-row cap over flattened rows, seven metadata failures, seven call failures (including the braced
+include that must stay valid), and the quiet `Debug` — plus the preset's row-for-row card assertion.
+
+**Battery (round 375).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1313 passed**, 1 ignored |
+| app, default | **0** | **1306 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/174-tool-search-card.png`, `status: passed` |
 | app bin | — | **19** dead-code warnings (unchanged) |
 | tree | — | clean before the commit |
