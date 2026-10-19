@@ -111,10 +111,14 @@ impl Policy {
             StepGrouping::None => false,
         }
     }
-    /// Whether a group starts folded: its turn has settled and the mode folds completed turns.
-    /// A live turn's group always starts open, whatever the mode.
+    /// Whether a group starts folded. The reference's seat owns an *initially collapsed*
+    /// disclosure, whatever its turn's state (`use-disclosure.ts`: "Own one initially
+    /// collapsed disclosure"; `ChatGroupSeat.tsx:162` hides the body while `grouped && !open`),
+    /// so every seat a mode draws starts folded and a click opens it. `fold_completed_turns`
+    /// is the mode's folding capability; the reference's separate *outer* turn fold
+    /// (`ChatGroupSeat.tsx:152-153`) is not built in native.
     pub fn starts_folded(&self, settled: bool) -> bool {
-        settled && self.fold_completed_turns && self.groups(settled)
+        self.fold_completed_turns && self.groups(settled)
     }
 }
 
@@ -170,7 +174,9 @@ mod tests {
     fn grouping_and_folding_follow_from_the_policy() {
         let standard = Mode::Standard.policy();
         assert!(standard.groups(false) && standard.groups(true));
-        assert!(!standard.starts_folded(false));
+        // The reference's disclosure starts collapsed for a live group too, so Standard
+        // shows one running line until the reader opens it.
+        assert!(standard.starts_folded(false));
         assert!(standard.starts_folded(true));
 
         let detailed = Mode::Detailed.policy();
@@ -180,6 +186,9 @@ mod tests {
 
         let verbose = Mode::Verbose.policy();
         assert!(!verbose.groups(false) && !verbose.groups(true));
-        assert!(!verbose.starts_folded(true), "verbose folds nothing");
+        assert!(
+            !verbose.starts_folded(false) && !verbose.starts_folded(true),
+            "verbose folds nothing"
+        );
     }
 }

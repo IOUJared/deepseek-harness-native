@@ -5620,7 +5620,9 @@ impl App {
             Message::ToggleProcessGroup { generation, key }
                 if generation == self.generation && self.composer_visible() =>
             {
-                let open = self.process_group_open.entry(key).or_insert(true);
+                // A seat the reader has not touched shows the policy's own state — folded —
+                // so the first click opens it (`use-disclosure.ts` starts collapsed).
+                let open = self.process_group_open.entry(key).or_insert(false);
                 *open = !*open;
             }
             Message::ToggleActivity { generation, key }
@@ -15133,8 +15135,10 @@ impl App {
                 }
                 if seats.contains_key(&index) {
                     // The seat is drawn inside this row's box, so the row reserves the
-                    // header line it actually draws (`chat_geometry::seat_height`).
-                    geometry.height += chat_geometry::seat_height(self.content_delta());
+                    // header line it actually draws (`chat_geometry::seat_height`) and the
+                    // gap an expanded title keeps under itself (`ChatGroupSeat.module.css:82-84`).
+                    geometry.height += chat_geometry::seat_height(self.content_delta())
+                        + chat_geometry::SEAT_TITLE_GAP;
                 }
                 // A row's height arrives carrying its own 12px of symmetric
                 // outer padding (`chat_geometry::ROW_CHROME`); the web instead
@@ -17001,10 +17005,14 @@ impl App {
             // Drawn as a sibling instead, the header's reserved line stayed behind in this
             // row as an empty 24px band under the first tool line (round 511).
             let body: Element<'_, Message> = match seats.get(&index) {
-                Some(seat) => column![self.process_seat(seat), bubble]
-                    .align_x(align)
-                    .width(Length::Fill)
-                    .into(),
+                Some(seat) => column![
+                    self.process_seat(seat),
+                    Space::new().height(chat_geometry::SEAT_TITLE_GAP),
+                    bubble
+                ]
+                .align_x(align)
+                .width(Length::Fill)
+                .into(),
                 None => bubble.into(),
             };
             let outer = container(body)
@@ -22599,34 +22607,46 @@ mod tests {
 
     #[cfg(feature = "public-layout-fixture")]
     #[test]
-    fn a_group_seat_sits_inside_its_first_row_and_reserves_only_its_own_line() {
+    fn a_group_seat_starts_folded_and_grows_by_its_title_gap_when_opened() {
         use layout_fixture;
         let size = iced::Size::new(1040.0, 760.0);
-        let (app, _receiver) =
+        let (mut app, _receiver) =
             layout_fixture::build(layout_fixture::test_options(), "tool-activity", size, None);
         let rows: Vec<&DisplayRow> = app.transcript.display_rows(false).collect();
         let refs = rows.clone();
         let seats = app.process_seats(&refs);
         let (&index, seat) = seats.iter().next().expect("the live group has a seat");
-        assert!(seat.open, "the fixture's live group shows its members");
+        let key = seat.key;
         let delta = app.content_delta();
-        // One value for the line the seat draws and the line its row reserves
-        // (`ChatGroupSeat.module.css:5-9`), so the header cannot be taller than the space
-        // left for it — the split that left a 24px blank band under the first tool line.
+        // The reference's disclosure begins collapsed even while the turn runs
+        // (`use-disclosure.ts`), so a live seat starts folded and its members are hidden.
+        assert!(!seat.open, "a grouped seat starts folded");
+        // One value for the line the seat draws and the line its row reserves, so the
+        // header cannot be taller than the space left for it — the split that once left a
+        // 24px blank band under the first tool line.
         assert_eq!(chat_geometry::seat_height(delta), design::LINE_BODY + delta);
-        let geometries = app.row_geometries(&refs);
-        // The first member's box is the flow margin, the seat's line and its own line;
-        // a later member is only its own line under the ladder's gap.
+        assert_eq!(chat_geometry::SEAT_TITLE_GAP, 8.0);
+        let folded = app.row_geometries(&refs);
         assert_eq!(
-            geometries[index].height,
+            folded[index].height,
+            flow_gap_before(&refs, index) + chat_geometry::seat_height(delta)
+        );
+        // Opened, the first member's box is the flow margin, the seat's line, the gap an
+        // expanded title keeps under itself and its own line; a later member is only its
+        // own line under the ladder's gap.
+        app.process_group_open.insert(key, true);
+        let opened = app.row_geometries(&refs);
+        assert_eq!(
+            opened[index].height,
             flow_gap_before(&refs, index)
                 + chat_geometry::seat_height(delta)
-                + geometries[index].body_height
+                + chat_geometry::SEAT_TITLE_GAP
+                + opened[index].body_height
         );
         let second = index + 1;
         assert_eq!(
-            geometries[second].height,
-            flow_gap_before(&refs, second) + geometries[second].body_height
+            opened[second].height,
+            flow_gap_before(&refs, second) + opened[second].body_height
         );
     }
 

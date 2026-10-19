@@ -168,6 +168,7 @@ pub const PRESETS: &[&str] = &[
     "plan-mode-applying",
     "plan-mode-leaving",
     "tool-activity",
+    "tool-activity-open",
     "tool-activity-narrow",
     "tool-activity-tiny",
     "tool-activity-details",
@@ -268,6 +269,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "assistant-details-narrow" => Some((Size::new(760.0, 840.0), 1.0)),
         "chat-search-narrow" => Some((Size::new(760.0, 840.0), 1.5)),
         "tool-activity"
+        | "tool-activity-open"
         | "tool-activity-expanded"
         | "tool-activity-trajectory"
         | "tool-activity-terminal-search"
@@ -2562,6 +2564,20 @@ pub fn build(
     if preset == "collapsed-wide" {
         app.sidebar_expanded = false;
     }
+    if preset == "tool-activity-open" {
+        // A seat is folded until the reader opens it, so the expanded state needs its own
+        // state: one click's worth, set before the frame rather than pressed during it.
+        let keys: Vec<u64> = {
+            let rows: Vec<_> = app.transcript.display_rows(false).collect();
+            app.process_seats(&rows)
+                .values()
+                .map(|seat| seat.key)
+                .collect()
+        };
+        for key in keys {
+            app.process_group_open.insert(key, true);
+        }
+    }
     drop(app.update(Message::Resized(size)));
 
     match preset {
@@ -4291,7 +4307,9 @@ mod tests {
             (rows.len(), key, open)
         };
         let _ = rows;
-        assert!(open, "a live group stands open");
+        // The reference's disclosure begins collapsed, so a live group starts folded and
+        // the reader's click is what shows its members (`use-disclosure.ts`).
+        assert!(!open, "a grouped seat starts folded");
         // The title names the activity and, in a mode that shows detail, the running command.
         let title = {
             let rows: Vec<_> = app.transcript.display_rows(false).collect();
@@ -4312,20 +4330,20 @@ mod tests {
             generation: app.generation,
             key,
         }));
-        let folded = {
+        let opened = {
             let rows: Vec<_> = app.transcript.display_rows(false).collect();
-            !app.process_seats(&rows).values().next().unwrap().open
+            app.process_seats(&rows).values().next().unwrap().open
         };
-        assert!(folded, "the click folds it");
+        assert!(opened, "the click opens it");
         drop(app.update(Message::ToggleProcessGroup {
             generation: app.generation,
             key,
         }));
-        let unfolded = {
+        let folded = {
             let rows: Vec<_> = app.transcript.display_rows(false).collect();
-            app.process_seats(&rows).values().next().unwrap().open
+            !app.process_seats(&rows).values().next().unwrap().open
         };
-        assert!(unfolded, "the second click unfolds it again");
+        assert!(folded, "the second click folds it again");
     }
 
     #[test]

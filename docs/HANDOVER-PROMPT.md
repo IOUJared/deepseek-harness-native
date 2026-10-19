@@ -65,13 +65,11 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 >   frame (same window size, same sidebar state, same conversation data).
 >
 > ### Live backlog at handover (verify each before working it)
-> 1. **A live group's seat starts open in native** (`starts_folded(false) == false`), while the
->    reference's disclosure begins collapsed (`use-disclosure.ts`: "Own one initially collapsed
->    disclosure") and its body is hidden until clicked (`ChatGroupSeat.tsx:162`). Folding a running
->    turn changes the primary transcript state, so it needs its own frame.
-> 2. **The reference's outer turn fold has no native counterpart** — a completed turn hides its whole
+> 1. **The reference's outer turn fold has no native counterpart** — a completed turn hides its whole
 >    process behind the turn control (`ChatGroupSeat.tsx:152-153`, `foldCompletedTurns`), where native
->    still draws the folded seat header (24px).
+>    still draws the folded seat header (24px line).
+> 2. **The seat title's leading glyph** — the reference swaps a 16px activity icon for a chevron on
+>    hover/focus (`ChatGroupSeat.module.css:30-78`); native draws one label with `▲`/`▼`.
 > 3. **`reference.png` measurements are paired, not pixel-diffed.** The frame was read as "collapsed
 >    rail, no header" through round 509; round 510 measured every band in its left 520px and found no
 >    ink, so it is a **crop**. A pixel diff needs a fixture preset that reproduces a crop — or a
@@ -88,7 +86,8 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 >
 > Closed since the last handover: the header reminders chip (round 503), the split diff view (round
 > 505), the comparison layout's persistence (round 509), the message rows' horizontal and vertical
-> insets (rounds 504, 510), and the group seat's 24px blank band (round 511).
+> insets (rounds 504, 510), the group seat's 24px blank band (round 511), and the folded-by-default
+> seat with its expanded title gap (round 512).
 >
 > ### Etiquette
 > Be terse. Prefer numbered lists over tables in replies. Challenge your own claims; walk back anything

@@ -9687,7 +9687,8 @@ This round lands that table as `app/src/work_details.rs` — the four modes with
 policy values, their labels and persisted keys, and the two derived questions a renderer asks
 (`groups(settled)` and `starts_folded(settled)`). The process seat now reads the **default** mode's
 policy rather than a hardcoded rule, so native's current behaviour is exactly Standard: groups on
-every turn, a settled turn folded, a live one open.
+every turn, a settled turn folded, a live one open — **corrected in round 512**: the reference's
+seat starts folded while the turn runs too, so a grouped seat is folded until the reader opens it.
 
 What is deliberately not built yet: the Settings row that chooses a mode. It needs a persisted
 preference, and a control that forgets on restart would be a defect rather than a feature, so the row
@@ -14091,4 +14092,70 @@ turn changes the transcript's primary state and needs its own frame. The referen
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-hq_hkycj`) |
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 captures | — | `shots/302-seat-in-row.png` and `shots/303-seat-folded.png`, both `status: passed` |
+| app bin | — | **21** warnings |
+
+### Round 512 — a grouped seat is folded until the reader opens it
+
+**The gap.** Native opened a live group's seat (`starts_folded(false) == false`, "a live turn's
+group always starts open"). The reference does not: `ChatGroupSeat` owns a disclosure that begins
+collapsed (`use-disclosure.ts`: "Own one initially collapsed disclosure") and hides the member body
+whenever the group is grouped and unopened (`ChatGroupSeat.tsx:162`,
+`useSearchableHidden(grouped && !open, …)`; the header stays). Since Standard is the desktop default
+(`apply.ts:149`), the reference's running turn shows **one live line** — "Running commands · grep …" —
+until the reader clicks it, where native showed every tool row.
+
+**Two changes, because the click's default was the other half.** `starts_folded` is now
+`fold_completed_turns && groups(settled)`, so every seat a mode draws starts folded.
+`Message::ToggleProcessGroup` used `or_insert(true)` and flipped it — correct only while the default
+was open; with a folded default the first click would have folded again. It now seeds `false` and
+flips, so the first press opens the seat and the second closes it.
+
+**The expanded title's gap.** An open seat's title takes `padding-bottom: 8px`
+(`ChatGroupSeat.module.css:82-84`), which native had never drawn or reserved:
+`chat_geometry::SEAT_TITLE_GAP` is that 8px, added to the first member's row when the seat is open
+and drawn as a spacer between the header and the member. Measured at 1980×1319: the header's ink to
+its first member's ink was **20px**, and is **28px** opened.
+
+**A new preset, because the expanded state is now a click away.** `tool-activity-open` registers in
+`PRESETS`, the size arm and the build (the `tool-activity` prefix already supplies its records) and
+opens every seat the preset forms before the frame — the same class of state `process-group-closed`
+already seeds.
+
+**Frames.** `shots/304-seat-folded-live.png` (default Standard, `tool-activity`): the user bubble, the
+clock, one `▼ Running commands · …` line, then the assistant answer — no tool rows. And
+`shots/305-seat-opened.png` (`tool-activity-open`): the opened seat with its 8px title gap and the
+three tool lines at the reference's 30px pitch.
+
+**Correction to round 511's citation.** Round 511 wrote that the reference fixes the collapsed seat's
+height with `.root:not([data-expanded]) { height: calc(24px + …) }` at
+`ChatGroupSeat.module.css:5-9`. That rule is `ReasoningRow.module.css:6-9`, not the seat's. The seat's
+header is a one-line title that pads nothing and inherits the body's type (`.title` at
+`ChatGroupSeat.module.css:5-20`: `padding: 0`, `font: inherit`), which is why its height is the 24px
+line — the value was right and the cited rule was wrong. The comment on
+`chat_geometry::seat_height` says that instead.
+
+**Tests.** `work_details::grouping_and_folding_follow_from_the_policy` now asserts a folded live
+seat (and that Verbose folds neither state). The fixture's
+`a_seat_click_folds_and_unfolds_its_members` asserts the flipped click order: folded at rest, open
+after the first press, folded after the second. `a_group_seat_starts_folded_and_grows_by_its_title_gap_when_opened` replaces round 511's
+open-by-default oracle: folded it reserves flow + the seat line;
+opened it reserves flow + seat line + 8 + its own line, and a later member only its own line plus the
+ladder's gap.
+
+**Still open from this surface.** The reference's *outer* turn fold (a completed turn hides its whole
+process behind the turn control, `ChatGroupSeat.tsx:152-153`) has no native counterpart, so a settled
+group still shows its folded 24px header. The seat's title is native's one-label line, where the
+reference leads with a 16px activity glyph that swaps to a chevron on hover.
+
+**Battery (round 512).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1501 passed**, 1 ignored |
+| app, default | **0** | **1456 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-730h4l_x`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-hlc2ajrl`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 captures | — | `shots/304-seat-folded-live.png`, `shots/305-seat-opened.png`, both `status: passed` |
 | app bin | — | **21** warnings |
