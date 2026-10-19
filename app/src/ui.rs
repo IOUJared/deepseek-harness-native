@@ -926,6 +926,10 @@ struct FeedbackDraft {
     /// Why the last write failed, shown beside the note so the draft can be corrected rather than lost
     /// (`dialog.ts:99-107`).
     error: Option<String>,
+    /// The last keystroke was refused by the note's own bound. The reference has no such bound — its
+    /// textarea scrolls and the Host refuses an oversized note with its own copy (`locales.ts:58`) — so
+    /// native states the limit rather than dropping the character silently.
+    capped: bool,
 }
 
 /// The open one-shot picker: a month calendar or a clock.
@@ -4510,10 +4514,15 @@ impl App {
                 }
             }
             Message::FeedbackNote(note) => {
-                if let Some(draft) = &mut self.feedback_dialog
-                    && note.len() <= 4096
-                {
-                    draft.note = note;
+                if let Some(draft) = &mut self.feedback_dialog {
+                    if note.len() <= 4096 {
+                        draft.note = note;
+                        draft.capped = false;
+                    } else {
+                        // Refused, and said so: the field keeps what it had and the dialog states why
+                        // the last character did not arrive.
+                        draft.capped = true;
+                    }
                 }
             }
             Message::FeedbackCancel => self.feedback_dialog = None,
@@ -8256,6 +8265,21 @@ impl App {
         let diff = diff.clone();
         self.open_changed_detail(seq, index, diff);
     }
+    /// The feedback dialog with its note at the local bound, which states itself instead of dropping
+    /// a character silently.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn seed_feedback_capped(&mut self) {
+        self.seed_feedback();
+        self.feedback_dialog = Some(FeedbackDraft {
+            message_id: "PUBLIC-feedback-message".into(),
+            rating: "positive".into(),
+            category: None,
+            note: "PUBLIC note at the field's own bound".into(),
+            submitting: false,
+            error: None,
+            capped: true,
+        });
+    }
     /// The feedback dialog open on a refused write: the note survives and the reason sits beside it
     /// (`dialog.ts:99-107`).
     #[cfg(feature = "public-layout-fixture")]
@@ -8268,6 +8292,7 @@ impl App {
             note: "PUBLIC typed note that must survive the refusal".into(),
             submitting: false,
             error: Some("Feedback refused: note-too-large".into()),
+            capped: false,
         });
     }
     /// A turn that edited exactly one file, which the card draws as its own row
@@ -11045,6 +11070,7 @@ impl App {
                     note: String::new(),
                     submitting: false,
                     error: None,
+                    capped: false,
                 });
             }
         }
@@ -11174,6 +11200,15 @@ impl App {
                 label(
                     "Your submission will include the current conversation log.",
                     MUTED
+                )
+                .size(9),
+                label(
+                    if draft.capped {
+                        "Note limit reached · 4096 bytes"
+                    } else {
+                        ""
+                    },
+                    design::GOLD,
                 )
                 .size(9),
                 // A refusal keeps the draft and states the reason beside it (`dialog.ts:99-107`).
@@ -24492,7 +24527,7 @@ mod tests {
     fn excerpt_marks_line_limit_explicitly() {
         assert!(excerpt("one\ntwo\nthree\nfour\nfive").ends_with('…'));
     }
-    fn managed_app() -> (App, tokio::sync::mpsc::Receiver<Command>) {
+    pub(super) fn managed_app() -> (App, tokio::sync::mpsc::Receiver<Command>) {
         let (mut app, receiver) = app();
         let id = SessionId::new("public-managed-session").unwrap();
         app.ready = true;
@@ -25200,5 +25235,31 @@ mod feedback_label_tests {
         assert_eq!(feedback_label(Some("positive"), false), "Dislike");
         assert_eq!(feedback_label(Some("negative"), false), "Remove rating");
         assert_eq!(feedback_label(Some("negative"), true), "Like");
+    }
+}
+
+#[cfg(test)]
+mod feedback_note_cap_tests {
+    //! The note's own bound states itself instead of dropping a character silently.
+    use super::*;
+
+    #[test]
+    fn a_note_past_the_limit_keeps_what_it_had_and_says_so() {
+        let (mut app, _receiver) = crate::ui::tests::managed_app();
+        let _ = app.update(Message::FeedbackLike("PUBLIC-message".into()));
+        let _ = app.update(Message::FeedbackNote("PUBLIC short note".into()));
+        let draft = app.feedback_dialog.as_ref().expect("the dialog");
+        assert_eq!(draft.note, "PUBLIC short note");
+        assert!(!draft.capped);
+        // Past the bound: the field keeps its text and the dialog states the limit.
+        let _ = app.update(Message::FeedbackNote("x".repeat(4097)));
+        let draft = app.feedback_dialog.as_ref().expect("the dialog");
+        assert_eq!(draft.note, "PUBLIC short note", "the field is unchanged");
+        assert!(draft.capped);
+        // Back within the bound clears the statement.
+        let _ = app.update(Message::FeedbackNote("x".repeat(4096)));
+        let draft = app.feedback_dialog.as_ref().expect("the dialog");
+        assert_eq!(draft.note.len(), 4096);
+        assert!(!draft.capped);
     }
 }

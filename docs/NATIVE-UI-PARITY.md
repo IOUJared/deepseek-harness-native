@@ -13219,3 +13219,40 @@ Evidence: `shots/285-feedback-row.png` (DP-2 alongside, `status: passed`) — co
 | DP-2 capture | — | `shots/285-feedback-row.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 495 — the note's own limit states itself
+
+The last of the feedback audit's note findings: native refused a note longer than 4096 bytes by dropping
+the input silently, so the field simply stopped accepting characters. The reference has no such bound —
+its textarea scrolls and an oversized note is refused by the Host with `The description is too long;
+shorten it and submit again` (`FeedbackDialog.tsx:117-118`, `locales.ts:58`).
+
+The draft now carries `capped`, the field keeps the text it had, and the dialog states `Note limit
+reached · 4096 bytes` in the warning ink under the log disclosure. Typing back within the bound clears it.
+
+Tests: `a_note_past_the_limit_keeps_what_it_had_and_says_so` — a short note, a 4097-byte paste that is
+refused and flagged, and a 4096-byte note that is accepted and clears the flag.
+
+Evidence: `shots/286-feedback-capped.png` (DP-2 alongside, `status: passed`) — the field, the log
+disclosure, and the limit line.
+
+**Recorded, still**: the note is a single-line field rather than the reference's textarea. That is a
+different change (a multi-line editor with its own focus and ticket handling) and is named here rather
+than implied; the limit it now states is native's own, and the Host's `note-too-large` refusal reaches the
+dialog too (round 492).
+
+**Battery (round 495).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1481 passed**, 1 ignored |
+| app, default | **0** | **1443 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/286-feedback-capped.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
