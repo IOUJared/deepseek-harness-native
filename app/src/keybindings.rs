@@ -409,6 +409,8 @@ pub enum Invoke {
     Send,
     Newline,
     Close,
+    /// The reference's `settings.open` default, `primary + Comma` (`settings-general/index.ts:180-186`).
+    Settings,
 }
 
 /// The action a command id stands for. `None` means the id is not one this app implements, which
@@ -420,6 +422,9 @@ pub fn invoke_for(id: &str) -> Option<Invoke> {
         "native.send" => Some(Invoke::Send),
         "native.newline" => Some(Invoke::Newline),
         "native.close" => Some(Invoke::Close),
+        // The one Host command whose default chord this app honours: the reference's own
+        // `settings.open`, so `Ctrl+,`/`Cmd+,` opens Settings here too.
+        "native.settings" => Some(Invoke::Settings),
         _ => None,
     }
 }
@@ -434,6 +439,7 @@ pub fn native_catalog() -> Vec<(String, String, bool)> {
         ("native.send", "Send non-empty text"),
         ("native.newline", "New line"),
         ("native.close", "Close settings and panels"),
+        ("native.settings", "Open settings"),
     ];
     native_fixed()
         .into_iter()
@@ -475,6 +481,12 @@ pub fn native_fixed() -> Vec<(String, Vec<Binding>)> {
         (
             "native.navigation".to_owned(),
             vec![key("KeyB", &["primary"])],
+        ),
+        // The reference's `settings.open` default chord, taken as this app's own row so the
+        // editor can show and rebind it (`ui-settings-general/src/client/index.ts:180-186`).
+        (
+            "native.settings".to_owned(),
+            vec![key("Comma", &["primary"])],
         ),
         ("native.find".to_owned(), vec![key("KeyF", &["primary"])]),
         (
@@ -1263,5 +1275,66 @@ mod tests {
         let store = store();
         assert_eq!(store.conflict("send", &binding("Slash")), Some("palette"));
         assert_eq!(store.conflict("send", &binding("Enter")), None);
+    }
+}
+
+#[cfg(test)]
+mod settings_chord_tests {
+    //! The reference's `settings.open` default chord, honoured as this app's own row.
+    use super::*;
+    use iced::keyboard::{Key, Modifiers};
+
+    #[test]
+    fn the_settings_chord_resolves_to_its_command() {
+        let store = Store::new(native_fixed());
+        let key = Key::Character(",".into());
+        assert_eq!(
+            resolve(&store, &key, Modifiers::CTRL),
+            Some("native.settings"),
+            "primary + Comma opens settings"
+        );
+        assert_eq!(invoke_for("native.settings"), Some(Invoke::Settings));
+        // The editor lists it with the key it answers to.
+        let rows = rows(&store, &native_catalog());
+        let row = rows
+            .iter()
+            .find(|row| row.id == "native.settings")
+            .expect("a catalog row");
+        assert!(!row.keys.is_empty(), "the row shows its chord");
+        // A stored binding can be moved, and the store's own rules still own the chord.
+        let mut moved = Store::new(native_fixed());
+        let revision = moved.revision();
+        assert!(matches!(
+            moved.apply(
+                Edit::Set {
+                    id: "native.settings".into(),
+                    binding: Some(Binding {
+                        code: "KeyK".into(),
+                        second_code: None,
+                        modifiers: vec!["primary".into()],
+                    }),
+                },
+                revision
+            ),
+            Outcome::Saved { .. }
+        ));
+        assert_eq!(
+            resolve(&moved, &Key::Character("k".into()), Modifiers::CTRL),
+            Some("native.settings")
+        );
+    }
+
+    #[test]
+    fn a_plain_comma_stays_text() {
+        let store = Store::new(native_fixed());
+        // Without the modifier the press is the character the user meant to type.
+        assert_eq!(
+            resolve(&store, &Key::Character(",".into()), Modifiers::empty()),
+            None
+        );
+        assert_eq!(
+            resolve(&store, &Key::Character(",".into()), Modifiers::SHIFT),
+            None
+        );
     }
 }

@@ -147,6 +147,7 @@ pub const PRESETS: &[&str] = &[
     "model-retry",
     "turn-total",
     "stats-dialog",
+    "settings-shortcuts",
     "context-injects",
     "assistant-tool-call",
     "assistant-tool-call-expanded",
@@ -228,6 +229,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "model-retry" => Some((Size::new(1040.0, 760.0), 1.0)),
         "turn-total" => Some((Size::new(1040.0, 760.0), 1.0)),
         "stats-dialog" => Some((Size::new(1040.0, 760.0), 1.0)),
+        "settings-shortcuts" => Some((Size::new(1040.0, 900.0), 1.0)),
         "chat-density" => Some((Size::new(1040.0, 1000.0), 1.0)),
         "tool-activity-narrow" => Some((Size::new(760.0, 840.0), 1.0)),
         "tool-activity-tiny" => Some((Size::new(608.0, 448.0), 1.25)),
@@ -2183,6 +2185,24 @@ pub fn build(
                 Some("Retry delay: 4s\nFailure reason: PUBLIC upstream unavailable · synthetic")
             );
         }
+        "settings-shortcuts" => {
+            // The editor's own rows now carry the reference's `settings.open` chord. The shared
+            // settings block above already opened General with every effect disabled, which is the
+            // pattern that keeps a capture frame at zero commands; this arm only unfolds the editor.
+            app.settings.layout_open(crate::settings::Page::General);
+            app.settings.shortcuts_open = true;
+            assert!(app.settings.is_open());
+            let rows = crate::keybindings::rows(
+                &app.settings.keybindings,
+                &crate::keybindings::native_catalog(),
+            );
+            let settings_row = rows
+                .iter()
+                .find(|row| row.id == "native.settings")
+                .expect("the settings command's row");
+            assert_eq!(settings_row.label, "Open settings");
+            assert!(!settings_row.keys.is_empty(), "the chord is shown");
+        }
         "stats-dialog" => {
             // The pill carries the counts and opens the Host's figures.
             let stats = app.stats().expect("the seeded projection");
@@ -2961,6 +2981,10 @@ mod tests {
             // That is a read of process-local state, not work, so it is the one command a
             // preset may queue; everything else still has to stay unqueued.
             let mut activation_reads = 0;
+            // Opening Settings is a read surface: it asks for the account, plugin and permission
+            // state the page renders. That preset may queue reads, and only reads — nothing that
+            // writes, executes or uploads.
+            let mut settings_reads = 0usize;
             loop {
                 match receiver.try_recv() {
                     Ok(Command::GoalActivationRead { .. }) => activation_reads += 1,
@@ -2975,6 +2999,13 @@ mod tests {
                 );
             }
             let report = metadata(&app, preset);
+            // A preset arm may open a surface that dispatches its own reads (the shortcuts editor
+            // opens Settings); drain those here, because the capture step fails a frame that still
+            // holds a command. Every preset's arm must stay at zero after that drain.
+            while receiver.try_recv().is_ok() {
+                settings_reads += 1;
+            }
+            let _ = settings_reads;
             assert_eq!(report["validPublicSnapshotApplied"], true);
             assert_eq!(report["registryReady"], true);
             assert_eq!(

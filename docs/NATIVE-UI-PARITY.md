@@ -9095,3 +9095,45 @@ the quiet-window case, and the duration/speed ladder) plus the preset's open/clo
 | DP-2 capture | — | `shots/184-stats-dialog.png`, `status: passed` |
 | app bin | — | **20** dead-code warnings (unchanged) |
 | tree | — | clean before the commit |
+
+### Round 385 — `Ctrl+,` opens Settings
+
+The reference gives `settings.open` the `primary + Comma` default on every desktop platform
+(`ui-settings-general/src/client/index.ts:180-186`), and its shortcut editor shows the chord. Native
+listed the Host commands read-only with **no keys** and honoured none of their defaults, so the one
+chord every desktop application answers to did nothing here.
+
+It is now native's own row, `native.settings`, with the reference's default: `Ctrl+,`/`Cmd+,` opens
+Settings from anywhere, the composer included — the press is carried through the editor's binding
+path as data so the composer's own key handling cannot swallow it — while a bare comma stays the
+character the user typed. Because it is a native row, the editor lists it with its chord, `Restore
+default` returns it to `Ctrl+Comma`, and `Capture`/`Remove` work on it like any other.
+
+The other Host-command defaults stay deliberately unmapped: `workspace.files` and
+`workspace.openLocal` open surfaces this clone replaces (the details panel and the folder browser),
+and `terminal.new`'s target is a page native reaches from its sidebar. They are recorded here rather
+than borrowed onto a different action.
+
+Evidence: `shots/185-settings-shortcuts.png` (DP-2 alongside, `status: passed`, zero captured
+commands) in the new `settings-shortcuts` preset: the Application group ends with
+`Open settings … Ctrl+Comma`.
+
+Tests: `settings_chord_tests` (the chord resolves to its command and its catalog row carries the
+key, a stored rebinding moves it, and a bare or shifted comma resolves to nothing) and
+`settings_chord_ui_tests` (the press opens Settings on a real app; a bare comma does not).
+
+**Battery (round 385).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1359 passed**, 1 ignored |
+| app, default | **0** | **1347 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/185-settings-shortcuts.png`, `status: passed` |
+| app bin | — | **20** dead-code warnings (unchanged) |
+| tree | — | clean before the commit |

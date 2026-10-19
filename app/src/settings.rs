@@ -456,6 +456,14 @@ impl Default for Settings {
     }
 }
 impl Settings {
+    /// Open the modal on a page without dispatching the reads its own `Open` performs. A fixture
+    /// that only needs the drawn state uses this, so a capture holds no command.
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn layout_open(&mut self, page: Page) {
+        self.open = true;
+        self.page = page;
+        self.shortcuts_open = false;
+    }
     #[cfg(feature = "public-layout-fixture")]
     pub(crate) fn layout_codex_tab(&mut self, tab: crate::codex::Tab) {
         let context = self.codex_context(false);

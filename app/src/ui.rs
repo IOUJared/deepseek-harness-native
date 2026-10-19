@@ -16993,6 +16993,7 @@ fn invoke_message(invoke: Option<crate::keybindings::Invoke>) -> Option<Message>
     use crate::keybindings::Invoke;
     match invoke? {
         Invoke::Navigation => Some(Message::ToggleSidebar),
+        Invoke::Settings => Some(Message::Settings(crate::settings::Action::Open)),
         Invoke::Find => Some(Message::SearchOpen),
         Invoke::Close => Some(Message::DismissPanel),
         Invoke::Send | Invoke::Newline => None,
@@ -17754,6 +17755,12 @@ fn composer_binding(
                 // The surface decides what dismissal means (Details is topmost); carrying the
                 // press as data keeps that decision in `key_pressed`, where live state lives.
                 Some(Invoke::Close) => Some(text_editor::Binding::Custom(Message::KeyPressed(
+                    event.key.clone(),
+                    event.modifiers,
+                ))),
+                // Settings opens from anywhere, the composer included; the press is carried as
+                // data so the composer's own binding path cannot swallow it.
+                Some(Invoke::Settings) => Some(text_editor::Binding::Custom(Message::KeyPressed(
                     event.key.clone(),
                     event.modifiers,
                 ))),
@@ -22847,6 +22854,35 @@ mod card_copy_tests {
         assert_eq!(app.card_copied, Some(5));
         let _ = app.update(Message::CardCopyExpired(5));
         assert_eq!(app.card_copied, None);
+    }
+}
+
+#[cfg(all(test, feature = "public-layout-fixture"))]
+mod settings_chord_ui_tests {
+    //! The reference's `settings.open` chord, end to end: the press opens Settings.
+    use super::*;
+
+    #[test]
+    fn the_settings_chord_opens_settings() {
+        let (mut app, commands) = super::layout_fixture::build(
+            super::layout_fixture::test_options(),
+            "conversation",
+            iced::Size::new(1040.0, 760.0),
+            None,
+        );
+        drop(commands);
+        assert!(!app.settings.is_open());
+        let _ = app.key_pressed(
+            keyboard::Key::Character(",".into()),
+            keyboard::Modifiers::CTRL,
+        );
+        assert!(app.settings.is_open(), "primary + Comma opens Settings");
+        // A bare comma is the character the user typed, not a command.
+        let _ = app.key_pressed(
+            keyboard::Key::Character(",".into()),
+            keyboard::Modifiers::empty(),
+        );
+        assert!(app.settings.is_open(), "a bare comma changes nothing");
     }
 }
 
