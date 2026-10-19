@@ -12197,3 +12197,38 @@ copied blindly.
 | capture | — | none: pointer timing, proved by its test |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 468 — an ancestor crumb can swap its own siblings
+
+The subagent audit's second difference: the reference gives **every** subagent crumb a lineage slot
+(`ConversationSession.tsx:95-121`), so from a grandchild you can re-pick the middle child without going
+back up the tree. Native offered the sibling menu only on the current crumb.
+
+`catalog_of_parent_of` now answers "whose siblings are these" for any session, not just the selected
+one, and each subagent crumb renders the switcher its own parent's catalog describes. An open menu
+remembers **which crumb** opened it (`subagent_menu_target`), so the header action and an ancestor crumb
+cannot both think they own the popup; every close path clears the target with the expansion set.
+
+Tests: `an_ancestor_crumb_opens_its_own_siblings` — a hand-built three-deep chain, where the middle
+crumb's siblings come from the root's catalog rather than the grandchild's parent, opening the ancestor's
+menu records that crumb as the target, and pressing it again closes and forgets.
+
+**Recorded**: the same fixture attempt first tried to reach the chain through the `subagent-catalog`
+preset and failed twice, because the parent there carries no catalog of its own. The test now builds the
+three sessions it needs, which is both smaller and honest about what it exercises.
+
+**Battery (round 468).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1452 passed**, 1 ignored |
+| app, default | **0** | **1424 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: a trail state, proved by its test |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

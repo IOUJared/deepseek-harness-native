@@ -929,3 +929,63 @@ fn hovering_the_subagent_trigger_opens_it_only_after_the_delay() {
     drop(app.update(Message::SubagentHoverExpired));
     assert!(app.subagent_menu, "an expired delay does not close it");
 }
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
+fn an_ancestor_crumb_opens_its_own_siblings() {
+    let (size, _scale) = super::layout_fixture::preset_size("conversation").unwrap();
+    let (mut app, _queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "conversation",
+        size,
+        None,
+    );
+    // A hand-built three-deep chain: a root whose catalog lists two children, one of which owns a
+    // grandchild. From the grandchild, the middle child is an ancestor crumb with siblings.
+    let session = |id: &str, parent: Option<&str>, catalog: Option<serde_json::Value>| {
+        let mut values = serde_json::json!({"title": format!("PUBLIC {id}")});
+        if let Some(catalog) = catalog {
+            values["subagentCatalog"] = catalog;
+        }
+        serde_json::from_value::<dsh_native_transport::dto::SessionSummary>(serde_json::json!({
+            "agentAvailable": true, "sessionId": id, "updatedAt": 1000,
+            "running": false, "blank": false, "cwd": "/PUBLIC-layout-fixture/workspace",
+            "parentSessionId": parent, "origin": parent.map(|_| "subagent"),
+            "projections": {"kind": "cached", "asOfSeq": -1, "values": values}
+        }))
+        .expect("synthetic session metadata")
+    };
+    let root = session(
+        "PUBLIC-root",
+        None,
+        Some(serde_json::json!([
+            {"id": "PUBLIC-middle", "createdAt": 1, "mode": "continuable", "label": "PUBLIC middle"},
+            {"id": "PUBLIC-sibling", "createdAt": 2, "mode": "one-shot", "label": "PUBLIC sibling"}
+        ])),
+    );
+    let middle = session("PUBLIC-middle", Some("PUBLIC-root"), None);
+    let grandchild = session("PUBLIC-grandchild", Some("PUBLIC-middle"), None);
+    for summary in [root, middle, grandchild] {
+        app.sessions.insert(summary.session_id.clone(), summary);
+    }
+    app.selected = Some(SessionId::new("PUBLIC-grandchild").expect("a bounded session id"));
+    // The ancestor's siblings come from the root's catalog, not from the grandchild's parent.
+    assert!(
+        app.catalog_of_parent_of(&SessionId::new("PUBLIC-middle").unwrap())
+            .is_some()
+    );
+    drop(app.update(Message::SubagentCrumbMenu(
+        SessionId::new("PUBLIC-middle").unwrap(),
+    )));
+    assert!(app.subagent_menu);
+    assert_eq!(
+        app.subagent_menu_target.as_ref(),
+        Some(&SessionId::new("PUBLIC-middle").unwrap())
+    );
+    // Pressing the same crumb closes it and forgets the target.
+    drop(app.update(Message::SubagentCrumbMenu(
+        SessionId::new("PUBLIC-middle").unwrap(),
+    )));
+    assert!(!app.subagent_menu);
+    assert!(app.subagent_menu_target.is_none());
+}

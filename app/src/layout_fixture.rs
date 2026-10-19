@@ -3563,6 +3563,17 @@ pub fn build(
         app.subagent_menu = true;
         // The two children the parent's catalog names, with the projections the rows read: one
         // running, one whose last turn finished (the reference's `completed`).
+        // The reviewer's own child, so a three-deep trail exists: its ancestor crumb has siblings.
+        let grandchild: SessionSummary = serde_json::from_value(json!({
+            "agentAvailable":true, "sessionId":"PUBLIC-grandchild-helper", "updatedAt":970,
+            "running":false, "blank":false, "cwd":"/PUBLIC-layout-fixture/workspace",
+            "parentSessionId":"PUBLIC-child-reviewer", "origin":"subagent",
+            "projections":{"kind":"cached","asOfSeq":-1,
+                "values":{"title":"PUBLIC helper","subagentTiming":{"lastTurnCompleted":true}}}
+        }))
+        .expect("fixed PUBLIC grandchild metadata");
+        app.sessions
+            .insert(grandchild.session_id.clone(), grandchild);
         for (id, title, timing) in [
             (
                 "PUBLIC-child-reviewer",
@@ -3575,12 +3586,20 @@ pub fn build(
                 json!({"settledMs": 30000, "lastTurnCompleted": true}),
             ),
         ] {
+            let mut values = json!({"title":title,"subagentTiming":timing});
+            if id == "PUBLIC-child-reviewer" {
+                // One grandchild: the reviewer is then an ancestor with siblings of its own, which is
+                // what an ancestor crumb's switcher needs.
+                values["subagentCatalog"] = json!([
+                    {"id":"PUBLIC-grandchild-helper","createdAt":1002,"mode":"one-shot",
+                     "label":"PUBLIC helper"}
+                ]);
+            }
             let summary: SessionSummary = serde_json::from_value(json!({
                 "agentAvailable":true, "sessionId":id, "updatedAt":1000,
                 "running":false, "blank":false, "cwd":"/PUBLIC-layout-fixture/workspace",
                 "parentSessionId":"PUBLIC-layout-conversation", "origin":"subagent",
-                "projections":{"kind":"cached","asOfSeq":-1,
-                    "values":{"title":title,"subagentTiming":timing}}
+                "projections":{"kind":"cached","asOfSeq":-1, "values":values}
             }))
             .expect("fixed PUBLIC child metadata");
             app.sessions.insert(summary.session_id.clone(), summary);

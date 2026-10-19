@@ -448,6 +448,8 @@ pub enum Message {
     ScheduleRetention(bool),
     /// Unfold or fold one delivery record's saved prompt.
     ScheduleHistoryPrompt(String),
+    /// Open an ancestor crumb's sibling catalog, keyed by that crumb's session.
+    SubagentCrumbMenu(SessionId),
     /// The pointer entered or left the subagent catalog's trigger.
     SubagentHover(bool),
     /// The hover delay elapsed while the pointer was still on the trigger.
@@ -1393,6 +1395,9 @@ pub struct App {
     run_watch: run_watch::Watch,
     /// A plan-mode toggle is in flight. Inert until its reply settles.
     plan_toggle_pending: bool,
+    /// The subagent crumb whose siblings an open catalog lists; `None` means the current session's,
+    /// which is what the header action opens (`ConversationSession.tsx:95-121`).
+    subagent_menu_target: Option<SessionId>,
     /// The pointer is on the subagent catalog's trigger, so a pending hover delay still counts
     /// (`SubagentHeaderLineage.tsx:520-538`).
     subagent_hovered: bool,
@@ -1659,6 +1664,7 @@ impl App {
                 editor_menu: false,
                 subagent_menu: false,
                 subagent_hovered: false,
+                subagent_menu_target: None,
                 subagent_expanded: Default::default(),
                 permission_menu: false,
                 permission_confirm: None,
@@ -4099,8 +4105,18 @@ impl App {
             Message::ToggleSubagentMenu(open) if self.layout_controls_enabled() => {
                 if open {
                     self.subagent_menu = true;
+                    // The header action always lists the current session's siblings.
+                    self.subagent_menu_target = None;
                 } else {
                     self.close_subagent_menu();
+                }
+            }
+            Message::SubagentCrumbMenu(id) if self.layout_controls_enabled() => {
+                if self.subagent_menu && self.subagent_menu_target.as_ref() == Some(&id) {
+                    self.close_subagent_menu();
+                } else {
+                    self.subagent_menu = true;
+                    self.subagent_menu_target = Some(id);
                 }
             }
             Message::ToggleQueue if self.layout_controls_enabled() => {
@@ -9479,7 +9495,13 @@ impl App {
     }
     fn parent_catalog(&self) -> Option<Vec<subagent_catalog::Entry>> {
         let selected = self.selected.as_ref()?;
-        let summary = self.sessions.get(selected)?;
+        self.catalog_of_parent_of(selected)
+    }
+    /// One subagent's siblings, from *its* parent's catalog. The reference gives every subagent crumb
+    /// a lineage slot, not just the current one (`ConversationSession.tsx:95-121`), so an ancestor
+    /// crumb needs the catalog of the ancestor's own parent.
+    fn catalog_of_parent_of(&self, child: &SessionId) -> Option<Vec<subagent_catalog::Entry>> {
+        let summary = self.sessions.get(child)?;
         if summary.origin.is_none() {
             return None;
         }
@@ -9637,6 +9659,7 @@ impl App {
     /// shows a stale tree.
     fn close_subagent_menu(&mut self) {
         self.subagent_menu = false;
+        self.subagent_menu_target = None;
         self.subagent_expanded.clear();
     }
     fn subagent_action(&self) -> Option<Element<'_, Message>> {
@@ -12548,13 +12571,25 @@ impl App {
                 design::CRUMB_LINE
             };
             let ink = if current { TEXT } else { MUTED };
-            // A selected child's current crumb is the reference's sibling switcher: the title
-            // in primary ink with a chevron, opening the parent's catalog. Roots and parents
-            // whose catalog is absent keep the plain crumb.
-            let crumb: Element<'_, Message> = if current
-                && subagent
-                && let Some(siblings) = self.parent_catalog()
-            {
+            // Every subagent crumb is the reference's sibling switcher — not only the current one
+            // (`ConversationSession.tsx:95-121`): its chevron opens the catalog of *that* crumb's
+            // parent, so an ancestor can be swapped from inside a grandchild's trail. Roots and
+            // crumbs whose parent catalog is absent keep the plain crumb.
+            let siblings = subagent.then(|| self.catalog_of_parent_of(&id)).flatten();
+            let crumb: Element<'_, Message> = if let Some(siblings) = siblings {
+                // The popup belongs to whichever crumb opened it.
+                let target = self.subagent_menu_target.as_ref();
+                let open = self.subagent_menu
+                    && if current {
+                        target.is_none()
+                    } else {
+                        target == Some(&id)
+                    };
+                let toggle = if current {
+                    Message::ToggleSubagentMenu(!open)
+                } else {
+                    Message::SubagentCrumbMenu(id.clone())
+                };
                 let trigger = button(
                     row![
                         label(title, TEXT)
@@ -12566,14 +12601,13 @@ impl App {
                     .spacing(4)
                     .align_y(iced::Alignment::Center),
                 )
-                .on_press(Message::ToggleSubagentMenu(!self.subagent_menu))
+                .on_press(toggle)
                 .style(design::ghost)
                 .padding(design::CRUMB_PAD)
                 .into();
                 anchored_popup::anchored_below(
                     trigger,
-                    self.subagent_menu
-                        .then(|| self.subagent_menu_view(&siblings)),
+                    open.then(|| self.subagent_menu_view(&siblings)),
                     Message::ToggleSubagentMenu(false),
                 )
             } else {
