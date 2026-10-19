@@ -84,3 +84,21 @@ Their *exact* rhythm stays unverified until `reference.png` lands.
   pair are drawn (round 354); the path is not a separate open link.
 - [Reader anchors](<NATIVE-READER-ANCHORS.md>) separately address durable reflow/neighbor fallback, not partial/replaced text identity. Retention fails closed.
 - Live resize/input/IME/accessibility, compositor fractional scaling, real models/credentials and full parity remain unqualified.
+
+
+## Rows must reserve, and paint, a line (rounds 391–392)
+
+Two failures made a Chat row invisible while every test stayed green, and both are now rules.
+
+**Reservation.** A row is drawn only inside the scroll projection's height range, so a geometry of
+zero removes it from the frame entirely. `every_preset_row_reserves_its_own_line` now builds every
+PUBLIC preset, walks each Chat row, and asserts a positive height and width — the class of bug is
+checked, not just the two rows that had it.
+
+**Paint.** A `Fill`-height spacer inside a shrink-to-fit `Row`
+(`Space::new().width(Length::Fill)`) collapses the row's own height, so the row reserves its space and
+paints nothing. The command row hit this in round 391: the same text as a plain label painted, while
+the row composition drew empty, and neither forcing the spacer's height nor splitting the disabled
+button changed a pixel. Rows that carry one line of text therefore use a single label; a row built
+from parts must set its own `.height(...)`, as the tool row does. A capture is the only check for
+this — geometry assertions cannot see it.

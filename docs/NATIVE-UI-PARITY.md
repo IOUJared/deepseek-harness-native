@@ -9399,3 +9399,30 @@ assertions — one marker, its exact text, and no `Context summarized` row in Ch
 | DP-2 capture | — | `shots/191-manual-compaction.png`, `status: passed` |
 | app bin | — | **20** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 392 — a guard for the invisible-row class
+
+Round 391's command row reserved its space and painted nothing. Geometry reservation is testable, so
+this round added the guard that class was missing: `every_preset_row_reserves_its_own_line` builds
+each of the forty PUBLIC presets, walks every Chat row, and asserts the row reserves a positive
+height and width. It passes — the reservation was never the faulty half — which is itself the useful
+result: the paint collapse is a widget-level failure that only a capture shows, so that half is now a
+written rule in `NATIVE-CHAT-GEOMETRY.md` (a `Fill`-height spacer collapses a shrink row; a one-line
+row is one label, a composed row sets its own height).
+
+No visual change, so no capture: this round's evidence is the new test and the recorded rule.
+
+**Battery (round 392).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1380 passed**, 1 ignored |
+| app, default | **0** | **1367 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| app bin | — | **20** dead-code warnings (unchanged) |
+| tree | — | clean before the commit |

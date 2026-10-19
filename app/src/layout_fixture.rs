@@ -3312,6 +3312,33 @@ mod tests {
     fn options() -> Options {
         test_options()
     }
+    /// Every Chat row in every preset reserves a line of its own. A row whose geometry collapses
+    /// to zero is drawn outside the scroll projection's height range, so it never paints — the
+    /// failure mode that hid the command row in round 391 — and no other test sees it.
+    #[test]
+    fn every_preset_row_reserves_its_own_line() {
+        let mut empty = Vec::new();
+        for &preset in PRESETS {
+            let (size, scale) = preset_size(preset).unwrap();
+            let mut options = options();
+            options.scale = scale;
+            let (app, _receiver) = build(options, preset, size, None);
+            let lane = app.chat_lane();
+            for row in app.transcript.display_rows(false) {
+                let geometry = app.row_geometry(row, lane);
+                if geometry.height <= 0.0 {
+                    empty.push(format!("{preset}: row {} role {}", row.key, row.role));
+                }
+                assert!(
+                    geometry.width > 0.0,
+                    "{preset}: row {} has no width",
+                    row.key
+                );
+            }
+        }
+        assert!(empty.is_empty(), "rows that reserve no height: {empty:?}");
+    }
+
     #[test]
     fn presets_render_actual_app_without_queued_effects() {
         for &preset in PRESETS {
