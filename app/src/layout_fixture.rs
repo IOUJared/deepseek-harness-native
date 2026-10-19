@@ -120,6 +120,7 @@ pub const PRESETS: &[&str] = &[
     "schedules-conflict",
     "schedules-history",
     "schedules-search",
+    "schedules-retention",
     "mcp",
     "changes-card",
     "feedback",
@@ -329,6 +330,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "schedules-conflict"
         | "schedules-history"
         | "schedules-search"
+        | "schedules-retention"
         | "mcp"
         | "changes-card"
         | "feedback"
@@ -1662,6 +1664,7 @@ pub fn build(
             | "schedules-conflict"
             | "schedules-history"
             | "schedules-search"
+            | "schedules-retention"
             | "subagent-catalog"
             | "subagent-readonly"
             | "subagent-sibling"
@@ -2031,6 +2034,29 @@ pub fn build(
             })
             .count();
         assert_eq!(matching, 1, "one row matches the search");
+    }
+
+    if preset == "schedules-retention" {
+        let item = app
+            .schedules
+            .first()
+            .map(|item| (item.session_id.clone(), item.id.clone()))
+            .expect("a schedule row");
+        app.schedule_history = Some(item);
+        app.schedule_history_page = Some(dsh_native_transport::dto::ScheduleHistory {
+            id: "PUBLIC-schedule-daily".into(),
+            records: Vec::new(),
+            earlier_records_unavailable: false,
+            earlier_records_pruned: false,
+            retention_days: 30,
+            retention_records: 100,
+            next_before: None,
+        });
+        app.schedule_history_loading = false;
+        // The retention rules disclosed, with the reference's explanation of what clearing records
+        // does not do.
+        app.schedule_retention_open = true;
+        assert!(app.schedule_retention_open);
     }
     if preset == "chat-thoughts" {
         let ticket = app.reply_parts(1).unwrap().ticket.unwrap();

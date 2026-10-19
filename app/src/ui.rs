@@ -433,6 +433,8 @@ pub enum Message {
     ScheduleSearch(String),
     /// Set the schedules page's status filter.
     ScheduleFilter(crate::reducer::schedule_card::Filter),
+    /// Open or close the delivery history's retention rules.
+    ScheduleRetention(bool),
     /// Unfold or fold one delivery record's saved prompt.
     ScheduleHistoryPrompt(String),
     /// Steer every queued message, one at a time, as the reference's empty-draft chord does.
@@ -1118,6 +1120,8 @@ pub struct App {
     /// Delivery records whose saved prompt is unfolded, by message id: the reference clamps a long
     /// prompt and offers Expand/Collapse (`DeliveryHistory.tsx:55-60`).
     schedule_history_expanded: std::collections::BTreeSet<String>,
+    /// Whether the delivery history's retention rules are disclosed (`DeliveryHistory.tsx:165-181`).
+    schedule_retention_open: bool,
     /// The schedules page's own search text and status filter (`TaskManagerPage.tsx:124-149`).
     schedule_query: String,
     schedule_filter: crate::reducer::schedule_card::Filter,
@@ -1543,6 +1547,7 @@ impl App {
                 drop_hover: false,
                 skills: None,
                 schedule_history_expanded: Default::default(),
+                schedule_retention_open: false,
                 schedule_query: String::new(),
                 schedule_filter: crate::reducer::schedule_card::Filter::All,
                 queue_steer_all: Default::default(),
@@ -4357,6 +4362,9 @@ impl App {
             }
             Message::ScheduleFilter(filter) if self.schedules_open => {
                 self.schedule_filter = filter;
+            }
+            Message::ScheduleRetention(open) if self.schedules_open => {
+                self.schedule_retention_open = open;
             }
             Message::ScheduleHistoryPrompt(id) if self.schedules_open => {
                 if !self.schedule_history_expanded.remove(&id) {
@@ -16374,16 +16382,38 @@ impl App {
                         row =
                             row.push(label("Older saved deliveries were pruned.", MUTED).size(10));
                     }
+                    // The reference puts the bounds behind an info control that also explains
+                    // what clearing records does *not* do (`DeliveryHistory.tsx:165-181`).
                     row = row.push(
-                        label(
-                            format!(
-                                "Retaining {} days · up to {} records.",
-                                page.retention_days, page.retention_records
-                            ),
-                            MUTED,
-                        )
-                        .size(10),
+                        row![
+                            label(
+                                format!(
+                                    "Each task keeps up to {} delivery records from the last {} days.",
+                                    page.retention_records, page.retention_days
+                                ),
+                                MUTED,
+                            )
+                            .size(10),
+                            button(label(
+                                if self.schedule_retention_open { "Hide rules" } else { "Retention rules" },
+                                MUTED,
+                            )
+                            .size(10))
+                            .on_press(Message::ScheduleRetention(!self.schedule_retention_open))
+                            .style(design::ghost)
+                            .padding([2, 6]),
+                        ]
+                        .spacing(6),
                     );
+                    if self.schedule_retention_open {
+                        row = row.push(
+                            label(
+                                "When a new record is saved, older records outside these limits are cleared automatically. Clearing records does not stop the task.",
+                                MUTED,
+                            )
+                            .size(10),
+                        );
+                    }
                     if page.next_before.is_some() {
                         row = row.push(
                             button(
