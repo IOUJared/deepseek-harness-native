@@ -8341,10 +8341,27 @@ impl App {
         search.started_at = Some(now.saturating_sub(600_000));
         search.finished_at = Some(now.saturating_sub(300_000));
         search.detail = Some("exit code: 0".into());
+        // This one wrote output, so it keeps its disclosure.
+        search.output = Some(dsh_native_transport::dto::JobOutput {
+            total: 4_096,
+            earliest: 0,
+            spill_paths: None,
+        });
         let mut lint = row("lint-4", "shell", "Lint the app crate", "failed");
         lint.started_at = Some(now.saturating_sub(240_000));
         lint.finished_at = Some(now.saturating_sub(120_000));
         lint.detail = Some("exit code: 2".into());
+        // This one wrote nothing, so its row has no disclosure.
+        lint.output = Some(dsh_native_transport::dto::JobOutput {
+            total: 0,
+            earliest: 0,
+            spill_paths: None,
+        });
+        shell.output = Some(dsh_native_transport::dto::JobOutput {
+            total: 96,
+            earliest: 0,
+            spill_paths: None,
+        });
         self.jobs = vec![shell, build, search, lint];
     }
     /// Fixture-only: open the hero preset seat's list, so its rows are capturable.
@@ -18548,8 +18565,18 @@ fn job_row(
     let running = job.status == "running";
     // The whole row is the toggle, not one glyph (`JobListAction.tsx:249-257`): the hit target is
     // the row the user is reading.
+    // Only a row that can open shows a disclosure glyph: a settled job with an empty ring draws the
+    // reference's static row instead of a chevron that leads nowhere
+    // (`JobListAction.tsx:247-263`).
+    let marker: Element<'static, Message> = if job_list::observable(job) {
+        label(if expanded { "▾" } else { "▸" }, MUTED)
+            .size(10)
+            .into()
+    } else {
+        Space::new().width(10).into()
+    };
     let mut head = row![
-        label(if expanded { "▾" } else { "▸" }, MUTED).size(10),
+        marker,
         container(label(glyph, dot_ink).size(11))
             .width(design::CRUMB_SIZE)
             .align_x(iced::Alignment::Center),
@@ -18592,11 +18619,19 @@ fn job_row(
                 .padding([2, 4]),
         );
     }
-    let head = button(head)
-        .on_press(Message::ToggleJobOutput(job.id.clone()))
-        .style(design::ghost)
-        .padding(0)
-        .width(Length::Fill);
+    // A row opens only when it has something to show: live work always does, and a settled job does
+    // only when its ring received bytes (`JobListAction.tsx:67-69,247-263`). A settled job with no
+    // output keeps the row's shape without a control that would open an empty buffer.
+    let head: Element<'static, Message> = if job_list::observable(job) {
+        button(head)
+            .on_press(Message::ToggleJobOutput(job.id.clone()))
+            .style(design::ghost)
+            .padding(0)
+            .width(Length::Fill)
+            .into()
+    } else {
+        container(head).width(Length::Fill).into()
+    };
     let mut body = column![head].spacing(2).width(Length::Fill);
     if expanded {
         // The reference's output view carries its own copy control, which copies the job's command

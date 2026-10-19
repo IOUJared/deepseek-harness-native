@@ -11670,3 +11670,38 @@ recorded here rather than carried as unused code.
 | DP-2 capture | — | `shots/262-jobs-duration.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 454 — a job row opens only when it has output
+
+The jobs audit's last finding: the reference gives a row a disclosure only when it can show something —
+live work always can, and a settled job only when its ring received bytes
+(`JobListAction.tsx:67-69,247-263`). Native gave every row a chevron, so a finished job that wrote
+nothing still invited a press that opened an empty buffer.
+
+`job_list::observable` states that rule, and the row now uses it twice: the disclosure glyph appears
+only for an observable row (a spacer keeps the dot aligned where the glyph would be), and the head is a
+button only when there is something to open — an unobservable row is the reference's static row.
+
+Evidence: `shots/263-jobs-observable.png` (DP-2 alongside, `status: passed`) in `jobs-panel-many` —
+`Search for parity notes` keeps its `▸` because its ring has bytes, while the four finished rows with
+empty rings show only their dot.
+
+Tests: `only_a_row_with_output_can_be_opened` — live rows always, a settled row with `total: 0` never, a
+settled row with bytes yes, and a producer that sends no ring leaving the row closed rather than
+guessing.
+
+**Battery (round 454).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1442 passed**, 1 ignored |
+| app, default | **0** | 1416 passed, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/263-jobs-observable.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

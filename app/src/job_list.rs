@@ -35,6 +35,14 @@ pub fn ordered(jobs: &[JobView]) -> (Vec<&JobView>, Vec<&JobView>) {
     (live_rows, settled_rows)
 }
 
+/// Whether a row has anything to open: live work streams, and a settled job opens only when the
+/// producer recorded output (`JobListAction.tsx:67-69`: `live || job.output.total > 0`). A settled
+/// job whose ring never received a byte gets no toggle at all, rather than a control that opens an
+/// empty buffer.
+pub fn observable(job: &JobView) -> bool {
+    live(job) || job.output.as_ref().is_some_and(|output| output.total > 0)
+}
+
 /// A live row's second line: its kind and the producer's progress when it states one, else its
 /// status. The reference shows `job.progress ?? job.detail` for live rows and never repeats
 /// "running" beside them (`JobListAction.tsx:203-238`).
@@ -144,6 +152,32 @@ mod tests {
         // An empty progress string is no progress at all.
         progress.progress = Some(String::new());
         assert_eq!(live_meta(&progress), "bash · running");
+    }
+
+    #[test]
+    fn only_a_row_with_output_can_be_opened() {
+        // Live work always streams, even before the first byte.
+        let mut running = job("live", "running", Some(1), None);
+        assert!(observable(&running));
+        // A settled job with bytes opens; one whose ring stayed empty does not.
+        let mut settled = job("done", "completed", Some(1), Some(2));
+        assert!(!observable(&settled));
+        settled.output = Some(dsh_native_transport::dto::JobOutput {
+            total: 0,
+            earliest: 0,
+            spill_paths: None,
+        });
+        assert!(!observable(&settled), "an empty ring is not output");
+        settled.output = Some(dsh_native_transport::dto::JobOutput {
+            total: 12,
+            earliest: 0,
+            spill_paths: None,
+        });
+        assert!(observable(&settled));
+        // A producer that sends no ring leaves the row closed rather than guessing.
+        let mut unknown = job("unknown", "failed", Some(1), Some(2));
+        unknown.output = None;
+        assert!(!observable(&unknown));
     }
 
     #[test]
