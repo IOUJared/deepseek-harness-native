@@ -13142,6 +13142,34 @@ impl App {
         }
         geometry
     }
+    /// The process-group seats for a slice of rendered rows: the index of each group's first row and
+    /// the title its seat states. Only Chat groups; Trajectory lists every record on its own.
+    fn process_seats(&self, rows: &[&DisplayRow]) -> std::collections::BTreeMap<usize, String> {
+        if self.records_expanded {
+            return std::collections::BTreeMap::new();
+        }
+        let names: Vec<Option<&str>> = rows
+            .iter()
+            .map(|row| self.transcript.tool_name(row.key))
+            .collect();
+        let segments: Vec<crate::reducer::process_group::SegmentRow<'_>> = rows
+            .iter()
+            .zip(names.iter())
+            .map(|(row, name)| (row.role.as_str(), row.turn, *name))
+            .collect();
+        crate::reducer::process_group::groups(&segments)
+            .into_iter()
+            .map(|group| (group.first, group.title))
+            .collect()
+    }
+    /// One group's seat: the reference's disclosure line above its first member
+    /// (`ChatGroupSeat.tsx`, `message.stepProcess.done.*`).
+    fn process_seat(&self, title: &str) -> Element<'static, Message> {
+        container(label(short(title, 120), MUTED).size(10))
+            .padding([6, 14])
+            .width(Length::Fill)
+            .into()
+    }
     fn row_geometries(&self, rows: &[&DisplayRow]) -> Vec<chat_geometry::Geometry> {
         // Match the real sidebar animation and centered padded scroll lane.
         let lane = self.chat_lane();
@@ -13157,10 +13185,14 @@ impl App {
                 .map(|row| row.key)
                 .chain(std::iter::once(u64::MAX)),
         );
+        let seats = self.process_seats(rows);
         rows.iter()
             .enumerate()
             .map(|(index, row)| {
                 let mut geometry = self.row_geometry(row, lane);
+                if seats.contains_key(&index) {
+                    geometry.height += design::LINE_BODY + self.content_delta();
+                }
                 // A row's height arrives carrying its own 12px of symmetric
                 // outer padding (`chat_geometry::ROW_CHROME`); the web instead
                 // puts one leading margin on each row, from the flow ladder.
@@ -14120,8 +14152,12 @@ impl App {
         let mut contents = Column::new()
             .push(Space::new().height(heights[..range.start].iter().sum::<f32>()))
             .width(Length::Fill);
+        let seats = self.process_seats(&rendered);
         for index in range.clone() {
             let record = rendered[index];
+            if let Some(title) = seats.get(&index) {
+                contents = contents.push(self.process_seat(title));
+            }
             let human = record.role == "You";
             let assistant = record.role.starts_with("Assistant")
                 || record.role == "Interrupted assistant attempt";

@@ -520,6 +520,13 @@ impl Transcript {
                 .map(|event| (event.event_type.as_str(), event.time, &event.data)),
         )
     }
+    /// The wire tool name of one call row, for the process group's category.
+    pub fn tool_name(&self, key: u64) -> Option<&str> {
+        let event = self.records.get(&key)?;
+        (event.event_type == "tool/call")
+            .then(|| event.data["name"].as_str())
+            .flatten()
+    }
     pub fn activity(&self, key: u64, roots: activity::PathRoots<'_>) -> Option<activity::Summary> {
         let paired = self.paired.get(&key).and_then(|seq| self.records.get(seq));
         activity::summarize_paired(

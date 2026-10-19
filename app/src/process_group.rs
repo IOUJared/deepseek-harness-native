@@ -195,3 +195,138 @@ mod tests {
         assert_eq!(ranked[1].count, 1);
     }
 }
+
+/// One group of consecutive step rows and the title its seat states.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Group {
+    /// The row index the seat precedes, and the only member that draws when the group is closed.
+    pub first: usize,
+    pub members: Vec<usize>,
+    pub title: String,
+}
+
+impl std::fmt::Debug for Group {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Group")
+            .field("first", &self.first)
+            .field("members", &self.members.len())
+            .field("title", &self.title)
+            .finish()
+    }
+}
+
+/// Whether a row's role is step activity the reference groups (`process-groups.ts:134-180`: every
+/// node that is neither a user message, a turn trigger, a retry, an error nor an assistant reply).
+pub fn groups_role(role: &str) -> bool {
+    matches!(
+        role,
+        "Tool call" | "Skill" | "Command" | "Plan" | "Question" | "Subagent"
+    )
+}
+
+/// One row as the segmenter reads it: its role, its turn and the tool that names its category.
+pub type SegmentRow<'a> = (&'a str, Option<u64>, Option<&'a str>);
+
+/// Segment rows into groups. A group ends at the first row that is not step activity or that
+/// belongs to another turn; a single member still forms a group, as the reference's seat does.
+pub fn groups(rows: &[SegmentRow<'_>]) -> Vec<Group> {
+    let mut groups: Vec<Group> = Vec::new();
+    let mut open: Option<(u64, Vec<usize>)> = None;
+    for (index, (role, turn, tool)) in rows.iter().enumerate() {
+        let grouped = groups_role(role) && tool.is_some();
+        if let (Some((turn_of_group, members)), true) = (open.as_mut(), grouped)
+            && Some(*turn_of_group) == *turn
+        {
+            members.push(index);
+            continue;
+        }
+        if let Some((_, members)) = open.take() {
+            groups.push(finish_group(rows, members));
+        }
+        if grouped && let Some(turn) = *turn {
+            open = Some((turn, vec![index]));
+        }
+    }
+    if let Some((_, members)) = open {
+        groups.push(finish_group(rows, members));
+    }
+    groups
+}
+
+fn finish_group(rows: &[SegmentRow<'_>], members: Vec<usize>) -> Group {
+    let ranked = counts(
+        members
+            .iter()
+            .filter_map(|index| rows.get(*index).and_then(|row| row.2))
+            .map(category),
+    );
+    Group {
+        first: members.first().copied().unwrap_or_default(),
+        title: title(&ranked),
+        members,
+    }
+}
+
+#[cfg(test)]
+mod group_tests {
+    //! Consecutive step rows form one group; anything else ends it.
+    use super::*;
+
+    #[test]
+    fn consecutive_tool_rows_of_one_turn_form_a_group() {
+        let rows: Vec<SegmentRow<'_>> = vec![
+            ("You", Some(1), None),
+            ("Tool call", Some(1), Some("grep")),
+            ("Tool call", Some(1), Some("read")),
+            ("Assistant", Some(1), None),
+        ];
+        let groups = groups(&rows);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].first, 1);
+        assert_eq!(groups[0].members, vec![1, 2]);
+        assert_eq!(groups[0].title, "Searched code and read files");
+    }
+
+    #[test]
+    fn a_reply_or_a_new_turn_ends_the_group() {
+        let rows: Vec<SegmentRow<'_>> = vec![
+            ("Tool call", Some(1), Some("bash")),
+            ("Assistant", Some(1), None),
+            ("Tool call", Some(1), Some("read")),
+            ("Tool call", Some(2), Some("write")),
+        ];
+        let groups = groups(&rows);
+        assert_eq!(groups.len(), 3, "{groups:?}");
+        assert_eq!(groups[0].members, vec![0]);
+        assert_eq!(groups[1].members, vec![2]);
+        assert_eq!(groups[2].members, vec![3]);
+        assert_eq!(groups[0].title, "Ran commands");
+        assert_eq!(groups[2].title, "Wrote files");
+    }
+
+    #[test]
+    fn a_row_with_no_tool_name_is_not_grouped() {
+        let rows: Vec<SegmentRow<'_>> = vec![("Tool call", Some(1), Some("read"))];
+        assert_eq!(groups(&rows)[0].members, vec![0]);
+        let rows: Vec<SegmentRow<'_>> = vec![("Tool call", Some(1), None)];
+        assert!(groups(&rows).is_empty());
+        // A reasoning row has no tool name, so it ends the group rather than joining it.
+        let rows: Vec<SegmentRow<'_>> = vec![
+            ("Tool call", Some(1), Some("read")),
+            ("Assistant", Some(1), None),
+            ("Tool call", Some(1), Some("edit")),
+        ];
+        assert_eq!(groups(&rows).len(), 2);
+    }
+
+    #[test]
+    fn the_debug_form_states_the_member_count() {
+        let group = Group {
+            first: 3,
+            members: vec![3, 4, 5],
+            title: "PRIVATE-TITLE".into(),
+        };
+        let debug = format!("{group:?}");
+        assert!(debug.contains("members: 3"), "{debug}");
+    }
+}

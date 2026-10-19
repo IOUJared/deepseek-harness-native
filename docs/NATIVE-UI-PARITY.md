@@ -6387,7 +6387,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
 | Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab) |
 | Goals, plan mode, permissions, approvals/questions, jobs, subagents, session log | cloned |
-| Tool rows: one row per call with the folded result, relative path, `+N −N`, and the structured cards — diff, read, terminal, search, web, ask-user | cloned (no per-tool glyphs — the reference's SVGs have no DejaVu equivalent — and no process-group fold above the rows: its title composition is landed and tested in `reducer/process_group.rs`, the header itself is the next item) |
+| Tool rows: one row per call with the folded result, relative path, `+N −N`, and the structured cards — diff, read, terminal, search, web, ask-user | cloned (no per-tool glyphs — the reference's SVGs have no DejaVu equivalent); a process-group seat now states each run of step activity, but it does not yet collapse its members) |
 | Model-retry row, command row (a manual `/compact` folded into one marker), turn duration, failure and output-limit rows, card Copy control, created-task (`schedule_create`) card, skill row | cloned (the skill row has no `Inspect` action: native has no right Sidebar to open it in) |
 | Composer usage pill: tokens, cache hit, speed, turn/step counts, and the Host's session-statistics dialog | cloned |
 | Deliverables: summary, file list, diffs, desktop open | cloned (no right-Sidebar review tab) |
@@ -9465,4 +9465,39 @@ rank/tie ordering.
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | app bin | — | **27** dead-code warnings (24 before this feature module, which is not yet drawn) |
+| tree | — | clean before the commit |
+
+### Round 394 — the process-group seat draws
+
+Round 393 landed the title composition; this round puts the seat on screen. Chat now segments each
+turn's rows the way the reference does (`process-groups.ts:134-180`): consecutive **Tool call**,
+**Skill**, **Command**, **Plan**, **Question** and **Subagent** rows of one turn form a group, and any
+other row — a user message, a reply, a trigger, a retry, an error — ends it. A group's seat draws
+above its first member as the reference's secondary disclosure line
+(`Read files, edited files, ran commands`), and the geometry reserves its line, so nothing overlaps.
+
+The seat is display-only for now: collapsing members is the next item, and it is what will change the
+capture rhythm of every preset, so it gets its own round with the seat's own geometry and a state set.
+
+Evidence: `shots/192-process-seat.png` (DP-2 alongside, `status: passed`) — the seat above the read,
+edit and bash rows of the `tool-activity` preset, titled in first-appearance order.
+
+Tests: four in `group_tests` — consecutive rows of one turn forming one group with the composed title,
+a reply and a new turn each ending the group, a row without a tool name never joining, and the quiet
+`Debug`; plus the three title tests from round 393, all still green.
+
+**Battery (round 394).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1387 passed**, 1 ignored |
+| app, default | **0** | **1374 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/192-process-seat.png`, `status: passed` |
+| app bin | — | **20** dead-code warnings |
 | tree | — | clean before the commit |
