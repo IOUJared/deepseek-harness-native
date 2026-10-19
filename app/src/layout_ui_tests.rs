@@ -233,6 +233,36 @@ fn the_header_chip_counts_only_the_open_sessions_live_reminders() {
 
 #[cfg(feature = "public-layout-fixture")]
 #[test]
+fn the_chosen_comparison_layout_carries_to_the_next_file() {
+    let (size, _scale) = super::layout_fixture::preset_size("changes-diff").unwrap();
+    let (mut app, _queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "changes-diff",
+        size,
+        None,
+    );
+    let ticket = app
+        .detail
+        .as_ref()
+        .and_then(|detail| detail.ticket)
+        .expect("an open comparison");
+    // The reference keeps split and wrap per review tab, so a second file opens in the same layout
+    // (`review-store.ts:52-81`); a fresh panel must not reset them.
+    drop(app.update(Message::DetailSplit(ticket)));
+    drop(app.update(Message::DetailWrap(ticket)));
+    let chosen = {
+        let detail = app.detail.as_ref().expect("the comparison");
+        (detail.diff_wrap, detail.diff_split)
+    };
+    assert_eq!(chosen, (false, true), "the reader chose split, unwrapped");
+    // Opening the next comparison, the way the changes path does.
+    app.open_detail("Changes".into(), String::new(), None, false);
+    let next = app.detail.as_ref().expect("the next panel");
+    assert_eq!((next.diff_wrap, next.diff_split), chosen);
+}
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
 fn a_reminder_popover_closes_when_its_last_reminder_goes() {
     use crate::worker::Event;
     let (size, _scale) = super::layout_fixture::preset_size("reminders").unwrap();

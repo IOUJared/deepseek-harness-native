@@ -13877,3 +13877,36 @@ closure `mut`, which it never needs (the closure mutates its arguments, not itse
 reported 21 because it was copied from the round before rather than measured. The `mut` is gone and the
 count is back to 21 — recorded here rather than quietly corrected, because "report the warning count"
 means measuring it each round.
+
+### Round 509 — a comparison opens in the layout the reader chose
+
+Round 508 recorded the gap. The reference keeps a review tab's `split` and `wrap` in its store, so the
+next file in that tab opens in the same layout (`review-store.ts:52-81`); native's `open_detail` built
+a fresh `Detail::new` per opening (`app/src/ui.rs:2693-2712`), and that constructor resets wrap to
+`true` and split to `false` — a reader who chose side-by-side got the unified layout again on the next
+comparison.
+
+`App` now remembers the choice (`detail_layout: (wrap, split)`), `open_detail` seeds every new panel
+from it, and `Message::DetailWrap`/`Message::DetailSplit` record the resulting flags. A one-sided
+comparison still draws one column whatever the remembered split is (`detail_panel::body` guards on
+`one_sided`, and `split_available` hides the control), so the remembered flag cannot force a layout the
+reference would refuse.
+
+Test: `the_chosen_comparison_layout_carries_to_the_next_file` — with `changes-diff` open, the split and
+wrap controls are pressed (leaving `(false, true)`, the opposite of the default), then `open_detail`
+opens the next comparison and it must carry that pair. The test asserts the intermediate pair as well,
+so it fails if the controls do nothing instead of passing on the default layout.
+
+No capture: the pixels of a layout the reader chose are what `shots/300-changes-split.png` already
+shows; the round changes when that layout is applied, not what it looks like. Counter stays at 301.
+
+**Battery (round 509).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1499 passed**, 1 ignored |
+| app, default | **0** | **1456 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks |
+| transport / core / JS / clippy / examples | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0, clippy core+transport+app, examples both smokes |
+| app bin | — | **21** warnings, measured after the change |
+| DP-2 capture | — | none: layout application, not layout appearance |

@@ -1454,6 +1454,10 @@ pub struct App {
     viewport: f32,
     follow_bottom: bool,
     detail: Option<detail_panel::Detail>,
+    /// The comparison layout the reader last chose — (wrap, split). The reference keeps these per
+    /// review tab, so the next file opens in the same layout (`review-store.ts:52-81`); native's
+    /// detail panel is that tab, so the choice outlives one comparison.
+    detail_layout: (bool, bool),
     detail_opening: Option<u64>,
     capabilities: bool,
     conversation_menu: bool,
@@ -1815,6 +1819,7 @@ impl App {
                 viewport: 480.0,
                 follow_bottom: true,
                 detail: None,
+                detail_layout: (true, false),
                 detail_opening: Some(0),
                 capabilities: false,
                 conversation_menu: false,
@@ -2707,9 +2712,12 @@ impl App {
             generation: self.generation,
             opening,
         });
-        self.detail = Some(detail_panel::Detail::new(
-            heading, source, metadata, assistant, ticket,
-        ));
+        let mut detail = detail_panel::Detail::new(heading, source, metadata, assistant, ticket);
+        // A comparison opens in the layout the reader last chose, as the reference's review tab does
+        // (`review-store.ts:52-81`), instead of resetting to the wrapped unified default.
+        detail.diff_wrap = self.detail_layout.0;
+        detail.diff_split = self.detail_layout.1;
+        self.detail = Some(detail);
     }
     fn request_catalog(&mut self) {
         if self.options.smoke.is_some()
@@ -4267,14 +4275,18 @@ impl App {
                 if let Some(detail) = self.detail.as_mut()
                     && detail.ticket == Some(ticket)
                 {
-                    detail.toggle_diff_wrap();
+                    if detail.toggle_diff_wrap() {
+                        self.detail_layout = (detail.diff_wrap, detail.diff_split);
+                    }
                 }
             }
             Message::DetailSplit(ticket) => {
                 if let Some(detail) = self.detail.as_mut()
                     && detail.ticket == Some(ticket)
                 {
-                    detail.toggle_diff_split();
+                    if detail.toggle_diff_split() {
+                        self.detail_layout = (detail.diff_wrap, detail.diff_split);
+                    }
                 }
             }
             Message::ToggleContextBreakdown => {
