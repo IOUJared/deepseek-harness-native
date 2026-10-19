@@ -17243,6 +17243,31 @@ impl App {
                     .spacing(8),
                 );
         }
+        // The reference offers a control, not an instruction: "This view is read-only." beside a
+        // "Take control" button (`terminal.tsx:55-60`, `locales.ts:35`). Taking control is the same
+        // re-attach the row's own press performs, so it reuses the panel's ticket and selection.
+        if matches!(self.terminal.notice(), Notice::ControlElsewhere) {
+            let mut arm = row![
+                label(
+                    "Another client holds input control for this terminal; input here is read-only.",
+                    DANGER,
+                )
+                .size(11),
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center);
+            if let (Some(id), Some(ticket)) =
+                (self.terminal.selected().cloned(), self.terminal.ticket())
+            {
+                arm = arm.push(
+                    button(label("Take control", TEXT).size(11))
+                        .on_press(Message::Terminal(Action::Select { ticket, id }))
+                        .style(design::ghost)
+                        .padding([2, 8]),
+                );
+            }
+            body = body.push(arm);
+        }
         body = body.push(match self.terminal.notice() {
             Notice::None => label("", MUTED).size(1),
             Notice::Loading => label("Reading the Host terminal list, shells and limits…", MUTED).size(11),
@@ -17351,11 +17376,8 @@ impl App {
                 MUTED,
             )
             .size(11),
-            Notice::ControlElsewhere => label(
-                "Another client holds input control for this terminal; input here is read-only. Select it again to take control.",
-                DANGER,
-            )
-            .size(11),
+            // Drawn above, beside its own control.
+            Notice::ControlElsewhere => label("", MUTED).size(1),
             Notice::FollowEnded => label(
                 "The Host ended this output attachment. The process is unaffected; select the terminal again to reattach.",
                 MUTED,

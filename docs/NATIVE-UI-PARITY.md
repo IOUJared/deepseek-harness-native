@@ -11789,3 +11789,34 @@ Recorded for the next rounds, same taxonomy. (b) different, (c) absent.
    already recorded in `FEATURE-PARITY.md:22` and `NATIVE-TERMINAL.md:19-21`.
 6. (c) **Rename** and a **docked multi-terminal sidebar tab** remain unbuilt, both recorded in
    `NATIVE-TERMINAL.md:19` and `NATIVE-UI-PARITY.md:62-66`.
+
+### Round 457 — taking terminal input control is a control, not an instruction
+
+The reference's read-only state is a sentence and a button: "This view is read-only." beside
+**Take control** (`ui-sidebar-terminal/src/client/terminal.tsx:55-60`, `locales.ts:35`). Native told
+the user to "select it again", which worked but asked them to find the row and re-open it.
+
+`Notice::ControlElsewhere` now draws that sentence with the button beside it, dispatching the same
+`Action::Select` the row's own press uses — the panel's ticket is the admission for a re-attach, so the
+control cannot bypass the busy or revision guards the row already respects.
+
+**No capture this round**, and the reason is structural: there is no terminal fixture preset at all, so
+neither this state nor the rest of the terminal panel has ever been photographed. The state is covered by
+`terminal`'s own tests (the notice is set from the Host's frames and cleared by a snapshot), but the frame
+is the missing evidence, and building a `terminal-*` preset is the round after this one.
+
+**Battery (round 457).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1443 passed**, 1 ignored |
+| app, default | **0** | 1418 passed, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | — | not re-run this round (no example touched) |
+| capture | — | none: no terminal fixture preset exists yet |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
