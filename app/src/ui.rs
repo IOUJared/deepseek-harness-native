@@ -3544,7 +3544,7 @@ impl App {
                 self.records_expanded = !self.records_expanded;
             }
             Message::DismissPanel if self.subagent_menu => {
-                self.subagent_menu = false;
+                self.close_subagent_menu();
             }
             Message::DismissPanel if self.layout_controls_enabled() && self.conversation_menu => {
                 self.conversation_menu = false;
@@ -4065,9 +4065,10 @@ impl App {
                 self.send_permission_preset(&preset);
             }
             Message::ToggleSubagentMenu(open) if self.layout_controls_enabled() => {
-                self.subagent_menu = open;
-                if !open {
-                    self.subagent_expanded.clear();
+                if open {
+                    self.subagent_menu = true;
+                } else {
+                    self.close_subagent_menu();
                 }
             }
             Message::ToggleQueue if self.layout_controls_enabled() => {
@@ -4783,7 +4784,7 @@ impl App {
                 }
             }
             Message::SubagentOpen(id) if self.layout_controls_enabled() => {
-                self.subagent_menu = false;
+                self.close_subagent_menu();
                 if let Ok(id) = SessionId::new(&id) {
                     return self.update(Message::Select(id));
                 }
@@ -9599,6 +9600,13 @@ impl App {
     /// The header count action, visible only on a root session whose catalog has rows. Its
     /// dropdown lists direct children; nested catalogs belong to the child session that owns
     /// them, which native has not opened yet.
+    /// Close the subagent catalog and forget which branches were open: the reference clears its
+    /// expansion set on every close path (`SubagentHeaderLineage.tsx:501-518`), so reopening never
+    /// shows a stale tree.
+    fn close_subagent_menu(&mut self) {
+        self.subagent_menu = false;
+        self.subagent_expanded.clear();
+    }
     fn subagent_action(&self) -> Option<Element<'_, Message>> {
         let entries = self.subagent_entries();
         if entries.is_empty() {

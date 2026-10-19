@@ -12132,3 +12132,32 @@ the frame is the evidence that the row text and the dot colour both follow it.
 | DP-2 capture | — | `shots/267-subagent-activity.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 466 — every way out of the catalog forgets its open branches
+
+The subagent audit's fourth difference: the reference clears its expansion set on **every** close path
+(`SubagentHeaderLineage.tsx:501-518`), and native cleared it only when the toggle itself closed the
+menu. Choosing a child or dismissing the panel with Escape left the branches expanded, so reopening
+showed a tree the user had already navigated away from.
+
+All three close paths now go through `close_subagent_menu`, which clears the flag and the expansion set
+together — the toggle, a panel dismissal, and opening a child.
+
+Tests: `closing_the_subagent_catalog_forgets_its_open_branches` — a branch is expanded, the menu is
+closed three different ways in turn, and each one leaves no stale branch behind.
+
+**Battery (round 466).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1450 passed**, 1 ignored |
+| app, default | **0** | **1424 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: closing state, proved by its test |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

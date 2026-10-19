@@ -875,3 +875,32 @@ fn clearing_finished_jobs_keeps_the_live_ones() {
     // It is a view action: nothing was asked of the Host.
     assert!(app.jobs.is_empty() == false);
 }
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
+fn closing_the_subagent_catalog_forgets_its_open_branches() {
+    let (size, _scale) = super::layout_fixture::preset_size("subagent-catalog").unwrap();
+    let (mut app, _queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "subagent-catalog",
+        size,
+        None,
+    );
+    assert!(app.subagent_menu, "the preset shows the menu open");
+    // A branch is expanded, then the menu is closed three different ways.
+    for close in [
+        Message::ToggleSubagentMenu(false),
+        Message::DismissPanel,
+        Message::SubagentOpen("PUBLIC-child-reviewer".into()),
+    ] {
+        app.subagent_expanded.insert("PUBLIC-child-reviewer".into());
+        assert!(!app.subagent_expanded.is_empty());
+        drop(app.update(close));
+        assert!(!app.subagent_menu, "the menu closed");
+        assert!(
+            app.subagent_expanded.is_empty(),
+            "a stale branch survived the close"
+        );
+        app.subagent_menu = true;
+    }
+}
