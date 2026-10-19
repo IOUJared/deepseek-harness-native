@@ -6388,7 +6388,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab) |
 | Goals, plan mode, permissions, approvals/questions, jobs, subagents, session log | cloned |
 | Tool rows: one row per call with the folded result, relative path, `+N −N`, and the structured cards — diff, read, terminal, search, web, ask-user | cloned (no per-tool glyphs — the reference's SVGs have no DejaVu equivalent — and no process-group or turn-process fold above the rows) |
-| Model-retry row, turn duration, failure and output-limit rows, card Copy control, created-task (`schedule_create`) card | cloned |
+| Model-retry row, turn duration, failure and output-limit rows, card Copy control, created-task (`schedule_create`) card, skill row | cloned (the skill row has no `Inspect` action: native has no right Sidebar to open it in) |
 | Composer usage pill: tokens, cache hit, speed, turn/step counts, and the Host's session-statistics dialog | cloned |
 | Deliverables: summary, file list, diffs, desktop open | cloned (no right-Sidebar review tab) |
 | Message feedback: ratings, categories, note | cloned (session `/feedback` remains a Host command) |
@@ -9272,5 +9272,44 @@ with a failed creation stating nothing, and the quiet `Debug`) plus the preset's
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/188-schedule-create.png`, `status: passed` |
+| app bin | — | **20** dead-code warnings (unchanged) |
+| tree | — | clean before the commit |
+
+### Round 389 — the skill row's own label
+
+A read of the two keyed `tool.call.toolview` registrations in the reference — `present` and `skill`,
+the only tool views outside the built-in cards — showed that a skill load is not a generic tool call
+there: `SkillRow` titles it `Skill` and names it by its one presented argument, the `name`
+(`SkillRow.tsx:33-45`, `locales.ts:23-27`), and draws the returned instructions as its body.
+
+Native rendered it as `Tool · skill · Tool arguments available`. The verb map now knows `skill`, and
+the row reads `Skill · impeccable-rust` with the load's instructions as the body — which is the
+folded result text native already draws for every settled call. The reference's `Inspect` action is
+the one part not matched: it opens the skill in the right Sidebar, which this clone replaces with
+the details panel, so the row is display-only there, as the path labels are.
+
+The other keyed view, `present` (deliverables), stays a recorded difference: native keeps the
+per-tool counts and the details panel and deliberately grows no presented-file opener
+(`NATIVE-UI-PARITY.md`, deliverables read).
+
+Evidence: `shots/189-skill-row.png` (DP-2 alongside, `status: passed`) in the new `skill-row`
+preset: `▾ Skill · impeccable-rust` over the instructions it returned.
+
+Tests: `skill_row_tests` (the title and the name target from the argument, and a malformed argument
+falling back to the recorded-arguments label rather than a guess) plus the preset's two assertions.
+
+**Battery (round 389).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1370 passed**, 1 ignored |
+| app, default | **0** | **1358 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/189-skill-row.png`, `status: passed` |
 | app bin | — | **20** dead-code warnings (unchanged) |
 | tree | — | clean before the commit |

@@ -151,6 +151,7 @@ pub const PRESETS: &[&str] = &[
     "turn-error",
     "turn-max-tokens",
     "schedule-create",
+    "skill-row",
     "context-injects",
     "assistant-tool-call",
     "assistant-tool-call-expanded",
@@ -235,6 +236,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "settings-shortcuts" => Some((Size::new(1040.0, 900.0), 1.0)),
         "turn-error" | "turn-max-tokens" => Some((Size::new(1040.0, 620.0), 1.0)),
         "schedule-create" => Some((Size::new(1040.0, 700.0), 1.0)),
+        "skill-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "chat-density" => Some((Size::new(1040.0, 1000.0), 1.0)),
         "tool-activity-narrow" => Some((Size::new(760.0, 840.0), 1.0)),
         "tool-activity-tiny" => Some((Size::new(608.0, 448.0), 1.25)),
@@ -692,6 +694,48 @@ fn public_tool_applied_records() -> Vec<Value> {
         }
     }
     records
+}
+
+/// One prompt and one `skill` load, so the reference's skill row draws its `Skill · <name>` label
+/// and the instructions it returned. Synthetic PUBLIC metadata; no skill was loaded.
+fn public_skill_records() -> Vec<Value> {
+    let event = |seq: u64, kind: &str, data: Value| {
+        json!({"type":"event", "event":{
+            "type":kind, "seq":seq, "time":1000+seq, "data":data, "surfaceOp":"append"
+        }})
+    };
+    vec![
+        event(
+            0,
+            "user/message",
+            json!({"role":"user", "id":"PUBLIC-skill-user", "source":{"kind":"user"},
+                "content":[{"type":"text","text":"PUBLIC skill fixture · nothing was loaded."}]}),
+        ),
+        event(
+            1,
+            "tool/call",
+            json!({"callId":"PUBLIC-skill-call", "turn":1, "step":2, "name":"skill",
+                "arguments":json!({"name":"impeccable-rust"}).to_string()}),
+        ),
+        event(
+            2,
+            "tool/result",
+            json!({"turn":1, "step":2, "message":{
+                "role":"tool", "toolCallId":"PUBLIC-skill-call",
+                "source":{"kind":"tool", "callId":"PUBLIC-skill-call"},
+                "isError":false,
+                "content":[{"type":"text", "text":"PUBLIC skill instructions · synthetic, not a real skill."}]
+            }}),
+        ),
+        event(
+            3,
+            "assistant/message",
+            json!({"turn":1, "step":2,
+                "stream":[{"type":"text-chunks", "time0":1003, "index":0, "dt":[],
+                    "texts":["PUBLIC synthetic assistant text · the skill row names the recorded load."]}]
+            }),
+        ),
+    ]
 }
 
 /// One prompt and one `schedule_create` call whose result is the created task serialized as JSON,
@@ -1397,6 +1441,8 @@ pub fn build(
         public_retry_records()
     } else if preset == "turn-total" {
         public_turn_total_records()
+    } else if preset == "skill-row" {
+        public_skill_records()
     } else if preset == "schedule-create" {
         public_schedule_create_records()
     } else if preset == "turn-error" {
@@ -2268,6 +2314,19 @@ pub fn build(
                     .as_deref(),
                 Some("Retry delay: 4s\nFailure reason: PUBLIC upstream unavailable · synthetic")
             );
+        }
+        "skill-row" => {
+            let summary = app
+                .transcript
+                .activity(1, app.path_roots())
+                .expect("the skill row's label");
+            assert_eq!(summary.title, "Skill · skill");
+            assert_eq!(summary.target.as_deref(), Some("impeccable-rust"));
+            drop(app.update(Message::ToggleActivity {
+                generation: app.generation,
+                key: 1,
+            }));
+            assert!(app.activity_expanded.contains(&1));
         }
         "schedule-create" => {
             let card = app

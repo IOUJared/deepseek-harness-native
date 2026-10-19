@@ -427,6 +427,9 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
         "write" | "functions.write" | "tool-fs/write" => "Write",
         "bash" | "functions.bash" | "tool-shell/bash" => "Bash",
         "ask_user_question" | "functions.ask_user_question" => "Question",
+        // The reference gives a skill load its own row, titled `Skill` and named by the only
+        // argument it presents (`SkillRow.tsx:33-45`, `locales.ts:23`).
+        "skill" => "Skill",
         "web_search" | "functions.web_search" | "tool-web/web_search" => "Web search",
         "web_fetch" | "functions.web_fetch" | "tool-web/web_fetch" => "Web fetch",
         "grep" | "functions.grep" | "tool-search/grep" => "Grep",
@@ -452,6 +455,7 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
                 // web row names the query it sent or the URL it read.
                 "Grep" | "Glob" => pick(&args, &["pattern"]),
                 // A question row names the question it asked first.
+                "Skill" => pick(&args, &["name"]),
                 "Question" => args["questions"]
                     .as_array()
                     .and_then(|questions| questions.first())
@@ -1540,5 +1544,44 @@ mod card_debug_tests {
         summary.ask = None;
         summary.schedule = None;
         assert!(format!("{summary:?}").contains("terminal: None"));
+    }
+}
+
+#[cfg(test)]
+mod skill_row_tests {
+    //! A skill load's row: the verb the reference titles it with, named by its `name` argument.
+    use super::*;
+
+    fn call(name: &str, args: serde_json::Value) -> SessionWireEvent {
+        serde_json::from_value(serde_json::json!({
+            "type": "tool/call", "seq": 1, "time": 1000,
+            "data": {"callId": "c1", "turn": 1, "step": 1, "name": name,
+                "arguments": args.to_string()}
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_skill_load_is_titled_and_named_by_its_argument() {
+        let summary = summarize(
+            &call("skill", serde_json::json!({"name": "impeccable-rust"})),
+            std::iter::empty(),
+            PathRoots::default(),
+        )
+        .unwrap();
+        assert_eq!(summary.title, "Skill · skill");
+        assert_eq!(summary.target.as_deref(), Some("impeccable-rust"));
+        // A malformed argument falls back to the recorded-arguments label rather than a guess.
+        let summary = summarize(
+            &serde_json::from_value(serde_json::json!({
+                "type": "tool/call", "seq": 1, "time": 1000,
+                "data": {"callId": "c1", "turn": 1, "step": 1, "name": "skill", "arguments": "not json"}
+            }))
+            .unwrap(),
+            std::iter::empty(),
+            PathRoots::default(),
+        )
+        .unwrap();
+        assert_eq!(summary.target.as_deref(), Some(ARGUMENTS_AVAILABLE));
     }
 }
