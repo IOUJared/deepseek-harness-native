@@ -27,7 +27,7 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > 2. Measure the baselines rather than trusting this file:
 >    - fixture: `cargo test --manifest-path app/Cargo.toml --locked --offline --jobs 2 --features public-layout-fixture --bin dsh-native-app -- --test-threads=2`
 >    - default: the same without `--features`
->    - at handover: **1521** fixture / **1465** default, 1 ignored each (round 521).
+>    - at handover: **1523** fixture / **1467** default, 1 ignored each (round 523).
 > 3. Load `.agents/skills/native-ui-parity/SKILL.md` (and `.agents/skills/impeccable-rust/SKILL.md` for
 >    Rust changes) — `AGENTS.md` makes both mandatory for this work. Then read `docs/SESSION-PROMPT.md`
 >    (capture conventions, next shot number), `docs/VERIFICATION.md`, and the coverage table at the end
@@ -97,8 +97,9 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > turn-process 16px flow rung (round 514), the seat's activity-to-chevron leading glyph (round 516),
 > the transcript's turn rail over the loaded window (round 517), the rail's outline half with paging
 > to an unloaded Turn (round 518), the rail's hover preview card (round 519), a paging mark's pulse
-> with a windowed long ladder (round 520), the Turn usage accounting dialog (round 521), and the
-> `turnOutline` publication checked against the real Host (round 522, `scripts/qualify-turn-outline.py`).
+> with a windowed long ladder (round 520), the Turn usage accounting dialog (round 521), the
+> `turnOutline` publication checked against the real Host (round 522,
+> `scripts/qualify-turn-outline.py`), and the frame-wide quota banner (round 523).
 >
 > ### Etiquette
 > Be terse. Prefer numbered lists over tables in replies. Challenge your own claims; walk back anything

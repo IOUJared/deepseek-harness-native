@@ -195,6 +195,7 @@ pub const PRESETS: &[&str] = &[
     "stats-dialog",
     "settings-shortcuts",
     "turn-error",
+    "quota-toast",
     "turn-max-tokens",
     "schedule-create",
     "skill-row",
@@ -296,7 +297,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "turn-usage" => Some((Size::new(1040.0, 760.0), 1.0)),
         "stats-dialog" => Some((Size::new(1040.0, 760.0), 1.0)),
         "settings-shortcuts" => Some((Size::new(1040.0, 900.0), 1.0)),
-        "turn-error" | "turn-max-tokens" => Some((Size::new(1040.0, 620.0), 1.0)),
+        "turn-error" | "turn-max-tokens" | "quota-toast" => Some((Size::new(1040.0, 620.0), 1.0)),
         "schedule-create" => Some((Size::new(1040.0, 700.0), 1.0)),
         "skill-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "command-row" => Some((Size::new(1040.0, 700.0), 1.0)),
@@ -1681,6 +1682,12 @@ pub fn build(
         public_turn_error_records(json!({"kind":"error","error":{
             "code":"QUOTA","message":"PUBLIC provider message that the mapped copy replaces."
         }}))
+    } else if preset == "quota-toast" {
+        // A quota failure's turn plus the frame-wide banner the same append raises
+        // (`apply.ts:84-93`).
+        public_turn_error_records(json!({"kind":"error","error":{
+            "code":"QUOTA","message":"PUBLIC provider message that the mapped copy replaces."
+        }}))
     } else if preset == "turn-max-tokens" {
         public_turn_error_records(json!({"kind":"max-tokens"}))
     } else if preset == "tool-activity-diff-long" {
@@ -2631,6 +2638,11 @@ pub fn build(
     }
     if preset == "collapsed-wide" {
         app.sidebar_expanded = false;
+    }
+    if preset == "quota-toast" {
+        // The banner at its full-opacity hold: the state an appended quota failure raises, set
+        // before the frame rather than waited for.
+        app.quota_toast = Some(super::QuotaToast { phase: 12 });
     }
     if preset == "turn-usage" {
         // The accounting dialog open over the settled row: a state a press reaches, set before the

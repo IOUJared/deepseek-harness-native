@@ -518,6 +518,8 @@ pub enum Message {
     TurnRailJump(u64),
     /// One step of a paging rail mark's pulse.
     RailPulseTick,
+    /// One tenth of a second of the quota banner's four-second life.
+    QuotaToastTick,
     ToggleActivity {
         generation: u64,
         key: u64,
@@ -1255,6 +1257,48 @@ struct RailTurn {
     response: String,
 }
 
+/// The frame-wide quota banner: one live notice at a time, holding three seconds at full opacity
+/// and fading over a fourth (`Toast.tsx:12-14,46-60`, `Toast.module.css:4-13,74-96`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct QuotaToast {
+    /// Tenths of a second since the notice appeared.
+    phase: u8,
+}
+
+const QUOTA_TOAST_HOLD: u8 = 30;
+const QUOTA_TOAST_FADE: u8 = 10;
+
+impl QuotaToast {
+    fn new() -> Self {
+        Self { phase: 0 }
+    }
+    /// One tenth of a second later, or `None` once the fade has finished.
+    fn tick(self) -> Option<Self> {
+        (self.phase + 1 < QUOTA_TOAST_HOLD + QUOTA_TOAST_FADE).then_some(Self {
+            phase: self.phase + 1,
+        })
+    }
+    /// The banner's opacity: full through the hold, then a linear fade.
+    fn alpha(self) -> f32 {
+        let over = self.phase.saturating_sub(QUOTA_TOAST_HOLD);
+        if over == 0 {
+            1.0
+        } else {
+            f32::from(QUOTA_TOAST_FADE - over) / f32::from(QUOTA_TOAST_FADE)
+        }
+    }
+}
+
+/// Whether one appended turn end states a quota failure: the two codes the reference raises its
+/// frame-wide notice for (`apply.ts:84-93`).
+fn quota_failure(reason: &serde_json::Value) -> bool {
+    reason["kind"].as_str() == Some("error")
+        && matches!(
+            reason["error"]["code"].as_str(),
+            Some("QUOTA" | "ACCOUNT_QUOTA")
+        )
+}
+
 /// The busy pulse's steps per cycle: ten 100ms steps make the reference's one-second animation
 /// (`TurnNavigator.module.css:186-193`).
 const RAIL_PULSE_PHASES: u8 = 10;
@@ -1706,6 +1750,10 @@ pub struct App {
     /// The turn-rail mark the pointer rests on, whose tick grows as the reference's preview state
     /// does (`TurnNavigator.module.css:88-100`).
     turn_rail_hover: Option<u64>,
+    /// The frame-wide quota banner, while one is showing. The reference posts it from an
+    /// *appended* quota failure and fades it out after four seconds (`apply.ts:80-100`,
+    /// `Toast.tsx:11-14,46-60`).
+    quota_toast: Option<QuotaToast>,
     /// A Turn the rail has been asked to reach through history: pages keep loading until the
     /// window holds it, then the jump lands (`TurnNavigator.tsx:98-108`).
     rail_page_target: Option<u64>,
@@ -2049,6 +2097,7 @@ impl App {
                 process_group_open: Default::default(),
                 seat_hover: None,
                 turn_rail_hover: None,
+                quota_toast: None,
                 rail_page_target: None,
                 rail_pulse: 0,
                 turn_process_open: Default::default(),
@@ -2183,6 +2232,13 @@ impl App {
             // reference's one-second cycle divides into ten (`TurnNavigator.module.css:186-193`).
             if self.rail_page_target.is_some() {
                 iced::time::every(Duration::from_millis(100)).map(|_| Message::RailPulseTick)
+            } else {
+                Subscription::none()
+            },
+            // The quota banner holds four seconds — three at full opacity and one fading — so it
+            // ticks while it is showing and stops when it is gone (`Toast.tsx:12-14`).
+            if self.quota_toast.is_some() {
+                iced::time::every(Duration::from_millis(100)).map(|_| Message::QuotaToastTick)
             } else {
                 Subscription::none()
             },
@@ -5803,6 +5859,9 @@ impl App {
             Message::SeatHoverEnd(key) if self.seat_hover == Some(key) => {
                 self.seat_hover = None;
             }
+            Message::QuotaToastTick => {
+                self.quota_toast = self.quota_toast.and_then(QuotaToast::tick);
+            }
             Message::RailPulseTick => {
                 self.rail_pulse = self.rail_pulse.wrapping_add(1) % RAIL_PULSE_PHASES;
             }
@@ -7705,6 +7764,20 @@ impl App {
     /// caller has already matched the frame to this App generation.
     fn host_selected(&mut self, generation: u64, frame: SessionFollowFrame) -> bool {
         let mut changed = false;
+        // One *appended* quota failure raises the frame-wide banner; a snapshot, a replacement or a
+        // paged record never does, because an old failure scrolling back into view is not news
+        // (`apply.ts:80-100`).
+        if let SessionFollowFrame::Event { event } = &frame
+            && event
+                .surface_op
+                .as_ref()
+                .and_then(serde_json::Value::as_str)
+                == Some("append")
+            && event.event_type == "turn/end"
+            && quota_failure(&event.data["reason"])
+        {
+            self.quota_toast = Some(QuotaToast::new());
+        }
         if matches!(&frame, SessionFollowFrame::Snapshot { .. }) {
             self.reply_content.clear();
             self.thoughts_expanded.clear();
@@ -9361,7 +9434,13 @@ impl App {
                 Message::FilePicker(attachment_picker::Action::Close(ticket)),
             );
         }
-        self.presentation_shell(self.composer_visible())
+        let shell = self.presentation_shell(self.composer_visible());
+        // The reference portals the banner above every surface (`Toast.module.css:6-12`); native
+        // draws it over the shell, and not over a settings or rename dialog, which round 523 names.
+        match self.quota_toast() {
+            Some(toast) => iced::widget::stack![shell, toast].into(),
+            None => shell,
+        }
     }
     fn export_view(&self) -> Element<'_, Message> {
         use crate::exporter::{Action, Notice};
@@ -15636,6 +15715,49 @@ impl App {
             .width(Length::Fill)
             .height(Length::Fill)
             .into(),
+        )
+    }
+    /// The frame-wide quota banner: a top-centered, click-through notice that holds and then
+    /// fades (`Toast.tsx:46-60`, `Toast.module.css:4-48`). Its copy is the same sentence the turn's
+    /// failure row states (`message.failure.quota`), because both read the same code.
+    fn quota_toast(&self) -> Option<Element<'_, Message>> {
+        let toast = self.quota_toast?;
+        let alpha = toast.alpha();
+        let ink = move |color: iced::Color| iced::Color { a: alpha, ..color };
+        let notice = container(
+            row![
+                label("\u{26a0}", ink(design::GOLD)).size(16),
+                label("Request quota exhausted.", ink(TEXT)).size(14),
+            ]
+            .spacing(10)
+            .align_y(iced::Alignment::Center),
+        )
+        .padding(iced::Padding {
+            top: 12.0,
+            right: 16.0,
+            bottom: 12.0,
+            left: 16.0,
+        })
+        .style(move |_| container::Style {
+            background: Some(ink(OVERLAY).into()),
+            border: iced::Border {
+                color: ink(design::LINE),
+                width: 1.0,
+                radius: design::RADIUS_LG.into(),
+            },
+            ..Default::default()
+        });
+        Some(
+            container(notice)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(iced::Alignment::Center)
+                .align_y(iced::Alignment::Start)
+                .padding(iced::Padding {
+                    top: 40.0,
+                    ..Default::default()
+                })
+                .into(),
         )
     }
     /// The rows that take the reference's 16px `turn-process` rung: the first process row of a
@@ -23665,6 +23787,66 @@ mod tests {
             flow_gap_for(&live_refs, live_answer, &live_gaps),
             design::TURN_GAP
         );
+    }
+
+    #[test]
+    fn an_appended_quota_failure_raises_the_banner_and_a_replaced_one_does_not() {
+        let (mut app, _receiver) = managed_app();
+        let frame = |surface: Option<&str>, code: &str| SessionFollowFrame::Event {
+            event: dsh_native_transport::dto::SessionWireEvent {
+                event_type: "turn/end".into(),
+                seq: 4,
+                time: 1,
+                data: serde_json::json!({"turn":1,
+                        "reason":{"kind":"error","error":{"code":code,"message":"x"}}}),
+                ignorable: None,
+                source_event_seqs: None,
+                surface_op: surface.map(Into::into),
+            },
+        };
+        // The reference raises it from an appended failure only (`apply.ts:84-93`).
+        assert!(app.quota_toast.is_none());
+        app.host_selected(app.generation, frame(None, "QUOTA"));
+        assert!(
+            app.quota_toast.is_none(),
+            "a snapshot or replacement is not news"
+        );
+        app.host_selected(app.generation, frame(Some("replace"), "QUOTA"));
+        assert!(app.quota_toast.is_none());
+        app.host_selected(app.generation, frame(Some("append"), "AUTH"));
+        assert!(
+            app.quota_toast.is_none(),
+            "only the two quota codes raise it"
+        );
+        app.host_selected(app.generation, frame(Some("append"), "ACCOUNT_QUOTA"));
+        assert!(
+            app.quota_toast.is_some(),
+            "an appended quota failure raises it"
+        );
+    }
+
+    #[test]
+    fn the_quota_banner_holds_three_seconds_and_fades_over_one() {
+        let mut toast = QuotaToast::new();
+        assert_eq!(toast.alpha(), 1.0);
+        for _ in 0..QUOTA_TOAST_HOLD {
+            toast = toast.tick().expect("still inside the hold");
+        }
+        assert_eq!(toast.phase, QUOTA_TOAST_HOLD);
+        assert_eq!(toast.alpha(), 1.0, "the hold ends at full opacity");
+        for _ in 0..QUOTA_TOAST_FADE / 2 {
+            toast = toast.tick().expect("still fading");
+        }
+        assert!(
+            toast.alpha() < 1.0 && toast.alpha() > 0.0,
+            "{}",
+            toast.alpha()
+        );
+        while let Some(next) = toast.tick() {
+            toast = next;
+        }
+        assert_eq!(toast.phase, QUOTA_TOAST_HOLD + QUOTA_TOAST_FADE - 1);
+        assert!(toast.tick().is_none(), "the banner ends after four seconds");
     }
 
     #[cfg(feature = "public-layout-fixture")]

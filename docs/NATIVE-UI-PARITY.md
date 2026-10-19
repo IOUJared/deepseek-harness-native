@@ -14680,3 +14680,49 @@ boots a Node Host; run it directly with
 | Host qualifier | **0** | `app/evidence/turn-outline-20261019-164353/result.json`, `status: passed` |
 | DP-2 capture | — | none: no visual change |
 | app bin | — | **21** warnings |
+
+### Round 523 — a quota failure raises the frame-wide banner
+
+**The gap.** The reference owns two surfaces for one failure. The turn row states it (native clones
+that: `This turn failed · Request quota exhausted. · QUOTA`), and the frame-wide `shell.overlay`
+raises a **toast** from the same appended event: `apply.ts:80-100` subscribes to each provider
+binding's append entries, and when a `turn/end` carries `reason.kind: 'error'` with code `QUOTA` or
+`ACCOUNT_QUOTA` it publishes one notice — *only* for an append, because "an old failure scrolling back
+into view is not news". The notice renders through `Toast.tsx:46-60`/`Toast.module.css:4-96`: a
+top-centered, click-through banner, `padding: 12px 16px`, radius lg, 14px/22px on the dark toast
+surface, a warning-tint icon, holding three seconds at full opacity and fading over a fourth.
+
+**The change.** `QuotaToast` holds a tenth-of-a-second phase with the reference's windows
+(`QUOTA_TOAST_HOLD` 30, `QUOTA_TOAST_FADE` 10); `quota_failure` matches the two codes;
+`App.quota_toast` is set in `host_selected` only for a `SessionFollowFrame::Event` whose
+`surface_op` is `append`, so a snapshot, a replacement or a paged record never raises it. A
+`Message::QuotaToastTick` subscription runs at 100ms while the banner is alive and stops with it, and
+`quota_toast()` draws the banner over the shell with every colour scaled by the phase's alpha. Its copy
+is the same sentence the turn row states.
+
+**Frame.** `shots/317-quota-toast.png` (1040x620, new `quota-toast` preset): the banner at its
+full-opacity hold, `⚠ Request quota exhausted.`, top-centered over the header, with the turn's own
+failure row beneath it — the reference's two surfaces for one failure, side by side.
+
+**Tests.** `an_appended_quota_failure_raises_the_banner_and_a_replaced_one_does_not` drives
+`host_selected` with four frames (no surface op, `replace`, `append` with `AUTH`, `append` with
+`ACCOUNT_QUOTA`) and asserts only the last raises it;
+`the_quota_banner_holds_three_seconds_and_fades_over_one` pins the hold, the fade's endpoints and that
+the banner ends after four seconds.
+
+**Recorded difference.** The reference portals the banner above every surface, including its image
+lightbox (`Toast.module.css:6-12`); native draws it over the shell only, not over a settings, rename or
+picker dialog. The banner is also not drawn while a modal owns the frame.
+
+**Battery (round 523).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1523 passed**, 1 ignored |
+| app, default | **0** | **1467 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-7i9d3p9k`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-tdat9cua`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 capture | — | `shots/317-quota-toast.png`, `status: passed`, 1040x620 |
+| app bin | — | **21** warnings |
