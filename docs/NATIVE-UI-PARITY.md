@@ -11398,3 +11398,34 @@ branch of its own beyond "show the last failure, clear it on a new list".
 | DP-2 capture | — | `shots/255-jobs-stream-error.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 446 — the jobs trigger carries its own state dot
+
+The reference's background-work trigger puts a live state dot beside its count
+(`JobListAction.tsx:524`), so the header says "work is happening" before anyone reads the number. Native
+drew the count alone, leaving the accent — the one signal a glance picks up — to the words.
+
+The crumb now leads with the same dot the rows use: `◐` in accent while anything runs, `●` in muted
+ink when nothing does.
+
+Evidence: `shots/256-jobs-trigger-dot.png` (DP-2 alongside, `status: passed`) — `◐ 2 background jobs
+running` in the header of the `jobs-panel` preset.
+
+Tests: the dot derives from the same `running` count the copy uses, which the panel's tests already
+exercise; the frame is the added evidence, since a glyph's colour has no assertion.
+
+**Battery (round 446).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1435 passed**, 1 ignored |
+| app, default | **0** | **1411 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/256-jobs-trigger-dot.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

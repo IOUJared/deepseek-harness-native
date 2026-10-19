@@ -12464,10 +12464,25 @@ impl App {
             } else {
                 format!("{count} {noun}")
             };
-            let action = button(label(text, MUTED).size(design::CRUMB_SIZE))
-                .on_press(Message::ToggleJobs)
-                .style(design::ghost)
-                .padding(design::CRUMB_PAD);
+            // The reference's trigger carries a live state dot beside its count
+            // (`JobListAction.tsx:524`): the same mapping the rows use, so the header says "work is
+            // happening" without reading the number.
+            let (dot, dot_ink) = if running > 0 {
+                ("◐", ACCENT)
+            } else {
+                ("●", MUTED)
+            };
+            let action = button(
+                row![
+                    label(dot, dot_ink).size(design::CRUMB_SIZE),
+                    label(text, MUTED).size(design::CRUMB_SIZE),
+                ]
+                .spacing(4)
+                .align_y(iced::Alignment::Center),
+            )
+            .on_press(Message::ToggleJobs)
+            .style(design::ghost)
+            .padding(design::CRUMB_PAD);
             // The panel is anchored to the action, the way the preset seat's list is anchored to
             // its chip. Its sections and status words come from the reference's own English copy
             // (`locales.ts:56-69`); each row does draw a state dot glyph, which stands in for
