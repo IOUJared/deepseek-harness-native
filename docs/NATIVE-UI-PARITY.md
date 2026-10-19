@@ -6382,7 +6382,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Reference surface | Native status |
 | --- | --- |
 | Chat: renderer, thoughts, turn triggers, copy/branch/edit/fork | cloned (markdown: tables, footnotes and math; math draws its source, since no native typesetter exists — see the renderer note below) |
-| Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the `+ Attach` control does not open the command menu, the slash menu is one flat list without the reference's groups/sections/breadcrumbs/skeleton, Stop is always drawn and pressable while idle, files are chosen one at a time through a path field, no image thumbnails or drag hover overlay, the queue dock's Steer stays pressable while idle, and a pending send is not a queue row; absent: skills in the slash menu, the `File` menu entry, the Cmd/Ctrl+Enter inversion, empty-draft steer-all, the plan-mode placeholder, and the command-argument ghost hint) |
+| Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the `+ Attach` control does not open the command menu, the slash menu is one flat list without the reference's groups/sections/breadcrumbs/skeleton, files are chosen one at a time through a path field, no image thumbnails or drag hover overlay, the queue dock's Steer stays pressable while idle, and a pending send is not a queue row; absent: skills in the slash menu, the `File` menu entry, the Cmd/Ctrl+Enter inversion, empty-draft steer-all, the plan-mode placeholder, and the command-argument ghost hint) |
 | Sidebar: sessions, search, pin/archive/trash, workspace filter, navigation sheet | cloned (time-grouped list, not the grouped browser) |
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
 | Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab) |
@@ -9917,5 +9917,42 @@ Tests: `send_label_tests` drives a real app: an idle preset says `Send ↑`; a w
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/221-queue-message-label.png`, `status: passed` |
+| app bin | — | **20** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 406 — Stop is drawn only while something runs
+
+The reference shows its Stop control only while a run is in progress (`InputBar.tsx:303-306`);
+native drew it permanently and left it pressable while idle, so an idle composer offered a live-looking
+control that cancelled nothing.
+
+My first attempt gated `stop_allowed` itself on the session roster's `running` flag, and two existing
+tests failed immediately with the reason in their names: *a missing roster entry is not evidence of
+idle*, and cancellation must stay reachable when the displayed state lags the Host
+(`layout_ui_tests.rs:107-134`). That is a deliberate guarantee, not an oversight, so the gate moved
+to **visibility**: `stop_visible` hides the control only when a known summary says the session is not
+running and no turn is streaming, while the press path is untouched — unknown stays reachable.
+
+Evidence: `shots/222-stop-hidden-idle.png` (DP-2 alongside, `status: passed`) — an idle composer
+whose row reads `+ Attach … Choose model ▾  Send ↑` with no Stop, where the previous frames carried
+one permanently.
+
+Tests: `stop_is_drawn_only_while_the_session_runs` — a missing roster entry keeps Stop drawn and
+allowed, a known idle summary hides it while the press path stays allowed, and a running summary
+draws it again; the two pre-existing reachability tests still pass unchanged.
+
+**Battery (round 406).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1401 passed**, 1 ignored |
+| app, default | **0** | **1385 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/222-stop-hidden-idle.png`, `status: passed` |
 | app bin | — | **20** dead-code warnings |
 | tree | — | clean before the commit |

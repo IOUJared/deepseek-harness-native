@@ -2877,11 +2877,24 @@ impl App {
             && self.composer_visible()
     }
     fn stop_allowed(&self) -> bool {
+        // Reachability is deliberately independent of the roster's `running`: a missing or stale
+        // entry is not evidence of idle, and a user must always be able to cancel a run the Host
+        // still owns (`layout_ui_tests.rs:107-134`). What the reference's `running` gate controls
+        // here is only *visibility* — see `stop_visible`.
         self.options.smoke.is_none()
             && self.ready
             && self.selected.is_some()
             && !self.cancel_pending
             && matches!(self.close, Close::None)
+    }
+    /// Whether the composer draws Stop. The reference shows it only while something runs
+    /// (`InputBar.tsx:303-306`); native keeps it when the roster cannot answer, because unknown is
+    /// not idle, but hides it once a known summary says the session is not running.
+    fn stop_visible(&self) -> bool {
+        let Some(summary) = self.selected.as_ref().and_then(|id| self.sessions.get(id)) else {
+            return true;
+        };
+        summary.running || self.transcript.partial().is_some()
     }
     fn shutdown(&mut self) {
         self.capture_draft();
@@ -8871,6 +8884,9 @@ impl App {
         }
     }
     fn stop_button(&self) -> Element<'_, Message> {
+        if !self.stop_visible() {
+            return Space::new().height(0).width(0).into();
+        }
         // Keep cancellation reachable even when the displayed running state lags the Host.
         container(
             button(

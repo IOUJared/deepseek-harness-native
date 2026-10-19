@@ -104,6 +104,35 @@ fn closing_state_rejects_local_menu_and_info_changes() {
     assert!(queue.try_recv().is_err());
 }
 #[test]
+fn stop_is_drawn_only_while_the_session_runs() {
+    let (mut app, _queue) = app();
+    app.ready = true;
+    app.selected = Some(serde_json::from_value(serde_json::json!("PUBLIC-stop-visible")).unwrap());
+    // A missing roster entry is unknown, not idle: Stop stays drawn and reachable.
+    assert!(app.stop_visible() && app.stop_allowed());
+    // A summary that says the session is not running hides the control, while the roster keeps the
+    // rest of the composer as it is.
+    let idle: SessionSummary = serde_json::from_value(serde_json::json!({
+        "agentAvailable":true, "sessionId":"PUBLIC-stop-visible", "updatedAt":1000,
+        "running":false, "blank":false, "cwd":"/PUBLIC",
+        "projections":{"kind":"cached", "asOfSeq":-1, "values":{}}
+    }))
+    .unwrap();
+    app.sessions.insert(idle.session_id.clone(), idle);
+    assert!(!app.stop_visible(), "a known idle session draws no Stop");
+    // ... but the press path is unchanged, so a stale view never blocks a real cancellation.
+    assert!(app.stop_allowed());
+    let running: SessionSummary = serde_json::from_value(serde_json::json!({
+        "agentAvailable":true, "sessionId":"PUBLIC-stop-visible", "updatedAt":1000,
+        "running":true, "blank":false, "cwd":"/PUBLIC",
+        "projections":{"kind":"cached", "asOfSeq":-1, "values":{}}
+    }))
+    .unwrap();
+    app.sessions.insert(running.session_id.clone(), running);
+    assert!(app.stop_visible(), "a running session draws Stop");
+}
+
+#[test]
 fn cancellation_remains_available_when_summary_running_is_unknown_or_false() {
     let (mut app, mut queue) = app();
     app.ready = true;
