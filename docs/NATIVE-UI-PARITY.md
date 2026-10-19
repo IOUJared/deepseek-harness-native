@@ -10279,3 +10279,37 @@ argument, and a command with no hint) plus the preset's assertion.
 | DP-2 capture | — | `shots/230-command-hint.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 416 — steering the whole queue
+
+The last item the composer audit listed as absent was steering *every* queued message at once. In the
+reference that is the empty-draft Cmd/Ctrl+Enter chord, which walks the queue one `updateQueue` at a
+time and stops at the first refusal (`input/hub.ts:256-270`). Native's Ctrl+Enter stays a plain send
+alias by the user's own confirmation, so the chord is out of scope — but the *capability* is not.
+
+The strip's header now offers **Steer all** whenever the agent runs and more than one message is
+queued. `queue_steer_all` holds the remaining ids, `advance_steer_all` dispatches one at a time as each
+settles, and a refusal clears the run and reports it in the strip — the reference's own stop rule.
+
+Evidence: `shots/231-steer-all.png` (DP-2 alongside, `status: passed`) in the `working-queue` preset —
+`2 queued messages … Steer all` above two rows with their own `Steer`, under a running composer.
+
+Tests: `steer_all_walks_the_queue_one_item_at_a_time` drives the real fixture app: two queued rows, a
+first steer dispatched alone, the second only after the first settles, and a refusal ending the run
+with the strip naming it.
+
+**Battery (round 416).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1409 passed**, 1 ignored |
+| app, default | **0** | **1392 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/231-steer-all.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
