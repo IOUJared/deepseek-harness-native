@@ -13816,6 +13816,26 @@ one-sided fallback, the divider and the full-width hunk row (505). No code chang
 | transport / core / JS / clippy / examples | — | **not re-run**: no source file changed, so their evidence from rounds 504–505 still describes this tree |
 | shot counter | — | unchanged at **301**: this round captured nothing |
 
+### Round 508 — the comparison layout is lost between files (recorded, not yet fixed)
+
+Not a change round. The audit begun in round 506 did not settle and was stopped; this round's own
+reading found one real gap and recorded it rather than half-fixing it.
+
+**The gap.** The reference keeps a review tab's `split` and `wrap` choices in its store, so opening the
+next file in the same tab keeps the layout the reader chose (`review-store.ts:52-81`). Native's
+`open_detail` builds a fresh `Detail::new` for every opening (`app/src/ui.rs:2693-2712`), and that
+constructor resets `diff_wrap` to `true` and `diff_split` to `false`, so a reader who chose side-by-side
+gets the unified layout again on the next comparison. A test I began for it turned out to assert only
+its own copy of the two flags — it would pass whatever the app did — so it was deleted instead of
+shipped.
+
+**The fix to make next.** Remember the chosen layout on `App` and seed `Detail::new` from it, updating
+it when `Message::DetailWrap`/`Message::DetailSplit` land; pin it with a test that goes through
+`open_detail` twice and asserts the second panel opens in the layout the first one was left in.
+
+**Battery (round 508).** No source or docs other than this note changed; fixture **1498** / default
+**1456** stand from round 507, format debt 0, bin **21** measured in round 507.
+
 ### Round 507 — a reminder popover with nothing left closes itself
 
 **The gap.** Round 503's chip unmounts when the open session has no live reminder — the reference's
