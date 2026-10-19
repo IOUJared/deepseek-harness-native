@@ -214,8 +214,9 @@ clipboard, both blocked on Iced rather than on native code; agent-preset selecti
 
 The **scheduled-task** surface is mostly on the native side: the page, the history/edit/delete flow
 and the `schedule` turn-trigger title are built (`schedules_view`, `turn_trigger`'s
-`"schedule" => "Automation task"`). What is *not* built is **creating** a schedule from the app —
-the page says tasks come from the model's schedule tool, and no create control or endpoint exists. An earlier revision of this index called a "turn-tail schedule
+`"schedule" => "Automation task"`). What is *not* built is a **form** that creates a schedule: the reference
+has none either — its creation path is the `schedule_create` tool, whose card now draws natively —
+and the page says the same thing. An earlier revision of this index called a "turn-tail schedule
 row" absent; re-reading `ui-chat`'s nodes, the only other scheduled surface is the **model-retry
 row**, which round 381 built (`shots/181-model-retry.png`).
 
@@ -6387,7 +6388,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab) |
 | Goals, plan mode, permissions, approvals/questions, jobs, subagents, session log | cloned |
 | Tool rows: one row per call with the folded result, relative path, `+N −N`, and the structured cards — diff, read, terminal, search, web, ask-user | cloned (no per-tool glyphs — the reference's SVGs have no DejaVu equivalent — and no process-group or turn-process fold above the rows) |
-| Model-retry row, turn duration, failure and output-limit rows, card Copy control | cloned |
+| Model-retry row, turn duration, failure and output-limit rows, card Copy control, created-task (`schedule_create`) card | cloned |
 | Composer usage pill: tokens, cache hit, speed, turn/step counts, and the Host's session-statistics dialog | cloned |
 | Deliverables: summary, file list, diffs, desktop open | cloned (no right-Sidebar review tab) |
 | Message feedback: ratings, categories, note | cloned (session `/feedback` remains a Host command) |
@@ -9228,4 +9229,48 @@ and examples all re-run green in the round's own battery below.
 | format debt | **0** | 0 files, 0 hunks |
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| tree | — | clean before the commit |
+
+### Round 388 — the created-task card for `schedule_create`
+
+Round 387 corrected the index's claim about creating schedules, and the truth pointed at a missing
+card rather than a missing form: neither client has a create form — the reference creates tasks
+through the **`schedule_create`** tool and renders the created task as its own transcript card
+(`schedule-create-card.ts:135-152`, `ScheduleCreateCard.tsx:36-110`). Native had the generic tool
+row.
+
+**The card** (`reducer/schedule_card.rs`) reads the task from the tool's result — its canonical
+value serialized as JSON — and narrows every field: a non-empty `id`, `prompt` and `scheduledAt`, a
+known `kind`, and that kind's own fields (`afterSeconds`, `everySeconds`, `time`/`timeZone`,
+`weekdays` of ISO 1–7, `expression`). The title is the recorded `title`, else the instruction's first
+line. The rule line is the reference's own copy: `Once`, `Every 5 minutes` (the largest unit that
+divides the interval), `Daily at 17:30 (UTC)`, `Weekly on Mon, Fri at 09:00 (UTC)`,
+`Cron 0 9 * * 1 (UTC)`.
+
+A running call already states the title it is preparing from its own arguments; a failed creation or
+a result that is not a complete task states the raw result text instead, so the card never presents
+an identity it does not have — which is the reference's own rule.
+
+Evidence: `shots/188-schedule-create.png` (DP-2 alongside, `status: passed`) in the new
+`schedule-create` preset: the row reads `Scheduled task · PUBLIC weekly fixture reminder` and the
+card `◷ PUBLIC weekly fixture reminder` over `Weekly on Mon, Fri at 09:00 (UTC)`.
+
+Tests: five in `schedule_card` (a settled task's title and `Once`, every rule kind's line, five
+incomplete tasks plus non-JSON falling back to the raw text, a running call announcing its own title
+with a failed creation stating nothing, and the quiet `Debug`) plus the preset's field assertions.
+
+**Battery (round 388).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1369 passed**, 1 ignored |
+| app, default | **0** | **1357 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/188-schedule-create.png`, `status: passed` |
+| app bin | — | **20** dead-code warnings (unchanged) |
 | tree | — | clean before the commit |

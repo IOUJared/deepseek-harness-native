@@ -13089,19 +13089,32 @@ impl App {
                         .and_then(|activity| activity.ask)
                 })
                 .flatten();
-            let body = match (&read, &terminal, &search, &web, &ask, &diff) {
-                (Some(card), _, _, _, _, _) => self.read_card_height(card, row.key),
-                (None, Some(card), _, _, _, _) => self.terminal_card_height(card, row.key),
-                (None, None, Some(card), _, _, _) => self.search_card_height(card, row.key),
-                (None, None, None, Some(card), _, _) => self.web_card_height(card, row.key),
-                (None, None, None, None, Some(card), _) => self.ask_card_height(card, row.key),
-                (None, None, None, None, None, Some(diff)) => self.diff_card_height(diff, row.key),
-                (None, None, None, None, None, None) => conversation_content::tool_body_height(
-                    activity_body_source(row),
-                    geometry.width - chat_geometry::BODY_INSET,
-                    self.content_delta_secondary(),
-                    design::body_line(self.content_delta()),
-                ),
+            let schedule = (row.role == "Tool call")
+                .then(|| {
+                    self.transcript
+                        .activity(row.key, self.path_roots())
+                        .and_then(|activity| activity.schedule)
+                })
+                .flatten();
+            let body = if let Some(card) = &schedule {
+                self.schedule_card_height(card)
+            } else {
+                match (&read, &terminal, &search, &web, &ask, &diff) {
+                    (Some(card), _, _, _, _, _) => self.read_card_height(card, row.key),
+                    (None, Some(card), _, _, _, _) => self.terminal_card_height(card, row.key),
+                    (None, None, Some(card), _, _, _) => self.search_card_height(card, row.key),
+                    (None, None, None, Some(card), _, _) => self.web_card_height(card, row.key),
+                    (None, None, None, None, Some(card), _) => self.ask_card_height(card, row.key),
+                    (None, None, None, None, None, Some(diff)) => {
+                        self.diff_card_height(diff, row.key)
+                    }
+                    (None, None, None, None, None, None) => conversation_content::tool_body_height(
+                        activity_body_source(row),
+                        geometry.width - chat_geometry::BODY_INSET,
+                        self.content_delta_secondary(),
+                        design::body_line(self.content_delta()),
+                    ),
+                }
             };
             geometry.body_height =
                 self.chat_geometry.tool_line() + chat_geometry::TOOL_BODY_GAP + body;
@@ -13755,6 +13768,58 @@ impl App {
                 .into(),
         )
     }
+    /// The created-task card's height: the title line and, when present, its frequency line.
+    fn schedule_card_height(&self, card: &crate::reducer::schedule_card::Card) -> f32 {
+        let line = design::CODE_LINE + self.content_delta_secondary();
+        let lines =
+            1.0 + f32::from(card.frequency().is_some()) + f32::from(card.fallback.is_some());
+        design::DIFF_PAD_TOP + design::DIFF_PAD_BOTTOM + line * lines
+    }
+    /// The reference's created-task card (`ScheduleCreateCard.tsx:36-110`): the task's title, its
+    /// localized rule, and — only when the result could not be narrowed to a task — its raw text.
+    fn schedule_card(
+        &self,
+        card: &crate::reducer::schedule_card::Card,
+    ) -> Element<'static, Message> {
+        let line = design::CODE_LINE + self.content_delta_secondary();
+        let mut body = column![
+            row![
+                label("◷", MUTED).size(12),
+                label(short(&card.title, 120), TEXT).size(12),
+                Space::new().width(Length::Fill),
+            ]
+            .spacing(7)
+            .align_y(iced::Alignment::Center)
+            .height(line),
+        ]
+        .spacing(2);
+        if let Some(frequency) = card.frequency() {
+            body = body.push(label(frequency, MUTED).size(design::CODE_FONT));
+        }
+        if let Some(fallback) = &card.fallback {
+            body = body.push(label(short(fallback, 200), MUTED).size(design::CODE_FONT));
+        }
+        container(body)
+            .id("native-tool-schedule")
+            .width(Length::Fill)
+            .height(self.schedule_card_height(card))
+            .padding(iced::Padding {
+                top: design::DIFF_PAD_TOP,
+                right: 0.0,
+                bottom: design::DIFF_PAD_BOTTOM,
+                left: 0.0,
+            })
+            .clip(true)
+            .style(|_| iced::widget::container::Style {
+                background: Some(design::OVERLAY.into()),
+                border: iced::Border {
+                    radius: design::RADIUS_LG.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .into()
+    }
     /// The web card's drawn height: the retained rows, one fold row, and the truncation note.
     fn web_card_height(&self, card: &crate::reducer::web_card::Card, key: u64) -> f32 {
         let rows = card.drawn_rows(self.diff_expanded.contains(&key)) as f32;
@@ -14241,8 +14306,16 @@ impl App {
                                 .and_then(|activity| activity.ask)
                         })
                         .flatten();
-                    activity_column = activity_column.push(
-                        match (&read, &terminal, &search, &web, &ask, &diff) {
+                    let schedule = (record.role == "Tool call")
+                        .then(|| {
+                            self.transcript
+                                .activity(record.key, self.path_roots())
+                                .and_then(|activity| activity.schedule)
+                        })
+                        .flatten();
+                    let body: Element<'static, Message> = match &schedule {
+                        Some(card) => self.schedule_card(card),
+                        None => match (&read, &terminal, &search, &web, &ask, &diff) {
                             (Some(card), _, _, _, _, _) => self.read_card(card, record.key),
                             (None, Some(card), _, _, _, _) => self.terminal_card(card, record.key),
                             (None, None, Some(card), _, _, _) => self.search_card(card, record.key),
@@ -14267,7 +14340,8 @@ impl App {
                                 )
                             }
                         },
-                    );
+                    };
+                    activity_column = activity_column.push(body);
                 }
                 activity_column.into()
             } else if let Some(notice) = record.notice.clone() {

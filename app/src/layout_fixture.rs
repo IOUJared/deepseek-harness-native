@@ -150,6 +150,7 @@ pub const PRESETS: &[&str] = &[
     "settings-shortcuts",
     "turn-error",
     "turn-max-tokens",
+    "schedule-create",
     "context-injects",
     "assistant-tool-call",
     "assistant-tool-call-expanded",
@@ -233,6 +234,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "stats-dialog" => Some((Size::new(1040.0, 760.0), 1.0)),
         "settings-shortcuts" => Some((Size::new(1040.0, 900.0), 1.0)),
         "turn-error" | "turn-max-tokens" => Some((Size::new(1040.0, 620.0), 1.0)),
+        "schedule-create" => Some((Size::new(1040.0, 700.0), 1.0)),
         "chat-density" => Some((Size::new(1040.0, 1000.0), 1.0)),
         "tool-activity-narrow" => Some((Size::new(760.0, 840.0), 1.0)),
         "tool-activity-tiny" => Some((Size::new(608.0, 448.0), 1.25)),
@@ -690,6 +692,57 @@ fn public_tool_applied_records() -> Vec<Value> {
         }
     }
     records
+}
+
+/// One prompt and one `schedule_create` call whose result is the created task serialized as JSON,
+/// so the reference's created-task card draws its title and rule. Synthetic PUBLIC metadata; no
+/// task was created and no endpoint was called.
+fn public_schedule_create_records() -> Vec<Value> {
+    let event = |seq: u64, kind: &str, data: Value| {
+        json!({"type":"event", "event":{
+            "type":kind, "seq":seq, "time":1000+seq, "data":data, "surfaceOp":"append"
+        }})
+    };
+    let task = json!({"id":"PUBLIC-schedule-1",
+        "title":"PUBLIC weekly fixture reminder",
+        "prompt":"PUBLIC instruction for the created task",
+        "scheduledAt":"2026-09-01T09:00:00.000Z",
+        "kind":"weekly","time":"09:00","timeZone":"UTC","weekdays":[1,5]});
+    vec![
+        event(
+            0,
+            "user/message",
+            json!({"role":"user", "id":"PUBLIC-schedule-user", "source":{"kind":"user"},
+                "content":[{"type":"text","text":"PUBLIC scheduled-task fixture · nothing was created."}]}),
+        ),
+        event(
+            1,
+            "tool/call",
+            json!({"callId":"PUBLIC-schedule-call", "turn":1, "step":2,
+                "name":"schedule_create",
+                "arguments":json!({"title":"PUBLIC weekly fixture reminder",
+                    "prompt":"PUBLIC instruction for the created task",
+                    "kind":"weekly","time":"09:00","timeZone":"UTC","weekdays":[1,5]}).to_string()}),
+        ),
+        event(
+            2,
+            "tool/result",
+            json!({"turn":1, "step":2, "message":{
+                "role":"tool", "toolCallId":"PUBLIC-schedule-call",
+                "source":{"kind":"tool", "callId":"PUBLIC-schedule-call"},
+                "isError":false,
+                "content":[{"type":"text", "text":task.to_string()}]
+            }}),
+        ),
+        event(
+            3,
+            "assistant/message",
+            json!({"turn":1, "step":2,
+                "stream":[{"type":"text-chunks", "time0":1003, "index":0, "dt":[],
+                    "texts":["PUBLIC synthetic assistant text · the created-task card is drawn from the recorded result, not from a created task."]}]
+            }),
+        ),
+    ]
 }
 
 /// One prompt and one failed turn, so the reference's failure row draws its title, mapped reason
@@ -1344,6 +1397,8 @@ pub fn build(
         public_retry_records()
     } else if preset == "turn-total" {
         public_turn_total_records()
+    } else if preset == "schedule-create" {
+        public_schedule_create_records()
     } else if preset == "turn-error" {
         public_turn_error_records(json!({"kind":"error","error":{
             "code":"QUOTA","message":"PUBLIC provider message that the mapped copy replaces."
@@ -2213,6 +2268,24 @@ pub fn build(
                     .as_deref(),
                 Some("Retry delay: 4s\nFailure reason: PUBLIC upstream unavailable · synthetic")
             );
+        }
+        "schedule-create" => {
+            let card = app
+                .transcript
+                .activity(1, app.path_roots())
+                .and_then(|activity| activity.schedule)
+                .expect("the created-task card");
+            assert_eq!(card.title, "PUBLIC weekly fixture reminder");
+            assert_eq!(
+                card.frequency().as_deref(),
+                Some("Weekly on Mon, Fri at 09:00 (UTC)")
+            );
+            assert_eq!(card.fallback, None);
+            drop(app.update(Message::ToggleActivity {
+                generation: app.generation,
+                key: 1,
+            }));
+            assert!(app.activity_expanded.contains(&1));
         }
         "turn-error" => {
             let notice = app

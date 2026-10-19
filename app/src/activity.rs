@@ -48,6 +48,8 @@ pub struct Summary {
     pub web: Option<crate::reducer::web_card::Card>,
     /// The ask-user transcript card for a settled `ask_user_question` call.
     pub ask: Option<crate::reducer::ask_card::Card>,
+    /// The created-task card for a `schedule_create` call (`schedule-create-card.ts`).
+    pub schedule: Option<crate::reducer::schedule_card::Card>,
 }
 
 /// The diff card's rows are file content, so the debug form names the card and its row count
@@ -98,6 +100,20 @@ impl std::fmt::Debug for Summary {
                     .map(|card| format!("{} rows", card.rows().len())),
             )
             .field("ask", &self.ask)
+            .field(
+                "schedule",
+                &self.schedule.as_ref().map(|card| {
+                    format!(
+                        "{} bytes · {}",
+                        card.title.len(),
+                        if card.task.is_some() {
+                            "task"
+                        } else {
+                            "no task"
+                        }
+                    )
+                }),
+            )
             .finish()
     }
 }
@@ -173,6 +189,12 @@ pub(super) fn summarize_paired<'a>(
     match event.event_type.as_str() {
         "tool/call" => {
             let mut summary = text_summary_label(&event.data, false, false, roots);
+            // A running `schedule_create` already states the task it is preparing.
+            if let Some(card) = crate::reducer::schedule_card::derive(&event.data, None) {
+                summary.title = format!("Scheduled task · {}", card.title);
+                summary.target = Some(card.title.clone());
+                summary.schedule = Some(card);
+            }
             if let Some(result) = paired_result.filter(|result| {
                 result.event_type == "tool/result"
                     && result.data["message"]["isError"].as_bool() != Some(true)
@@ -189,6 +211,8 @@ pub(super) fn summarize_paired<'a>(
                 summary.search = crate::reducer::search_card::derive(&event.data, &result.data);
                 summary.web = crate::reducer::web_card::derive(&event.data, &result.data);
                 summary.ask = crate::reducer::ask_card::derive(&event.data, &result.data);
+                summary.schedule =
+                    crate::reducer::schedule_card::derive(&event.data, Some(&result.data));
                 apply_settled_diff(&mut summary, &event.data, &result.data);
             }
             Some(summary)
@@ -233,6 +257,7 @@ pub(super) fn summarize_paired<'a>(
                     search: None,
                     web: None,
                     ask: None,
+                    schedule: None,
                 },
                 |call| text_summary_label(&call.data, true, failed, roots),
             ))
@@ -255,6 +280,7 @@ pub(super) fn summarize_paired<'a>(
             search: None,
             web: None,
             ask: None,
+            schedule: None,
         }),
         "compaction/summary" => {
             let range = &event.data["shadowedRange"];
@@ -273,6 +299,7 @@ pub(super) fn summarize_paired<'a>(
                 search: None,
                 web: None,
                 ask: None,
+                schedule: None,
             })
         }
         "compaction/end" => event.data["error"].as_str().map_or_else(
@@ -289,6 +316,7 @@ pub(super) fn summarize_paired<'a>(
                     search: None,
                     web: None,
                     ask: None,
+                    schedule: None,
                 })
             },
         ),
@@ -353,6 +381,7 @@ fn loop_guard_summary(data: &Value) -> Summary {
             search: None,
             web: None,
             ask: None,
+            schedule: None,
         },
         _ => Summary {
             title: "Loop guard · repeated identical call".into(),
@@ -365,6 +394,7 @@ fn loop_guard_summary(data: &Value) -> Summary {
             search: None,
             web: None,
             ask: None,
+            schedule: None,
         },
     }
 }
@@ -384,6 +414,7 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
             search: None,
             web: None,
             ask: None,
+            schedule: None,
         };
     }
     let verb = match name {
@@ -473,6 +504,7 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
         search: None,
         web: None,
         ask: None,
+        schedule: None,
     }
 }
 
@@ -1473,6 +1505,14 @@ mod card_debug_tests {
                 },
                 truncated: false,
             }),
+            schedule: Some(crate::reducer::schedule_card::Card {
+                task: Some(crate::reducer::schedule_card::Task {
+                    title: "PRIVATE-TASK".into(),
+                    frequency: "Once".into(),
+                }),
+                title: "PRIVATE-TASK".into(),
+                fallback: None,
+            }),
             ask: Some(crate::reducer::ask_card::Card {
                 kind: crate::reducer::ask_card::Kind::Answered(vec![
                     crate::reducer::ask_card::Answered {
@@ -1498,6 +1538,7 @@ mod card_debug_tests {
         summary.search = None;
         summary.web = None;
         summary.ask = None;
+        summary.schedule = None;
         assert!(format!("{summary:?}").contains("terminal: None"));
     }
 }

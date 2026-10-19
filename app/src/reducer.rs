@@ -21,6 +21,9 @@ pub mod inline_diff;
 pub mod read_card;
 #[path = "retry_ui.rs"]
 pub mod retry_ui;
+/// The reference's created-task card for a `schedule_create` call.
+#[path = "schedule_card.rs"]
+pub mod schedule_card;
 /// The reference's search card for a `grep`/`glob` call.
 #[path = "search_card.rs"]
 pub mod search_card;
