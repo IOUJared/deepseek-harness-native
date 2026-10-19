@@ -514,8 +514,9 @@ impl Terminal {
         let id = self.selected.as_ref()?;
         self.list.iter().find(|info| &info.id == id)
     }
-    /// Selected terminal's live-follow ticket, for the tests that read it.
-    #[cfg(test)]
+    /// Selected terminal's live-follow ticket, for the tests that read it and for the layout fixture
+    /// that feeds it recorded frames.
+    #[cfg(any(test, feature = "public-layout-fixture"))]
     pub fn follow(&self) -> Option<&FollowTicket> {
         self.follow.as_ref()
     }

@@ -11820,3 +11820,39 @@ is the missing evidence, and building a `terminal-*` preset is the round after t
 | capture | — | none: no terminal fixture preset exists yet |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 458 — the terminal panel has a frame at last
+
+Every terminal round so far ended with "no capture: there is no terminal fixture preset". This round
+builds one, and the panel appears in evidence for the first time: the header and its Close, the Host
+authority and output bounds, the shell profile, `New terminal…`, the terminal list with the selected
+row's `id · 80×24 · running`, the recorded output buffer, the input line with its UTF-8 byte count and
+Write, and the attachment notice.
+
+The preset is honest about its limits: it feeds the same events a Host would (`TerminalLoaded`, then a
+`Select`, then three `TerminalFrame::Output` frames) and discards the commands those actions would have
+sent, because a fixture must not start a shell. With no `environment` in the loaded reply the pane
+prints the reference's own "Host limits unavailable" line, which is the true state of a session with no
+registered Agent.
+
+Evidence: `shots/264-terminal-panel.png` (DP-2 alongside, `status: passed`).
+
+Tests: the fixture's own metadata now knows the terminal pane replaces the composer (`terminal_*`
+presets join Schedules and MCP in that rule), and `presets_render_actual_app_without_queued_effects`
+asserts the frame stays at zero commands — the property that makes the preset safe to photograph.
+
+**Battery (round 458).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1443 passed**, 1 ignored |
+| app, default | **0** | 1418 passed, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/264-terminal-panel.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

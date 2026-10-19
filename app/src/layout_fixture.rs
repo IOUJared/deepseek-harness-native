@@ -45,6 +45,7 @@ pub const PRESETS: &[&str] = &[
     "model-submenu-empty",
     "warnings",
     "conversation",
+    "terminal-panel",
     "jobs-panel",
     "jobs-panel-error",
     "jobs-panel-many",
@@ -244,6 +245,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" => {
             Some((Size::new(1200.0, 820.0), 1.0))
         }
+        "terminal-panel" => Some((Size::new(1200.0, 900.0), 1.0)),
         "assistant-details-source"
         | "assistant-details-formatted"
         | "assistant-details-fallback" => Some((Size::new(1040.0, 900.0), 1.0)),
@@ -283,6 +285,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "no-session"
         | "wide-welcome"
         | "conversation"
+        | "terminal-panel"
         | "collapsed-wide"
         | "title-controls"
         | "title-controls-expanded"
@@ -1364,7 +1367,7 @@ pub fn build(
         size.width.is_finite() && size.height.is_finite() && size.width > 0.0 && size.height > 0.0
     );
     options.smoke = None;
-    let (handle, feed, receiver, events, closing) = worker::test_channels();
+    let (handle, feed, mut receiver, events, closing) = worker::test_channels();
     // No stream subscription or execution exists. Dropping these endpoints cannot start a worker.
     drop((events, closing));
     let (mut app, boot_task) = App::boot(options, handle, feed);
@@ -3558,6 +3561,77 @@ pub fn build(
             app.jobs_error = Some("connection reset".into());
         }
     }
+    if preset == "terminal-panel" {
+        // The terminal panel with one selected Host terminal and its recorded output. Every frame the
+        // panel sees here is one a Host could send; nothing is created or written.
+        use crate::terminal::{Action, Loaded, ReadTicket};
+        use dsh_native_transport::terminal::{
+            TerminalFrame, TerminalShell, TerminalState, WebTerminalId, WebTerminalInfo,
+        };
+        let view = crate::management::View {
+            epoch: app.transport_epoch,
+            generation: app.generation,
+            target: app.selected.clone().expect("the preset selects a session"),
+        };
+        drop(app.update(Message::Terminal(Action::Open { view })));
+        let ticket = app.terminal.ticket().expect("the open read");
+        let shell = TerminalShell {
+            path: "/bin/PUBLIC-shell".into(),
+            args: Vec::new(),
+            name: "PUBLIC shell".into(),
+        };
+        drop(app.update(Message::Worker(Event::TerminalLoaded {
+            ticket: ReadTicket {
+                epoch: ticket.epoch,
+                generation: ticket.generation,
+                serial: ticket.serial,
+                target: ticket.target.clone(),
+            },
+            result: Ok(Loaded {
+                list: vec![WebTerminalInfo {
+                    id: WebTerminalId::new("PUBLIC-terminal-1").unwrap(),
+                    title: "PUBLIC build shell".into(),
+                    shell: shell.clone(),
+                    cwd: "/PUBLIC/workspace".into(),
+                    cols: 80,
+                    rows: 24,
+                    state: TerminalState::Running,
+                    exit_code: None,
+                    error: None,
+                    controller_id: None,
+                }],
+                shells: vec![shell],
+                environment: None,
+            }),
+        })));
+        let ticket = app.terminal.ticket().expect("the panel's ticket");
+        drop(app.update(Message::Terminal(Action::Select {
+            ticket,
+            id: WebTerminalId::new("PUBLIC-terminal-1").unwrap(),
+        })));
+        let follow = app
+            .terminal
+            .follow()
+            .cloned()
+            .expect("selecting attaches a follow");
+        for (sequence, data) in [
+            (1, "PUBLIC $ cargo test\n"),
+            (2, "running 4 tests\ntest widget::layout ... ok\n"),
+            (3, "test widget::paint ... ok\n"),
+        ] {
+            drop(app.update(Message::Worker(Event::TerminalFrame {
+                ticket: follow.clone(),
+                frame: TerminalFrame::Output {
+                    sequence,
+                    data: data.into(),
+                },
+            })));
+        }
+        // The fixture captures render state; the reads and follows this preset asked for are
+        // discarded so no command leaves the frame.
+        while receiver.try_recv().is_ok() {}
+        assert!(app.terminal.is_open());
+    }
     (app, receiver)
 }
 
@@ -3590,6 +3664,8 @@ pub fn metadata(app: &App, preset: &str) -> Value {
     let schedules_expected = preset.starts_with("schedules");
     // The MCP panel is a full-pane page like Schedules: it owns the body and hides the composer.
     let mcp_expected = preset == "mcp";
+    // The terminal panel owns the body like Schedules and MCP: it replaces the composer.
+    let terminal_expected = preset.starts_with("terminal-");
     let context_expected = preset.starts_with("context-management");
     let plan_projected = app.transcript.work().plan().is_some();
     let context_warning = app.composer_visible() && app.context_policy_open;
@@ -3603,6 +3679,7 @@ pub fn metadata(app: &App, preset: &str) -> Value {
     let composer_replaced = preset == "subagent-readonly";
     let composer_expected = !schedules_expected
         && !mcp_expected
+        && !terminal_expected
         && !settings_expected
         && !picker_expected
         && !sidebar_expected
