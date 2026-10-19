@@ -73,9 +73,9 @@ pub fn split_rows(lines: &[Line]) -> Vec<SplitRow> {
     let mut rows = Vec::new();
     let mut deletions: Vec<SplitCell> = Vec::new();
     let mut additions: Vec<SplitCell> = Vec::new();
-    let mut flush = |rows: &mut Vec<SplitRow>,
-                     deletions: &mut Vec<SplitCell>,
-                     additions: &mut Vec<SplitCell>| {
+    let flush = |rows: &mut Vec<SplitRow>,
+                 deletions: &mut Vec<SplitCell>,
+                 additions: &mut Vec<SplitCell>| {
         for at in 0..deletions.len().max(additions.len()) {
             rows.push(SplitRow {
                 left: deletions.get(at).cloned(),

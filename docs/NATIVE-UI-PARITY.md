@@ -13849,4 +13849,11 @@ assertion the frame cannot make.
 | format debt | **0** | 0 files, 0 hunks |
 | transport / core / JS / clippy / examples | — | **not re-run**: only `app` changed; last run this session was transport 59+17+91+7, core 115, JS 419/0, clippy core+transport+app, examples layout_smoke+scroll_app_smoke |
 | DP-2 capture | — | none: a state change with no new pixels |
-| app bin | — | **21** dead-code warnings (unchanged: no new dead item) |
+| app bin | — | **22 total** measured after this round: 21 dead-code findings plus a `variable does not need to be mutable` in round 505's `split_rows` closure, which the next paragraph fixes |
+
+**A warning I had already shipped.** Measuring instead of assuming found that round 505 left the bin at
+22 warnings, not the 21 this project's contract states: `inline_diff::split_rows` declared its `flush`
+closure `mut`, which it never needs (the closure mutates its arguments, not itself). Round 505's table
+reported 21 because it was copied from the round before rather than measured. The `mut` is gone and the
+count is back to 21 — recorded here rather than quietly corrected, because "report the warning count"
+means measuring it each round.
