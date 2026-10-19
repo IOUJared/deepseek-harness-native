@@ -579,6 +579,12 @@ impl Attachments {
     pub fn has_file(&self, c: &Context) -> bool {
         self.slots.iter().any(|slot| slot.has_file(c))
     }
+    /// Whether a slot is still reading its bytes, which the reference treats as a reason to keep the
+    /// primary button a plain `Send` rather than promising a queue or a steer
+    /// (`InputBar.tsx:308-313`, `uploadsPending`).
+    pub fn uploads_pending(&self) -> bool {
+        self.pending() || self.slots.iter().any(Draft::reading)
+    }
     /// Any occupied slot that is rejected or unknown blocks send, exactly as one slot did.
     pub fn can_send(&self, c: &Context) -> bool {
         !self.editor_open()

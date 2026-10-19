@@ -12742,3 +12742,41 @@ capture was retaken at 44px rather than committed with a measurement that did no
 | DP-2 capture | — | `shots/272-changes-gutter.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 484 — the primary button only promises a queue when it will queue
+
+A composer audit (42 reference elements, 27 traced in depth) found the send button overpromising. The
+reference labels it `Queue message` / `Steer message` only for a plain message draft with nothing still
+uploading (`InputBar.tsx:308-313`: `plainMessageDraft` excludes a `/` line, `uploadsPending` excludes a
+reading file); native labelled it from the running state and the submission policy alone.
+
+With `/compact` typed in a running session, native's primary button said `Queue message ↑` although the
+Host executes a command; with a file still reading its bytes it said the same although nothing was ready
+to queue. The label now requires both conditions, and `Attachments::uploads_pending` reports a reading or
+pending slot.
+
+Tests: `a_command_or_an_uploading_file_is_not_a_queued_message` — idle says `Send ↑`, a running session
+with a plain draft promises the queue, the same session with a `/` line falls back to `Send ↑`, and a
+sending composer always says `Sending…`.
+
+**Recorded from the same audit for the next rounds**: the attachment rail has no paging (cards beyond the
+card width are unreachable, unverified whether clipped or drawn past the edge — the audit said so
+honestly), a failed upload has no retry and no progress, the slash menu ignores presses outside the
+composer, the context meter has no ring or breakdown panel (and native never reads `contextBreakdown`),
+and queued rows lose their attachments.
+
+**Battery (round 484).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1468 passed**, 1 ignored |
+| app, default | **0** | **1432 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: a label's condition, proved by its test |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

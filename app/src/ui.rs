@@ -13638,10 +13638,15 @@ impl App {
             .as_ref()
             .and_then(|id| self.sessions.get(id))
             .is_some_and(|summary| summary.running);
+        // A slash line is a command, not a message to queue, and a file still reading its bytes means
+        // nothing is ready to queue yet: both keep the plain send wording
+        // (`InputBar.tsx:308-313`: `plainMessageDraft` and `uploadsPending`).
+        let plain = !self.editor.text().trim_start().starts_with('/');
+        let queued = running && plain && !self.files.uploads_pending();
         match (running, self.busy_enter) {
-            (true, crate::settings::BusyEnter::Steer) => "Steer message ↑",
-            (true, _) => "Queue message ↑",
-            (false, _) => "Send ↑",
+            (true, crate::settings::BusyEnter::Steer) if queued => "Steer message ↑",
+            (true, _) if queued => "Queue message ↑",
+            _ => "Send ↑",
         }
     }
     fn reply_parts(&self, key: u64) -> Option<std::rc::Rc<conversation_content::Prepared>> {

@@ -1266,3 +1266,30 @@ fn a_rested_pointer_previews_only_a_comparison_already_read() {
     drop(app.update(Message::ChangesHover(None)));
     assert!(app.changes_preview.is_none());
 }
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
+fn a_command_or_an_uploading_file_is_not_a_queued_message() {
+    let (size, _scale) = super::layout_fixture::preset_size("conversation").unwrap();
+    let (mut app, _queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "conversation",
+        size,
+        None,
+    );
+    // Idle: the button offers a send.
+    assert_eq!(app.send_label(false), "Send ↑");
+    // Running with a plain draft: it promises the queue.
+    let session = app.selected.clone().expect("a selected session");
+    app.sessions
+        .get_mut(&session)
+        .expect("the selected summary")
+        .running = true;
+    app.editor = iced::widget::text_editor::Content::with_text("PUBLIC plain draft");
+    assert_eq!(app.send_label(false), "Queue message ↑");
+    // A slash line is a command the Host executes, not a message to queue.
+    app.editor = iced::widget::text_editor::Content::with_text("/compact");
+    assert_eq!(app.send_label(false), "Send ↑");
+    // Sending always says so, whatever the draft.
+    assert_eq!(app.send_label(true), "Sending…");
+}
