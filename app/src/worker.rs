@@ -1778,16 +1778,15 @@ async fn terminal_read(
     };
     // Shell profiles and limits are best-effort: a Session with no registered Agent
     // still has Host-confirmed history, but create and write stay unavailable.
-    let shells = client
-        .terminal_shells(&ticket.target)
-        .await
-        .unwrap_or_default();
+    let shells = client.terminal_shells(&ticket.target).await;
     let environment = client.terminal_environment(&ticket.target).await.ok();
     Event::TerminalLoaded {
         ticket,
         result: Ok(crate::terminal::Loaded {
             list,
-            shells,
+            shells: shells.as_deref().unwrap_or_default().to_vec(),
+            // A failed read is not an empty discovery: the panel says which one it saw.
+            shells_failed: shells.is_err(),
             environment,
         }),
     }

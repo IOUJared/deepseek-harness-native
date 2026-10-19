@@ -11788,23 +11788,32 @@ cleanly.
 
 ### Terminal audit (round 456) — what is left
 
-Recorded for the next rounds, same taxonomy. (b) different, (c) absent.
+Recorded for the next rounds, same taxonomy. (b) different, (c) absent. **Corrected in round 524:**
+this list is a snapshot of what round 456 found, and rounds 457–462 closed its first four items. It is
+kept as written so the finding reads honestly, with each item's status and the round that settled it
+appended — the code is the authority, and reading this list alone would have had the next round rebuild
+work that already exists.
 
-1. (b) **Input is a line plus Write, not a keystroke stream.** The reference pipes `xterm.onData` to the
-   Host, so Enter, arrows, Ctrl-C and Esc reach the shell; native writes the field verbatim with no
-   terminator, so a typed command cannot run (`terminal.tsx:101,138` vs `ui.rs:17214,17228`,
-   `terminal.rs:779-780`). This is the largest remaining terminal gap.
-2. (b) **Taking input control is a button in the reference** ("Take control", `locales.ts:35`), a
-   re-selection in native (`ui.rs:17348-17351`).
-3. (b) The limit copy drops a fact the reference states: "Exited terminals also count toward the limit."
-   (`locales.ts:43`).
+1. (b) **Input is a line plus Write, not a keystroke stream.** ~~Closed in round 460.~~
+   `terminal_keys::bytes` maps a press to its bytes (named keys, Ctrl+letter control bytes, printable
+   characters, nothing for an unmapped key) and `Action::Key` sends them through the guarded write path;
+   the panel owns the keyboard while open and lets unnamed keys fall through. Tests:
+   `terminal_keys`, `a_key_sends_its_bytes_without_touching_the_typed_line`. The typed line remains for
+   input a key mapping cannot express, and Write still sends it verbatim.
+2. (b) **Taking input control is a button in the reference** ("Take control", `locales.ts:35`).
+   ~~Closed in round 457.~~ `Notice::ControlElsewhere` draws the sentence with a **Take control** button
+   dispatching the same `Action::Select` the row's own press uses; the frame is
+   `shots/265-terminal-readonly.png` (round 459).
+3. (b) The limit copy drops a fact the reference states. ~~Closed in round 459.~~ The sentence now
+   carries "exited terminals also count toward the limit" (`ui.rs:19636-19638`).
 4. (b) The shell choice is a discovery menu with loading/error/retry and a remembered preference in the
-   reference (`TerminalGuide.tsx:53-64`, `shell-preference.ts:2`); native draws chips, forgets the choice
-   each open (`terminal.rs:671`) and cannot report a discovery failure.
+   reference. ~~Closed in rounds 461–462.~~ Native draws the discovered profiles with their report states,
+   remembers the choice across launches (`layout.terminalShell`, `Terminal::preferred_shell` /
+   `adopt_preferred_shell`) and reports a discovery failure.
 5. (c) The terminal **screen** itself (an xterm emulator) and **fit-to-pane resize** stay absent — both
-   already recorded in `FEATURE-PARITY.md:22` and `NATIVE-TERMINAL.md:19-21`.
+   already recorded in `FEATURE-PARITY.md:22` and `NATIVE-TERMINAL.md:19-21`. **Still open.**
 6. (c) **Rename** and a **docked multi-terminal sidebar tab** remain unbuilt, both recorded in
-   `NATIVE-TERMINAL.md:19` and `NATIVE-UI-PARITY.md:62-66`.
+   `NATIVE-TERMINAL.md` and `NATIVE-UI-PARITY.md:62-66`. **Still open.**
 
 ### Round 457 — taking terminal input control is a control, not an instruction
 
@@ -14725,4 +14734,53 @@ picker dialog. The banner is also not drawn while a modal owns the frame.
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-tdat9cua`) |
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 capture | — | `shots/317-quota-toast.png`, `status: passed`, 1040x620 |
+| app bin | — | **21** warnings |
+
+### Round 524 — the terminal audit's stale list corrected, and the one closed item that was not
+
+**A sweep found the record drifting behind the code.** The "Terminal audit (round 456) — what is left"
+block still opened with "Input is a line plus Write, not a keystroke stream… This is the largest
+remaining terminal gap" and listed three more (b) gaps — but rounds 457–462 built every one of them:
+`Action::Key` + `terminal_keys::bytes` + the panel owning the keyboard (460), the **Take control**
+button (457/459), the limit copy's "exited terminals also count" clause (459), and the remembered shell
+choice (461–462). `docs/NATIVE-TERMINAL.md` had drifted too: its flow said only "Write sends the typed
+input line". Both documents now state what the code does, and the audit block keeps its original
+findings with each status and the round that settled it appended.
+
+**One of the four was not fully closed.** The audit's item 4 also said native "cannot report a
+discovery failure", and it was right: `terminal_shells` was read best-effort (`unwrap_or_default`), so
+a failed read was indistinguishable from a Host that serves no profiles. `Loaded` now carries
+`shells_failed`, `Terminal` exposes it, and the SHELL section draws the reference's retry state in
+DANGER where an empty discovery stays MUTED. Test:
+`a_failed_shell_read_is_not_an_empty_discovery` (the flag survives an empty list; an answered read
+clears it).
+
+**The frame exposed a second, older defect.** The new preset's first capture reported `status: failed`
+with `headerExpected: true` while no header is drawn — and re-running the **existing** `terminal-panel`
+preset reproduced it. The terminal pane is an in-shell body that owns the whole frame (its own
+`Terminal` row is the heading), so the app header is absent by design; the fixture's metadata was wrong
+for every `terminal-*` preset. `headerExpected` now excludes them, and both presets report `passed`.
+This is the frame-contradicts-a-green-suite class in reverse: no gate ran a terminal mode, so nothing
+had noticed.
+
+**Frame.** `shots/318-terminal-shells-failed.png` (1200x900, new `terminal-panel-shells-failed` preset):
+the panel with `Host limits unavailable`, SHELL in DANGER reading "The Host's shell profiles could not
+be read; create uses the Host default shell. Re-read the panel to try again.", `New terminal…`, the
+listed `PUBLIC build shell`, the output buffer, and the input line with its byte count.
+
+**Tests.** `a_failed_shell_read_is_not_an_empty_discovery`, plus the two terminal-preset metadata rules
+now covered by the smoke's own `expectedControlCountsMatch` (proved by re-running `terminal-panel`:
+`status: passed`, counts true).
+
+**Battery (round 524).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1524 passed**, 1 ignored |
+| app, default | **0** | **1468 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-e4_bxcd1`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-rbicmtsw`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 capture | — | `shots/318-terminal-shells-failed.png`, `status: passed`, 1200x900 |
 | app bin | — | **21** warnings |

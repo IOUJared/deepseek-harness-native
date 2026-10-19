@@ -111,6 +111,7 @@ fn loaded(
                 args: vec!["-l".into()],
                 name: "PUBLIC shell".into(),
             }],
+            shells_failed: false,
             environment: Some(environment()),
         }),
     })));

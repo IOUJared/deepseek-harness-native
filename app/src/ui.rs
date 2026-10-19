@@ -19272,13 +19272,21 @@ impl App {
         }
         body = body.push(label("SHELL", MUTED).size(10));
         if self.terminal.shells().is_empty() {
-            body = body.push(
+            // A failed discovery is not an empty one (`TerminalGuide.tsx:53-64`): the reference
+            // reports a read failure and offers a retry, so the sentence names which happened.
+            body = body.push(if self.terminal.shells_failed() {
+                label(
+                    "The Host's shell profiles could not be read; create uses the Host default shell. Re-read the panel to try again.",
+                    DANGER,
+                )
+                .size(11)
+            } else {
                 label(
                     "No shell profile was discovered; create uses the Host default shell.",
                     MUTED,
                 )
-                .size(11),
-            );
+                .size(11)
+            });
         } else {
             let mut choices = row![].spacing(6);
             for (index, profile) in self.terminal.shells().iter().enumerate() {
@@ -25419,6 +25427,7 @@ mod tests {
                     args: vec!["-l".into()],
                     name: "PUBLIC shell".into(),
                 }],
+                shells_failed: false,
                 environment: None,
             }),
         }));

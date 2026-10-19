@@ -49,6 +49,7 @@ pub const PRESETS: &[&str] = &[
     "conversation",
     "terminal-panel",
     "terminal-panel-readonly",
+    "terminal-panel-shells-failed",
     "jobs-panel",
     "jobs-panel-error",
     "jobs-panel-many",
@@ -267,7 +268,9 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" => {
             Some((Size::new(1200.0, 820.0), 1.0))
         }
-        "terminal-panel" | "terminal-panel-readonly" => Some((Size::new(1200.0, 900.0), 1.0)),
+        "terminal-panel" | "terminal-panel-readonly" | "terminal-panel-shells-failed" => {
+            Some((Size::new(1200.0, 900.0), 1.0))
+        }
         "assistant-details-source"
         | "assistant-details-formatted"
         | "assistant-details-fallback" => Some((Size::new(1040.0, 900.0), 1.0)),
@@ -313,6 +316,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "conversation"
         | "terminal-panel"
         | "terminal-panel-readonly"
+        | "terminal-panel-shells-failed"
         | "collapsed-wide"
         | "title-controls"
         | "title-controls-expanded"
@@ -4028,7 +4032,10 @@ pub fn build(
             app.jobs_error = Some("connection reset".into());
         }
     }
-    if preset == "terminal-panel" || preset == "terminal-panel-readonly" {
+    if preset == "terminal-panel"
+        || preset == "terminal-panel-readonly"
+        || preset == "terminal-panel-shells-failed"
+    {
         // The terminal panel with one selected Host terminal and its recorded output. Every frame the
         // panel sees here is one a Host could send; nothing is created or written.
         use crate::terminal::{Action, Loaded, ReadTicket};
@@ -4072,7 +4079,14 @@ pub fn build(
                         .unwrap()
                     }),
                 }],
-                shells: vec![shell],
+                // The failure preset answers with no profiles *and* the failed-read flag, the
+                // state round 524 separates from an empty discovery (`TerminalGuide.tsx:53-64`).
+                shells: if preset == "terminal-panel-shells-failed" {
+                    vec![]
+                } else {
+                    vec![shell]
+                },
+                shells_failed: preset == "terminal-panel-shells-failed",
                 environment: None,
             }),
         })));
@@ -4233,7 +4247,9 @@ pub fn metadata(app: &App, preset: &str) -> Value {
         "sidebarStoreIoExecuted":false,
         "modelControlsExpected":composer_expected && !composer_replaced,
         "reasoningControlExpected":app.model_controls.is_open() && (app.model_controls.section().is_none() || app.layout_size().width >= 720.0),
-        "headerExpected":!settings_expected && !picker_expected && !sidebar_expected && !matches!(preset, "navigation" | "navigation-tiny" | "navigation-search-tiny"),
+        // The terminal pane is an in-shell body that owns the whole frame, header included: its
+        // own "Terminal" row is the heading, so the app header is absent by design.
+        "headerExpected":!settings_expected && !picker_expected && !sidebar_expected && !terminal_expected && !matches!(preset, "navigation" | "navigation-tiny" | "navigation-search-tiny"),
         "settingsStateMatchesPreset":app.settings.is_open() == settings_expected,
         "informationStateMatchesPreset":app.capabilities == info_expected
             && app.info_expanded == if preset == "information-expanded" { 3 } else { 0 },

@@ -31,6 +31,10 @@ pub const DISPLAY_BYTES: usize = 32 * 1024;
 pub struct Loaded {
     pub list: Vec<WebTerminalInfo>,
     pub shells: Vec<TerminalShell>,
+    /// Whether the shell-profile read failed. Distinct from an empty list: the Host serves no
+    /// profiles on some builds, and a failed read is the operator's cue to re-read
+    /// (`TerminalGuide.tsx:53-64`).
+    pub shells_failed: bool,
     pub environment: Option<TerminalEnvironment>,
 }
 /// Redacted read failure carried by the worker; no remote message is retained.
@@ -406,6 +410,8 @@ pub struct Terminal {
     list: Vec<WebTerminalInfo>,
     list_loaded: bool,
     shells: Vec<TerminalShell>,
+    /// Whether the last shell-profile read itself failed, rather than answering with no profiles.
+    shells_failed: bool,
     shell: Option<usize>,
     environment: Option<TerminalEnvironment>,
     selected: Option<WebTerminalId>,
@@ -441,6 +447,7 @@ impl Default for Terminal {
             list: vec![],
             list_loaded: false,
             shells: vec![],
+            shells_failed: false,
             shell: None,
             environment: None,
             selected: None,
@@ -484,6 +491,9 @@ impl Terminal {
     /// it, forever, was the bug.
     pub fn loading_claim(&self) -> bool {
         !self.list_loaded && matches!(self.notice, Notice::Loading)
+    }
+    pub fn shells_failed(&self) -> bool {
+        self.shells_failed
     }
     pub fn shells(&self) -> &[TerminalShell] {
         &self.shells
@@ -1008,6 +1018,7 @@ impl Terminal {
                 self.list = loaded.list;
                 self.list_loaded = true;
                 self.shells = loaded.shells;
+                self.shells_failed = loaded.shells_failed;
                 // The remembered shell wins when the Host still offers it; otherwise the first one
                 // stands in, which is the reference's own fallback (`model.ts:125-129`).
                 let remembered = self
@@ -1303,6 +1314,7 @@ mod tests {
             Ok(Loaded {
                 list: vec![info("PUBLIC-terminal-1")],
                 shells: vec![shell()],
+                shells_failed: false,
                 environment: Some(environment()),
             }),
         );
@@ -1430,6 +1442,7 @@ mod tests {
             Ok(Loaded {
                 list: vec![info("PUBLIC-terminal-1")],
                 shells: vec![shell()],
+                shells_failed: false,
                 environment: Some(TerminalEnvironment {
                     max_cols: 40,
                     max_rows: 10,
@@ -1494,6 +1507,7 @@ mod tests {
             Ok(Loaded {
                 list: Vec::new(),
                 shells: vec![shell()],
+                shells_failed: false,
                 environment: None,
             }),
         );
@@ -1569,6 +1583,7 @@ mod tests {
             Ok(Loaded {
                 list: Vec::new(),
                 shells: vec![shell()],
+                shells_failed: false,
                 environment: Some(environment()),
             }),
         );
@@ -1748,6 +1763,7 @@ mod tests {
             Ok(Loaded {
                 list: vec![info("PUBLIC-terminal-1")],
                 shells: vec![],
+                shells_failed: false,
                 environment: None,
             }),
         );
@@ -1999,6 +2015,55 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_shell_read_is_not_an_empty_discovery() {
+        // An empty list with the failure flag: the Host could not be asked, which the panel
+        // reports as a read failure rather than as "no profiles" (`TerminalGuide.tsx:53-64`).
+        let mut terminal = opened();
+        let read = terminal
+            .apply(Action::Refresh(ticket(&terminal)), &context())
+            .and_then(|effect| match effect {
+                Effect::Read(read) => Some(read),
+                _ => None,
+            })
+            .expect("refresh reads");
+        terminal.loaded(
+            &read,
+            Ok(Loaded {
+                list: vec![info("PUBLIC-terminal-1")],
+                shells: vec![],
+                shells_failed: true,
+                environment: None,
+            }),
+        );
+        assert!(terminal.shells().is_empty());
+        assert!(
+            terminal.shells_failed(),
+            "the failure survives the empty list"
+        );
+        // A later read that answers with no profiles clears it.
+        let read = terminal
+            .apply(Action::Refresh(ticket(&terminal)), &context())
+            .and_then(|effect| match effect {
+                Effect::Read(read) => Some(read),
+                _ => None,
+            })
+            .expect("refresh reads again");
+        terminal.loaded(
+            &read,
+            Ok(Loaded {
+                list: vec![info("PUBLIC-terminal-1")],
+                shells: vec![],
+                shells_failed: false,
+                environment: None,
+            }),
+        );
+        assert!(
+            !terminal.shells_failed(),
+            "an answered read clears the flag"
+        );
+    }
+
+    #[test]
     fn the_chosen_shell_is_remembered_across_opens() {
         // Two shells, so a remembered choice cannot be confused with the first one.
         let second = TerminalShell {
@@ -2020,6 +2085,7 @@ mod tests {
             Ok(Loaded {
                 list: vec![info("PUBLIC-terminal-1")],
                 shells: vec![first.clone(), second.clone()],
+                shells_failed: false,
                 environment: Some(environment()),
             }),
         );
@@ -2052,6 +2118,7 @@ mod tests {
                 list: vec![info("PUBLIC-terminal-1")],
                 // The Host now lists them in the other order: the remembered path still wins.
                 shells: vec![second, first],
+                shells_failed: false,
                 environment: Some(environment()),
             }),
         );
