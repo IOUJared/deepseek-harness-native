@@ -9726,3 +9726,41 @@ preset) — plus the four policy tests from round 399.
 | DP-2 capture | — | `shots/217-settings-work-details.png`, `status: passed` |
 | app bin | — | **20** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 401 — a live group states its running detail
+
+The reference's live group title is not only the activity label: when the mode enables
+`liveProcessDetail`, it appends the running call's own detail — `Running commands · printf …`
+(`ChatGroupSeat.tsx:113-120`). The detail is the first present argument in the reference's key order
+(`title`, `description`, `objective`, … `command`, `cmd`, `queries`, `query`, `pattern`, `url`,
+`file_path`, `path`, …), whitespace-collapsed and elided at 160 characters
+(`process-activity.ts:25-100`).
+
+Native now does the same: `process_group::live_detail` reads that key order from the call's recorded
+arguments (string or array of strings only, exactly as the reference narrows them), and the seat
+appends it when the mode enables the detail and the group is live. Compact and Verbose, which do not
+enable it, keep the bare label — the policy field from round 399 finally has its user.
+
+Evidence: `shots/218-process-live-detail.png` (DP-2 alongside, `status: passed`) —
+`▲ Running commands · PUBLIC recorded intent only; never executed`, the detail taken from the call's
+recorded `title` because the reference reads `title` before `command`.
+
+Tests: two in `live_detail_tests` (the key order and whitespace collapse, including a mixed array
+being skipped, and the 160-character elision with the exact bound kept whole) plus the seat-click
+test's title assertion.
+
+**Battery (round 401).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1398 passed**, 1 ignored |
+| app, default | **0** | **1383 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/218-process-live-detail.png`, `status: passed` |
+| app bin | — | **20** dead-code warnings |
+| tree | — | clean before the commit |

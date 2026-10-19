@@ -527,6 +527,19 @@ impl Transcript {
             event.event_type == "turn/end" && event.data["turn"].as_u64() == Some(turn)
         })
     }
+    /// One call row's own arguments, for the process group's live detail. Alpha records them as a
+    /// JSON string; a recorded object is accepted as it stands.
+    pub fn tool_args(&self, key: u64) -> Option<serde_json::Value> {
+        let event = self.records.get(&key)?;
+        if event.event_type != "tool/call" {
+            return None;
+        }
+        let arguments = &event.data["arguments"];
+        if arguments.is_object() {
+            return Some(arguments.clone());
+        }
+        serde_json::from_str(arguments.as_str()?).ok()
+    }
     /// The wire tool name of one call row, for the process group's category.
     pub fn tool_name(&self, key: u64) -> Option<&str> {
         let event = self.records.get(&key)?;

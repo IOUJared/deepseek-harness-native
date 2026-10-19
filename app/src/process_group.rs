@@ -111,6 +111,70 @@ pub fn seat_title(counts: &[Count], live: Option<&str>) -> String {
     }
 }
 
+/// The longest live detail the reference keeps before eliding (`process-activity.ts:25-27`).
+const LIVE_DETAIL_MAX_CHARS: usize = 160;
+/// The argument keys the reference reads, in order (`process-activity.ts:28-34`).
+const LIVE_DETAIL_KEYS: &[&str] = &[
+    "title",
+    "description",
+    "objective",
+    "task",
+    "task_name",
+    "name",
+    "question",
+    "questions",
+    "prompt",
+    "message",
+    "command",
+    "cmd",
+    "queries",
+    "query",
+    "pattern",
+    "url",
+    "uri",
+    "file_path",
+    "path",
+    "target",
+    "action",
+    "status",
+];
+
+/// The live detail of one tool call: the first present key's text, whitespace-collapsed, elided at
+/// the reference's bound (`process-activity.ts:64-100`). Strings or arrays of strings only.
+pub fn live_detail(args: &serde_json::Value) -> Option<String> {
+    for key in LIVE_DETAIL_KEYS {
+        let value = &args[*key];
+        let text = match value {
+            serde_json::Value::String(text) => text.clone(),
+            serde_json::Value::Array(items)
+                if !items.is_empty()
+                    && items
+                        .iter()
+                        .all(|item| item.as_str().is_some_and(|text| !text.is_empty())) =>
+            {
+                items
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            }
+            _ => continue,
+        };
+        let collapsed = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        if collapsed.is_empty() {
+            continue;
+        }
+        if collapsed.chars().count() <= LIVE_DETAIL_MAX_CHARS {
+            return Some(collapsed);
+        }
+        let mut short: String = collapsed.chars().take(LIVE_DETAIL_MAX_CHARS - 1).collect();
+        short = short.trim_end().to_owned();
+        short.push('\u{2026}');
+        return Some(short);
+    }
+    None
+}
+
 /// `message.stepProcess.done.*` for one category.
 pub fn label(category: &str) -> &'static str {
     DONE_LABELS
@@ -397,6 +461,52 @@ mod live_title_tests {
             seat_title(&ranked, None),
             "Searched code and read files",
             "a settled group states the summary"
+        );
+    }
+}
+
+#[cfg(test)]
+mod live_detail_tests {
+    //! The live detail a group title carries: the call's own first useful argument.
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn the_first_present_key_wins_and_whitespace_collapses() {
+        assert_eq!(
+            live_detail(&json!({"command": "printf  a\n  b"})).as_deref(),
+            Some("printf a b")
+        );
+        // `title` is read before `command`, as the reference's key order does.
+        assert_eq!(
+            live_detail(&json!({"title": "PUBLIC title", "command": "printf x"})).as_deref(),
+            Some("PUBLIC title")
+        );
+        // An array of strings joins with commas; a mixed array is skipped as the reference does.
+        assert_eq!(
+            live_detail(&json!({"queries": ["a", "b"]})).as_deref(),
+            Some("a, b")
+        );
+        assert_eq!(live_detail(&json!({"queries": ["a", 1]})), None);
+        assert_eq!(live_detail(&json!({"count": 3})), None);
+        assert_eq!(live_detail(&json!({})), None);
+        assert_eq!(live_detail(&json!({"command": "   "})), None);
+    }
+
+    #[test]
+    fn a_long_detail_is_elided_at_the_reference_bound() {
+        let long = "x".repeat(400);
+        let detail = live_detail(&json!({"command": long})).unwrap();
+        assert_eq!(detail.chars().count(), LIVE_DETAIL_MAX_CHARS);
+        assert!(detail.ends_with('…'), "{detail}");
+        // Exactly at the bound is kept whole.
+        let exact = "y".repeat(LIVE_DETAIL_MAX_CHARS);
+        assert_eq!(
+            live_detail(&json!({"command": exact}))
+                .unwrap()
+                .chars()
+                .count(),
+            LIVE_DETAIL_MAX_CHARS
         );
     }
 }

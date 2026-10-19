@@ -13241,7 +13241,7 @@ impl App {
                             .map(crate::reducer::process_group::category)
                     })
                     .flatten();
-                let title = crate::reducer::process_group::seat_title(
+                let mut title = crate::reducer::process_group::seat_title(
                     &crate::reducer::process_group::counts(
                         group
                             .members
@@ -13251,6 +13251,18 @@ impl App {
                     ),
                     live,
                 );
+                // A live group in a mode that shows process detail states the running command,
+                // path or query after its label (`ChatGroupSeat.tsx:113-120`).
+                if live.is_some() && policy.live_process_detail {
+                    let detail = group.members.iter().rev().find_map(|index| {
+                        rows.get(*index)
+                            .and_then(|row| self.transcript.tool_args(row.key))
+                            .and_then(|args| crate::reducer::process_group::live_detail(&args))
+                    });
+                    if let Some(detail) = detail {
+                        title = format!("{title} \u{b7} {detail}");
+                    }
+                }
                 Some((
                     group.first,
                     Seat {

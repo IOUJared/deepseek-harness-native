@@ -3376,6 +3376,22 @@ mod tests {
         };
         let _ = rows;
         assert!(open, "a live group stands open");
+        // The title names the activity and, in a mode that shows detail, the running command.
+        let title = {
+            let rows: Vec<_> = app.transcript.display_rows(false).collect();
+            app.process_seats(&rows)
+                .values()
+                .next()
+                .unwrap()
+                .title
+                .clone()
+        };
+        // The reference reads `title` before `command`, and this fixture's Bash call records both:
+        // the intent as its title, the command as its argument.
+        assert_eq!(
+            title, "Running commands \u{b7} PUBLIC recorded intent only; never executed",
+            "a live group states its activity and its detail"
+        );
         drop(app.update(Message::ToggleProcessGroup {
             generation: app.generation,
             key,
