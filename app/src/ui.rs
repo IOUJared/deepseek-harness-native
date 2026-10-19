@@ -9625,6 +9625,14 @@ impl App {
     /// The composer's completion menu, if the draft is a command token and the
     /// Host has advertised commands. The draft is the only trigger: the menu
     /// disappears the moment the line stops being a command position.
+    /// Whether the slash menu should say it is still loading: a command position whose
+    /// advertisement has been asked for but has not arrived (`MenuView.tsx:147-152` — the
+    /// reference's `loading` row).
+    fn awaiting_advertisement(&self) -> bool {
+        command_menu::query(&self.editor.text()).is_some()
+            && (self.commands_pending || self.skills_pending)
+            && self.commands.is_none()
+    }
     fn completion(&self) -> Option<command_menu::Completion> {
         let draft = self.editor.text();
         let query = command_menu::query(&draft)?;
@@ -11657,6 +11665,16 @@ impl App {
         }
         // The completion menu sits directly above the card, so it reads as an
         // extension of the composer rather than a floating panel.
+        if self.completion().is_none() && self.awaiting_advertisement() {
+            // The advertisement is still in flight: the menu states that rather than staying
+            // invisible, so a slash never looks like a dead key.
+            shell = shell.push(
+                container(label("Loading…", MUTED).size(10))
+                    .padding([6, 11])
+                    .width(Length::Fill)
+                    .style(|_| panel(OVERLAY)),
+            );
+        }
         if let Some(menu) = self.completion() {
             // The reference groups candidates by source and titles each group
             // (`MenuView.tsx:146`, `ui-input-trigger/src/client/locales.ts:16`). Native advertises

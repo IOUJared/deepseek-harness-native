@@ -104,6 +104,34 @@ fn closing_state_rejects_local_menu_and_info_changes() {
     assert!(queue.try_recv().is_err());
 }
 #[test]
+fn a_pending_advertisement_shows_a_loading_row() {
+    let (mut app, _queue) = app();
+    app.ready = true;
+    app.selected = Some(serde_json::from_value(serde_json::json!("PUBLIC-loading")).unwrap());
+    assert!(!app.awaiting_advertisement(), "no command position yet");
+    app.editor = iced::widget::text_editor::Content::with_text("/");
+    app.commands_pending = true;
+    assert!(
+        app.awaiting_advertisement(),
+        "a slash with a read in flight shows the loading row"
+    );
+    // An answered advertisement is not loading, even while the skill read continues.
+    app.commands_pending = false;
+    app.commands = Some(vec![crate::ui::command_menu::Candidate::command(
+        "plan".into(),
+        "Explore".into(),
+    )]);
+    app.skills_pending = true;
+    assert!(
+        !app.awaiting_advertisement(),
+        "the command menu has rows to show"
+    );
+    // Prose is not a command position, so there is nothing to load.
+    app.editor = iced::widget::text_editor::Content::with_text("plain text");
+    assert!(!app.awaiting_advertisement());
+}
+
+#[test]
 fn a_hovered_drop_draws_the_overlay_and_a_drop_clears_it() {
     let (mut app, _queue) = app();
     let window = window::Id::unique();

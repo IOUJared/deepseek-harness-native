@@ -131,6 +131,7 @@ pub const PRESETS: &[&str] = &[
     "attach-menu",
     "drop-overlay",
     "skills-menu",
+    "slash-loading",
     "plan-mode",
     "plan-mode-applying",
     "plan-mode-leaving",
@@ -333,6 +334,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "attach-menu"
         | "drop-overlay"
         | "skills-menu"
+        | "slash-loading"
         | "plan-mode"
         | "plan-mode-applying"
         | "plan-mode-leaving"
@@ -383,7 +385,12 @@ fn public_context_pressure_records(preset: &str) -> Option<Vec<Value>> {
     }
     if matches!(
         preset,
-        "command-menu" | "command-menu-mid-draft" | "attach-menu" | "drop-overlay" | "skills-menu"
+        "command-menu"
+            | "command-menu-mid-draft"
+            | "attach-menu"
+            | "drop-overlay"
+            | "skills-menu"
+            | "slash-loading"
     ) {
         return Some(vec![
             json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
@@ -2646,6 +2653,15 @@ pub fn build(
                 crate::reducer::turn_tail::label(Some(duration)),
                 "Completed in 2m 23s"
             );
+        }
+        "slash-loading" => {
+            // A slash typed before the Host answered: the menu states that it is loading rather
+            // than staying invisible (`MenuView.tsx:147-152`).
+            app.commands = None;
+            app.commands_pending = true;
+            app.editor = iced::widget::text_editor::Content::with_text("/co");
+            assert!(app.completion().is_none(), "no rows yet");
+            assert!(app.awaiting_advertisement(), "the loading row is shown");
         }
         "skills-menu" => {
             // Two sources in one menu: the Host's commands, then its skill catalog, each titled

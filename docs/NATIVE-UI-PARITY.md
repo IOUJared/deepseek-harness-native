@@ -6382,7 +6382,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Reference surface | Native status |
 | --- | --- |
 | Chat: renderer, thoughts, turn triggers, copy/branch/edit/fork | cloned (markdown: tables, footnotes and math; math draws its source, since no native typesetter exists — see the renderer note below) |
-| Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the slash menu groups its two sources as the reference does (`Commands`, then `Skills`) but has no breadcrumbs, loading skeleton or subagent source, files are chosen one at a time through a path field, no image thumbnails in the rail, and a send awaiting admission is stated by the composer's own banner (with Check, Review and Stop-original) rather than as a queue row; absent: empty-draft steer-all and the command-argument ghost hint; and these deliberate differences: the reference inverts its submission policy on Cmd/Ctrl+Enter (`view-binding.ts:120-130`), while native keeps Ctrl+Enter a plain send alias by the user's explicit confirmation (`docs/SESSION-PROMPT.md`); and native's goal bar states a running goal's controls where the reference adds `hint.goal`/`hint.goal.active` ghost copy beside the draft) |
+| Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the slash menu groups its two sources as the reference does (`Commands`, then `Skills`) and states `Loading…` while the advertisement is in flight, but has no breadcrumbs or subagent source, files are chosen one at a time through a path field, no image thumbnails in the rail, and a send awaiting admission is stated by the composer's own banner (with Check, Review and Stop-original) rather than as a queue row; absent: empty-draft steer-all and the command-argument ghost hint; and these deliberate differences: the reference inverts its submission policy on Cmd/Ctrl+Enter (`view-binding.ts:120-130`), while native keeps Ctrl+Enter a plain send alias by the user's explicit confirmation (`docs/SESSION-PROMPT.md`); and native's goal bar states a running goal's controls where the reference adds `hint.goal`/`hint.goal.active` ghost copy beside the draft) |
 | Sidebar: sessions, search, pin/archive/trash, workspace filter, navigation sheet | cloned (time-grouped list, not the grouped browser) |
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
 | Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab) |
@@ -10211,4 +10211,36 @@ tests.
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/228-skills-menu.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings (one new helper awaits a third source) |
+| tree | — | clean before the commit |
+
+### Round 414 — the slash menu says it is loading
+
+The reference's menu has a loading row while the advertisement is on its way
+(`MenuView.tsx:147-152`, `loading`: "Loading…"). Native showed nothing at all, so a slash typed
+before the Host answered looked like a dead key — and after round 413 it now waits for *two* reads.
+
+`awaiting_advertisement` states the condition — a command position, a read in flight, and no
+catalog yet — and the composer draws a `Loading…` row in its place. The command list arriving ends it
+even while the skill read continues, and prose never shows it.
+
+Evidence: `shots/229-slash-loading.png` (DP-2 alongside, `status: passed`) in the new `slash-loading`
+preset — `Loading…` above a `/co` draft with no rows yet.
+
+Tests: `a_pending_advertisement_shows_a_loading_row` (no position, pending read, answered commands
+with a skill read still running, and prose) plus the preset's assertions.
+
+**Battery (round 414).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1407 passed**, 1 ignored |
+| app, default | **0** | **1391 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/229-slash-loading.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
