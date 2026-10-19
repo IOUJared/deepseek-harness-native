@@ -12972,3 +12972,49 @@ Evidence: `shots/276-context-breakdown.png` (DP-2 alongside, `status: passed`).
 | DP-2 capture | — | `shots/276-context-breakdown.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+## Milestone — round 500 (work round 120): verification sweep
+
+Not a change round. Everything below was re-run or re-captured at `9b35181` to check that the twenty
+rounds since the last sweep did not regress anything the suite cannot see.
+
+**Captured, inspected, and unchanged**: the conversation, the changed-files card with its fold control,
+the subagent catalog with all three activity states, and a queued message carrying its file chip —
+`shots/277`–`280`, DP-2 alongside each, all `status: passed`.
+
+**Battery, all re-run in this round.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1475 passed**, 1 ignored |
+| app, default | **0** | **1437 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 |
+| core (`--lib`) | **0** | **115 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| app bin | — | **21** dead-code warnings |
+
+**A real mistake this sweep found, in the process rather than the product**: the shot counter in
+`docs/SESSION-PROMPT.md` still said **266** while rounds 94–119 had been archiving shots 267–280. Every
+round's increment script searched for a sentence that had been reworded long before, matched nothing, and
+said nothing — so thirteen rounds recorded "counter updated" in their notes while the line never moved.
+The line is now **281** and matches the archive; the increments are part of the round checklist in the
+same commit that fixes it, so the next miss fails loudly instead of quietly.
+
+**Where the clone stands.** Fourteen surfaces have been audited end to end (goals, sidebar, composer,
+models, Codex, details, Cloudflare, plugins, schedules, search, settings, jobs, terminal, subagents) plus
+deliverables/changes and the composer landed in rounds 475–489. What remains is small and named:
+
+1. Split view and wrap control on a comparison — presentation choices, not missing information.
+2. Upload byte progress — the transport reports no progress, so nothing honest can be drawn.
+3. The context panel's 14px ring trigger and segmented bar — the information exists, the shape does not.
+4. Image thumbnails anywhere — native renders attachment chips instead, recorded in three places.
+5. Terminal screen emulation and fit-to-pane resize — no emulator by design.
+6. Settings' "Open configuration file", account balance/usage rows — no Host RPC serves them.
+7. MCP's model-facing install path — the reference has no MCP UI, so native is the superset.
+
+Everything in that list is either a recorded deliberate difference or blocked on a Host capability. The
+user-only items remain unchanged: the image fetch policy decision, `reference.png`, a window-edge drag
+below 520×600 with a close-timing run, and the control-stream worker hop.
