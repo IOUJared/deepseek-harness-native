@@ -10113,11 +10113,16 @@ impl App {
             .collect();
         let settled = self.jobs.len() - live.len();
         let settled_open = self.jobs_settled_open.unwrap_or(live.is_empty());
+        // The rows scroll inside the card while the notices stay fixed beneath them: the
+        // reference caps the panel at 480px with `overflow: auto`
+        // (`JobListAction.module.css:50-55`), and wrapping the whole popup broke the anchored layer's
+        // measurement in an earlier attempt (round 449).
         let mut panel = Column::new().spacing(4);
+        let mut rows = Column::new().spacing(4);
         if !live.is_empty() {
-            panel = panel.push(label("Running", MUTED).size(11));
+            rows = rows.push(label("Running", MUTED).size(11));
             for job in live {
-                panel = panel.push(job_row(
+                rows = rows.push(job_row(
                     job,
                     self.jobs_expanded.as_deref(),
                     self.jobs_output
@@ -10134,7 +10139,7 @@ impl App {
             // The reference's heading carries a Clear for the finished rows it lists
             // (`JobListAction.tsx:537-549`): it hides settled rows from this view only, it never
             // asks the Host to forget anything.
-            panel = panel.push(
+            rows = rows.push(
                 row![
                     button(label(format!("{arrow} Finished {settled}"), MUTED).size(11))
                         .on_press(Message::ToggleJobSettled)
@@ -10157,7 +10162,7 @@ impl App {
                 .iter()
                 .filter(|job| job.status != "running" && job.status != "stopping")
             {
-                panel = panel.push(job_row(
+                rows = rows.push(job_row(
                     job,
                     self.jobs_expanded.as_deref(),
                     self.jobs_output
@@ -10167,6 +10172,14 @@ impl App {
                 ));
             }
         }
+        panel = panel.push(
+            container(
+                scrollable(rows)
+                    .direction(design::scrollbar())
+                    .style(design::scrollable_style),
+            )
+            .max_height(380),
+        );
         if let Some(error) = &self.jobs_error {
             panel = panel.push(
                 label(

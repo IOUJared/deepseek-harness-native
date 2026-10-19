@@ -47,6 +47,7 @@ pub const PRESETS: &[&str] = &[
     "conversation",
     "jobs-panel",
     "jobs-panel-error",
+    "jobs-panel-many",
     "sidebar-options",
     "sidebar-options-tiny",
     "sidebar-trash-review",
@@ -240,7 +241,9 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "settings-presets-guide"
         | "settings-presets-copied"
         | "settings-account" => Some((Size::new(1024.0, 900.0), 1.0)),
-        "jobs-panel" | "jobs-panel-error" => Some((Size::new(1200.0, 820.0), 1.0)),
+        "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" => {
+            Some((Size::new(1200.0, 820.0), 1.0))
+        }
         "assistant-details-source"
         | "assistant-details-formatted"
         | "assistant-details-fallback" => Some((Size::new(1040.0, 900.0), 1.0)),
@@ -1383,7 +1386,7 @@ pub fn build(
         "running":preset.starts_with("working-") || matches!(preset, "menu" | "navigation" | "navigation-tiny"),
         // A preset that carries a transcript is not a blank session; the reference's own row
         // list and the chat fixtures both depend on this flag.
-        "blank": !matches!(preset, "jobs-panel" | "jobs-panel-error" | "conversation" | "chat-density" | "chat-markdown" | "chat-thoughts" | "thoughts-preview" | "chat-thoughts-markdown" | "chat-table")
+        "blank": !matches!(preset, "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" | "conversation" | "chat-density" | "chat-markdown" | "chat-thoughts" | "thoughts-preview" | "chat-thoughts-markdown" | "chat-table")
             && !preset.starts_with("tool-activity"),
 
         "cwd":"/PUBLIC-layout-fixture/workspace",
@@ -1795,6 +1798,7 @@ pub fn build(
     } else if preset == "conversation"
         || preset == "jobs-panel"
         || preset == "jobs-panel-error"
+        || preset == "jobs-panel-many"
         || preset.starts_with("working-")
     {
         let records = vec![
@@ -3519,6 +3523,26 @@ pub fn build(
     } else {
         "Live real session; UTC timestamps; no generation started".into()
     };
+    if preset == "jobs-panel-many" {
+        // Enough rows to exceed the card's cap, so the panel scrolls instead of growing past the
+        // window (`JobListAction.module.css:50-55`).
+        app.set_jobs();
+        app.jobs_settled_open = Some(true);
+        for index in 0..10 {
+            app.jobs.push(dsh_native_transport::dto::JobView {
+                id: format!("PUBLIC-settled-{index}"),
+                kind: "shell".into(),
+                label: format!("PUBLIC finished job {index}"),
+                owner: None,
+                status: if index % 3 == 0 {
+                    "failed"
+                } else {
+                    "completed"
+                }
+                .into(),
+            });
+        }
+    }
     if preset == "jobs-panel" || preset == "jobs-panel-error" {
         // Seeded last, after every frame this preset applies, through the same hook the panel's own
         // tests use; the transcript is the conversation the preset inherits.
@@ -3634,7 +3658,7 @@ pub fn metadata(app: &App, preset: &str) -> Value {
         "reasoningStateMatchesPreset":app.chosen_model.as_ref().is_some_and(|m| !m.efforts.is_empty()) == reasoning_expected,
         "durablePublicRecordCount":app.transcript.rows().len(),
         "durablePublicSnapshotCursor":app.transcript.opening_cursor(),
-        "conversationSnapshotSimulated":matches!(preset, "jobs-panel" | "jobs-panel-error" | "conversation" | "inbox-canceled" | "changes-card" | "feedback" | "workflow-run") || preset.starts_with("tool-activity"),
+        "conversationSnapshotSimulated":matches!(preset, "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" | "conversation" | "inbox-canceled" | "changes-card" | "feedback" | "workflow-run") || preset.starts_with("tool-activity"),
         "displayedPublicRecordCount":app.transcript.display_rows(app.records_expanded).count(),
         "canceledInboxHeadingExpected":preset == "inbox-canceled",
         "publicToolSnapshotSimulated":preset.starts_with("tool-activity"),

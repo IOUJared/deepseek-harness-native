@@ -11529,3 +11529,35 @@ and still pass.
 | DP-2 capture | — | `shots/259-jobs-panel-width.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 450 — the jobs panel scrolls instead of growing
+
+Round 449 left the height cap open after wrapping the popup broke its surface. The fix was the
+structure, not the widget: the rows scroll **inside** the card, and the card's own container is left
+exactly as it was. The notices stay outside the scroll view, so an armed stop confirmation remains
+visible however far the list scrolls (`JobListAction.module.css:50-55` caps the reference's panel at
+480px with `overflow: auto`).
+
+Evidence: `shots/260-jobs-panel-cap.png` (DP-2 alongside, `status: passed`) in the new
+`jobs-panel-many` preset — fourteen rows capped at 380px of scrolling area with the scrollbar visible,
+`Stop task Run the test suite` and `Click again to confirm` fixed beneath the list, and the card's
+surface intact.
+
+Tests: the panel's behaviour tests are unchanged and pass; the frame is the evidence for a cap, since
+"does not grow past the window" is only observable in a render with enough rows to force it.
+
+**Battery (round 450).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1436 passed**, 1 ignored |
+| app, default | **0** | **1411 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/260-jobs-panel-cap.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
