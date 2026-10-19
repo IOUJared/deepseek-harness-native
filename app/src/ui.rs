@@ -150,6 +150,9 @@ mod subagent_catalog;
 #[cfg(test)]
 #[path = "terminal_ui_tests.rs"]
 mod terminal_ui_tests;
+/// Local wall-clock text for recorded instants.
+#[path = "time_text.rs"]
+pub mod time_text;
 /// The reference's work-details modes and the presentation policy each enables.
 #[path = "work_details.rs"]
 pub mod work_details;
@@ -15970,7 +15973,15 @@ impl App {
             let enabled = item.status.eq_ignore_ascii_case("active");
             let mut meta = format!("{rule} · {}", if enabled { "Enabled" } else { "Inactive" });
             if enabled && let Some(next) = item.scheduled_at.as_deref() {
-                meta.push_str(&format!(" · next run {next}"));
+                // Local text with the reference's relative form beside it (`list.nextPrefix`,
+                // `schedule-format.ts:321-334`); an unreadable instant keeps the stored text.
+                let local = time_text::local_or_stored(next);
+                let relative = time_text::parse_instant(next)
+                    .map(|instant| time_text::relative(instant, now_millis() as i64));
+                match relative {
+                    Some(relative) => meta.push_str(&format!(" · next run {local} ({relative})")),
+                    None => meta.push_str(&format!(" · next run {local}")),
+                }
             }
             let mut row = column![
                 label(short(&item.title, 80), TEXT).size(14),
@@ -15980,7 +15991,10 @@ impl App {
             if let Some(delivery) = &item.last_delivery {
                 row = row.push(
                     label(
-                        format!("Last delivered {}", short(&delivery.delivered_at, 40)),
+                        format!(
+                            "Last delivered {}",
+                            time_text::local_or_stored(&delivery.delivered_at)
+                        ),
                         MUTED,
                     )
                     .size(10),
@@ -16237,8 +16251,8 @@ impl App {
                             label(
                                 format!(
                                     "{} → {}",
-                                    short(&record.scheduled_at, 24),
-                                    short(&record.delivered_at, 24)
+                                    time_text::local_or_stored(&record.scheduled_at),
+                                    time_text::local_or_stored(&record.delivered_at)
                                 ),
                                 MUTED,
                             )
