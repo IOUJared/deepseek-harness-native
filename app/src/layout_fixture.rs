@@ -669,10 +669,12 @@ fn public_tool_applied_records() -> Vec<Value> {
         if event["type"] == "tool/result"
             && event["data"]["message"]["toolCallId"] == "PUBLIC-edit-call"
         {
+            // Two applied lines where the arguments described a one-for-one replacement, so the
+            // capture also shows the row's totals following the applied change.
             event["data"]["meta"] = json!({"diffs": [{
                 "path": "/PUBLIC-layout-fixture/workspace/src/PUBLIC-note.txt",
                 "oldText": "PUBLIC old text",
-                "newText": "PUBLIC applied text"
+                "newText": "PUBLIC applied text\nPUBLIC applied second line"
             }]});
         }
     }
@@ -2329,6 +2331,9 @@ pub fn build(
             let text: Vec<&str> = diff.lines.iter().map(|line| line.text.as_str()).collect();
             assert!(text.contains(&"PUBLIC applied text"), "{text:?}");
             assert!(!text.contains(&"PUBLIC new text"), "{text:?}");
+            // The row's totals are the applied change's, not the arguments'.
+            let summary = app.transcript.activity(3, app.path_roots()).unwrap();
+            assert_eq!(summary.edits, Some((2, 1)));
             drop(app.update(Message::ToggleActivity {
                 generation: app.generation,
                 key: 3,

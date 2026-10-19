@@ -1931,6 +1931,34 @@ mod settled_diff_tests {
         let lines = lines(&transcript);
         assert!(lines.contains(&"applied line".to_owned()), "{lines:?}");
         assert!(!lines.contains(&"intended line".to_owned()), "{lines:?}");
+        // The row's totals describe the applied change too: one line out, one line in — not the
+        // arguments' own counts, which happen to match here by construction.
+        let summary = transcript
+            .activity(1, activity::PathRoots::default())
+            .unwrap();
+        assert_eq!(summary.edits, Some((1, 1)));
+    }
+
+    #[test]
+    fn the_totals_follow_the_applied_rows_not_the_arguments() {
+        // Two lines applied where the arguments described a one-for-one replacement: the row must
+        // state `+2 -1`, matching the card it draws.
+        let mut transcript = Transcript::new(0);
+        transcript
+            .apply(0, frame(vec![
+                call(
+                    "functions.edit",
+                    serde_json::json!({"file_path": "src/a.rs", "old_string": "old", "new_string": "intended"}),
+                ),
+                result(serde_json::json!({"diffs": [
+                    {"path": "src/a.rs", "oldText": "old", "newText": "first\nsecond"}
+                ]})),
+            ]))
+            .unwrap();
+        let summary = transcript
+            .activity(1, activity::PathRoots::default())
+            .unwrap();
+        assert_eq!(summary.edits, Some((2, 1)));
     }
 
     #[test]

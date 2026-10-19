@@ -205,12 +205,18 @@ the one step that would settle each. Nothing here is a measurement anyone can re
 the CSS alone; each needs a decision, a live run, or a feature-sized build.
 
 **Current list, by name** (read this, not the numbers): markdown images and their fetch policy
-(user decision, item 1); the two-row tool model — *closed in round 371*; the structured tool-card
-family, of which the diff card is built (item 8); the turn-tail schedule row (item 3-family); the
-session-reference chip's right-Sidebar preview, replaced by the details panel (deliberate); inline
-code chips and the Cloudflare field clipboard, both blocked on Iced rather than on native code;
-agent-preset selection — *landed* (item 11); and the live-only checks in
-`NATIVE-LIVE-VERIFICATION.md`.
+(user decision, item 1) — the last structured card, the image card, waits on it too; the two-row
+tool model — *closed in round 371*; the structured tool-card family — six cards built, plus the
+applied-diff rule and the copy control (item 8); the session-reference chip's right-Sidebar
+preview, replaced by the details panel (deliberate); inline code chips and the Cloudflare field
+clipboard, both blocked on Iced rather than on native code; agent-preset selection — *landed*
+(item 11); and the live-only checks in `NATIVE-LIVE-VERIFICATION.md`.
+
+The **scheduled-task** surface is *not* on this list: the page, its create/delete flow and the
+`schedule` turn-trigger title are all built (`schedules_view`, `turn_trigger`'s
+`"schedule" => "Automation task"`). An earlier revision of this index called a "turn-tail schedule
+row" absent; re-reading `ui-chat`'s nodes, the only other scheduled surface is the model-retry row's
+`scheduled` state ("retrying in Ns"), which native states in its own retry row.
 
 **A note on the numbering below.** These entries are an append-only journal: numbers were reused as
 later rounds inserted items, so there are two entries numbered 3, two 8 and two 9, and some entries

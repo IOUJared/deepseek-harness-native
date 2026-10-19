@@ -121,6 +121,21 @@ fn apply_settled_diff(summary: &mut Summary, call: &Value, result: &Value) {
             // silently showing the first file as if it were the only one.
             if let [(path, old, new)] = hunks.as_slice() {
                 summary.diff = crate::reducer::inline_diff::file(path, old.as_deref(), new);
+                // The row's `+N -N` totals describe the same change the card draws, so they come
+                // from the applied rows rather than from the intended arguments — otherwise the
+                // stat and the card could disagree about the same write.
+                if let Some(diff) = summary.diff.as_ref() {
+                    let mut added = 0u32;
+                    let mut removed = 0u32;
+                    for line in &diff.lines {
+                        match line.kind {
+                            crate::reducer::inline_diff::Kind::Added => added += 1,
+                            crate::reducer::inline_diff::Kind::Deleted => removed += 1,
+                            _ => {}
+                        }
+                    }
+                    summary.edits = Some((added, removed));
+                }
             }
         }
         // A recorded no-op write still shows its intended whole-file diff, exactly as the
