@@ -15033,9 +15033,9 @@ draws, and a preceding valid block no longer poisons the source. The "inert mark
 five tests moved to **a heading inside a container**, which is still refused.
 
 **Recorded limits.** One bit cannot express more than two mixed containers: `> - > item` collapses to
-the outermost order. The renderer also draws one rule per paragraph, so two adjacent quoted paragraphs
-show a gap between their rules where the reference's single `<blockquote>` bar is continuous — the
-frame shows the first limit's neighbour, not the second (a single quoted paragraph is exact).
+the outermost order. ~~The renderer also draws one rule per paragraph, so two adjacent quoted paragraphs
+show a gap between their rules~~ — **superseded by round 531**, which draws one continuous rule across a
+run of matching quoted paragraphs.
 
 **Battery (round 530).**
 
@@ -15048,4 +15048,44 @@ frame shows the first limit's neighbour, not the second (a single quoted paragra
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-5qntla2b`) |
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 capture | — | `shots/324-markdown-nested.png`, `status: passed`, 1040x760 |
+| app bin | — | **21** warnings |
+
+### Round 531 — two quoted paragraphs share one rule
+
+**The gap round 530 recorded.** Native drew one bar per quoted paragraph, each starting *below* its own
+16px top margin, so a two-paragraph quote showed a notch between the bars where the reference's one
+`<blockquote>` has a single continuous `border-left` across all its children
+(`ui-primitives/src/markdown/MarkdownText.module.css:151-156`, `render.tsx:281-289`).
+
+**The change.** `continues_quote(blocks, index)` decides when a quoted paragraph continues the rule
+opened before it — the previous block must be a quoted paragraph with the same container order and
+indent. For a continuation the paragraph draws its rule *taller* by its own top margin and moves its
+text down by that margin inside the rule, and the wrapper's leading gap becomes zero: the element's
+total height is unchanged, so no measurement moved, but the margin now sits inside the bar. The first
+quoted paragraph keeps its margin outside, which is the reference's `blockquote { margin: 16px 0 0 }`.
+
+**The frame caught a real defect first.** The first capture showed the second paragraph clipped to a
+sliver: the wrapper still reserved only `block_height + gap` while the content had grown by the covered
+margin. The wrapper now adds `gap + covered`, and the recapture shows both paragraphs whole.
+
+**Frame.** `shots/325-markdown-quote-run.png` (1040x760, new `markdown-quote-run` preset), rebuilt from
+the committed source: "Before the quote.", then one bar beside a two-line first paragraph and a second
+paragraph — no notch — then "After the quote." back at the left edge. The zoomed crop used to check the
+join shows the bar unbroken.
+
+**Tests.** `only_a_matching_quoted_paragraph_continues_the_rule` (a plain paragraph opens the rule, a
+matching quoted one continues it, a plain successor does not, a different container order or indent is
+a different blockquote, and index 0 has no predecessor).
+
+**Battery (round 531).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1534 passed**, 1 ignored |
+| app, default | **0** | **1478 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-qslpg2r_`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-4tenh9vu`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 capture | — | `shots/325-markdown-quote-run.png`, `status: passed`, 1040x760 |
 | app bin | — | **21** warnings |

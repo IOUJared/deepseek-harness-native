@@ -199,6 +199,7 @@ pub const PRESETS: &[&str] = &[
     "markdown-html",
     "markdown-titled",
     "markdown-nested",
+    "markdown-quote-run",
     "stats-dialog",
     "settings-shortcuts",
     "turn-error",
@@ -309,6 +310,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "markdown-html" => Some((Size::new(1040.0, 760.0), 1.0)),
         "markdown-titled" => Some((Size::new(1040.0, 760.0), 1.0)),
         "markdown-nested" => Some((Size::new(1040.0, 760.0), 1.0)),
+        "markdown-quote-run" => Some((Size::new(1040.0, 760.0), 1.0)),
         "stats-dialog" => Some((Size::new(1040.0, 760.0), 1.0)),
         "settings-shortcuts" => Some((Size::new(1040.0, 900.0), 1.0)),
         "turn-error" | "turn-max-tokens" | "quota-toast" => Some((Size::new(1040.0, 620.0), 1.0)),
@@ -1855,6 +1857,23 @@ pub fn build(
                 "data":{"runId":"PUBLIC-run","seq":2,"label":"PUBLIC write","phase":"write","childId":"PUBLIC-child-two"}}}),
             json!({"type":"event","event":{"type":"tool-workflow/run-end","seq":5,"time":1005,
                 "data":{"runId":"PUBLIC-run","stopReason":"completed"}}}),
+        ]
+    } else if preset == "markdown-quote-run" {
+        // Two quoted paragraphs in one blockquote: the reference's 2px left border runs unbroken
+        // down both, so the frame checks the rule has no notch at the paragraph boundary.
+        vec![
+            json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
+                "surfaceOp":"append","data":{"role":"user","id":"PUBLIC-quote-run-user",
+                    "source":{"kind":"user"},
+                    "content":[{"type":"text","text":"PUBLIC markdown-quote-run fixture · no model request ran."}]}}}),
+            json!({"type":"event","event":{"type":"turn/start","seq":1,"time":1000,
+                "surfaceOp":"append","data":{"turn":1}}}),
+            json!({"type":"event","event":{"type":"assistant/message","seq":2,"time":1001,
+                "surfaceOp":"append","data":{"turn":1,"step":1,
+                    "stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],
+                        "texts":["Before the quote.\n\n> PUBLIC first quoted paragraph, long enough to wrap onto a second line so the rule beside it is taller than one line box.\n>\n> PUBLIC second quoted paragraph.\n\nAfter the quote.\n"]}]}}}),
+            json!({"type":"event","event":{"type":"turn/end","seq":3,"time":1002,
+                "surfaceOp":"append","data":{"turn":1,"reason":{"kind":"completed"}}}}),
         ]
     } else if preset == "markdown-nested" {
         // A quote holding a list, and a list item holding a quote: the two nestings the reference

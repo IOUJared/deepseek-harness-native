@@ -1063,6 +1063,34 @@ pub(crate) fn block_margins(
     }
 }
 /// The collapsed gap between two neighbouring blocks.
+/// Whether one block continues the quote rule opened by the block before it: two adjacent quoted
+/// paragraphs are one `<blockquote>` in the reference, whose left border is continuous across them
+/// (`MarkdownText.module.css:151-156`, `render.tsx:281-289`). The rule is one block's own border, so
+/// the pair must also agree on which container opened first and at what indent.
+fn continues_quote(blocks: &[formatted::Block], index: usize) -> bool {
+    let Some(formatted::Block::Paragraph {
+        quote: true,
+        quote_first,
+        indent,
+        ..
+    }) = blocks.get(index)
+    else {
+        return false;
+    };
+    if index == 0 {
+        return false;
+    }
+    matches!(
+        blocks.get(index - 1),
+        Some(formatted::Block::Paragraph {
+            quote: true,
+            quote_first: previous_first,
+            indent: previous_indent,
+            ..
+        }) if previous_first == quote_first && previous_indent == indent
+    )
+}
+
 pub(crate) fn document_gap(blocks: &[formatted::Block], index: usize, ladder: Ladder) -> f32 {
     if index == 0 {
         return 0.0;
@@ -1338,6 +1366,7 @@ fn document_view(
     // nothing (`MarkdownText.module.css` margins, collapsed by `document_gap`).
     let mut body = Column::new().width(Length::Fill);
     for (index, block) in document.blocks.iter().enumerate() {
+        let continuation = continues_quote(&document.blocks, index);
         let content: Element<'static, Message> = match block {
             formatted::Block::Paragraph {
                 spans,
@@ -1350,13 +1379,21 @@ fn document_view(
                 // puts its rule outside the indents, and a quote inside a list item puts it
                 // after them (`render.tsx:281-289,425-460`).
                 let mut line = row![].spacing(0);
+                // A continuation's rule also covers the margin above it, so the bar reads as one
+                // border down the whole quote.
+                let cover = if continuation {
+                    document_gap(&document.blocks, index, ladder)
+                } else {
+                    0.0
+                };
                 let bar = || {
                     // `MarkdownText.module.css:151-156`: a 2px caption-coloured rule
                     // with 14px of padding after it (8px on the compact ladder). Its
                     // height is the paragraph's own measured height, so the rule spans
                     // exactly the text it marks.
                     let height =
-                        inline_height(spans, width - ladder.quote_inset(), text_size, text_line);
+                        inline_height(spans, width - ladder.quote_inset(), text_size, text_line)
+                            + cover;
                     (
                         container(Space::new().width(design::QUOTE_BAR))
                             .height(height)
@@ -1392,12 +1429,16 @@ fn document_view(
                 {
                     line = line.push(marker_view(marker));
                 }
-                line.push(inline_view(
+                let mut text = Column::new();
+                if cover > 0.0 {
+                    text = text.push(Space::new().height(cover));
+                }
+                line.push(text.push(inline_view(
                     spans,
                     text_size.round() as u32,
                     text_line,
                     query,
-                ))
+                )))
                 .into()
             }
             formatted::Block::Heading { level, spans } => {
@@ -1491,10 +1532,17 @@ fn document_view(
                     .into()
             }
         };
-        let gap = document_gap(&document.blocks, index, ladder);
+        // A continuation drew its own top margin inside the rule: the element is the same total
+        // height, but the margin now belongs to the content instead of the wrapper's leading space.
+        let own_gap = document_gap(&document.blocks, index, ladder);
+        let (gap, covered) = if continuation {
+            (0.0, own_gap)
+        } else {
+            (own_gap, 0.0)
+        };
         body = body.push(
             container(Column::new().push(Space::new().height(gap)).push(content))
-                .height(block_height(block, width, delta, delta_secondary, ladder) + gap)
+                .height(block_height(block, width, delta, delta_secondary, ladder) + gap + covered)
                 .clip(true),
         );
     }
@@ -1849,6 +1897,45 @@ mod tests {
             2.0 * (design::TABLE_PAD_H - design::COMPACT_TABLE_PAD_H)
         );
     }
+    #[test]
+    fn only_a_matching_quoted_paragraph_continues_the_rule() {
+        let quoted = |quote_first: bool, indent: u8| formatted::Block::Paragraph {
+            spans: Vec::new(),
+            indent,
+            marker: None,
+            quote: true,
+            quote_first,
+        };
+        let plain = || formatted::Block::Paragraph {
+            spans: Vec::new(),
+            indent: 0,
+            marker: None,
+            quote: false,
+            quote_first: false,
+        };
+        // Two quoted paragraphs at the same level are one border.
+        let run = vec![plain(), quoted(true, 0), quoted(true, 0), plain()];
+        assert!(
+            !continues_quote(&run, 0),
+            "the first block has no predecessor"
+        );
+        assert!(
+            !continues_quote(&run, 1),
+            "the plain paragraph opens the quote"
+        );
+        assert!(
+            continues_quote(&run, 2),
+            "the second quoted paragraph continues"
+        );
+        assert!(!continues_quote(&run, 3), "a plain paragraph does not");
+        // A different container order or indent is a different blockquote.
+        let mixed = vec![quoted(true, 0), quoted(false, 0), quoted(true, 1)];
+        assert!(!continues_quote(&mixed, 1), "the marker moved sides");
+        assert!(!continues_quote(&mixed, 2), "the indent changed");
+        // A quoted paragraph under a plain one is a fresh rule.
+        assert!(!continues_quote(&[plain(), quoted(true, 0)], 1));
+    }
+
     #[test]
     fn block_margins_follow_the_reference_rhythm() {
         // `MarkdownText.module.css`: `p { margin: 16px 0 }`, `h1`-`h3`
