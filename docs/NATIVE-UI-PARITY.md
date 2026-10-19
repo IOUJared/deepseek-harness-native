@@ -6387,7 +6387,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
 | Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab) |
 | Goals, plan mode, permissions, approvals/questions, jobs, subagents, session log | cloned |
-| Tool rows: one row per call with the folded result, relative path, `+N −N`, and the structured cards — diff, read, terminal, search, web, ask-user | cloned (no per-tool glyphs — the reference's SVGs have no DejaVu equivalent — and no process-group or turn-process fold above the rows) |
+| Tool rows: one row per call with the folded result, relative path, `+N −N`, and the structured cards — diff, read, terminal, search, web, ask-user | cloned (no per-tool glyphs — the reference's SVGs have no DejaVu equivalent — and no process-group fold above the rows: its title composition is landed and tested in `reducer/process_group.rs`, the header itself is the next item) |
 | Model-retry row, command row (a manual `/compact` folded into one marker), turn duration, failure and output-limit rows, card Copy control, created-task (`schedule_create`) card, skill row | cloned (the skill row has no `Inspect` action: native has no right Sidebar to open it in) |
 | Composer usage pill: tokens, cache hit, speed, turn/step counts, and the Host's session-statistics dialog | cloned |
 | Deliverables: summary, file list, diffs, desktop open | cloned (no right-Sidebar review tab) |
@@ -9425,4 +9425,44 @@ No visual change, so no capture: this round's evidence is the new test and the r
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | app bin | — | **20** dead-code warnings (unchanged) |
+| tree | — | clean before the commit |
+
+### Round 393 — the process-group title
+
+The reference does not draw a turn's steps as loose rows: consecutive tool, reasoning and plan
+activity forms one **process group**, and the group's header names what happened by category — the
+top three, no counts: `Searched code, read files, edited files`, `, etc.` appended past three
+(`process-groups.ts:34-45,134-180`, `process-activity.ts:8-23`, `step-process.ts:10-28`).
+
+This round lands that title composition as a tested model, the reading half of the fold:
+
+- `category(name)` maps every tool to the reference's own categories (`read`, `readImage`, `search`,
+  `write`, `edit`, `commands`, `code`, `webSearch`, `webFetch`, `subagents`, `plan`, `questions`,
+  `tools`), including its `functions.` prefix, `terminal_*`, `subagent_*` and `*_inspect` rules.
+- `counts()` ranks by count with **first appearance** breaking ties — the reference's stable sort
+  keeps `Searched code and read files` for a search-then-read group, and my first draft's
+  alphabetical tie-break produced `Read files and searched code`, which the test caught.
+- `title()` reproduces the reference's joins: one label alone, two as `A and b`, three or more with
+  commas only (there is no Oxford `and` — my first expectation was wrong here too), plus `, etc.`.
+
+The header row itself is deliberately not drawn yet: it collapses group members in the reference, so
+it changes every capture's rhythm and deserves its own round with the seat geometry. The coverage
+table now says exactly that instead of naming the whole fold missing.
+
+Tests: three in `process_group` — the full category table over 23 names, five title shapes, and the
+rank/tie ordering.
+
+**Battery (round 393).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1383 passed**, 1 ignored |
+| app, default | **0** | 1367 passed, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| app bin | — | **27** dead-code warnings (24 before this feature module, which is not yet drawn) |
 | tree | — | clean before the commit |

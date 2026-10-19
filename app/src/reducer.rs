@@ -18,6 +18,9 @@ pub mod command_row;
 /// this module root; a crate-root declaration would have to be repeated in each of them.
 #[path = "inline_diff.rs"]
 pub mod inline_diff;
+/// Chat's process-group titles for a run of step activity.
+#[path = "process_group.rs"]
+pub mod process_group;
 /// The reference's line-numbered `read` card. Declared beside `inline_diff`, for the same reason:
 /// every example that embeds this module root then sees it.
 #[path = "read_card.rs"]
