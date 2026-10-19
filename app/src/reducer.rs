@@ -532,8 +532,23 @@ impl Transcript {
     /// One settled turn's duration, from its recorded `turn/start` and `turn/end`
     /// (`TurnProcessNodeView.tsx:26-27`). `None` for a turn that has not ended, or that ended
     /// cancelled or failed.
+    ///
+    /// The view no longer reads this: a settled turn's duration is part of its process control
+    /// (`turn_control`). The fixture keeps it as the reading that control's label is checked
+    /// against, so it is built only where that check exists.
+    #[cfg(any(test, feature = "public-layout-fixture"))]
     pub fn turn_duration(&self, turn: u64) -> Option<turn_tail::Duration> {
         turn_tail::duration(
+            turn,
+            self.records
+                .values()
+                .map(|event| (event.event_type.as_str(), event.time, &event.data)),
+        )
+    }
+    /// One settled turn's process control label, or `None` while the turn is open
+    /// (`TurnProcessNodeView.tsx:19-33`).
+    pub fn turn_control(&self, turn: u64) -> Option<turn_tail::Control> {
+        turn_tail::control(
             turn,
             self.records
                 .values()

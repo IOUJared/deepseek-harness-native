@@ -12,12 +12,22 @@ pub struct Duration {
     pub seconds: u64,
 }
 
-/// Find the recorded start and end time of one turn and state its duration, when it settled
-/// cleanly. Scans the retained records; the caller runs this once per assistant row.
-pub fn duration<'a>(
+/// One closed turn's process control: the label the reference states above the turn's process
+/// content, and whether that content is always visible (`TurnProcessNodeView.tsx:19-33`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Control {
+    pub label: String,
+    /// A stopped or failed turn's process is never hidden (`turn-process.ts:70-75`,
+    /// `ChatGroupSeat.tsx:146-147`).
+    pub always_open: bool,
+}
+
+/// Read one turn's recorded start, end and end reason. Scans the retained records; the caller
+/// runs this once per turn.
+fn span<'a>(
     turn: u64,
     records: impl Iterator<Item = (&'a str, i64, &'a Value)>,
-) -> Option<Duration> {
+) -> (Option<i64>, Option<i64>, Option<String>) {
     let mut start = None;
     let mut end = None;
     let mut reason = None;
@@ -34,13 +44,53 @@ pub fn duration<'a>(
             _ => {}
         }
     }
+    (start, end, reason)
+}
+
+fn elapsed(start: i64, end: i64) -> Duration {
+    Duration {
+        seconds: ((end - start).max(1_000) / 1_000) as u64,
+    }
+}
+
+/// Find the recorded start and end time of one turn and state its duration, when it settled
+/// cleanly. Scans the retained records. The view states the duration through the process
+/// control (`control`); this stays as that label's test and fixture oracle.
+#[cfg(any(test, feature = "public-layout-fixture"))]
+pub fn duration<'a>(
+    turn: u64,
+    records: impl Iterator<Item = (&'a str, i64, &'a Value)>,
+) -> Option<Duration> {
+    let (start, end, reason) = span(turn, records);
     let (start, end) = (start?, end?);
     if matches!(reason.as_deref(), Some("aborted" | "error")) {
         return None;
     }
-    let elapsed_ms = (end - start).max(1_000);
-    Some(Duration {
-        seconds: (elapsed_ms / 1_000) as u64,
+    Some(elapsed(start, end))
+}
+
+/// One settled turn's process control, from its recorded end. `None` while the turn is still
+/// open — the reference draws no control for a live turn (`TurnProcessNodeView.tsx:24`).
+pub fn control<'a>(
+    turn: u64,
+    records: impl Iterator<Item = (&'a str, i64, &'a Value)>,
+) -> Option<Control> {
+    let (start, end, reason) = span(turn, records);
+    let end = end?;
+    let duration = start.map(|start| elapsed(start, end));
+    Some(match reason.as_deref() {
+        Some("aborted") => Control {
+            label: "Stopped".into(),
+            always_open: true,
+        },
+        Some("error") => Control {
+            label: "Failed".into(),
+            always_open: true,
+        },
+        _ => Control {
+            label: label(duration),
+            always_open: false,
+        },
     })
 }
 
@@ -84,6 +134,37 @@ mod tests {
         records
             .iter()
             .map(|(kind, time, data)| (kind.as_str(), *time, data))
+    }
+
+    #[test]
+    fn a_stopped_or_failed_turn_states_a_control_that_never_folds() {
+        let stopped = vec![
+            record("turn/start", 1, 1_000, None),
+            record("turn/end", 1, 61_000, Some("aborted")),
+        ];
+        let stated = control(1, scan(&stopped)).expect("a closed turn states a control");
+        assert_eq!(stated.label, "Stopped");
+        assert!(
+            stated.always_open,
+            "a stopped turn's process is never hidden"
+        );
+        let failed = vec![
+            record("turn/start", 1, 1_000, None),
+            record("turn/end", 1, 2_000, Some("error")),
+        ];
+        let stated = control(1, scan(&failed)).expect("a closed turn states a control");
+        assert_eq!(stated.label, "Failed");
+        assert!(stated.always_open);
+        // A clean turn states its elapsed time and folds.
+        let clean = vec![
+            record("turn/start", 1, 1_000, None),
+            record("turn/end", 1, 61_000, Some("completed")),
+        ];
+        let stated = control(1, scan(&clean)).expect("a closed turn states a control");
+        assert_eq!(stated.label, "Completed in 1m 0s");
+        assert!(!stated.always_open);
+        // A live turn has no control at all (`TurnProcessNodeView.tsx:24`).
+        assert!(control(1, scan(&[record("turn/start", 1, 1_000, None)])).is_none());
     }
 
     #[test]

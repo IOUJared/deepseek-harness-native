@@ -14159,3 +14159,66 @@ reference leads with a 16px activity glyph that swaps to a chevron on hover.
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 captures | — | `shots/304-seat-folded-live.png`, `shots/305-seat-opened.png`, both `status: passed` |
 | app bin | — | **21** warnings |
+
+### Round 513 — a settled turn folds its whole process behind one control
+
+**The gap.** Round 512 closed the seat's own disclosure and named what was left: "the reference's
+*outer* turn fold has no native counterpart". A completed turn's process content is hidden behind one
+turn-level control in the reference — `ChatGroupSeat.tsx:152-153` hides a seat whose turn is closed and
+whose recorded answer step does not match, and `TurnProcessNodeView.tsx:19-33` states the control line
+above it. Native had no turn-level layer at all: a settled turn showed its seat header and nothing
+above it.
+
+**What the reference's control is.** One button line: `height: calc(33px + delta)`,
+`padding: 0 0 8px`, a `0.5px` bottom rule, tertiary ink, a 24px label line and a chevron that rotates
+when open (`TurnProcessNodeView.module.css:1-13`). Its label is `Completed in 2m 3s` (`took` +
+duration), the bare `Completed` (`worked`), `Stopped` (`message.stopped`) or `Failed`
+(`message.turnProcess.failed`) — and a stopped or failed turn's process is never hidden
+(`turn-process.ts:70-75`, `ChatGroupSeat.tsx:146-147`). A live turn has no control
+(`TurnProcessNodeView.tsx:24`).
+
+**The change.** `turn_tail::control(turn, records)` returns that label with an `always_open` flag, from
+the turn's recorded end (one scan, reused by `turn_tail::duration`, which is now the test/fixture
+oracle for the same label). `App::turn_folds` groups a settled turn's rows — everything after its
+input except the turn's final Assistant row, its notice and its trigger — and
+`chat_geometry::turn_control_height` is the 33px box (24 line + the 8px gap + a 1px hairline).
+Closed, the fold reserves that box at the first process row and `0` for every row it hides; opened,
+the control stays above the process it opened (`TurnProcessNodeView` draws the button in both states)
+and the seat keeps its own fold beneath it. `App.turn_process_open` holds the reader's choice, cleared
+on session switch, and `Message::ToggleTurnProcess` flips it. The action row no longer states the
+duration: the control owns that fact now, as `TurnProcessNodeView` does.
+
+**Frames** (1040×760). `shots/306-turn-folded.png` (`process-group-closed`): the user bubble, the
+clock, one `Completed ▾` line with its hairline, then the answer — the three tool rows hidden.
+`shots/307-turn-opened.png` (`process-group-open`, a new preset that seeds the one click): the control
+`Completed ▴` with its rule, then the seat's folded line `▼ Read files, edited files, ran commands`,
+then the answer.
+
+**Measured.** In the opened frame the label ink sits at y 259..272, the hairline at 288..289 and the
+seat line at 292..304: 24px label line + 8px gap + the rule, with the seat immediately below, which is
+the reference's own box arithmetic. A folded turn's whole process measures one 33px row.
+
+**Tests.** `turn_tail::a_stopped_or_failed_turn_states_a_control_that_never_folds` (Stopped / Failed /
+`Completed in 1m 0s` / no control for a live turn) and
+`ui::tests::a_settled_turn_folds_its_process_behind_one_control_line` — the closed fold reserves the
+control at its first row and 0 for the three members, the answer row keeps its whole height; the press
+opens it, the control stays (`flow + control + seat`), the later members wait behind the seat's own
+fold, and opening the seat reveals them.
+
+**Recorded, not built.** The reference's `turn-process` flow rung is **16px** on both sides
+(`ChatView.module.css:88-95`), where native uses the ordinary ladder (6 above the control's row, 12
+after it). The control's label also carries no `data-turn-process-*` counts in native (message, tool
+and subagent counts), and the chevron is a text glyph rather than a rotating 14px icon.
+
+**Battery (round 513).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1503 passed**, 1 ignored |
+| app, default | **0** | **1457 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-aektiigq`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-rs_0b033`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 captures | — | `shots/306-turn-folded.png`, `shots/307-turn-opened.png`, both `status: passed` |
+| app bin | — | **21** warnings |

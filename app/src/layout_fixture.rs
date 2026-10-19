@@ -176,6 +176,7 @@ pub const PRESETS: &[&str] = &[
     "tool-activity-trajectory",
     "tool-activity-terminal-search",
     "process-group-closed",
+    "process-group-open",
     "tool-activity-attachment",
     "tool-activity-edit-error",
     "tool-activity-diff",
@@ -295,7 +296,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "schedule-create" => Some((Size::new(1040.0, 700.0), 1.0)),
         "skill-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "command-row" => Some((Size::new(1040.0, 700.0), 1.0)),
-        "process-group-closed" => Some((Size::new(1040.0, 760.0), 1.0)),
+        "process-group-closed" | "process-group-open" => Some((Size::new(1040.0, 760.0), 1.0)),
         "manual-compaction" => Some((Size::new(1040.0, 620.0), 1.0)),
         "chat-density" => Some((Size::new(1040.0, 1000.0), 1.0)),
         "tool-activity-narrow" => Some((Size::new(760.0, 840.0), 1.0)),
@@ -1632,8 +1633,8 @@ pub fn build(
         vec![
             json!({"type":"event","event":{"type":"assistant/message","seq":0,"time":1001,"surfaceOp":"append","data":{"turn":1,"step":1,"stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],"texts":[source]}]}}}),
         ]
-    } else if preset == "process-group-closed" {
-        // The same three recorded calls, with a turn end so the group is settled.
+    } else if preset.starts_with("process-group") {
+        // The same three recorded calls, with a turn end so the turn and its group are settled.
         let mut records = public_tool_records();
         let seq = records.len() as u64;
         records.push(
@@ -2563,6 +2564,11 @@ pub fn build(
     }
     if preset == "collapsed-wide" {
         app.sidebar_expanded = false;
+    }
+    if preset == "process-group-open" {
+        // The turn's control is folded until the reader opens it, so the opened turn needs its
+        // own state: one click's worth, set before the frame rather than pressed during it.
+        app.turn_process_open.insert(1);
     }
     if preset == "tool-activity-open" {
         // A seat is folded until the reader opens it, so the expanded state needs its own

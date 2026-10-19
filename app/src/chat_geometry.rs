@@ -86,6 +86,13 @@ pub(crate) fn seat_height(delta: f32) -> f32 {
 /// expanded title takes `padding-bottom: 8px` (`ChatGroupSeat.module.css:82-84`). A
 /// collapsed header has none.
 pub(crate) const SEAT_TITLE_GAP: f32 = 8.0;
+/// A settled turn's process control: the reference draws the line at
+/// `height: calc(33px + var(--dsh-content-font-delta))` with `padding: 0 0 8px` and a 0.5px
+/// bottom rule over the 24px label line (`TurnProcessNodeView.module.css:1-13`), so the line,
+/// its 8px gap and a hairline add up to that height.
+pub(crate) fn turn_control_height(delta: f32) -> f32 {
+    crate::design::LINE_BODY + delta + SEAT_TITLE_GAP + 1.0
+}
 /// Whole lines a collapsed reply previews; the body cap is this many line boxes.
 const PREVIEW_LINES: f32 = 4.0;
 /// The vertical gap the expanded tool body sits below its compact line. The view

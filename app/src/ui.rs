@@ -499,6 +499,11 @@ pub enum Message {
         generation: u64,
         key: u64,
     },
+    /// Open or fold a settled turn's whole process behind its control line.
+    ToggleTurnProcess {
+        generation: u64,
+        turn: u64,
+    },
     ToggleActivity {
         generation: u64,
         key: u64,
@@ -1171,6 +1176,22 @@ struct Seat {
     open: bool,
 }
 
+/// One settled turn's process fold: the control line the reference states above a closed turn's
+/// process content, the rows that content occupies, and whether the reader opened it
+/// (`TurnProcessNodeView.tsx:19-33`, `ChatGroupSeat.tsx:152-153`).
+struct TurnFold {
+    turn: u64,
+    /// The row the control line is drawn at: the turn's first process row.
+    first: usize,
+    /// Every row the closed fold hides.
+    members: Vec<usize>,
+    label: String,
+    /// False for a stopped or failed turn, whose process is never hidden
+    /// (`turn-process.ts:70-75`).
+    collapsible: bool,
+    open: bool,
+}
+
 pub struct App {
     pub options: Options,
     handle: Handle,
@@ -1559,6 +1580,10 @@ pub struct App {
     /// with no entry follows the reference's default: open while its turn runs, closed once it
     /// settles (`process-groups.ts:134-180`).
     process_group_open: std::collections::BTreeMap<u64, bool>,
+    /// Settled turns whose whole process the reader has opened, by turn number. A settled turn
+    /// with no entry is folded behind its control line, as the reference's completed-turn fold
+    /// is (`ChatGroupSeat.tsx:152-153`, `TurnProcessNodeView.tsx:20-33`).
+    turn_process_open: std::collections::BTreeSet<u64>,
     edit_review: Option<(u64, u64, u64)>,
     search_open: bool,
     search_query: String,
@@ -1889,6 +1914,7 @@ impl App {
                 thoughts_expanded: Default::default(),
                 activity_expanded: Default::default(),
                 process_group_open: Default::default(),
+                turn_process_open: Default::default(),
                 edit_review: None,
                 search_open: false,
                 search_query: String::new(),
@@ -3005,6 +3031,9 @@ impl App {
         self.activity_expanded.clear();
         // A group's key is a record seq, so a stale flag would close the new session's same row.
         self.process_group_open.clear();
+        // A turn number restarts at 1 in every session, so an open turn here would open the new
+        // session's first turn.
+        self.turn_process_open.clear();
         // The usage disclosure is keyed by record seq, which is not unique across sessions, so a
         // seq that was open here would open the new session's same-numbered row.
         self.usage_expanded.clear();
@@ -5624,6 +5653,13 @@ impl App {
                 // so the first click opens it (`use-disclosure.ts` starts collapsed).
                 let open = self.process_group_open.entry(key).or_insert(false);
                 *open = !*open;
+            }
+            Message::ToggleTurnProcess { generation, turn }
+                if generation == self.generation && self.composer_visible() =>
+            {
+                if !self.turn_process_open.remove(&turn) {
+                    self.turn_process_open.insert(turn);
+                }
             }
             Message::ToggleActivity { generation, key }
                 if generation == self.generation && self.composer_visible() =>
@@ -14975,6 +15011,110 @@ impl App {
         }
         geometry
     }
+    /// The settled turns whose process folds behind a control line, keyed by turn, with the rows
+    /// each one hides while it is closed.
+    ///
+    /// The reference draws one control above a closed turn's process range and hides that range
+    /// while the fold is closed (`ChatGroupSeat.tsx:152-153`); the range holds everything the turn
+    /// recorded after its input except its final answer, and a stopped or failed turn is never
+    /// hidden (`turn-process.ts:70-75`). Native's rows state the same thing: a turn's rows after
+    /// its input, without the last Assistant row, the turn's notice and its trigger.
+    fn turn_folds(&self, rows: &[&DisplayRow]) -> std::collections::BTreeMap<u64, TurnFold> {
+        if self.records_expanded {
+            return Default::default();
+        }
+        let mut last_answer = std::collections::BTreeMap::new();
+        for (index, row) in rows.iter().enumerate() {
+            if row.role.starts_with("Assistant")
+                && let Some(turn) = row.turn
+            {
+                last_answer.insert(turn, index);
+            }
+        }
+        let mut controls: std::collections::BTreeMap<
+            u64,
+            Option<crate::reducer::turn_tail::Control>,
+        > = Default::default();
+        let mut folds: std::collections::BTreeMap<u64, TurnFold> = Default::default();
+        for (index, row) in rows.iter().enumerate() {
+            let Some(turn) = row.turn else {
+                continue;
+            };
+            if row.role == "You"
+                || row.trigger.is_some()
+                || self.transcript.turn_notice(row.key)
+                || row.role.starts_with("Assistant") && last_answer.get(&turn) == Some(&index)
+            {
+                continue;
+            }
+            let control = controls
+                .entry(turn)
+                .or_insert_with(|| self.transcript.turn_control(turn))
+                .clone();
+            let Some(control) = control else {
+                continue;
+            };
+            let open = control.always_open || self.turn_process_open.contains(&turn);
+            folds
+                .entry(turn)
+                .and_modify(|fold| fold.members.push(index))
+                .or_insert(TurnFold {
+                    turn,
+                    first: index,
+                    members: vec![index],
+                    label: control.label,
+                    collapsible: !control.always_open,
+                    open,
+                });
+        }
+        folds
+    }
+    /// The rows a closed turn fold hides, resolved to their turn.
+    fn folded_rows(
+        &self,
+        folds: &std::collections::BTreeMap<u64, TurnFold>,
+    ) -> std::collections::BTreeMap<usize, u64> {
+        folds
+            .iter()
+            .filter(|(_, fold)| !fold.open)
+            .flat_map(|(turn, fold)| fold.members.iter().map(move |index| (*index, *turn)))
+            .collect()
+    }
+    /// The settled turn's control line: the reference's label, tertiary ink, with the chevron
+    /// that states the fold and a hairline under the box (`TurnProcessNodeView.module.css:1-13`).
+    fn turn_control(&self, fold: &TurnFold) -> Element<'static, Message> {
+        let delta = self.content_delta();
+        let mut text = fold.label.clone();
+        if fold.collapsible {
+            text.push_str(if fold.open { " \u{25b4}" } else { " \u{25be}" });
+        }
+        let line = container(
+            button(label(text, MUTED).size(14))
+                .on_press_maybe(fold.collapsible.then_some(Message::ToggleTurnProcess {
+                    generation: self.generation,
+                    turn: fold.turn,
+                }))
+                .style(design::ghost)
+                .padding([0, 0])
+                .width(Length::Fill),
+        )
+        .height(design::LINE_BODY + delta)
+        .width(Length::Fill);
+        let rule = container(Space::new().height(1.0))
+            .width(Length::Fill)
+            .style(|_| container::Style {
+                background: Some(design::LINE.into()),
+                ..Default::default()
+            });
+        column![
+            line,
+            Space::new().height(chat_geometry::SEAT_TITLE_GAP),
+            rule
+        ]
+        .height(chat_geometry::turn_control_height(delta))
+        .width(Length::Fill)
+        .into()
+    }
     /// The process-group seats for a slice of rendered rows: the index of each group's first row and
     /// the title its seat states. Only Chat groups; Trajectory lists every record on its own.
     fn process_seats(&self, rows: &[&DisplayRow]) -> std::collections::BTreeMap<usize, Seat> {
@@ -15109,10 +15249,36 @@ impl App {
                 .chain(std::iter::once(u64::MAX)),
         );
         let seats = self.process_seats(rows);
+        let folds = self.turn_folds(rows);
+        let folded = self.folded_rows(&folds);
         rows.iter()
             .enumerate()
             .map(|(index, row)| {
                 let mut geometry = self.row_geometry(row, lane);
+                // A closed turn's process is one control line at its first row and nothing else;
+                // the control box carries the flow margin the row would have taken.
+                if let Some(turn) = folded.get(&index) {
+                    let fold = &folds[turn];
+                    let height = if fold.first == index {
+                        flow_gap_before(rows, index)
+                            + chat_geometry::turn_control_height(self.content_delta())
+                    } else {
+                        0.0
+                    };
+                    return chat_geometry::Geometry {
+                        width: geometry.width,
+                        body_height: 0.0,
+                        height,
+                    };
+                }
+                // An open turn still states its control above the process it opened
+                // (`TurnProcessNodeView.tsx` draws the button in both states), so the row that
+                // holds the control also reserves it, whether its seat is open or folded.
+                let control = if folds.values().any(|fold| fold.open && fold.first == index) {
+                    chat_geometry::turn_control_height(self.content_delta())
+                } else {
+                    0.0
+                };
                 if seats
                     .values()
                     .any(|seat| !seat.open && seat.members.contains(&index))
@@ -15123,6 +15289,7 @@ impl App {
                     // from shifting the rows below it by the seat's own height.
                     let height = if seats.contains_key(&index) {
                         flow_gap_before(rows, index)
+                            + control
                             + chat_geometry::seat_height(self.content_delta())
                     } else {
                         0.0
@@ -15137,7 +15304,8 @@ impl App {
                     // The seat is drawn inside this row's box, so the row reserves the
                     // header line it actually draws (`chat_geometry::seat_height`) and the
                     // gap an expanded title keeps under itself (`ChatGroupSeat.module.css:82-84`).
-                    geometry.height += chat_geometry::seat_height(self.content_delta())
+                    geometry.height += control
+                        + chat_geometry::seat_height(self.content_delta())
                         + chat_geometry::SEAT_TITLE_GAP;
                 }
                 // A row's height arrives carrying its own 12px of symmetric
@@ -16144,8 +16312,30 @@ impl App {
             .push(Space::new().height(heights[..range.start].iter().sum::<f32>()))
             .width(Length::Fill);
         let seats = self.process_seats(&rendered);
+        let folds = self.turn_folds(&rendered);
+        let folded = self.folded_rows(&folds);
         for index in range.clone() {
             let record = rendered[index];
+            // An open turn keeps its control line in the first member's box.
+            let turn_control: Option<Element<'_, Message>> = folds
+                .values()
+                .find(|fold| fold.open && fold.first == index)
+                .map(|fold| self.turn_control(fold));
+            // A closed turn's process draws its control line where its first process row sits,
+            // and nothing at all for the rows the fold hides.
+            if let Some(turn) = folded.get(&index) {
+                let fold = &folds[turn];
+                if fold.first == index {
+                    contents = contents.push(
+                        container(self.turn_control(fold))
+                            .padding([flow_gap_before(&rendered, index), 0.0])
+                            .height(geometries[index].height)
+                            .width(Length::Fill)
+                            .clip(true),
+                    );
+                }
+                continue;
+            }
             // A closed group draws only its seat, at its first member's place; every
             // other member draws nothing and reserves nothing.
             if seats
@@ -16156,8 +16346,13 @@ impl App {
                 // margin above it and its own 24px line, so the projection and the drawn
                 // Column agree row for row.
                 if let Some(seat) = seats.get(&index) {
+                    let mut stack = Column::new().width(Length::Fill);
+                    if let Some(control) = turn_control {
+                        stack = stack.push(control);
+                    }
+                    stack = stack.push(self.process_seat(seat));
                     contents = contents.push(
-                        container(self.process_seat(seat))
+                        container(stack)
                             .padding([flow_gap_before(&rendered, index), 0.0])
                             .height(geometries[index].height)
                             .width(Length::Fill)
@@ -16679,19 +16874,8 @@ impl App {
                                 }),
                             );
                     }
-                    // The reference's closed turn states its duration above the turn's process
-                    // content (`TurnProcessNodeView.tsx:20-33`: `Completed in 2m 3s`, or the bare
-                    // `Completed`; a cancelled or failed turn states neither). Native has no
-                    // process disclosure yet, so the same fact rides the settled reply's own
-                    // action row, before the clock.
-                    if !human
-                        && let Some(turn) = record.turn
-                        && let Some(duration) = self.transcript.turn_duration(turn)
-                    {
-                        footer = footer.push(
-                            label(crate::reducer::turn_tail::label(Some(duration)), MUTED).size(10),
-                        );
-                    }
+                    // A settled turn's duration is stated by its process control, above the
+                    // process content (`TurnProcessNodeView.tsx:20-33`), not by this action row.
                     // The reference's row orders the copy mark, then the feedback pair, then the
                     // branch control (`MessageIconActions.tsx:85-91`).
                     // (`TurnTailNodeView.tsx:69` forks at `data.seq`). Native's reply
@@ -17004,16 +17188,20 @@ impl App {
             // holds the header and the member rows together (`ChatGroupSeat.tsx:173-186`).
             // Drawn as a sibling instead, the header's reserved line stayed behind in this
             // row as an empty 24px band under the first tool line (round 511).
-            let body: Element<'_, Message> = match seats.get(&index) {
-                Some(seat) => column![
-                    self.process_seat(seat),
-                    Space::new().height(chat_geometry::SEAT_TITLE_GAP),
-                    bubble
-                ]
-                .align_x(align)
-                .width(Length::Fill)
-                .into(),
-                None => bubble.into(),
+            let body: Element<'_, Message> = if turn_control.is_some() || seats.contains_key(&index)
+            {
+                let mut stack = Column::new().align_x(align).width(Length::Fill);
+                if let Some(control) = turn_control {
+                    stack = stack.push(control);
+                }
+                if let Some(seat) = seats.get(&index) {
+                    stack = stack
+                        .push(self.process_seat(seat))
+                        .push(Space::new().height(chat_geometry::SEAT_TITLE_GAP));
+                }
+                stack.push(bubble).into()
+            } else {
+                bubble.into()
             };
             let outer = container(body)
                 .align_x(align)
@@ -22648,6 +22836,83 @@ mod tests {
             opened[second].height,
             flow_gap_before(&refs, second) + opened[second].body_height
         );
+    }
+
+    #[cfg(feature = "public-layout-fixture")]
+    #[test]
+    fn a_settled_turn_folds_its_process_behind_one_control_line() {
+        use layout_fixture;
+        let size = iced::Size::new(1040.0, 760.0);
+        let (mut app, _receiver) = layout_fixture::build(
+            layout_fixture::test_options(),
+            "process-group-closed",
+            size,
+            None,
+        );
+        let (first, members, answer) = {
+            let rows: Vec<&DisplayRow> = app.transcript.display_rows(false).collect();
+            let refs = rows.clone();
+            let folds = app.turn_folds(&refs);
+            let fold = folds.get(&1).expect("the settled turn states a control");
+            // The reference draws one control above a closed turn's process and hides that
+            // process while the fold is shut (`ChatGroupSeat.tsx:152-153`).
+            assert!(!fold.open, "a completed turn starts folded");
+            assert!(fold.collapsible, "a clean turn's process folds");
+            assert_eq!(fold.label, "Completed");
+            let answer = refs
+                .iter()
+                .position(|row| row.role.starts_with("Assistant"))
+                .expect("the turn's answer row");
+            let heights = app.row_geometries(&refs);
+            assert_eq!(
+                heights[fold.first].height,
+                flow_gap_before(&refs, fold.first)
+                    + chat_geometry::turn_control_height(app.content_delta())
+            );
+            for member in fold.members.iter().filter(|member| **member != fold.first) {
+                assert_eq!(heights[*member].height, 0.0, "member {member}");
+            }
+            // The answer below the fold keeps its whole row.
+            assert!(
+                heights[answer].height > chat_geometry::turn_control_height(app.content_delta())
+            );
+            (fold.first, fold.members.clone(), answer)
+        };
+        let _ = answer;
+        // Opening the turn brings its process back, and every seat keeps its own fold.
+        drop(app.update(Message::ToggleTurnProcess {
+            generation: app.generation,
+            turn: 1,
+        }));
+        let rows: Vec<&DisplayRow> = app.transcript.display_rows(false).collect();
+        let refs = rows.clone();
+        let folds = app.turn_folds(&refs);
+        assert!(folds[&1].open, "the press opens the turn's process");
+        let heights = app.row_geometries(&refs);
+        // The turn is open, but its seat keeps its own fold (round 512): the first process row
+        // holds the seat's line and the later members wait behind it.
+        assert_eq!(
+            heights[first].height,
+            flow_gap_before(&refs, first)
+                + chat_geometry::turn_control_height(app.content_delta())
+                + chat_geometry::seat_height(app.content_delta()),
+            "the control stays above the seat's own line"
+        );
+        for member in members.iter().filter(|member| **member != first) {
+            assert_eq!(heights[*member].height, 0.0, "member {member}");
+        }
+        // Opening the seat as well reveals every member of the turn.
+        let seat_key = app
+            .process_seats(&refs)
+            .values()
+            .next()
+            .expect("the turn's seat")
+            .key;
+        app.process_group_open.insert(seat_key, true);
+        let heights = app.row_geometries(&refs);
+        for member in &members {
+            assert!(heights[*member].height > 0.0, "member {member}");
+        }
     }
 
     #[cfg(feature = "public-layout-fixture")]
