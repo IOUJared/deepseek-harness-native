@@ -11259,3 +11259,42 @@ the header's laid-out children instead of a screenshot.
 | capture | — | none: the crumb is constructed but not laid out visibly |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 442 — the jobs panel is finally visible, and why it never was
+
+Three rounds recorded "no frame" for the jobs panel. The cause was not the panel, the header or the
+layout: it was where the preset's seed ran. The `jobs-panel` block had been inserted inside the
+**settings** arm of `build`'s preset match, so for a conversation preset it never executed at all —
+`header_crumbs` saw `jobs = 0` and drew only the title. A temporary `eprintln!` in `header_crumbs`
+settled it in one run (`jobs=0` for a plain conversation, `jobs=4` once the seed moved to the end of
+`build`), which is the check that should have come before the third capture attempt rather than after
+it.
+
+With the seed last, the frame shows what the earlier rounds' code produces: the header crumb
+`2 background jobs running`, the panel's `Running` section with the shell job expanded to its output,
+`Build the release binary` mid-stop, the `Finished 2` section with `Search for parity notes` and
+`Lint the app crate` (red), the armed `Stop task Run the test suite` / `Click again to confirm`
+confirmation — and, from round 438, a stop control on the **running** row only.
+
+**The frame is visually verified but its report is not `status: passed`**, and it is not archived as
+such: `expectedControlCountsMatch` is false because the report's control expectations are read from
+per-preset metadata this new preset does not yet emit. Making that metadata describe a jobs panel is
+the first task of the next round; until then the byte evidence lives in
+`app/evidence/jobs-panel-frame-2026-10-19/` with its report beside it, labelled by what it actually
+proves.
+
+**Battery (round 442).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1434 passed**, 1 ignored |
+| app, default | **0** | **1411 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | frame saved, report `passed: false` (control expectations) |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
