@@ -122,7 +122,7 @@ the path stays display-only unless that difference is revisited. The remaining m
 is the **inline diff body**, which the reference's `DiffBlock` defines.
 
 **E. When `reference.png` appears, run the visual diff.** The native side is already captured at the
-reference's exact size (`shots/157-chat-reference-size.png`, 1980×1319) and the measured native rects
+reference's exact size (`shots/171-chat-reference-size-folded.png`, 1980×1319) and the measured native rects
 and comparison order are in
 `docs/NATIVE-CHAT-GEOMETRY.md#reference-comparison-at-19801319-blocked-on-the-file`. Compare, fix the
 concrete gaps, capture each fix, record the deltas.
