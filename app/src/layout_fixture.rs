@@ -134,6 +134,7 @@ pub const PRESETS: &[&str] = &[
     "tool-activity-tiny",
     "tool-activity-details",
     "tool-activity-expanded",
+    "process-group-closed",
     "tool-activity-attachment",
     "tool-activity-edit-error",
     "tool-activity-diff",
@@ -240,6 +241,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "schedule-create" => Some((Size::new(1040.0, 700.0), 1.0)),
         "skill-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "command-row" => Some((Size::new(1040.0, 700.0), 1.0)),
+        "process-group-closed" => Some((Size::new(1040.0, 760.0), 1.0)),
         "manual-compaction" => Some((Size::new(1040.0, 620.0), 1.0)),
         "chat-density" => Some((Size::new(1040.0, 1000.0), 1.0)),
         "tool-activity-narrow" => Some((Size::new(760.0, 840.0), 1.0)),
@@ -1514,6 +1516,15 @@ pub fn build(
         vec![
             json!({"type":"event","event":{"type":"assistant/message","seq":0,"time":1001,"surfaceOp":"append","data":{"turn":1,"step":1,"stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],"texts":[source]}]}}}),
         ]
+    } else if preset == "process-group-closed" {
+        // The same three recorded calls, with a turn end so the group is settled.
+        let mut records = public_tool_records();
+        let seq = records.len() as u64;
+        records.push(
+            json!({"type":"event","event":{"type":"turn/end","seq":seq,"time":1000+seq,
+            "surfaceOp":"append","data":{"turn":1,"reason":{"kind":"completed"}}}}),
+        );
+        records
     } else if preset == "tool-activity-attachment" {
         public_tool_records_with(Some("PUBLIC-note.txt"))
     } else if preset == "tool-activity-edit-error" {
@@ -2409,6 +2420,48 @@ pub fn build(
                     .as_deref(),
                 Some("Retry delay: 4s\nFailure reason: PUBLIC upstream unavailable · synthetic")
             );
+        }
+        "process-group-closed" => {
+            let rows: Vec<_> = app.transcript.display_rows(false).collect();
+            let seats = app.process_seats(&rows);
+            assert_eq!(seats.len(), 1);
+            let seat = seats.values().next().unwrap();
+            assert!(!seat.open, "a settled turn's group starts closed");
+            assert_eq!(seat.title, "Read files, edited files, ran commands");
+        }
+        "tool-activity" => {
+            // A settled turn's group is closed; the seat states the title and its members are not
+            // drawn until the disclosure is clicked.
+            let (key, title, open) = {
+                let rows: Vec<_> = app.transcript.display_rows(false).collect();
+                let seats = app.process_seats(&rows);
+                assert_eq!(seats.len(), 1, "one group over the three tool rows");
+                let seat = seats.values().next().unwrap();
+                (seat.key, seat.title.clone(), seat.open)
+            };
+            // The preset records no turn end, so the turn is still running and its group is open —
+            // the reference's own default for a live group.
+            assert!(open, "a running turn's group starts open");
+            assert_eq!(title, "Read files, edited files, ran commands");
+            let settled_rows: Vec<_> = app.transcript.display_rows(false).collect();
+            let settled = app.process_seats(&settled_rows);
+            assert_eq!(
+                settled.keys().copied().collect::<Vec<_>>(),
+                vec![
+                    settled_rows
+                        .iter()
+                        .position(|row| row.role == "Tool call")
+                        .unwrap()
+                ]
+            );
+            // Clicking the seat closes it, which hides its members.
+            drop(app.update(Message::ToggleProcessGroup {
+                generation: app.generation,
+                key,
+            }));
+            let rows: Vec<_> = app.transcript.display_rows(false).collect();
+            let seats = app.process_seats(&rows);
+            assert!(!seats.values().next().unwrap().open, "the click closes it");
         }
         "manual-compaction" => {
             // One marker, stating the counts the compaction summary recorded.

@@ -6387,7 +6387,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
 | Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab) |
 | Goals, plan mode, permissions, approvals/questions, jobs, subagents, session log | cloned |
-| Tool rows: one row per call with the folded result, relative path, `+N −N`, and the structured cards — diff, read, terminal, search, web, ask-user | cloned (no per-tool glyphs — the reference's SVGs have no DejaVu equivalent); a process-group seat now states each run of step activity, but it does not yet collapse its members) |
+| Tool rows: one row per call with the folded result, relative path, `+N −N`, and the structured cards — diff, read, terminal, search, web, ask-user | cloned (no per-tool glyphs — the reference's SVGs have no DejaVu equivalent); each run of step activity sits under a process-group seat that closes once the turn settles and opens on click, as the reference's does) |
 | Model-retry row, command row (a manual `/compact` folded into one marker), turn duration, failure and output-limit rows, card Copy control, created-task (`schedule_create`) card, skill row | cloned (the skill row has no `Inspect` action: native has no right Sidebar to open it in) |
 | Composer usage pill: tokens, cache hit, speed, turn/step counts, and the Host's session-statistics dialog | cloned |
 | Deliverables: summary, file list, diffs, desktop open | cloned (no right-Sidebar review tab) |
@@ -9499,5 +9499,43 @@ a reply and a new turn each ending the group, a row without a tool name never jo
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/192-process-seat.png`, `status: passed` |
+| app bin | — | **20** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 395 — the process-group seat closes
+
+The seat added last round now behaves as the reference's does: a turn that has **ended** shows its
+group closed — the seat alone, `▸ Read files, edited files, ran commands` — and a turn still running
+shows it open, so live activity stays visible. Clicking the seat flips that state; the flag is keyed
+by the group's first record seq and cleared when the session changes, because a seq is not unique
+across sessions.
+
+Closed groups reserve nothing: their members' geometry becomes zero and the view skips them, so the
+scroll projection, the captures and the height range all agree with what is drawn.
+
+Two fixture lessons are recorded rather than hidden: a `turn/end` reason is an **object**
+(`{"kind":"completed"}`), not a string — my first attempt produced an `Unrecognized turn ending`
+row — and the settledness test is "the Host recorded a turn end", not "a duration exists", because a
+preset can end a turn without timing it.
+
+Evidence: `shots/193-process-group-closed.png` (DP-2 alongside, `status: passed`) in the new
+`process-group-closed` preset — the settled turn collapsed to its seat, the reply below, no notice.
+
+Tests: the preset asserts one group, closed, with the composed title, and that the click opens it;
+`tool-activity` asserts the running default (open) and that its click closes it.
+
+**Battery (round 395).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1387 passed**, 1 ignored |
+| app, default | **0** | **1374 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/193-process-group-closed.png`, `status: passed` |
 | app bin | — | **20** dead-code warnings |
 | tree | — | clean before the commit |

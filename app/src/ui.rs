@@ -420,6 +420,11 @@ pub enum Message {
     CopyDetailSource(detail_panel::Stamp),
     ToggleThoughts(conversation_content::Ticket),
     /// Expand or collapse one tool row's recorded body inside the conversation.
+    /// Flip one process group's disclosure.
+    ToggleProcessGroup {
+        generation: u64,
+        key: u64,
+    },
     ToggleActivity {
         generation: u64,
         key: u64,
@@ -1005,6 +1010,15 @@ struct SearchMatches {
     has_more: bool,
 }
 
+/// One process group as the view draws it: its seat's title, its member rows, and whether the
+/// disclosure is open.
+struct Seat {
+    key: u64,
+    title: String,
+    members: Vec<usize>,
+    open: bool,
+}
+
 pub struct App {
     pub options: Options,
     handle: Handle,
@@ -1329,6 +1343,10 @@ pub struct App {
     reply_content: conversation_content::Cache,
     thoughts_expanded: std::collections::BTreeSet<u64>,
     activity_expanded: std::collections::BTreeSet<u64>,
+    /// Process groups whose disclosure the user has flipped, by the group's first row key. A group
+    /// with no entry follows the reference's default: open while its turn runs, closed once it
+    /// settles (`process-groups.ts:134-180`).
+    process_group_open: std::collections::BTreeMap<u64, bool>,
     edit_review: Option<(u64, u64, u64)>,
     search_open: bool,
     search_query: String,
@@ -1622,6 +1640,7 @@ impl App {
                 reply_content: Default::default(),
                 thoughts_expanded: Default::default(),
                 activity_expanded: Default::default(),
+                process_group_open: Default::default(),
                 edit_review: None,
                 search_open: false,
                 search_query: String::new(),
@@ -2723,6 +2742,8 @@ impl App {
         self.reply_content = Default::default();
         self.thoughts_expanded.clear();
         self.activity_expanded.clear();
+        // A group's key is a record seq, so a stale flag would close the new session's same row.
+        self.process_group_open.clear();
         // The usage disclosure is keyed by record seq, which is not unique across sessions, so a
         // seq that was open here would open the new session's same-numbered row.
         self.usage_expanded.clear();
@@ -4972,6 +4993,12 @@ impl App {
             // One tool row expands in place: the conversation never leaves for a
             // separate page, and no request, read or write is started. Like a
             // thought disclosure, the row heights refresh on the next view.
+            Message::ToggleProcessGroup { generation, key }
+                if generation == self.generation && self.composer_visible() =>
+            {
+                let open = self.process_group_open.entry(key).or_insert(true);
+                *open = !*open;
+            }
             Message::ToggleActivity { generation, key }
                 if generation == self.generation && self.composer_visible() =>
             {
@@ -13144,7 +13171,7 @@ impl App {
     }
     /// The process-group seats for a slice of rendered rows: the index of each group's first row and
     /// the title its seat states. Only Chat groups; Trajectory lists every record on its own.
-    fn process_seats(&self, rows: &[&DisplayRow]) -> std::collections::BTreeMap<usize, String> {
+    fn process_seats(&self, rows: &[&DisplayRow]) -> std::collections::BTreeMap<usize, Seat> {
         if self.records_expanded {
             return std::collections::BTreeMap::new();
         }
@@ -13159,16 +13186,53 @@ impl App {
             .collect();
         crate::reducer::process_group::groups(&segments)
             .into_iter()
-            .map(|group| (group.first, group.title))
+            .map(|group| {
+                let key = rows[group.first].key;
+                // The reference leaves a running turn's group open and closes it when the turn
+                // settles; a clicked disclosure wins over that default.
+                let settled = group
+                    .members
+                    .last()
+                    .and_then(|last| rows[*last].turn)
+                    .is_some_and(|turn| self.transcript.turn_ended(turn));
+                let open = self
+                    .process_group_open
+                    .get(&key)
+                    .copied()
+                    .unwrap_or(!settled);
+                (
+                    group.first,
+                    Seat {
+                        key,
+                        title: group.title,
+                        members: group.members,
+                        open,
+                    },
+                )
+            })
             .collect()
     }
     /// One group's seat: the reference's disclosure line above its first member
     /// (`ChatGroupSeat.tsx`, `message.stepProcess.done.*`).
-    fn process_seat(&self, title: &str) -> Element<'static, Message> {
-        container(label(short(title, 120), MUTED).size(10))
-            .padding([6, 14])
-            .width(Length::Fill)
-            .into()
+    fn process_seat(&self, seat: &Seat) -> Element<'static, Message> {
+        let line = format!(
+            "{} {}",
+            if seat.open { "\u{25be}" } else { "\u{25b8}" },
+            short(&seat.title, 120)
+        );
+        container(
+            button(label(line, MUTED).size(10))
+                .on_press(Message::ToggleProcessGroup {
+                    generation: self.generation,
+                    key: seat.key,
+                })
+                .style(design::ghost)
+                .padding([2, 0])
+                .width(Length::Fill),
+        )
+        .padding([6, 14])
+        .width(Length::Fill)
+        .into()
     }
     fn row_geometries(&self, rows: &[&DisplayRow]) -> Vec<chat_geometry::Geometry> {
         // Match the real sidebar animation and centered padded scroll lane.
@@ -13190,6 +13254,16 @@ impl App {
             .enumerate()
             .map(|(index, row)| {
                 let mut geometry = self.row_geometry(row, lane);
+                if seats
+                    .values()
+                    .any(|seat| !seat.open && seat.members.contains(&index))
+                {
+                    return chat_geometry::Geometry {
+                        width: geometry.width,
+                        body_height: 0.0,
+                        height: 0.0,
+                    };
+                }
                 if seats.contains_key(&index) {
                     geometry.height += design::LINE_BODY + self.content_delta();
                 }
@@ -14155,8 +14229,16 @@ impl App {
         let seats = self.process_seats(&rendered);
         for index in range.clone() {
             let record = rendered[index];
-            if let Some(title) = seats.get(&index) {
-                contents = contents.push(self.process_seat(title));
+            // The seat draws even when its group is closed: it is the only visible part of a
+            // settled group.
+            if let Some(seat) = seats.get(&index) {
+                contents = contents.push(self.process_seat(seat));
+            }
+            if seats
+                .values()
+                .any(|seat| !seat.open && seat.members.contains(&index))
+            {
+                continue;
             }
             let human = record.role == "You";
             let assistant = record.role.starts_with("Assistant")

@@ -520,6 +520,13 @@ impl Transcript {
                 .map(|event| (event.event_type.as_str(), event.time, &event.data)),
         )
     }
+    /// Whether the Host recorded a turn end for one turn: a settled group closes, a live one stays
+    /// open (`process-groups.ts:141-146`).
+    pub fn turn_ended(&self, turn: u64) -> bool {
+        self.records.values().any(|event| {
+            event.event_type == "turn/end" && event.data["turn"].as_u64() == Some(turn)
+        })
+    }
     /// The wire tool name of one call row, for the process group's category.
     pub fn tool_name(&self, key: u64) -> Option<&str> {
         let event = self.records.get(&key)?;
