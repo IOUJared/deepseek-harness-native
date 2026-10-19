@@ -54,6 +54,29 @@ pub fn settled_meta(job: &JobView) -> String {
     }
 }
 
+/// A job's elapsed time in the reference's own three forms (`JobListAction.tsx:116-124`,
+/// `ui-jobs/src/client/locales.ts:70-72`): hours and minutes past an hour, minutes and seconds past a
+/// minute, seconds alone below that. `None` when the producer stated no start instant.
+pub fn duration(job: &JobView, now_millis: u64) -> Option<String> {
+    let started = job.started_at?;
+    let end = if live(job) {
+        now_millis
+    } else {
+        job.finished_at.unwrap_or(started)
+    };
+    let total = end.saturating_sub(started) / 1_000;
+    let seconds = total % 60;
+    let minutes = (total / 60) % 60;
+    let hours = total / 3_600;
+    Some(if hours > 0 {
+        format!("{hours}h {minutes}m")
+    } else if minutes > 0 {
+        format!("{minutes}m {seconds}s")
+    } else {
+        format!("{seconds}s")
+    })
+}
+
 #[cfg(test)]
 mod tests {
     //! The reference's ordering and row text, with the absences the Host may send.
@@ -121,6 +144,29 @@ mod tests {
         // An empty progress string is no progress at all.
         progress.progress = Some(String::new());
         assert_eq!(live_meta(&progress), "bash · running");
+    }
+
+    #[test]
+    fn a_duration_reads_in_the_references_three_forms() {
+        let mut running = job("live", "running", Some(1_000_000), None);
+        assert_eq!(duration(&running, 1_000_000 + 9_000).as_deref(), Some("9s"));
+        assert_eq!(
+            duration(&running, 1_000_000 + 80_000).as_deref(),
+            Some("1m 20s")
+        );
+        assert_eq!(
+            duration(&running, 1_000_000 + 3_725_000).as_deref(),
+            Some("1h 2m")
+        );
+        // A clock that moved backwards reads as zero, never as a negative span.
+        assert_eq!(duration(&running, 999_000).as_deref(), Some("0s"));
+        // A settled row measures start to finish, not to now.
+        running.status = "completed".into();
+        running.finished_at = Some(1_000_000 + 65_000);
+        assert_eq!(duration(&running, 9_999_999).as_deref(), Some("1m 5s"));
+        // No start instant means no cell at all.
+        running.started_at = None;
+        assert!(duration(&running, 9_999_999).is_none());
     }
 
     #[test]

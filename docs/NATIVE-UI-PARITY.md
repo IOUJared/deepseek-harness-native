@@ -11631,3 +11631,42 @@ detail. The fixture's seeded jobs now carry the same facts a real `jobs/list` fr
 | DP-2 capture | — | `shots/261-jobs-order-progress.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 453 — a job row states how long it has run
+
+The reference's rows carry a duration cell: elapsed to now while live, start to finish once settled,
+in three forms — hours and minutes past an hour, minutes and seconds past a minute, seconds below that
+(`JobListAction.tsx:116-124,193-202`, `locales.ts:70-72`).
+
+`job_list::duration` renders those three forms, and the row draws the cell at its right edge before the
+stop control, measured at render time so a live job's number is current. A clock that moved backwards
+reads as `0s`, never a negative span, and a job with no start instant gets no cell at all rather than a
+fabricated one.
+
+Evidence: `shots/262-jobs-duration.png` (DP-2 alongside, `status: passed`) — `2m 21s` on the stopping
+build, `1m 21s` on the running shell job, both right-aligned in the panel.
+
+Tests: `a_duration_reads_in_the_references_three_forms` — all three forms, a backwards clock, a settled
+row measuring start-to-finish rather than to now, a missing start yielding no cell, and both tooltip
+titles.
+
+**Recorded difference**: the reference's cell carries a tooltip ("Running for …" / "Took …").
+`iced` has no tooltip widget, so the sentence is not drawn. A first cut built the string and left it
+unread, which the app bin reported as a 22nd dead-code warning; the helper is gone and the difference is
+recorded here rather than carried as unused code.
+
+**Battery (round 453).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1441 passed**, 1 ignored |
+| app, default | **0** | 1415 passed, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/262-jobs-duration.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

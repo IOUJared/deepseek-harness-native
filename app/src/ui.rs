@@ -8330,18 +8330,20 @@ impl App {
         );
         // The producer's own facts, as a real `jobs/list` frame carries them: progress on the live
         // row, a terminal detail on the failed one, and the instants the order is taken from.
+        // Instants relative to the capture's own clock, so a duration cell reads like a real one.
+        let now = now_millis();
         let mut shell = row("shell-1", "shell", "Run the test suite", "running");
         shell.progress = Some("3/10".into());
-        shell.started_at = Some(1_792_227_600_000);
+        shell.started_at = Some(now.saturating_sub(80_000));
         let mut build = row("build-2", "build", "Build the release binary", "stopping");
-        build.started_at = Some(1_792_227_540_000);
+        build.started_at = Some(now.saturating_sub(140_000));
         let mut search = row("grep-3", "search", "Search for parity notes", "completed");
-        search.started_at = Some(1_792_227_000_000);
-        search.finished_at = Some(1_792_227_300_000);
+        search.started_at = Some(now.saturating_sub(600_000));
+        search.finished_at = Some(now.saturating_sub(300_000));
         search.detail = Some("exit code: 0".into());
         let mut lint = row("lint-4", "shell", "Lint the app crate", "failed");
-        lint.started_at = Some(1_792_227_400_000);
-        lint.finished_at = Some(1_792_227_900_000);
+        lint.started_at = Some(now.saturating_sub(240_000));
+        lint.finished_at = Some(now.saturating_sub(120_000));
         lint.detail = Some("exit code: 2".into());
         self.jobs = vec![shell, build, search, lint];
     }
@@ -10145,6 +10147,7 @@ impl App {
                         .get(&job.id)
                         .map(String::as_str)
                         .unwrap_or_default(),
+                    now_millis(),
                 ));
             }
         }
@@ -10181,6 +10184,7 @@ impl App {
                         .get(&job.id)
                         .map(String::as_str)
                         .unwrap_or_default(),
+                    now_millis(),
                 ));
             }
         }
@@ -18518,6 +18522,7 @@ fn job_row(
     job: &dsh_native_transport::dto::JobView,
     expanded: Option<&str>,
     output: &str,
+    now: u64,
 ) -> Element<'static, Message> {
     let ink = match job.status.as_str() {
         "failed" => DANGER,
@@ -18565,6 +18570,17 @@ fn job_row(
     ]
     .spacing(6)
     .align_y(iced::Alignment::Center);
+    // The reference's duration cell: elapsed time with its own tooltip describing the span
+    // (`JobListAction.tsx:193-202`, `locales.ts:70-74`).
+    if let Some(elapsed) = job_list::duration(job, now) {
+        // `iced` has no tooltip widget, so the reference's title text is not drawn; the cell shows
+        // the span it measures and the copy is recorded as an unbuilt difference.
+        head = head.push(
+            container(label(elapsed, MUTED).size(11))
+                .align_x(iced::Alignment::End)
+                .padding([0, 4]),
+        );
+    }
     if running {
         // The reference names the control through a label ("Stop task {label}") and confirms on a
         // second click; the visible form of the control is unread, so a plain glyph stands in and
