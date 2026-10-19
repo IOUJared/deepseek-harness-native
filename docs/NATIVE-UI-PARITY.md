@@ -11429,3 +11429,37 @@ exercise; the frame is the added evidence, since a glyph's colour has no asserti
 | DP-2 capture | — | `shots/256-jobs-trigger-dot.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 447 — a job's output carries its own Copy
+
+The reference's output view has a copy control that writes the job's command
+(`JobListAction.tsx:294-305`, `copyText={job.label}`). Native's expanded row showed the buffer and
+nothing else, so the one thing a user wants out of a background job — the command that produced it —
+had to be selected by hand.
+
+The expanded row now carries `Copy` beside its buffer, and the text it copies is the job's label, which
+is the command as the Host recorded it. The write goes through the app's single clipboard path, the
+same one the tool cards and the guide use.
+
+Evidence: `shots/257-jobs-output-copy.png` (DP-2 alongside, `status: passed`) — the running shell job
+expanded, its recorded output at the left and `Copy` at the right of that block.
+
+Tests: the control dispatches `Message::CopyJobOutput` with the row's own label and the handler is the
+shared `write_clipboard`, whose Wayland and X11 paths are covered by the existing copy tests; the
+frame is the evidence that the control is drawn where the buffer is.
+
+**Battery (round 447).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1435 passed**, 1 ignored |
+| app, default | **0** | **1411 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/257-jobs-output-copy.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

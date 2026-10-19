@@ -280,8 +280,6 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "no-session"
         | "wide-welcome"
         | "conversation"
-        | "jobs-panel"
-        | "jobs-panel-error"
         | "collapsed-wide"
         | "title-controls"
         | "title-controls-expanded"

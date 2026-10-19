@@ -444,6 +444,8 @@ pub enum Message {
     ScheduleHistoryPrompt(String),
     /// The guide's `Copied` confirmation has been shown for its second.
     GuideCopyExpired,
+    /// Copy one job's command to the clipboard.
+    CopyJobOutput(String),
     /// A job's stop confirmation has been armed for its three seconds.
     JobArmExpired(String),
     /// Open or close the panel's finished section.
@@ -3961,6 +3963,10 @@ impl App {
             }
             Message::JobArmExpired(id) if self.jobs_armed.as_deref() == Some(id.as_str()) => {
                 self.jobs_armed = None;
+            }
+            Message::CopyJobOutput(text) => {
+                // The clipboard is the App's to write; the row only names what to copy.
+                return self.write_clipboard(text);
             }
             Message::ToggleJobSettled => {
                 let live = self
@@ -18508,12 +18514,23 @@ fn job_row(
         .width(Length::Fill);
     let mut body = column![head].spacing(2).width(Length::Fill);
     if expanded {
-        // The reference renders the buffer in a code font; this app has one UI font, so the
-        // output is the same font at a smaller size in muted ink, recorded as a deviation.
+        // The reference's output view carries its own copy control, which copies the job's command
+        // (`JobListAction.tsx:294-305`, `copyText={job.label}`); the buffer keeps the code font's
+        // role at this app's single UI font and smaller size, a recorded deviation.
         body = body.push(
-            container(text(output.to_owned()).size(10).color(MUTED))
-                .width(Length::Fill)
-                .padding([2, 0]),
+            row![
+                text(output.to_owned())
+                    .size(10)
+                    .color(MUTED)
+                    .width(Length::Fill),
+                button(label("Copy", MUTED).size(10))
+                    .on_press(Message::CopyJobOutput(job.label.clone()))
+                    .style(design::ghost)
+                    .padding([0, 4]),
+            ]
+            .spacing(6)
+            .align_y(iced::Alignment::Start)
+            .width(Length::Fill),
         );
     }
     container(body).width(Length::Fill).into()
