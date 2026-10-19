@@ -145,6 +145,7 @@ pub const PRESETS: &[&str] = &[
     "tool-activity-ask",
     "tool-activity-applied",
     "model-retry",
+    "turn-total",
     "context-injects",
     "assistant-tool-call",
     "assistant-tool-call-expanded",
@@ -224,6 +225,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
             Some((Size::new(1040.0, 760.0), 1.0))
         }
         "model-retry" => Some((Size::new(1040.0, 760.0), 1.0)),
+        "turn-total" => Some((Size::new(1040.0, 760.0), 1.0)),
         "chat-density" => Some((Size::new(1040.0, 1000.0), 1.0)),
         "tool-activity-narrow" => Some((Size::new(760.0, 840.0), 1.0)),
         "tool-activity-tiny" => Some((Size::new(608.0, 448.0), 1.25)),
@@ -683,6 +685,41 @@ fn public_tool_applied_records() -> Vec<Value> {
     records
 }
 
+/// One prompt and one reply inside a clean turn boundary, so the settled reply states the
+/// reference's `Completed in Ns` (`TurnProcessNodeView.tsx:20-33`). Recorded metadata only.
+fn public_turn_total_records() -> Vec<Value> {
+    let event = |seq: u64, kind: &str, time: u64, data: Value| {
+        json!({"type":"event", "event":{
+            "type":kind, "seq":seq, "time":time, "data":data, "surfaceOp":"append"
+        }})
+    };
+    vec![
+        event(
+            0,
+            "user/message",
+            1000,
+            json!({"role":"user", "id":"PUBLIC-turn-total-user", "source":{"kind":"user"},
+                "content":[{"type":"text","text":"PUBLIC turn-total fixture · no model request ran."}]}),
+        ),
+        event(1, "turn/start", 1000, json!({"turn":1})),
+        event(
+            2,
+            "assistant/message",
+            1001,
+            json!({"turn":1, "step":1,
+                "stream":[{"type":"text-chunks", "time0":1001, "index":0, "dt":[],
+                    "texts":["PUBLIC synthetic assistant text · the tail states the recorded turn duration, not a real elapsed run."]}]
+            }),
+        ),
+        event(
+            3,
+            "turn/end",
+            144_000,
+            json!({"turn":1, "reason":{"kind":"completed"}}),
+        ),
+    ]
+}
+
 /// A conversation whose only non-human activity is a model-retry chain: one attempt started, one
 /// waiting out its delay (`retry.ts:20-100`). Every value is synthetic PUBLIC metadata; no model
 /// request was made and none failed.
@@ -944,6 +981,7 @@ fn public_tool_records_with(attachment: Option<&str>) -> Vec<Value> {
         "stream":[{"type":"text-chunks", "time0":1007, "index":0, "dt":[],
             "texts":["PUBLIC synthetic assistant text · tool summaries describe recorded metadata, not executed work. Open full Details in production to inspect stored text."]}]
     })));
+
     records
 }
 
@@ -1277,6 +1315,8 @@ pub fn build(
         public_tool_applied_records()
     } else if preset == "model-retry" {
         public_retry_records()
+    } else if preset == "turn-total" {
+        public_turn_total_records()
     } else if preset == "tool-activity-diff-long" {
         // The same transcript with a longer edit, so the card's 9-row cap and its fold control
         // are drawn. Every line is synthetic PUBLIC metadata.
@@ -1517,7 +1557,15 @@ pub fn build(
         generation: app.generation,
         frame: snapshot,
     })));
-    assert!(app.follow_ready && app.smoke_evidence.snapshot_valid && app.transcript.safe_to_send());
+    assert!(
+        app.follow_ready && app.smoke_evidence.snapshot_valid && app.transcript.safe_to_send(),
+        "preset {preset}: follow={} snapshot={} safe={} cursor={} opening={}",
+        app.follow_ready,
+        app.smoke_evidence.snapshot_valid,
+        app.transcript.safe_to_send(),
+        app.transcript.cursor(),
+        app.transcript.opening_cursor()
+    );
     if preset == "assistant-tool-call-expanded" {
         let ticket = app.reply_parts(7).unwrap().ticket.unwrap();
         drop(app.update(Message::ToggleThoughts(ticket)));
@@ -1739,7 +1787,8 @@ pub fn build(
         }
         app.records_expanded = preset == "title-controls-expanded";
         // Chat draws one row per call, as the reference does, and each call carries its result;
-        // Trajectory still lists every record, so it keeps the three result rows.
+        // Trajectory still lists every record, so it keeps the three result rows and the two turn
+        // boundary records.
         let records = app.records_expanded;
         assert_eq!(
             app.transcript.display_rows(records).count(),
@@ -2118,6 +2167,15 @@ pub fn build(
                     .and_then(|state| state.detail())
                     .as_deref(),
                 Some("Retry delay: 4s\nFailure reason: PUBLIC upstream unavailable · synthetic")
+            );
+        }
+        "turn-total" => {
+            // 143 seconds between the turn's start and end: `Completed in 2m 23s`.
+            let duration = app.transcript.turn_duration(1).expect("a settled turn");
+            assert_eq!(duration.seconds, 143);
+            assert_eq!(
+                crate::reducer::turn_tail::label(Some(duration)),
+                "Completed in 2m 23s"
             );
         }
         "command-menu" => {

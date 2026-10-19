@@ -14297,6 +14297,19 @@ impl App {
                                 }),
                             );
                     }
+                    // The reference's closed turn states its duration above the turn's process
+                    // content (`TurnProcessNodeView.tsx:20-33`: `Completed in 2m 3s`, or the bare
+                    // `Completed`; a cancelled or failed turn states neither). Native has no
+                    // process disclosure yet, so the same fact rides the settled reply's own
+                    // action row, before the clock.
+                    if !human
+                        && let Some(turn) = record.turn
+                        && let Some(duration) = self.transcript.turn_duration(turn)
+                    {
+                        footer = footer.push(
+                            label(crate::reducer::turn_tail::label(Some(duration)), MUTED).size(10),
+                        );
+                    }
                     // The reference's turn tail carries a branch control beside copy
                     // (`TurnTailNodeView.tsx:69` forks at `data.seq`). Native's reply
                     // record key is its inclusive cut.

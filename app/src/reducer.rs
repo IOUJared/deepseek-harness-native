@@ -28,6 +28,9 @@ pub mod search_card;
 /// same reason.
 #[path = "terminal_card.rs"]
 pub mod terminal_card;
+/// The settled turn's duration label.
+#[path = "turn_tail.rs"]
+pub mod turn_tail;
 /// The reference's web card for a `web_search`/`web_fetch` call.
 #[path = "web_card.rs"]
 pub mod web_card;
@@ -488,6 +491,17 @@ impl Transcript {
     /// Derive a compact tool label from retained metadata, without changing the fold.
     /// `roots` is the display shortening a file path gets, so the label is the
     /// one the view draws rather than an unshortened path the view would redo.
+    /// One settled turn's duration, from its recorded `turn/start` and `turn/end`
+    /// (`TurnProcessNodeView.tsx:26-27`). `None` for a turn that has not ended, or that ended
+    /// cancelled or failed.
+    pub fn turn_duration(&self, turn: u64) -> Option<turn_tail::Duration> {
+        turn_tail::duration(
+            turn,
+            self.records
+                .values()
+                .map(|event| (event.event_type.as_str(), event.time, &event.data)),
+        )
+    }
     pub fn activity(&self, key: u64, roots: activity::PathRoots<'_>) -> Option<activity::Summary> {
         let paired = self.paired.get(&key).and_then(|seq| self.records.get(seq));
         activity::summarize_paired(

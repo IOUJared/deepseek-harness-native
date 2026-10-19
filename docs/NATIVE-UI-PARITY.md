@@ -9012,3 +9012,43 @@ anchor is taken once and survives later frames, the row states its own delay rat
 | DP-2 capture | — | `shots/182-model-retry-countdown.png`, `status: passed` |
 | app bin | — | **20** dead-code warnings (unchanged) |
 | tree | — | clean before the commit |
+
+### Round 383 — a settled turn states its duration
+
+The reference puts a turn's elapsed time above its closed turn (`TurnProcessNodeView.tsx:20-33`):
+`Completed in 2m 23s`, the bare `Completed` when no timing was recorded, and `Stopped`/`Failed` for a
+cancelled or failed turn. Native showed only the clock. The same label now rides the settled reply's
+action row, before the clock, because native has no turn-process disclosure to put it above.
+
+The duration is the recorded `turn/end` time minus `turn/start`, floored at one second — the
+reference's own `Math.max(1000, end - start)` — and `None` for `aborted` or `error`, so a cancelled
+or failed turn states no time. The units are the reference's own (`h `, `m `, `s`), so 143 seconds
+reads `2m 23s`, not `2.4m`.
+
+Evidence: `shots/183-turn-total.png` (DP-2 alongside, `status: passed`) in the new `turn-total`
+preset: one prompt, one reply, a clean `completed` boundary 143 seconds apart, and the action row
+reading `Completed in 2m 23s  Branch  □  Details ▸  18:00`.
+
+Tests: three in `turn_tail` (a clean turn's elapsed time, the one-second floor with both excluded
+reasons and a missing or foreign turn, and the unit ladder from `1s` to `1h 2m 3s`) plus the preset's
+`turn_duration(1) == 143`.
+
+The shared tool fixture stays as it was: a first attempt appended the turn boundary to it and broke
+`title-controls` and `model-metadata`, whose own records already occupy those sequence numbers, so
+the boundary lives in its own conversation instead.
+
+**Battery (round 383).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1353 passed**, 1 ignored |
+| app, default | **0** | **1342 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/183-turn-total.png`, `status: passed` |
+| app bin | — | **20** dead-code warnings (unchanged) |
+| tree | — | clean before the commit |
