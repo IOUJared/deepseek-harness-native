@@ -105,6 +105,32 @@ fn closing_state_rejects_local_menu_and_info_changes() {
 }
 #[cfg(feature = "public-layout-fixture")]
 #[test]
+fn a_search_reaches_a_tool_body_and_reveals_it() {
+    let (size, _scale) = super::layout_fixture::preset_size("tool-activity-terminal").unwrap();
+    let (mut app, _queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "tool-activity-terminal",
+        size,
+        None,
+    );
+    // The terminal card's own output is part of what the user can search, as the reference lets the
+    // browser's find reach it.
+    app.search_open = true;
+    app.search_query = "terminal output line two".into();
+    app.search_cursor = None;
+    let hits = app.search_hits();
+    assert!(!hits.is_empty(), "a tool body is searched");
+    // Jumping to the hit opens the row so the match is visible, not merely counted.
+    app.jump_search(true, false);
+    let key = app.search_cursor.expect("a hit was selected");
+    assert!(
+        app.activity_expanded.contains(&key),
+        "the hit's row is revealed"
+    );
+}
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
 fn the_trajectory_filter_narrows_records_by_all_of_its_terms() {
     let (size, _scale) = super::layout_fixture::preset_size("tool-activity").unwrap();
     let (mut app, _queue) = super::layout_fixture::build(

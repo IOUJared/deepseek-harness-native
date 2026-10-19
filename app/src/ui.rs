@@ -13205,7 +13205,12 @@ impl App {
                 } else if row.role == "You" {
                     conversation_search::contains(&row.text, query)
                 } else {
-                    false
+                    // Tool and process bodies are searched too: the reference lets the browser's
+                    // find reach them and reveals the section when it does
+                    // (`ChatNodeSeat.tsx:110-114`, `searchable-hidden.ts:21-27`). Native searches
+                    // the same body it draws, plus the row's own arguments line.
+                    conversation_search::contains(&row.text, query)
+                        || conversation_search::contains(activity_body_source(row), query)
                 }
             })
             .map(|row| row.key)
@@ -13246,6 +13251,19 @@ impl App {
             conversation_search::contains(&reply.reasoning, self.active_search())
         }) {
             self.thoughts_expanded.insert(key);
+        }
+        // A hit inside a tool body is revealed the same way a reasoning hit is: the row opens, so
+        // the match is visible rather than merely counted (`searchable-hidden.ts:21-27`).
+        if self
+            .transcript
+            .rows()
+            .iter()
+            .find(|row| row.key == key)
+            .is_some_and(|row| {
+                conversation_search::contains(activity_body_source(row), self.active_search())
+            })
+        {
+            self.activity_expanded.insert(key);
         }
         let partial = self.transcript.partial().map(|text| DisplayRow {
             key: u64::MAX,

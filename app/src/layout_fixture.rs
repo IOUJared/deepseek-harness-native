@@ -150,6 +150,7 @@ pub const PRESETS: &[&str] = &[
     "tool-activity-details",
     "tool-activity-expanded",
     "tool-activity-trajectory",
+    "tool-activity-terminal-search",
     "process-group-closed",
     "tool-activity-attachment",
     "tool-activity-edit-error",
@@ -236,6 +237,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "tool-activity"
         | "tool-activity-expanded"
         | "tool-activity-trajectory"
+        | "tool-activity-terminal-search"
         | "tool-activity-attachment"
         | "tool-activity-edit-error"
         | "tool-activity-diff"
@@ -1575,7 +1577,10 @@ pub fn build(
         public_tool_records_with(Some("PUBLIC-note.txt"))
     } else if preset == "tool-activity-edit-error" {
         public_tool_edit_error_records()
-    } else if preset == "tool-activity-terminal" {
+    } else if matches!(
+        preset,
+        "tool-activity-terminal" | "tool-activity-terminal-search"
+    ) {
         public_tool_terminal_records()
     } else if preset == "tool-activity-search" {
         public_search_records()
@@ -2108,6 +2113,15 @@ pub fn build(
         // (`TrajectoryToolbar.tsx:114-124`). The name keeps the tool-activity transcript.
         app.records_expanded = true;
         app.trajectory_query = "tool/call".into();
+    }
+
+    if preset == "tool-activity-terminal-search" {
+        // A hit inside a tool's own output: the row is revealed so the match is visible, as the
+        // reference reveals a section the browser's find landed in.
+        app.search_open = true;
+        app.search_query = "terminal output line two".into();
+        app.search_cursor = None;
+        app.jump_search(true, false);
     }
     if preset == "chat-thoughts" {
         let ticket = app.reply_parts(1).unwrap().ticket.unwrap();
@@ -3846,7 +3860,7 @@ mod tests {
                         "tool-activity-edit-error" => 2,
                         // The terminal preset rewrites the bash result as the reference's
                         // *completed failing call*: no error flag, the exit status is result data.
-                        "tool-activity-terminal" => 0,
+                        "tool-activity-terminal" | "tool-activity-terminal-search" => 0,
                         _ => 1,
                     }
                 );
@@ -3897,7 +3911,7 @@ mod tests {
                 // records the reference's completed failing call (status as result data) instead.
                 assert_eq!(
                     app.transcript.activity(6, app.path_roots()).unwrap().failed,
-                    preset != "tool-activity-terminal"
+                    preset != "tool-activity-terminal" && preset != "tool-activity-terminal-search"
                 );
                 // Programmatic local view action only: not physical input or execution proof.
                 drop(app.update(app.detail_request(3).unwrap()));

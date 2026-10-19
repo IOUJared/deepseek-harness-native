@@ -10698,8 +10698,8 @@ found"` plus a `beforematch` reveal so collapsed sections can be found. Native's
 count and Ctrl+F command is therefore an addition, not a port — and the coverage table now says so
 instead of implying it was cloned.
 
-Two real reference-anchored gaps remain and are recorded: native's search does not reach tool/process
-bodies (the reference exposes them to the browser's find), and the reference's Trajectory filter now has
+Two real reference-anchored gaps were recorded: native's search did not reach tool/process bodies
+(the reference exposes them to the browser's find) — closed in round 429 — and the reference's Trajectory filter now has
 a native counterpart (see the next round for its capture: the empty frame came from naming the preset
 outside the `tool-activity` family, whose records and snapshot flags it inherits).
 
@@ -10749,5 +10749,44 @@ a test cannot — that the control is drawn where the reference draws it.
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/243-trajectory-filter.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 429 — search reaches tool bodies and reveals them
+
+The search audit's last real gap: native's Find bar matched only reply and user text, so a query for
+something inside a tool's own output found nothing. The reference lets the browser's find reach those
+sections and reveals them when it lands (`ChatNodeSeat.tsx:110-114`, `searchable-hidden.ts:21-27`).
+
+Native now searches the same body it draws — the activity body a tool row expands to — and a hit
+there opens that row, the way a reasoning hit opens the thoughts disclosure. The count therefore
+includes those hits, and the jump lands on a visible match rather than a collapsed one.
+
+Evidence: `shots/244-tool-body-search.png` (DP-2 alongside, `status: passed`) in the new
+`tool-activity-terminal-search` preset — the Find bar reading `1/1 messages` for
+`terminal output line two`, with the Bash row expanded and the matching line visible in its terminal
+card.
+
+Tests: `a_search_reaches_a_tool_body_and_reveals_it` — the terminal preset's body is found by a phrase
+that exists only in its output, and jumping to the hit expands that row.
+
+Two fixture lessons again: a preset inherits a family's records only when its name matches that
+family's exact condition (`tool-activity-terminal` was an equality, not a prefix), and two metadata
+expectations keyed on that exact name had to learn the new sibling. Both were caught by the suite
+before any capture.
+
+**Battery (round 429).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1419 passed**, 1 ignored |
+| app, default | **0** | **1399 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/244-tool-body-search.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
