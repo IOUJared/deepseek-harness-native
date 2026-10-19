@@ -8065,6 +8065,27 @@ impl App {
 
     /// Fixture-only: seed the in-app folder listing, which a real run reads from the Host.
     #[cfg(feature = "public-layout-fixture")]
+    /// A turn that edited exactly one file, which the card draws as its own row
+    /// (`ChangedFiles.tsx:54-77`).
+    pub(crate) fn seed_changes_summary_single(&mut self) {
+        self.changes.insert(
+            2,
+            ChangesState::Ready(dsh_native_transport::dto::ChangesSummary {
+                turn: 1,
+                total: 1,
+                added: 42,
+                deleted: 6,
+                files: vec![dsh_native_transport::dto::ChangedFile {
+                    path: "docs/report.md".into(),
+                    display: "docs/report.md".into(),
+                    added: 42,
+                    deleted: 6,
+                    binary: false,
+                    oversized: false,
+                }],
+            }),
+        );
+    }
     /// A turn that edited more files than the card shows while folded, so the fold control is drawn
     /// (`ChangedFiles.tsx:18`).
     pub(crate) fn seed_changes_summary_many(&mut self) {
@@ -11288,6 +11309,42 @@ impl App {
         // (`ChangedFiles.tsx:58-60`); the counts beside it are signed and grouped.
         let single = (summary.files.len() == 1).then(|| summary.files[0].display.as_str());
         let title = changes_text::title(summary.total, single);
+        // One edited file is not a list of one: the card *is* the row, and pressing it opens the
+        // comparison directly (`ChangedFiles.tsx:54-77`). There is no toggle, no chevron and no fold.
+        if changes_text::shape(summary.files.len()) == changes_text::Shape::Single {
+            // The row's own counts are the header's counts, so drawing them twice would only
+            // repeat the numbers; the reference's single-file card states them once
+            // (`ChangedFiles.tsx:54-77`).
+            return Some(
+                row![
+                    button(
+                        row![
+                            label(title, MUTED).size(10),
+                            label(
+                                format!("+{}", changes_text::grouped(summary.added)),
+                                design::FOAM
+                            )
+                            .size(10),
+                            label(
+                                format!("-{}", changes_text::grouped(summary.deleted)),
+                                DANGER
+                            )
+                            .size(10),
+                        ]
+                        .spacing(4),
+                    )
+                    .on_press(Message::OpenChanged(seq, 0))
+                    .style(design::ghost)
+                    .padding([1, 2]),
+                    button(label("Open", MUTED).size(9))
+                        .on_press(Message::OpenChangedOnDesktop(seq, 0))
+                        .style(design::ghost)
+                        .padding([1, 2]),
+                ]
+                .spacing(4)
+                .into(),
+            );
+        }
         let mut card = column![
             button(
                 row![
@@ -11366,6 +11423,10 @@ impl App {
             return 0.0;
         };
         let line = design::content_secondary(self.content_font_size).max(12.0) + 2.0;
+        if summary.files.len() == 1 {
+            // The single-file card is one row and cannot expand, so its height never changes.
+            return line;
+        }
         if self.changes_expanded.contains(&seq) {
             // Each row is a padded ghost button; reserve the padding as well as the text
             // lines or the fixed row clips its last file.

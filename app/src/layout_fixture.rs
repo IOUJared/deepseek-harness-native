@@ -137,6 +137,7 @@ pub const PRESETS: &[&str] = &[
     "schedules-linked",
     "mcp",
     "changes-card",
+    "changes-single",
     "changes-fold",
     "feedback",
     "workflow-run",
@@ -367,6 +368,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "schedules-linked"
         | "mcp"
         | "changes-card"
+        | "changes-single"
         | "changes-fold"
         | "feedback"
         | "workflow-run"
@@ -1778,7 +1780,7 @@ pub fn build(
                     "stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],
                         "texts":["PUBLIC synthetic answer carrying a positive rating."]}]}}}),
         ]
-    } else if preset == "changes-card" || preset == "changes-fold" {
+    } else if preset == "changes-card" || preset == "changes-fold" || preset == "changes-single" {
         vec![
             json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
                 "surfaceOp":"append","data":{"role":"user","id":"PUBLIC-changes-message",
@@ -1926,6 +1928,9 @@ pub fn build(
     }
     if preset == "changes-card" {
         app.seed_changes_summary();
+    }
+    if preset == "changes-single" {
+        app.seed_changes_summary_single();
     }
     if preset == "changes-fold" {
         app.seed_changes_summary_many();

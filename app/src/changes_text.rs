@@ -36,6 +36,23 @@ pub fn basename(path: &str) -> String {
         .to_owned()
 }
 
+/// What the card draws for a given number of edited files. One file is not a list: the card *is* the
+/// row, so pressing it opens the comparison directly (`ChangedFiles.tsx:54-77` — `singleFile ===
+/// undefined ? header : <>`). Everything else is a header with a list under it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Shape {
+    Single,
+    List,
+}
+
+pub fn shape(total: usize) -> Shape {
+    if total == 1 {
+        Shape::Single
+    } else {
+        Shape::List
+    }
+}
+
 /// The reference's row count below which the list never folds (`ChangedFiles.tsx:18`).
 pub const COLLAPSED_ROWS: usize = 4;
 
@@ -86,6 +103,15 @@ mod tests {
         assert_eq!(title(1_234, None), "Edited 1,234 files");
         // A single file whose path cannot be read still counts rather than guessing a name.
         assert_eq!(title(1, None), "Edited 1 files");
+    }
+
+    #[test]
+    fn one_file_is_the_card_rather_than_a_list_of_one() {
+        assert_eq!(shape(1), Shape::Single);
+        assert_eq!(shape(2), Shape::List);
+        // A single file never folds, whatever its state.
+        assert_eq!(visible_rows(1, false), (1, None));
+        assert_eq!(fold_label(1, false), None);
     }
 
     #[test]

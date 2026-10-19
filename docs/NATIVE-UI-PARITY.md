@@ -12567,3 +12567,38 @@ seven rows and `Collapse`.
 | DP-2 capture | — | `shots/269-changes-fold.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 479 — one edited file is the card, not a list of one
+
+The changed-files audit's first absent element: the reference draws a single edited file as the card
+itself — no toggle, no list under it, pressing it opens the comparison — with a file-type tile
+(`ChangedFiles.tsx:54-77`). Native always drew header plus toggle plus rows, so a turn that edited one
+file offered a list of exactly one item and an expander that revealed nothing new.
+
+`changes_text::shape` names the two shapes, the single-file card is one row (`Edited report.md +42 -6`
+with `Open`), and its reserved height is fixed because it cannot expand. The reference's file-type tile
+is **not** built: native has no file-type icon set, and inventing one for this card alone would be a
+different kind of difference than the one being closed. It is recorded here instead.
+
+Tests: `one_file_is_the_card_rather_than_a_list_of_one` — one file is `Single`, two are `List`, and a
+single file never folds.
+
+Evidence: `shots/270-changes-single.png` (DP-2 alongside, `status: passed`). The first frame of this
+round also caught a mistake inside the round: the row printed the counts a second time beside the
+header's own `+42 -6`, so the fix removed the duplicate before capture three.
+
+**Battery (round 479).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1462 passed**, 1 ignored |
+| app, default | **0** | **1429 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/270-changes-single.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
