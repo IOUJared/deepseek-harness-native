@@ -122,6 +122,7 @@ pub const PRESETS: &[&str] = &[
     "schedules-search",
     "schedules-retention",
     "schedules-history-error",
+    "schedules-deleted",
     "mcp",
     "changes-card",
     "feedback",
@@ -333,6 +334,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "schedules-search"
         | "schedules-retention"
         | "schedules-history-error"
+        | "schedules-deleted"
         | "mcp"
         | "changes-card"
         | "feedback"
@@ -1668,6 +1670,7 @@ pub fn build(
             | "schedules-search"
             | "schedules-retention"
             | "schedules-history-error"
+            | "schedules-deleted"
             | "subagent-catalog"
             | "subagent-readonly"
             | "subagent-sibling"
@@ -2074,6 +2077,11 @@ pub fn build(
         app.schedule_history_loading = false;
         app.schedule_history_error =
             Some("Could not read the delivery history. Try again.".to_string());
+    }
+
+    if preset == "schedules-deleted" {
+        // The deletion's outcome, stated in place where the reference shows a shell toast.
+        app.schedules_notice = Some("Task deleted.".into());
     }
     if preset == "chat-thoughts" {
         let ticket = app.reply_parts(1).unwrap().ticket.unwrap();

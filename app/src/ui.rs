@@ -1120,6 +1120,9 @@ pub struct App {
     /// Delivery records whose saved prompt is unfolded, by message id: the reference clamps a long
     /// prompt and offers Expand/Collapse (`DeliveryHistory.tsx:55-60`).
     schedule_history_expanded: std::collections::BTreeSet<String>,
+    /// The page's own outcome line: the reference confirms a deletion with a shell toast, and this
+    /// app states it in place instead (`DeleteToast.tsx:80-87`).
+    schedules_notice: Option<String>,
     /// Whether the delivery history's retention rules are disclosed (`DeliveryHistory.tsx:165-181`).
     schedule_retention_open: bool,
     /// The schedules page's own search text and status filter (`TaskManagerPage.tsx:124-149`).
@@ -1548,6 +1551,7 @@ impl App {
                 skills: None,
                 schedule_history_expanded: Default::default(),
                 schedule_retention_open: false,
+                schedules_notice: None,
                 schedule_query: String::new(),
                 schedule_filter: crate::reducer::schedule_card::Filter::All,
                 queue_steer_all: Default::default(),
@@ -3947,6 +3951,7 @@ impl App {
                 self.schedule_busy = None;
             }
             Message::RefreshSchedules if self.schedules_open => {
+                self.schedules_notice = None;
                 self.schedules_loading = true;
                 self.schedules_error = None;
                 self.command(worker::Command::ScheduleCatalog);
@@ -6075,6 +6080,9 @@ impl App {
                     Ok(dsh_native_transport::dto::ScheduleDeleteOutcome::Deleted) => {
                         self.schedules.retain(|item| item.id != id);
                         self.schedules_error = None;
+                        // The reference confirms with a shell toast (`DeleteToast.tsx:80-87`);
+                        // native has no toast overlay, so the page states the outcome in place.
+                        self.schedules_notice = Some("Task deleted.".into());
                     }
                     Ok(dsh_native_transport::dto::ScheduleDeleteOutcome::Missing) => {
                         self.schedules_error =
@@ -6083,6 +6091,7 @@ impl App {
                         self.command(worker::Command::ScheduleCatalog);
                     }
                     Ok(dsh_native_transport::dto::ScheduleDeleteOutcome::Refused) => {
+                        self.schedules_notice = None;
                         self.schedules_error =
                             Some("The Host refused the delete; the task is unchanged.".into());
                         self.schedules_loading = true;
@@ -15950,6 +15959,7 @@ impl App {
     /// delete, the delivery history, and an editor for a task's name, instruction and timing
     /// (creation stays with the model's schedule tool, as in the reference).
     fn schedules_view(&self) -> Element<'_, Message> {
+        // The notice belongs to the action that produced it, not to a later visit.
         let header = row![
             label("Scheduled tasks", TEXT).size(22).width(Length::Fill),
             // The reference's page offers New, which starts a session and leaves the task to the
@@ -16012,6 +16022,9 @@ impl App {
         }
         if let Some(error) = &self.schedules_error {
             body = body.push(label(short(error, 160), DANGER).size(11));
+        }
+        if let Some(notice) = &self.schedules_notice {
+            body = body.push(label(short(notice, 120), TEXT).size(11));
         }
         if self.schedules.is_empty() && !self.schedules_loading && self.schedules_error.is_none() {
             body = body.push(
