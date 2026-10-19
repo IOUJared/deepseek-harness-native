@@ -11337,28 +11337,11 @@ impl App {
             .push(self.stop_button())
             .push(
                 container(
-                    button(
-                        text(if sending {
-                            "Sending…"
-                        } else if self.busy_enter == crate::settings::BusyEnter::Steer
-                            && !self.files.has_file(&self.file_context())
-                            && self
-                                .selected
-                                .as_ref()
-                                .and_then(|id| self.sessions.get(id))
-                                .is_some_and(|summary| summary.running)
-                        {
-                            "Steer message ↑"
-                        } else {
-                            "Send ↑"
-                        })
-                        .font(FONT)
-                        .size(13),
-                    )
-                    .on_press_maybe(allowed.then_some(Message::Send))
-                    .style(design::primary)
-                    .padding([8, 14])
-                    .height(design::COMPOSER_CONTROL_HEIGHT),
+                    button(text(self.send_label(sending)).font(FONT).size(13))
+                        .on_press_maybe(allowed.then_some(Message::Send))
+                        .style(design::primary)
+                        .padding([8, 14])
+                        .height(design::COMPOSER_CONTROL_HEIGHT),
                 )
                 .id("native-send-control"),
             );
@@ -12668,6 +12651,24 @@ impl App {
             .map(str::trim)
             .find(|line| !line.is_empty())?;
         Some(short(line, 80))
+    }
+    /// The primary composer button's label. While the agent runs, the reference states what a send
+    /// will do — `Queue message` or `Steer message`, by the submission policy
+    /// (`InputBar.tsx:309-314`, `locales.ts:406-407`); an idle composer offers `Send`.
+    fn send_label(&self, sending: bool) -> &'static str {
+        if sending {
+            return "Sending…";
+        }
+        let running = self
+            .selected
+            .as_ref()
+            .and_then(|id| self.sessions.get(id))
+            .is_some_and(|summary| summary.running);
+        match (running, self.busy_enter) {
+            (true, crate::settings::BusyEnter::Steer) => "Steer message ↑",
+            (true, _) => "Queue message ↑",
+            (false, _) => "Send ↑",
+        }
     }
     fn reply_parts(&self, key: u64) -> Option<std::rc::Rc<conversation_content::Prepared>> {
         if let Some(prepared) = self.reply_content.get(self.generation, key) {
@@ -23396,5 +23397,32 @@ mod retry_countdown_ui_tests {
             Some(crate::reducer::retry_ui::Phase::Started)
         );
         assert_eq!(state.remaining_seconds(0, 0), None);
+    }
+}
+#[cfg(feature = "public-layout-fixture")]
+#[cfg(test)]
+mod send_label_tests {
+    //! The primary button's label follows the reference (`InputBar.tsx:309-314`).
+    use super::layout_fixture as fixture;
+
+    fn app(preset: &str) -> super::App {
+        let (size, _scale) = fixture::preset_size(preset).unwrap();
+        fixture::build(fixture::test_options(), preset, size, None).0
+    }
+
+    #[test]
+    fn the_idle_composer_sends_and_the_running_one_states_the_policy() {
+        let idle = app("conversation");
+        assert_eq!(idle.send_label(false), "Send ↑");
+
+        let mut running = app("working-conversation");
+        assert_eq!(
+            running.send_label(false),
+            "Queue message ↑",
+            "the default Queue preference says what a send will do"
+        );
+        assert_eq!(running.send_label(true), "Sending…");
+        running.busy_enter = crate::settings::BusyEnter::Steer;
+        assert_eq!(running.send_label(false), "Steer message ↑");
     }
 }

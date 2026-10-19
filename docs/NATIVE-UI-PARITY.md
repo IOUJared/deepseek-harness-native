@@ -6382,7 +6382,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Reference surface | Native status |
 | --- | --- |
 | Chat: renderer, thoughts, turn triggers, copy/branch/edit/fork | cloned (markdown: tables, footnotes and math; math draws its source, since no native typesetter exists — see the renderer note below) |
-| Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the `+ Attach` control does not open the command menu, the slash menu is one flat list without the reference's groups/sections/breadcrumbs/skeleton, Stop is always drawn and pressable while idle, the running primary button says `Send` instead of `Queue message`/`Steer message` on the default preference, files are chosen one at a time through a path field, no image thumbnails or drag hover overlay, the queue dock's Steer stays pressable while idle, and a pending send is not a queue row; absent: skills in the slash menu, the `File` menu entry, the Cmd/Ctrl+Enter inversion, empty-draft steer-all, the plan-mode placeholder, and the command-argument ghost hint) |
+| Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the `+ Attach` control does not open the command menu, the slash menu is one flat list without the reference's groups/sections/breadcrumbs/skeleton, Stop is always drawn and pressable while idle, files are chosen one at a time through a path field, no image thumbnails or drag hover overlay, the queue dock's Steer stays pressable while idle, and a pending send is not a queue row; absent: skills in the slash menu, the `File` menu entry, the Cmd/Ctrl+Enter inversion, empty-draft steer-all, the plan-mode placeholder, and the command-argument ghost hint) |
 | Sidebar: sessions, search, pin/archive/trash, workspace filter, navigation sheet | cloned (time-grouped list, not the grouped browser) |
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
 | Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab) |
@@ -9882,5 +9882,40 @@ empty draft and plain text) plus the new preset's assertion.
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/220-slash-mid-draft.png`, `status: passed` |
+| app bin | — | **20** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 405 — the running primary button says what a send will do
+
+The reference's primary composer button is not always `Send`: while the agent runs it states the
+submission policy — `Queue message` or `Steer message` (`InputBar.tsx:309-314`,
+`locales.ts:406-407`). Native said `Send ↑` unless the stored preference was Steer, so with the
+default Queue preference the button never told the user that pressing it would queue rather than
+interrupt.
+
+`send_label` now decides the label in one place: `Sending…` while a submission is in flight, then
+`Queue message ↑` or `Steer message ↑` by the preference while the selected session runs, and
+`Send ↑` when it is idle.
+
+Evidence: `shots/221-queue-message-label.png` (DP-2 alongside, `status: passed`) in the
+`working-conversation` preset — a working session, `Stop` beside the field, and the primary button
+reading `Queue message ↑`.
+
+Tests: `send_label_tests` drives a real app: an idle preset says `Send ↑`; a working session says
+`Queue message ↑`, `Steer message ↑` once the preference is Steer, and `Sending…` while submitting.
+
+**Battery (round 405).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1400 passed**, 1 ignored |
+| app, default | **0** | **1384 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/221-queue-message-label.png`, `status: passed` |
 | app bin | — | **20** dead-code warnings |
 | tree | — | clean before the commit |
