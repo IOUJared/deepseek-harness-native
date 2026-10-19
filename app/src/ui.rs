@@ -13215,13 +13215,16 @@ impl App {
     /// One group's seat: the reference's disclosure line above its first member
     /// (`ChatGroupSeat.tsx`, `message.stepProcess.done.*`).
     fn process_seat(&self, seat: &Seat) -> Element<'static, Message> {
+        // The reference's seat points **up** when its members are shown and **down** when they are
+        // folded away (`ChatGroupSeat.tsx:124-128`), at the body size and tertiary ink, not a small
+        // caption.
         let line = format!(
             "{} {}",
-            if seat.open { "\u{25be}" } else { "\u{25b8}" },
+            if seat.open { "\u{25b2}" } else { "\u{25bc}" },
             short(&seat.title, 120)
         );
         container(
-            button(label(line, MUTED).size(10))
+            button(label(line, MUTED).size(14))
                 .on_press(Message::ToggleProcessGroup {
                     generation: self.generation,
                     key: seat.key,

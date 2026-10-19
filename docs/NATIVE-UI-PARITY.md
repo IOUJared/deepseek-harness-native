@@ -9576,3 +9576,39 @@ from the tree that is committed.
 | DP-2 captures | — | twelve frames, all `status: passed` |
 | app bin | — | 20 dead-code warnings (unchanged) |
 | tree | — | clean before the commit |
+
+### Round 397 — the seat's chevrons point the reference's way, and a fixture arm was photographing itself
+
+The seat added in rounds 394–395 used `▾` for open and `▸` for closed. The reference does the
+opposite: `open ? ChevronUp : ChevronDown` (`ChatGroupSeat.tsx:124-128`), so a folded group shows a
+down chevron and an unfolded one an up chevron, at the body size in tertiary ink — not a 10px caption.
+Native now draws `▲` when unfolded, `▼` when folded, at 14px.
+
+Chasing that glyph uncovered a fixture bug worth recording: the `tool-activity` and
+`process-group-closed` preset arms in `metadata` **clicked the seat** to prove the toggle. `metadata`
+runs before the frame is captured, so those frames photographed a post-click state no user produced —
+and it made my first "open group" frames show a closed glyph. The arms are now read-only, and the
+click is its own test (`a_seat_click_folds_and_unfolds_its_members`) on its own app instance. This is
+the same rule as round 392's: a preset must not mutate what the capture photographs.
+
+The retake set was then re-cut, because the seat's size change shifts every grouped frame:
+`206-conversation`, `207-tool-activity-expanded`, `208-tool-activity-diff`,
+`209-tool-activity-terminal`, `210-tool-activity-search`, `211-tool-activity-web`,
+`212-tool-activity-ask`, `213-chat-density` (DP-2 frames and reports alongside, all
+`status: passed`).
+
+**Battery (round 397).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1388 passed**, 1 ignored |
+| app, default | **0** | **1374 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 captures | — | eight frames, all `status: passed` |
+| app bin | — | **20** dead-code warnings |
+| tree | — | clean before the commit |

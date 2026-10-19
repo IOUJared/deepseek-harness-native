@@ -2439,8 +2439,6 @@ pub fn build(
                 let seat = seats.values().next().unwrap();
                 (seat.key, seat.title.clone(), seat.open)
             };
-            // The preset records no turn end, so the turn is still running and its group is open —
-            // the reference's own default for a live group.
             assert!(open, "a running turn's group starts open");
             assert_eq!(title, "Read files, edited files, ran commands");
             let settled_rows: Vec<_> = app.transcript.display_rows(false).collect();
@@ -3390,6 +3388,47 @@ mod tests {
             }
         }
         assert!(empty.is_empty(), "rows that reserve no height: {empty:?}");
+    }
+
+    /// A group's seat flips its members in and out. This is its own test, not a preset arm: a
+    /// preset arm runs inside `metadata`, which runs before a capture, so a click there would
+    /// photograph a state no user produced.
+    #[test]
+    fn a_seat_click_folds_and_unfolds_its_members() {
+        let (size, _scale) = preset_size("tool-activity").unwrap();
+        let (mut app, _receiver) = build(options(), "tool-activity", size, None);
+        let (rows, key, open) = {
+            let rows: Vec<&crate::reducer::DisplayRow> =
+                app.transcript.display_rows(false).collect();
+            let seats = app.process_seats(&rows);
+            let seat = seats.values().next().expect("a group");
+            let (key, open) = (seat.key, seat.open);
+            // The rows borrow the transcript, so they are dropped with the seat map.
+            (rows.len(), key, open)
+        };
+        let _ = rows;
+        assert!(
+            !open,
+            "this preset's turn has ended, so its group starts folded"
+        );
+        drop(app.update(Message::ToggleProcessGroup {
+            generation: app.generation,
+            key,
+        }));
+        let unfolded = {
+            let rows: Vec<_> = app.transcript.display_rows(false).collect();
+            app.process_seats(&rows).values().next().unwrap().open
+        };
+        assert!(unfolded, "the click opens it");
+        drop(app.update(Message::ToggleProcessGroup {
+            generation: app.generation,
+            key,
+        }));
+        let folded = {
+            let rows: Vec<_> = app.transcript.display_rows(false).collect();
+            !app.process_seats(&rows).values().next().unwrap().open
+        };
+        assert!(folded, "the second click folds it again");
     }
 
     #[test]
