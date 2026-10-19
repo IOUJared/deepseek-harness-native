@@ -9539,3 +9539,40 @@ Tests: the preset asserts one group, closed, with the composed title, and that t
 | DP-2 capture | — | `shots/193-process-group-closed.png`, `status: passed` |
 | app bin | — | **20** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 396 — the chat frames re-taken with the seat
+
+Rounds 394 and 395 added a process-group seat above every run of step activity, which shifts every
+chat frame by a line and closes settled groups — so every chat shot taken before round 394 no longer
+shows what the app draws. Rather than leave stale evidence, twelve chat presets were re-captured from
+the same release build:
+
+`194-conversation`, `195-tool-activity-expanded`, `196-tool-activity-diff`,
+`197-tool-activity-terminal`, `198-tool-activity-search`, `199-tool-activity-web`,
+`200-tool-activity-ask`, `201-model-retry`, `202-turn-error`, `203-turn-max-tokens`,
+`204-stats-dialog`, `205-chat-density` — each with its DP-2 frame and JSON report, all
+`status: passed`.
+
+The older frames stay as historical evidence of the state they recorded; these twelve are the current
+rendering. The terminal frame also settled a doubt worth recording: at 10px the open-group chevron
+`▾` reads like the closed `▸` at full size, and a 4× crop confirmed the glyph and the state
+(`open=true`) agree.
+
+No code changed this round, so the battery below is the same suite, re-run to prove the frames came
+from the tree that is committed.
+
+**Battery (round 396).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1387 passed**, 1 ignored |
+| app, default | **0** | 1374 passed, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 captures | — | twelve frames, all `status: passed` |
+| app bin | — | 20 dead-code warnings (unchanged) |
+| tree | — | clean before the commit |
