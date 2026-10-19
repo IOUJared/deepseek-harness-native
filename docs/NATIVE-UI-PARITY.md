@@ -6412,7 +6412,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Right Sidebar: document preview and resource tabs | difference: full-page details panel, no PDF/Office renderers |
 | Workspace browser: grouped/animated rows, drag order, per-row menus | difference: workspace filter + navigation sheet |
 | Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory; the app's Host serves browse, so Browse… falls back to the in-app list and `pick` reports unavailable) |
-| Workflow-run surface | cloned (folded `tool-workflow/*` card; no interrupted detection) |
+| Workflow-run surface | cloned (folded `tool-workflow/*` card, five run states including the round-525 `Interrupted` for a stoppless run in a closed turn; a closed step alone does not interrupt, a named limit) |
 | Dockkit layout presets | difference: native fixed layout with its own preferences |
 | Locales (zh/en) | difference: English-only |
 
@@ -14783,4 +14783,47 @@ now covered by the smoke's own `expectedControlCountsMatch` (proved by re-runnin
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-rbicmtsw`) |
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 capture | — | `shots/318-terminal-shells-failed.png`, `status: passed`, 1200x900 |
+| app bin | — | **21** warnings |
+
+### Round 525 — a workflow run that lost its process reads as interrupted
+
+**The gap.** The coverage table recorded the workflow-run surface as cloned "no interrupted
+detection". The reference has five run states, not three: `running | completed | failed | cancelled |
+interrupted`, and it derives the last one without any extra event — a run whose `stopReason` is absent
+while its enclosing step or turn is **closed** was interrupted, and every member of such a run that
+never reported an outcome is interrupted too (`workflow-definition.ts:87-124`). Native drew
+`running` for every stoppless run, so a run whose process died claimed to be alive forever.
+
+**The change.** `workflow_run_status(stop, turn_closed)` is the reference's rule as a pure function;
+`Transcript::turn_at(seq)` finds the turn that was open at a log position, because a `tool-workflow/*`
+record carries no turn of its own; and the card marks the run `Interrupted` in muted ink with a `◌`
+member glyph where a stoppless member used to show the running dot. A run inside a turn that has not
+ended still says `running`, which is the honest state for the live case.
+
+**Frame.** `shots/319-workflow-interrupted.png` (760x560, new `workflow-run-interrupted` preset: a run
+that started, reported two members, never stopped, inside a closed turn):
+`Workflow PUBLIC interrupted workflow … Interrupted`, then `Phase · research` and `Phase · write`, each
+member on `◌`.
+
+**Tests.** `a_workflow_run_without_a_stop_reason_is_interrupted_once_its_turn_closed` (every stop
+reason still wins; a stoppless run is `running` while its turn is open and `Interrupted` once it
+closes) and `the_turn_at_a_workflow_runs_start_decides_whether_it_closed` (a real snapshot folds the
+run, `turn_at` finds turn 1, `turn_ended` is true, and the status follows).
+
+**Recorded limit.** The reference also treats a closed *step* as enough to interrupt a run. Native
+reads only the turn, which is the conservative direction: a run inside a still-open turn keeps saying
+`running` even if its step closed, so native never claims an interruption that the record does not
+support.
+
+**Battery (round 525).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1526 passed**, 1 ignored |
+| app, default | **0** | **1470 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-elmto2y5`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-q3ho4z7s`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 capture | — | `shots/319-workflow-interrupted.png`, `status: passed`, 760x560 |
 | app bin | — | **21** warnings |

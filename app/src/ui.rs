@@ -1289,6 +1289,21 @@ impl QuotaToast {
     }
 }
 
+/// A workflow run's status: the recorded stop reason, or — when there is none — whether the turn
+/// that opened it already closed. The reference calls that state `interrupted`
+/// (`workflow-definition.ts:95-124`), so a run whose process died reads as interrupted rather than
+/// as running forever.
+fn workflow_run_status<'a>(stop: Option<&'a str>, turn_closed: bool) -> &'a str {
+    match stop {
+        Some("completed") => "completed",
+        Some("cancelled") => "cancelled",
+        Some("error") => "failed",
+        Some(other) => other,
+        None if turn_closed => "Interrupted",
+        None => "running",
+    }
+}
+
 /// Whether one appended turn end states a quota failure: the two codes the reference raises its
 /// frame-wide notice for (`apply.ts:84-93`).
 fn quota_failure(reason: &serde_json::Value) -> bool {
@@ -11992,13 +12007,22 @@ impl App {
     }
     /// The durable workflow card: name, run status and phase-grouped members.
     fn workflow_card<'a>(&'a self, run: &crate::reducer::WorkflowRun) -> Element<'a, Message> {
-        let status: (String, _) = match run.stop.as_deref() {
-            Some("completed") => ("completed".to_owned(), ACCENT),
-            Some("cancelled") => ("cancelled".to_owned(), MUTED),
-            Some("error") => ("failed".to_owned(), DANGER),
-            Some(other) => (other.to_owned(), MUTED),
-            None => ("running".to_owned(), TEXT),
+        // The turn that opened the run decides whether a run without a stop reason still runs
+        // (`workflow-definition.ts:95-124`).
+        let interrupted = run.stop.is_none()
+            && self
+                .transcript
+                .turn_at(run.start_seq)
+                .is_some_and(|turn| self.transcript.turn_ended(turn));
+        let status = workflow_run_status(run.stop.as_deref(), interrupted);
+        let status_ink = match status {
+            "completed" => ACCENT,
+            "failed" => DANGER,
+            "running" => TEXT,
+            "Interrupted" | "cancelled" => MUTED,
+            _ => MUTED,
         };
+        let status = (status.to_owned(), status_ink);
         let mut card = column![
             row![
                 label("Workflow", MUTED).size(10),
@@ -12026,6 +12050,9 @@ impl App {
                     Some("failed") => ("✗", DANGER),
                     Some("cancelled") => ("○", MUTED),
                     Some(_) => ("·", MUTED),
+                    // A member that never reported an outcome in an interrupted run is
+                    // interrupted too, not still running (`workflow-definition.ts:99-113`).
+                    None if interrupted => ("◌", MUTED),
                     None => ("●", TEXT),
                 };
                 let row = row![
@@ -23794,6 +23821,65 @@ mod tests {
         assert_eq!(
             flow_gap_for(&live_refs, live_answer, &live_gaps),
             design::TURN_GAP
+        );
+    }
+
+    #[test]
+    fn a_workflow_run_without_a_stop_reason_is_interrupted_once_its_turn_closed() {
+        // The reference's rule (`workflow-definition.ts:95-124`): a stop reason states the outcome;
+        // without one, a closed turn means the run was interrupted rather than still running.
+        assert_eq!(workflow_run_status(Some("completed"), true), "completed");
+        assert_eq!(workflow_run_status(Some("cancelled"), true), "cancelled");
+        assert_eq!(workflow_run_status(Some("error"), true), "failed");
+        assert_eq!(workflow_run_status(None, false), "running");
+        assert_eq!(workflow_run_status(None, true), "Interrupted");
+    }
+
+    #[test]
+    fn the_turn_at_a_workflow_runs_start_decides_whether_it_closed() {
+        let (mut app, _receiver) = managed_app();
+        app.transcript = reducer::Transcript::new(0);
+        app.transcript
+            .apply(
+                0,
+                serde_json::from_value(serde_json::json!({
+                    "type": "snapshot",
+                    "records": [
+                        {"type": "event", "event": {"type": "turn/start", "seq": 0, "time": 1000,
+                            "surfaceOp": "append", "data": {"turn": 1}}},
+                        {"type": "event", "event": {"type": "tool-workflow/run-start", "seq": 1,
+                            "time": 1001, "surfaceOp": "append",
+                            "data": {"runId": "PUBLIC-run", "name": "PUBLIC run"}}},
+                        {"type": "event", "event": {"type": "turn/end", "seq": 2, "time": 1002,
+                            "surfaceOp": "append",
+                            "data": {"turn": 1, "reason": {"kind": "completed"}}}},
+                    ],
+                    "cursor": 2,
+                    "hasMore": false,
+                    "header": {"version": 4, "id": "public-managed-session", "createdAt": 1000, "isSeeded": false},
+                    "projections": {"asOfSeq": 2, "values": {}},
+                    "assistantStream": {"revision": 0}
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        let run = app
+            .transcript
+            .workflow_runs()
+            .into_iter()
+            .next()
+            .map(|(_, run)| run)
+            .expect("the run is folded");
+        // The run records no turn of its own, so the turn open at its start is the one that decides.
+        let turn = app
+            .transcript
+            .turn_at(run.start_seq)
+            .expect("a turn was open");
+        assert_eq!(turn, 1);
+        assert!(app.transcript.turn_ended(turn), "the turn closed");
+        assert_eq!(
+            workflow_run_status(run.stop.as_deref(), app.transcript.turn_ended(turn)),
+            "Interrupted"
         );
     }
 

@@ -151,6 +151,7 @@ pub const PRESETS: &[&str] = &[
     "feedback-failed",
     "feedback-capped",
     "workflow-run",
+    "workflow-run-interrupted",
     "context-pressure",
     "context-breakdown",
     "context-pressure-risk",
@@ -407,6 +408,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "feedback-failed"
         | "feedback-capped"
         | "workflow-run"
+        | "workflow-run-interrupted"
         | "context-pressure"
         | "context-breakdown"
         | "context-pressure-risk"
@@ -1805,6 +1807,28 @@ pub fn build(
                         "cacheReadTokens":6000,"cacheWriteTokens":0,"totalTokens":7345},
                     "stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],
                         "texts":["PUBLIC synthetic answer; the token reading is a projection, not billing."]}]}}}),
+        ]
+    } else if preset == "workflow-run-interrupted" {
+        // A run that started, reported members, and never stopped — inside a turn that closed.
+        // The reference reads that as interrupted rather than running (`workflow-definition.ts:95-124`).
+        vec![
+            json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
+                "surfaceOp":"append","data":{"role":"user","id":"PUBLIC-workflow-interrupted-prompt",
+                    "source":{"kind":"user"},
+                    "content":[{"type":"text","text":"PUBLIC prompt whose workflow lost its process."}]}}}),
+            json!({"type":"event","event":{"type":"turn/start","seq":1,"time":1000,
+                "surfaceOp":"append","data":{"turn":1}}}),
+            json!({"type":"event","event":{"type":"tool-workflow/run-start","seq":2,"time":1001,
+                "surfaceOp":"append",
+                "data":{"runId":"PUBLIC-run","name":"PUBLIC interrupted workflow"}}}),
+            json!({"type":"event","event":{"type":"tool-workflow/agent-start","seq":3,"time":1002,
+                "surfaceOp":"append",
+                "data":{"runId":"PUBLIC-run","seq":1,"label":"PUBLIC research","phase":"research"}}}),
+            json!({"type":"event","event":{"type":"tool-workflow/agent-start","seq":4,"time":1003,
+                "surfaceOp":"append",
+                "data":{"runId":"PUBLIC-run","seq":2,"label":"PUBLIC write","phase":"write"}}}),
+            json!({"type":"event","event":{"type":"turn/end","seq":5,"time":1004,
+                "surfaceOp":"append","data":{"turn":1,"reason":{"kind":"completed"}}}}),
         ]
     } else if preset == "workflow-run" {
         vec![
@@ -4263,7 +4287,7 @@ pub fn metadata(app: &App, preset: &str) -> Value {
         "reasoningStateMatchesPreset":app.chosen_model.as_ref().is_some_and(|m| !m.efforts.is_empty()) == reasoning_expected,
         "durablePublicRecordCount":app.transcript.rows().len(),
         "durablePublicSnapshotCursor":app.transcript.opening_cursor(),
-        "conversationSnapshotSimulated":matches!(preset, "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" | "conversation" | "inbox-canceled" | "changes-card" | "feedback" | "workflow-run") || preset.starts_with("tool-activity"),
+        "conversationSnapshotSimulated":matches!(preset, "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" | "conversation" | "inbox-canceled" | "changes-card" | "feedback" | "workflow-run" | "workflow-run-interrupted") || preset.starts_with("tool-activity"),
         "displayedPublicRecordCount":app.transcript.display_rows(app.records_expanded).count(),
         "canceledInboxHeadingExpected":preset == "inbox-canceled",
         "publicToolSnapshotSimulated":preset.starts_with("tool-activity"),

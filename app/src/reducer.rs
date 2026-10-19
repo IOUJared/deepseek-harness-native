@@ -557,6 +557,16 @@ impl Transcript {
     }
     /// Whether the Host recorded a turn end for one turn: a settled group closes, a live one stays
     /// open (`process-groups.ts:141-146`).
+    /// The turn that was open at one log position: the last recorded `turn/start` at or before
+    /// `seq`, or `None` when no turn had begun yet. A workflow run records no turn of its own, so
+    /// its interruption is decided by the turn this finds (`workflow-definition.ts:95-124`).
+    pub fn turn_at(&self, seq: u64) -> Option<u64> {
+        self.records
+            .values()
+            .filter(|event| event.event_type == "turn/start" && event.seq <= seq)
+            .max_by_key(|event| event.seq)
+            .and_then(|event| event.data["turn"].as_u64())
+    }
     pub fn turn_ended(&self, turn: u64) -> bool {
         self.records.values().any(|event| {
             event.event_type == "turn/end" && event.data["turn"].as_u64() == Some(turn)
