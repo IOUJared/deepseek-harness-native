@@ -11209,11 +11209,24 @@ impl App {
         .enumerate()
         {
             let selected = draft.category.as_deref() == Some(id);
+            // The reference marks the chosen chip with `aria-pressed` and a filled tint
+            // (`FeedbackDialog.tsx:111`). Native has no aria in the drawing, so the chip states it
+            // twice: the check mark is the word a screen reader would get, the tint is the colour.
             line = line.push(
-                button(label(name, if selected { ACCENT } else { MUTED }).size(10))
-                    .on_press(Message::FeedbackCategory(id.into()))
-                    .style(design::ghost)
-                    .padding([3, 6]),
+                button(
+                    label(
+                        if selected {
+                            format!("✓ {name}")
+                        } else {
+                            name.to_owned()
+                        },
+                        if selected { ACCENT } else { MUTED },
+                    )
+                    .size(10),
+                )
+                .on_press(Message::FeedbackCategory(id.into()))
+                .style(design::ghost)
+                .padding([3, 6]),
             );
             if index % 3 == 2 {
                 categories = categories.push(line);

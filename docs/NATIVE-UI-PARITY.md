@@ -13289,3 +13289,44 @@ field, the log disclosure and the limit line above Cancel and Submit.
 | DP-2 capture | — | `shots/287-feedback-textarea.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 497 — the chosen category says it is chosen
+
+The feedback dialog's category chips marked the selection by colour alone. The reference marks its chip
+with `aria-pressed` and a filled tint (`FeedbackDialog.tsx:111`), so the state is available to a reader who
+cannot see the tint.
+
+Native draws no accessibility tree for this dialog, so the chip now states the selection twice: a leading
+`✓` — the word a screen reader would have received — and the accent ink.
+
+Evidence: `shots/288-feedback-chip.png` (DP-2 alongside, `status: passed`) — `✓ Task result` in accent ink
+beside the unselected chips.
+
+### Recorded blocker — session-level feedback needs a route native does not have
+
+The feedback audit's last absent element: the reference opens its dialog **for the Session** from the
+composer menu, the header's more-actions and a bare `/feedback`, and records that through a separate
+remote — `ctx.remote.sessionFeedback.record({ sessionId, ...entry })`
+(`ui-message-feedback/src/client/surface.ts:33-38`, `index.ts:86`).
+
+Native's transport has only the per-message routes (`transport/src/http.rs:911-959`:
+`message_feedback_list`, `message_feedback_put`, and the delete). Adding a session route means inventing an
+endpoint name and payload that no live Host has confirmed — exactly the kind of unverified change this
+repository does not make. It is recorded here as blocked on a Host endpoint, and `/feedback` typed into the
+composer keeps the Host command path the reference also keeps for `/feedback <text>`.
+
+**Battery (round 497).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1482 passed**, 1 ignored |
+| app, default | **0** | **1444 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/288-feedback-chip.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
