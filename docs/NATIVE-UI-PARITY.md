@@ -8607,5 +8607,5 @@ form proving line text never leaves the model — plus the fixture's card assert
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/172-tool-read-card.png`, `status: passed` |
-| app bin | — | **19** dead-code warnings (18 before; one new dead `path_label` alias removed, one new) |
+| app bin | — | **19** dead-code warnings (18 before; the read card adds one) |
 | tree | — | clean before the commit |

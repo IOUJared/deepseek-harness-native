@@ -35,11 +35,11 @@ until the definition of done below is true.
 ## Current state (verify, do not trust)
 
 HEAD `8fa3a79`, tree clean, ~420 local commits ahead of origin, nothing pushed. Captures archived
-through `shots/157-chat-reference-size.png`. Working gates at that commit: app fixture **1255 passed /
-1 ignored**, app default **1248 / 1**, transport **56 + 17 + 89 + 7**, core `--lib` **115**, JS
-**419 pass / 0 fail**, format debt **0 files / 0 hunks**, `--suite clippy` and `--suite examples`
-passed. The app **bin** carries 18 pre-existing dead-code warnings (20 until round 369 removed two
-dead items): record the count, never claim it warning-free.
+through `shots/171-chat-reference-size-folded.png`. Working gates at that commit: app fixture **1296
+passed / 1 ignored**, app default **1289 / 1**, transport **56 + 17 + 89 + 7**, core `--lib` **115**,
+JS **419 pass / 0 fail**, format debt **0 files / 0 hunks**, `--suite clippy` and `--suite examples`
+passed. The app **bin** carries 19 pre-existing dead-code warnings (20 until round 369 removed two
+dead items; round 373 added one): record the count, never claim it warning-free.
 
 Two recorded environment facts, not defects to "fix": `--suite test` fails `binary-freshness` when a
 present `app/target/release/dsh-native-app` predates the sources (do not rebuild to silence it — record
