@@ -13360,3 +13360,37 @@ name the per-file diff rows with both gutters and wrapping that rounds 475–491
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 captures | — | `shots/289`–`292`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
+
+### Round 499 — a comparison can be read wrapped or unwrapped
+
+The last piece of the comparison the docs still listed as missing: the reference carries a wrap control
+beside its split control (`ReviewTab.tsx:131-142`). Native wrapped always after round 491, so a long line
+was readable but a reader who wanted the row count of the raw file had no way back.
+
+The detail panel now keeps `diff_wrap`, on by default, and the toolbar shows the action it performs — `No
+wrap` while wrapping, `Wrap` while not. Turning it off makes every row one clipped line; the panel is then
+read line by line as the file is. The control exists only while the panel shows a comparison.
+
+Tests: `a_comparison_wraps_by_default_and_the_toggle_flips_it` and `a_text_panel_has_no_wrap_to_toggle`.
+
+Evidence: `shots/293-detail-wrap.png` (DP-2 alongside, `status: passed`) — `No wrap`, `Copy source` and
+`Back` in the toolbar above the diff rows.
+
+**Still recorded**: the split (side-by-side) view. It is a second layout of the same rows, not a missing
+capability, and it is named here rather than implied.
+
+**Battery (round 499).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1484 passed**, 1 ignored |
+| app, default | **0** | **1446 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/293-detail-wrap.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

@@ -464,6 +464,8 @@ pub enum Message {
     ChangesHover(Option<(u64, usize)>),
     /// The hover delay elapsed while the pointer was still on that row.
     ChangesHoverExpired,
+    /// Flip a comparison's wrapping.
+    DetailWrap(detail_panel::Stamp),
     /// Open or close the context breakdown panels.
     ToggleContextBreakdown,
     /// Re-read the roster, whose projections the subagent catalog is built from.
@@ -4251,6 +4253,13 @@ impl App {
                     // hover; native does not fire a Host read from a passing pointer, which is a
                     // recorded difference rather than a missing one.
                     self.changes_preview = Some(pair);
+                }
+            }
+            Message::DetailWrap(ticket) => {
+                if let Some(detail) = self.detail.as_mut()
+                    && detail.ticket == Some(ticket)
+                {
+                    detail.toggle_diff_wrap();
                 }
             }
             Message::ToggleContextBreakdown => {
@@ -13984,6 +13993,15 @@ impl App {
                 });
                 toolbar = toolbar.push(control);
             }
+        }
+        if detail.mode == detail_panel::Mode::Diff {
+            let wrap =
+                button(label(if detail.diff_wrap { "No wrap" } else { "Wrap" }, MUTED).size(12))
+                    .on_press_maybe(detail.ticket.map(Message::DetailWrap))
+                    .style(design::ghost);
+            #[cfg(feature = "public-layout-fixture")]
+            let wrap = container(wrap).id("native-detail-wrap");
+            toolbar = toolbar.push(wrap);
         }
         let copy = button(label("Copy source", MUTED).size(12))
             .on_press_maybe(

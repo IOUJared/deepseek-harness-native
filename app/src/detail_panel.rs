@@ -41,6 +41,9 @@ pub struct Detail {
     pub mode: Mode,
     plan: Option<Result<formatted::Document, formatted::Failure>>,
     diff: Option<crate::reducer::inline_diff::Diff>,
+    /// Whether a comparison's rows wrap. On by default, as a native reading of the reference's default;
+    /// the toolbar control states the other state (`ReviewTab.tsx:131-142`).
+    pub diff_wrap: bool,
 }
 impl std::fmt::Debug for Detail {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -68,9 +71,18 @@ impl Detail {
             mode: Mode::Source,
             plan,
             diff: None,
+            diff_wrap: true,
         }
     }
     /// Draw this panel as a comparison instead of as text. The source stays for copying.
+    /// Flip the comparison's wrapping. Only a comparison has the control.
+    pub fn toggle_diff_wrap(&mut self) -> bool {
+        if self.mode != Mode::Diff {
+            return false;
+        }
+        self.diff_wrap = !self.diff_wrap;
+        true
+    }
     pub fn set_diff(&mut self, diff: crate::reducer::inline_diff::Diff) {
         if diff.lines.is_empty() {
             return;
@@ -119,10 +131,16 @@ impl Detail {
             let height = design::CODE_LINE;
             let mut rows = Column::new().width(Length::Fill);
             for line in &diff.lines {
-                let lines = crate::ui::changes_text::visual_lines(
-                    &line.text,
-                    chars as f32 * crate::ui::changes_text::CODE_CELL,
-                );
+                // With wrapping off a row is one clipped line, which is what the reference's unwrapped
+                // state shows; the panel scrolls horizontally instead.
+                let lines = if self.diff_wrap {
+                    crate::ui::changes_text::visual_lines(
+                        &line.text,
+                        chars as f32 * crate::ui::changes_text::CODE_CELL,
+                    )
+                } else {
+                    1
+                };
                 rows = rows.push(crate::ui::diff_line_view_wrapped(
                     line,
                     height * lines as f32,
@@ -302,4 +320,51 @@ fn view(document: &formatted::Document) -> Element<'_, Message> {
         });
     }
     body.into()
+}
+
+#[cfg(test)]
+mod diff_wrap_tests {
+    //! The comparison's wrap toggle, and what it refuses to be.
+    use super::*;
+
+    fn comparison() -> Detail {
+        let mut detail = Detail::new(
+            "Changes".into(),
+            String::new(),
+            None,
+            false,
+            Some(Stamp {
+                generation: 0,
+                opening: 1,
+            }),
+        );
+        detail.set_diff(crate::reducer::inline_diff::Diff {
+            lines: vec![crate::reducer::inline_diff::Line {
+                kind: crate::reducer::inline_diff::Kind::Added,
+                text: "x".repeat(200),
+                old: None,
+                new: Some(1),
+            }],
+        });
+        detail
+    }
+
+    #[test]
+    fn a_comparison_wraps_by_default_and_the_toggle_flips_it() {
+        let mut detail = comparison();
+        assert_eq!(detail.mode, Mode::Diff, "the sample set a comparison");
+        assert!(detail.diff_wrap, "wrapping is the default");
+        assert!(detail.toggle_diff_wrap());
+        assert!(!detail.diff_wrap);
+        assert!(detail.toggle_diff_wrap());
+        assert!(detail.diff_wrap, "and back");
+    }
+
+    #[test]
+    fn a_text_panel_has_no_wrap_to_toggle() {
+        let mut detail = Detail::new("Record".into(), "plain".into(), None, false, None);
+        assert_eq!(detail.mode, Mode::Source);
+        assert!(!detail.toggle_diff_wrap(), "nothing to wrap");
+        assert!(detail.diff_wrap, "and nothing changed");
+    }
 }
