@@ -177,6 +177,7 @@ pub const PRESETS: &[&str] = &[
     "tool-activity-terminal-search",
     "process-group-closed",
     "process-group-open",
+    "turn-rail",
     "tool-activity-attachment",
     "tool-activity-edit-error",
     "tool-activity-diff",
@@ -297,6 +298,8 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "skill-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "command-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "process-group-closed" | "process-group-open" => Some((Size::new(1040.0, 760.0), 1.0)),
+        // Four Turns, and a column wide enough for the rail (the transcript must exceed 900px).
+        "turn-rail" => Some((Size::new(1400.0, 820.0), 1.0)),
         "manual-compaction" => Some((Size::new(1040.0, 620.0), 1.0)),
         "chat-density" => Some((Size::new(1040.0, 1000.0), 1.0)),
         "tool-activity-narrow" => Some((Size::new(760.0, 840.0), 1.0)),
@@ -1805,6 +1808,31 @@ pub fn build(
             json!({"type":"event","event":{"type":"tool-workflow/run-end","seq":5,"time":1005,
                 "data":{"runId":"PUBLIC-run","stopReason":"completed"}}}),
         ]
+    } else if preset == "turn-rail" {
+        // Four clean Turns, each a prompt and an answer, so the rail has a mark per Turn and a
+        // viewport that starts inside a later one once it is scrolled.
+        let mut records = Vec::new();
+        for turn in 1..=4u64 {
+            let seq = (turn - 1) * 3;
+            records.push(
+                json!({"type":"event","event":{"type":"user/message","seq":seq,
+                "time":1000+seq,"surfaceOp":"append","data":{"role":"user",
+                    "id":format!("PUBLIC-rail-user-{turn}"),"source":{"kind":"user"},
+                    "content":[{"type":"text","text":format!("PUBLIC rail question {turn}.")}]}}}),
+            );
+            records.push(
+                json!({"type":"event","event":{"type":"assistant/message","seq":seq+1,
+                "time":1001+seq,"surfaceOp":"append","data":{"turn":turn,"step":1,
+                    "stream":[{"type":"text-chunks","time0":1001+seq,"index":0,"dt":[],
+                        "texts":[format!("PUBLIC rail answer {turn}.")]}]}}}),
+            );
+            records.push(
+                json!({"type":"event","event":{"type":"turn/end","seq":seq+2,
+                "time":1002+seq,"surfaceOp":"append","data":{"turn":turn,
+                    "reason":{"kind":"completed"}}}}),
+            );
+        }
+        records
     } else if preset == "feedback" || preset == "feedback-failed" || preset == "feedback-capped" {
         vec![
             json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,

@@ -27,7 +27,7 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > 2. Measure the baselines rather than trusting this file:
 >    - fixture: `cargo test --manifest-path app/Cargo.toml --locked --offline --jobs 2 --features public-layout-fixture --bin dsh-native-app -- --test-threads=2`
 >    - default: the same without `--features`
->    - at handover: **1506** fixture / **1458** default, 1 ignored each (round 516).
+>    - at handover: **1510** fixture / **1458** default, 1 ignored each (round 517).
 > 3. Load `.agents/skills/native-ui-parity/SKILL.md` (and `.agents/skills/impeccable-rust/SKILL.md` for
 >    Rust changes) — `AGENTS.md` makes both mandatory for this work. Then read `docs/SESSION-PROMPT.md`
 >    (capture conventions, next shot number), `docs/VERIFICATION.md`, and the coverage table at the end
@@ -65,10 +65,16 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 >   frame (same window size, same sidebar state, same conversation data).
 >
 > ### Live backlog at handover (verify each before working it)
-> 1. **The turn control's counts** — the reference publishes `data-turn-process-messages`,
+> 1. **The turn rail's unloaded half** — round 517 built the ladder over the loaded window; the
+>    reference also marks every Turn from the `turnOutline` projection, dims the ones the window does
+>    not hold, and pages history to a pressed unloaded mark.
+> 2. **The rail's preview card, busy pulse and internal scroller** — the reference grows a 300px
+>    prompt/response card beside a hovered mark, pulses a paging mark and scrolls a ladder taller than
+>    its 420px band with faded ends; native clips.
+> 3. **The turn control's counts** — the reference publishes `data-turn-process-messages`,
 >    `-tool-calls` and `-subagents` for the control's accessible state
 >    (`TurnProcessNodeView.tsx:38-41`); native's label states only the duration or end state.
-> 2. **Hover ink** — the reference lifts a seat's title from tertiary to secondary ink on hover; native
+> 4. **Hover ink** — the reference lifts a seat's title from tertiary to secondary ink on hover; native
 >    keeps one ink and only swaps the leading glyph (round 516).
 > 3. **`reference.png` measurements are paired, not pixel-diffed.** The frame was read as "collapsed
 >    rail, no header" through round 509; round 510 measured every band in its left 520px and found no
@@ -88,8 +94,8 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > 505), the comparison layout's persistence (round 509), the message rows' horizontal and vertical
 > insets (rounds 504, 510), the group seat's 24px blank band (round 511), the folded-by-default seat
 > with its expanded title gap (round 512), a settled turn's process control (round 513), the
-> turn-process 16px flow rung (round 514), and the seat's activity-to-chevron leading glyph (round
-> 516).
+> turn-process 16px flow rung (round 514), the seat's activity-to-chevron leading glyph (round 516),
+> and the transcript's turn rail over the loaded window (round 517).
 >
 > ### Etiquette
 > Be terse. Prefer numbered lists over tables in replies. Challenge your own claims; walk back anything

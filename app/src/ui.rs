@@ -508,6 +508,12 @@ pub enum Message {
     SeatHover(u64),
     /// The pointer left that seat again.
     SeatHoverEnd(u64),
+    /// The pointer rests on one mark of the transcript's turn rail.
+    TurnRailHover(u64),
+    /// The pointer left that mark.
+    TurnRailHoverEnd(u64),
+    /// Jump the transcript to a Turn the loaded window holds.
+    TurnRailJump(u64),
     ToggleActivity {
         generation: u64,
         key: u64,
@@ -1225,6 +1231,13 @@ struct Seat {
     open: bool,
 }
 
+/// One mark on the transcript's turn rail: a loaded Turn and the row it starts at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RailTurn {
+    turn: u64,
+    first: usize,
+}
+
 /// One settled turn's process fold: the control line the reference states above a closed turn's
 /// process content, the rows that content occupies, and whether the reader opened it
 /// (`TurnProcessNodeView.tsx:19-33`, `ChatGroupSeat.tsx:152-153`).
@@ -1632,6 +1645,9 @@ pub struct App {
     /// The process seat the pointer rests on, if any: the reference swaps its leading activity
     /// glyph for the disclosure chevron while hovered (`ChatGroupSeat.tsx:113-127`).
     seat_hover: Option<u64>,
+    /// The turn-rail mark the pointer rests on, whose tick grows as the reference's preview state
+    /// does (`TurnNavigator.module.css:88-100`).
+    turn_rail_hover: Option<u64>,
     /// Settled turns whose whole process the reader has opened, by turn number. A settled turn
     /// with no entry is folded behind its control line, as the reference's completed-turn fold
     /// is (`ChatGroupSeat.tsx:152-153`, `TurnProcessNodeView.tsx:20-33`).
@@ -1967,6 +1983,7 @@ impl App {
                 activity_expanded: Default::default(),
                 process_group_open: Default::default(),
                 seat_hover: None,
+                turn_rail_hover: None,
                 turn_process_open: Default::default(),
                 edit_review: None,
                 search_open: false,
@@ -3089,6 +3106,7 @@ impl App {
         self.turn_process_open.clear();
         // A seat's hover belongs to the pointer and the row it was over.
         self.seat_hover = None;
+        self.turn_rail_hover = None;
         // The usage disclosure is keyed by record seq, which is not unique across sessions, so a
         // seq that was open here would open the new session's same-numbered row.
         self.usage_expanded.clear();
@@ -5721,6 +5739,36 @@ impl App {
             }
             Message::SeatHoverEnd(key) if self.seat_hover == Some(key) => {
                 self.seat_hover = None;
+            }
+            Message::TurnRailHover(turn) if self.turn_rail_hover != Some(turn) => {
+                self.turn_rail_hover = Some(turn);
+            }
+            Message::TurnRailHoverEnd(turn) if self.turn_rail_hover == Some(turn) => {
+                self.turn_rail_hover = None;
+            }
+            // The reference's rail mark scrolls to its Turn, or pages history to it first when the
+            // window does not hold it (`TurnNavigator.tsx:98-108`); every mark here is loaded.
+            Message::TurnRailJump(turn) if self.composer_visible() => {
+                let rows: Vec<&DisplayRow> = self
+                    .transcript
+                    .display_rows(self.records_expanded)
+                    .collect();
+                let first = self
+                    .rail_turns(&rows)
+                    .into_iter()
+                    .find(|rail| rail.turn == turn)
+                    .map(|rail| rail.first);
+                if let Some(first) = first {
+                    let heights: Vec<f32> = self
+                        .row_geometries(&rows)
+                        .iter()
+                        .map(|geometry| geometry.height)
+                        .collect();
+                    self.offset = heights[..first].iter().sum();
+                    self.follow_bottom = false;
+                    self.invalidate_scroll();
+                    return self.position_transcript();
+                }
             }
             Message::ToggleActivity { generation, key }
                 if generation == self.generation && self.composer_visible() =>
@@ -15072,6 +15120,133 @@ impl App {
         }
         geometry
     }
+    /// The turn rail's marks: every loaded Turn once, ascending, with the row it starts at. The
+    /// reference merges this window with the `turnOutline` projection, so a Turn the window does
+    /// not hold still gets a dimmer mark (`turn-rail-items.ts:1-89`); native's marks are the
+    /// loaded window's, which is the difference round 517 names.
+    fn rail_turns(&self, rows: &[&DisplayRow]) -> Vec<RailTurn> {
+        let mut turns: Vec<RailTurn> = Vec::new();
+        // A prompt row carries no Turn of its own (`DisplayRow::turn` comes from the event's
+        // `turn`), so a Turn's first row is the one right after the previous Turn's last row: the
+        // prompt that opens it, which is where its mark should land.
+        let mut next = 0;
+        for (index, row) in rows.iter().enumerate() {
+            let Some(turn) = row.turn else {
+                continue;
+            };
+            match turns.last_mut() {
+                Some(last) if last.turn == turn => {}
+                _ => turns.push(RailTurn {
+                    turn,
+                    first: next.min(index),
+                }),
+            }
+            next = index + 1;
+        }
+        turns
+    }
+    /// The Turn the viewport is in: the one whose row starts the first visible line
+    /// (`TurnNavigator.tsx:117-124` follows the same row-derived active Turn).
+    fn active_rail_turn(&self, rows: &[&DisplayRow]) -> Option<u64> {
+        let heights: Vec<f32> = self
+            .row_geometries(rows)
+            .iter()
+            .map(|geometry| geometry.height)
+            .collect();
+        // The row under the viewport's first line. `height_range` is the virtualizer's window and
+        // deliberately reaches back two rows, so it cannot answer this.
+        let mut top = 0.0;
+        let mut first = None;
+        for (index, height) in heights.iter().enumerate() {
+            if self.offset < top + height {
+                first = Some(index);
+                break;
+            }
+            top += height;
+        }
+        // The viewport may start on a prompt row, which carries no Turn; the Turn it opens is the
+        // next row's.
+        rows[first?..].iter().find_map(|row| row.turn)
+    }
+    /// The transcript's turn rail: a right-edge ladder of one mark per Turn, the viewport's Turn
+    /// in primary ink at full length, a hovered one in tertiary ink at nine tenths, the rest a
+    /// short hairline (`TurnNavigator.module.css:60-100`). It is absent while the transcript is
+    /// narrower than 900px, and for a session with fewer than two Turns
+    /// (`TurnNavigator.tsx:61-63`, `.module.css:200-204`).
+    fn turn_rail(&self) -> Option<Element<'_, Message>> {
+        if self.content_column() <= design::TURN_RAIL_MIN_COLUMN {
+            return None;
+        }
+        let rows: Vec<&DisplayRow> = self.visible_rows();
+        let turns = self.rail_turns(&rows);
+        if turns.len() < 2 {
+            return None;
+        }
+        let active = self.active_rail_turn(&rows);
+        let mut marks = Column::new()
+            .spacing(design::TURN_RAIL_PITCH - design::TURN_RAIL_MARK_HEIGHT)
+            .align_x(iced::Alignment::End)
+            .width(design::TURN_RAIL_WIDTH);
+        for rail in &turns {
+            let here = active == Some(rail.turn);
+            let hovered = self.turn_rail_hover == Some(rail.turn);
+            let width = if here {
+                design::TURN_RAIL_MARK_WIDTH
+            } else if hovered {
+                design::TURN_RAIL_MARK_WIDTH * 0.9
+            } else {
+                design::TURN_RAIL_MARK_WIDTH * 0.6
+            };
+            let ink = if here {
+                TEXT
+            } else if hovered {
+                MUTED
+            } else {
+                design::LINE
+            };
+            let tick = container(
+                Space::new()
+                    .width(width)
+                    .height(design::TURN_RAIL_MARK_HEIGHT),
+            )
+            .style(move |_| container::Style {
+                background: Some(ink.into()),
+                border: iced::Border {
+                    radius: 2.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
+            let mark = container(tick)
+                .width(design::TURN_RAIL_WIDTH)
+                .align_x(iced::Alignment::End);
+            let turn = rail.turn;
+            marks = marks.push(
+                iced::widget::mouse_area(mark)
+                    .on_enter(Message::TurnRailHover(turn))
+                    .on_exit(Message::TurnRailHoverEnd(turn))
+                    .on_press(Message::TurnRailJump(turn)),
+            );
+        }
+        // The reference scrolls a ladder taller than its band inside this frame with faded ends
+        // (`TurnNavigator.module.css:52-95`); native clips it, which round 517 names.
+        let rail = container(marks)
+            .max_height(design::TURN_RAIL_MAX_HEIGHT)
+            .clip(true)
+            .width(design::TURN_RAIL_WIDTH);
+        Some(
+            container(rail)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(iced::Alignment::End)
+                .align_y(iced::Alignment::Center)
+                .padding(iced::Padding {
+                    right: design::TURN_RAIL_INSET,
+                    ..Default::default()
+                })
+                .into(),
+        )
+    }
     /// The rows that take the reference's 16px `turn-process` rung: the first process row of a
     /// settled turn — where its control sits — and the answer of every turn whose process is above
     /// it, settled or live (`ChatView.module.css:87-95` fixes the gap on
@@ -17455,6 +17630,11 @@ impl App {
         }
         if self.composer_visible() {
             overlaid = overlaid.push(self.composer_fade());
+        }
+        // The reference's turn rail is a sibling of the clipped transcript, not its descendant
+        // (`TurnNavigator.module.css:1-8`), so it rides this stack above the scroller.
+        if let Some(rail) = self.turn_rail() {
+            overlaid = overlaid.push(rail);
         }
         if let Some(control) = self.to_bottom_control() {
             overlaid = overlaid.push(control);
@@ -23172,6 +23352,113 @@ mod tests {
             "read is the summary's first category"
         );
         assert!(!seat.open, "its own disclosure is still folded");
+    }
+
+    #[cfg(feature = "public-layout-fixture")]
+    #[test]
+    fn the_turn_rail_marks_each_loaded_turn_once_at_its_first_row() {
+        use layout_fixture;
+        let size = iced::Size::new(1400.0, 820.0);
+        let (app, _receiver) =
+            layout_fixture::build(layout_fixture::test_options(), "turn-rail", size, None);
+        let rows: Vec<&DisplayRow> = app.transcript.display_rows(false).collect();
+        let rails = app.rail_turns(&rows);
+        // Four Turns, each a prompt and its answer, so every other row starts a Turn.
+        assert_eq!(
+            rails,
+            (1..=4)
+                .map(|turn| RailTurn {
+                    turn,
+                    first: (turn as usize - 1) * 2
+                })
+                .collect::<Vec<_>>()
+        );
+        assert!(app.turn_rail().is_some(), "the ladder draws at this width");
+        // It is absent while the transcript column is at or under 900px
+        // (`TurnNavigator.module.css:200-204`) and for a session of one Turn.
+        let (narrow, _receiver) = layout_fixture::build(
+            layout_fixture::test_options(),
+            "turn-rail",
+            iced::Size::new(1040.0, 760.0),
+            None,
+        );
+        assert!(
+            narrow.turn_rail().is_none(),
+            "the column is under the rail's width"
+        );
+        let (single, _receiver) = layout_fixture::build(
+            layout_fixture::test_options(),
+            "tool-activity",
+            iced::Size::new(1980.0, 1319.0),
+            None,
+        );
+        assert!(single.turn_rail().is_none(), "one Turn needs no ladder");
+    }
+
+    #[cfg(feature = "public-layout-fixture")]
+    #[test]
+    fn the_turn_rail_names_the_turn_the_viewport_starts_in() {
+        use layout_fixture;
+        let size = iced::Size::new(1400.0, 820.0);
+        let (mut app, _receiver) =
+            layout_fixture::build(layout_fixture::test_options(), "turn-rail", size, None);
+        let rows: Vec<_> = app.transcript.display_rows(false).collect();
+        let rails = app.rail_turns(&rows);
+        let heights: Vec<f32> = app
+            .row_geometries(&rows)
+            .iter()
+            .map(|geometry| geometry.height)
+            .collect();
+        let third = rails[2];
+        app.offset = heights[..third.first].iter().sum::<f32>() + 4.0;
+        app.viewport = 300.0;
+        assert_eq!(app.active_rail_turn(&rows), Some(third.turn));
+        app.offset = 0.0;
+        assert_eq!(
+            app.active_rail_turn(&rows),
+            rails.first().map(|rail| rail.turn)
+        );
+    }
+
+    #[cfg(feature = "public-layout-fixture")]
+    #[test]
+    fn pressing_a_turn_mark_scrolls_to_that_turn_and_stops_following() {
+        use layout_fixture;
+        let size = iced::Size::new(1400.0, 820.0);
+        let (mut app, _receiver) =
+            layout_fixture::build(layout_fixture::test_options(), "turn-rail", size, None);
+        let rows: Vec<_> = app.transcript.display_rows(false).collect();
+        let target = app.rail_turns(&rows)[2];
+        let heights: Vec<f32> = app
+            .row_geometries(&rows)
+            .iter()
+            .map(|geometry| geometry.height)
+            .collect();
+        let expected: f32 = heights[..target.first].iter().sum();
+        assert!(app.follow_bottom);
+        drop(app.update(Message::TurnRailJump(target.turn)));
+        assert_eq!(
+            app.offset, expected,
+            "the mark scrolls to its Turn's first row"
+        );
+        assert!(!app.follow_bottom, "a jump leaves the live tail");
+    }
+
+    #[cfg(feature = "public-layout-fixture")]
+    #[test]
+    fn a_resting_pointer_grows_one_rail_mark_and_leaving_it_restores_it() {
+        use layout_fixture;
+        let size = iced::Size::new(1400.0, 820.0);
+        let (mut app, _receiver) =
+            layout_fixture::build(layout_fixture::test_options(), "turn-rail", size, None);
+        assert_eq!(app.turn_rail_hover, None);
+        drop(app.update(Message::TurnRailHover(3)));
+        assert_eq!(app.turn_rail_hover, Some(3));
+        // Leaving a different mark must not clear this one.
+        drop(app.update(Message::TurnRailHoverEnd(2)));
+        assert_eq!(app.turn_rail_hover, Some(3));
+        drop(app.update(Message::TurnRailHoverEnd(3)));
+        assert_eq!(app.turn_rail_hover, None);
     }
 
     #[cfg(feature = "public-layout-fixture")]

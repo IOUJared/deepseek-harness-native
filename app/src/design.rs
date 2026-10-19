@@ -213,6 +213,18 @@ pub const RESPONSE_GAP: f32 = 12.0;
 /// after a turn-process item (`ChatView.module.css:87-95`). Round 513 built the control, so
 /// this rung now has a native row to apply to.
 pub const TURN_GAP: f32 = 16.0;
+/// The turn rail: a fixed-pitch ladder of 20x2px marks 10px apart, one per Turn, right-aligned
+/// in a 28px frame 12px in from the transcript's edge, vertically centered in the band and capped
+/// at 420px (`TurnNavigator.module.css:1-95`). The marks scale to 60% at rest, 90% on hover and
+/// 100% for the Turn the viewport is in.
+pub const TURN_RAIL_PITCH: f32 = 10.0;
+pub const TURN_RAIL_MARK_HEIGHT: f32 = 2.0;
+pub const TURN_RAIL_MARK_WIDTH: f32 = 20.0;
+pub const TURN_RAIL_WIDTH: f32 = 28.0;
+pub const TURN_RAIL_INSET: f32 = 12.0;
+pub const TURN_RAIL_MAX_HEIGHT: f32 = 420.0;
+/// The rail hides while its column is at or under 900px (`TurnNavigator.module.css:200-204`).
+pub const TURN_RAIL_MIN_COLUMN: f32 = 900.0;
 /// The transcript scroller's own vertical inset: the web's `.scroll` padding is
 /// `16px calc(clearance + 16px)` (`ChatView.module.css:26-29`), so the first row
 /// starts 16px below the header and the last ends 16px above the composer.

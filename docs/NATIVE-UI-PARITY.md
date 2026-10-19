@@ -14373,3 +14373,61 @@ the coverage table already records. The turn control's chevron is likewise a tex
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 captures | — | `shots/310-seat-activity.png`, `shots/311-seat-chevron.png`, both `status: passed` |
 | app bin | — | **21** warnings |
+
+### Round 517 — the transcript's turn rail
+
+**The gap, found while scoping round 516's next item.** The reference ships a **turn rail** —
+`TurnNavigator.tsx` (295 lines), `turn-rail-items.ts` and `TurnNavigator.module.css` — a fixed-pitch
+ladder of one mark per Turn down the transcript's right edge. Neither the code nor any document in
+this repository mentioned it: it was an unrecorded unbuilt surface, not a named difference. The
+reference frame cannot show it (its right 80px carry no ink — the user's capture predates the rail),
+so this round's evidence is the pinned source plus a new native frame.
+
+**What the reference draws** (`TurnNavigator.module.css:1-204`, `TurnNavigator.tsx:30-127`): 20x2px
+marks 10px apart, right-aligned in a 28px frame 12px in from the transcript's edge, vertically
+centered in the band and capped at 420px; the mark under the viewport is full length in primary ink,
+a hovered one nine tenths in tertiary ink, the rest 60% in `border-l4`; an unloaded Turn's mark is
+40% at 60% opacity; a paging Turn's mark pulses; the frame is hidden while its column is ≤ 900px; a
+hovered mark grows a 300px preview card (one prompt line, up to three response lines) to its left;
+and a mark pages history to its Turn when the window does not hold it.
+
+**What this round builds.** `RailTurn` and `App::rail_turns` mark every loaded Turn once at its first
+row — the row after the previous Turn's last, because a prompt row carries no `turn` of its own —
+`App::active_rail_turn` names the Turn under the viewport's first row, and `App::turn_rail` draws the
+ladder: four mark lengths and inks as above, hover enter/exit (`Message::TurnRailHover`/`…End`), a
+press that scrolls to the Turn's first row and leaves the live tail (`Message::TurnRailJump`), absent
+under 900px and for a session of fewer than two Turns. It rides the transcript's existing overlay
+stack, the position `TurnNavigator.module.css:1-8` gives it as a sibling of the clipped transcript.
+
+**Deliberately not built yet, and named.** Marks come from the **loaded window**; the reference merges
+that with the `turnOutline` projection, so a Turn the window does not hold still gets a dimmer mark and
+pages history when pressed. The hover **preview card**, the paging **busy** pulse and the frame's
+**internal scroller with faded ends** (native clips past 420px) are likewise open. Native has the
+projection path — the snapshot's projection map is generic — but reading `turnOutline` and paging to a
+seq is its own round.
+
+**Frames.** `shots/312-turn-rail.png` (1400x820, new `turn-rail` preset with four clean Turns): the
+ladder at the transcript's right edge with the first Turn's mark long and bright and the three below
+short and dim, the scrollbar clear of it. Tests: `the_turn_rail_marks_each_loaded_turn_once_at_its_first_row`
+(four marks at 0/2/4/6, present at 1140px, absent at 780px and for one Turn),
+`the_turn_rail_names_the_turn_the_viewport_starts_in`,
+`pressing_a_turn_mark_scrolls_to_that_turn_and_stops_following`, and
+`a_resting_pointer_grows_one_rail_mark_and_leaving_it_restores_it`.
+
+**A measurement trap this round hit.** `height_range` is the virtualizer's window and deliberately
+reaches two rows back, so it cannot answer "which row is at the top of the viewport"; the first cut used
+it and named the wrong active Turn. `active_rail_turn` now walks the cumulative heights to the row that
+contains `offset`.
+
+**Battery (round 517).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1510 passed**, 1 ignored |
+| app, default | **0** | **1458 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-rsa1v6io`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-k_peowbc`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 capture | — | `shots/312-turn-rail.png`, `status: passed`, 1400x820 |
+| app bin | — | **21** warnings |
