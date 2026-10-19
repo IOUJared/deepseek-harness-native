@@ -68,11 +68,9 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > 1. **The rail's fades and the card's animations** — the reference scrolls a long ladder behind 24px
 >    mask fades (native shows a 42-mark window instead) and animates the card in over 120ms with a
 >    140ms vertical follow (native draws it at rest).
-> 2. **The `turnOutline` push is unverified live** — rounds 518–519 read the projection and the fixture
->    seeds it, but no real session has been read to confirm the Host pushes it to native.
-> 3. **A flaky examples test** — `single_instance::tests::a_second_launch_reaches_the_owner_that_holds_the_lock`
->    failed once in round 521 ("the owner answers on its socket") and passed on the re-run; it is a
->    Unix-socket timing test, and the cause is not established.
+> 2. **A flaky examples test** — `single_instance::tests::a_second_launch_reaches_the_owner_that_holds_the_lock`
+>    failed once in round 521 ("the owner answers on its socket"), then passed the re-run and six
+>    further full runs in round 522. The cause is not established; the observation is retained.
 > 3. **The turn control's counts** — the reference publishes `data-turn-process-messages`,
 >    `-tool-calls` and `-subagents` for the control's accessible state
 >    (`TurnProcessNodeView.tsx:38-41`); native's label states only the duration or end state.
@@ -99,7 +97,8 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > turn-process 16px flow rung (round 514), the seat's activity-to-chevron leading glyph (round 516),
 > the transcript's turn rail over the loaded window (round 517), the rail's outline half with paging
 > to an unloaded Turn (round 518), the rail's hover preview card (round 519), a paging mark's pulse
-> with a windowed long ladder (round 520), and the Turn usage accounting dialog (round 521).
+> with a windowed long ladder (round 520), the Turn usage accounting dialog (round 521), and the
+> `turnOutline` publication checked against the real Host (round 522, `scripts/qualify-turn-outline.py`).
 >
 > ### Etiquette
 > Be terse. Prefer numbered lists over tables in replies. Challenge your own claims; walk back anything

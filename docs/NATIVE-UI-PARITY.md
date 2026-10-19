@@ -14634,3 +14634,49 @@ than a fixed defect — one pass after one failure is not evidence of a cause.
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 capture | — | `shots/316-turn-usage.png`, `status: passed`, 1040x760 |
 | app bin | — | **21** warnings |
+
+### Round 522 — the Host does publish `turnOutline`, checked rather than assumed
+
+**The gap, closed.** Rounds 518–519 read the `turnOutline` projection and the fixture seeded it, but
+the handover carried the honest caveat that no real session had ever confirmed the composed Host
+publishes it. This round settles it with a **committed qualifier** instead of another assumption:
+`scripts/qualify-turn-outline.mjs` boots the pinned alpha runtime through the app's own fork
+supervisor (isolated home, base+web profile), creates one blank session, and reads
+`ctx.sessionProjections.snapshot(session)` — the same registry read the API builds every follow frame
+and control baseline from (`packages/api/session-controller/src/control.ts:62-82`).
+`scripts/qualify-turn-outline.py` runs it through the existing pidfd-owned runner and validates the
+private report.
+
+**Result — passed.** `app/evidence/turn-outline-20261019-164353/result.json`: status `passed`,
+exit 0, not cancelled, source unchanged, `identityPinFailures` 0, one observed process, cleanup
+complete. Facts: `registryPresent` true, `keyPublished` true, `blankSessionIsEmpty` true (a fresh
+session's view is `[]`), `keysAreClientVisible` true. The snapshot published **19** client-visible
+units and `turnOutline` is one of them: `agentPreset, contextBreakdown, contextPressure, goal,
+imageLimits, inbox, modelSelection, permissions, plan, sessionListMetadata, sessionStats, subagent,
+subagentCatalog, subagentTiming, title, todos, tokenUsage, turnOutline, userQuestions`.
+
+So the rail's outline half rests on a wire contract that is now observed, not inferred: native's
+generic projection retention receives the key, and the marker/preview paths built in rounds 518–519
+have a Host that feeds them.
+
+**What this round does not claim.** It is a Host-side composition and snapshot check, not a native
+transport or GUI run: it does not prove the mux delivers the key to the Rust client (the transport's
+projection retention is covered by unit tests), and it starts no model, catalog or credential path —
+the report states `modelPromptsRequested: false` and `catalogRequested: false`. No frame was captured:
+this round changed no pixel. The qualifier is not wired into `verify-native.py`'s suites because it
+boots a Node Host; run it directly with
+`python3 scripts/qualify-turn-outline.py --output <new private dir under app/evidence>`.
+
+**Battery (round 522).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1521 passed**, 1 ignored |
+| app, default | **0** | **1465 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed (`verification-n4ilg6l1`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-6g4ka09k`) |
+| transport / core / JS | — | **not re-run**: only scripts and docs changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| Host qualifier | **0** | `app/evidence/turn-outline-20261019-164353/result.json`, `status: passed` |
+| DP-2 capture | — | none: no visual change |
+| app bin | — | **21** warnings |
