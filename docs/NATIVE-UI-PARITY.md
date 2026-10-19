@@ -9244,9 +9244,11 @@ row.
 value serialized as JSON — and narrows every field: a non-empty `id`, `prompt` and `scheduledAt`, a
 known `kind`, and that kind's own fields (`afterSeconds`, `everySeconds`, `time`/`timeZone`,
 `weekdays` of ISO 1–7, `expression`). The title is the recorded `title`, else the instruction's first
-line. The rule line is the reference's own copy: `Once`, `Every 5 minutes` (the largest unit that
+line. The rule line follows the reference's wording — `Once`, `Every 5 minutes` (the largest unit that
 divides the interval), `Daily at 17:30 (UTC)`, `Weekly on Mon, Fri at 09:00 (UTC)`,
-`Cron 0 9 * * 1 (UTC)`.
+`Cron 0 9 * * 1 (UTC)` — with one recorded difference: the zone is the raw IANA id where the reference
+prints an offset plus its locale's long name (`schedule-format.ts:135-146`), because native has no ICU
+zone names.
 
 A running call already states the title it is preparing from its own arguments; a failed creation or
 a result that is not a complete task states the raw result text instead, so the card never presents

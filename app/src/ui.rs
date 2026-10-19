@@ -15944,12 +15944,17 @@ impl App {
                 .schedule_delete
                 .as_ref()
                 .is_some_and(|(session, id)| session == &item.session_id && id == &item.id);
-            let meta = format!(
-                "{} · {} · {}",
-                item.kind,
-                item.scheduled_at.as_deref().unwrap_or("no next time"),
-                item.status
-            );
+            // The reference states the row's own rule, whether it is enabled, and — only for an
+            // enabled task — when it runs next (`TaskManagerPage.tsx:184-192`,
+            // `task-manager-locales.ts:23`). Native showed the raw kind, wire status and an instant
+            // that stayed on screen after a task ended.
+            let rule = crate::reducer::schedule_card::frequency_from(&item.record, &item.kind)
+                .unwrap_or_else(|| item.kind.clone());
+            let enabled = item.status.eq_ignore_ascii_case("active");
+            let mut meta = format!("{rule} · {}", if enabled { "Enabled" } else { "Inactive" });
+            if enabled && let Some(next) = item.scheduled_at.as_deref() {
+                meta.push_str(&format!(" · next run {next}"));
+            }
             let mut row = column![
                 label(short(&item.title, 80), TEXT).size(14),
                 label(short(&meta, 140), MUTED).size(10),

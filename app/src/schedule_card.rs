@@ -86,6 +86,48 @@ fn every_line(seconds: u64) -> String {
     format!("Every {seconds} seconds")
 }
 
+/// The reference's localized rule for one recorded schedule row, read from the row's own timing
+/// fields (`schedule-format.ts:249-300`, `frequency-locales.ts:75-81`). The card's `narrow` needs a
+/// complete task; a row only needs its rule, so this shares the same wording without the identity.
+pub fn frequency_from(
+    record: &serde_json::Map<String, serde_json::Value>,
+    kind: &str,
+) -> Option<String> {
+    let text = |key: &str| record.get(key).and_then(|value| value.as_str());
+    let number = |key: &str| record.get(key).and_then(|value| value.as_u64());
+    match kind {
+        "after" | "at" => Some("Once".to_owned()),
+        "every" => Some(every_line(
+            number("everySeconds").filter(|seconds| *seconds > 0)?,
+        )),
+        "daily" => Some(format!(
+            "Daily at {} ({})",
+            clock_label(text("time")?),
+            text("timeZone")?
+        )),
+        "weekly" => {
+            let weekdays = record.get("weekdays")?.as_array()?;
+            let mut names = Vec::with_capacity(weekdays.len());
+            for day in weekdays {
+                let day = day.as_u64().filter(|day| (1..=7).contains(day))?;
+                names.push(WEEKDAYS[(day - 1) as usize]);
+            }
+            Some(format!(
+                "Weekly on {} at {} ({})",
+                names.join(", "),
+                clock_label(text("time")?),
+                text("timeZone")?
+            ))
+        }
+        "cron" => Some(format!(
+            "Cron {} ({})",
+            crate::reducer::bounded(text("expression")?, 128),
+            text("timeZone")?
+        )),
+        _ => None,
+    }
+}
+
 /// Narrow one complete task from the result JSON, or `None`.
 pub fn narrow(value: &Value) -> Option<Task> {
     let id = value["id"].as_str().filter(|id| !id.is_empty())?;
@@ -314,5 +356,70 @@ mod tests {
         let debug = format!("{card:?}");
         assert!(!debug.contains("PRIVATE"), "{debug}");
         assert!(debug.contains("PUBLIC name"), "{debug}");
+    }
+}
+
+#[cfg(test)]
+mod row_frequency_tests {
+    //! A schedule row's rule line, read from the row's own timing fields.
+    use super::*;
+    use serde_json::json;
+
+    fn record(value: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
+        value.as_object().cloned().expect("an object")
+    }
+
+    #[test]
+    fn every_kind_states_its_rule() {
+        let cases = [
+            (json!({"kind": "at"}), "at", "Once"),
+            (
+                json!({"kind": "after", "afterSeconds": 60}),
+                "after",
+                "Once",
+            ),
+            (
+                json!({"kind": "every", "everySeconds": 300}),
+                "every",
+                "Every 5 minutes",
+            ),
+            (
+                json!({"kind": "daily", "time": "17:30:00", "timeZone": "UTC"}),
+                "daily",
+                "Daily at 17:30 (UTC)",
+            ),
+            (
+                json!({"kind": "weekly", "time": "09:00", "timeZone": "Europe/Berlin", "weekdays": [1, 5]}),
+                "weekly",
+                "Weekly on Mon, Fri at 09:00 (Europe/Berlin)",
+            ),
+            (
+                json!({"kind": "cron", "expression": "0 9 * * 1", "timeZone": "UTC"}),
+                "cron",
+                "Cron 0 9 * * 1 (UTC)",
+            ),
+        ];
+        for (fields, kind, expected) in cases {
+            let mut value = fields;
+            value["kind"] = serde_json::Value::String(kind.into());
+            assert_eq!(
+                frequency_from(&record(value), kind).as_deref(),
+                Some(expected),
+                "{kind}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_incomplete_rule_states_nothing_rather_than_guessing() {
+        assert_eq!(
+            frequency_from(&record(json!({"kind": "daily"})), "daily"),
+            None
+        );
+        assert_eq!(
+            frequency_from(&record(json!({"kind": "every"})), "every"),
+            None
+        );
+        assert_eq!(frequency_from(&record(json!({})), "sometimes"), None);
     }
 }
