@@ -137,8 +137,14 @@ line, the bubble's 10/16 padding, the 0.702 cap, the 920px lane, and the 16px co
 
 **Still open from the same comparison**, recorded rather than silently fixed:
 
-- the reference aligns conversation text with the composer's own inner edge, while native's message
-  rows carry a 14px horizontal pad (measured: reference text at lane +1, native at lane +19);
+- ~~the reference aligns conversation text with the composer's own inner edge, while native's message
+  rows carry a 14px horizontal pad (measured: reference text at lane +1, native at lane +19)~~ —
+  **closed in round 504.** The reference's rows sit in `.column`, which is their only horizontal box
+  and has no padding (`ChatView.module.css:54-59`; `AssistantMarkdown.module.css:9-18`;
+  `MessageItem.module.css:3-40` pads only inside `.bubble`). Native carried two insets, an 8px outer
+  row inset and a 28px body inset, for 18px total; both are gone, and every row now starts at the
+  lane's edge — measured at lane +0/+1 (`shots/299-lane-flush.png`), with the bubble flush at the
+  lane's right edge;
 - the reference is a different state — collapsed sidebar rail, lane centred 33px right of the window
   centre, scrolled transcript with no header — so a pixel-level diff still needs a matching-state
   preset before any "1-to-1" claim;

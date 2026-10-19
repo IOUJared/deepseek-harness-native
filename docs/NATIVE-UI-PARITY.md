@@ -13622,3 +13622,84 @@ padding + the card's 1px stroke), both rows' titles start at x 338 and both `Del
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/297-reminders-chip.png`, `shots/298-reminders-delete.png`, both `status: passed` |
 | app bin | — | **21** dead-code warnings |
+
+### Round 504 — message rows sit flush with the lane
+
+**The gap.** Round 502 closed the bubble's 22px line and measured the next one from the same
+reference frame: "the message rows still carry a 14px horizontal pad the reference does not
+(reference text at lane +1, native at lane +19)". Reading the reference's sheets shows the rows
+carry no horizontal inset at all — `.column` is the only horizontal box chat rows live in
+(`ChatView.module.css:54-59`), the assistant body adds none (`AssistantMarkdown.module.css:9-18`,
+`.root`/`.body`), `.userRow` adds none and only `.bubble` pads its own text (`MessageItem.module.css:3-40`),
+and every unboxed row states zero horizontal padding (`.retryRow`/`.retrySummary`,
+`.turnErrorRow`; `ChatGroupSeat.module.css:1-20`; `ToolRow.module.css:10-24`).
+
+Native had **two** insets, not one: an 8px outer row padding and a 28px body inset
+(`chat_geometry::BODY_INSET`, two 14px halves) for 18px total — measured at lane +18/+19 for
+assistant text, the thoughts line, the process seat and the tool rows, and the user bubble's right
+edge 7px inside the lane. The `8` was not an independent bug: `geometry.width` was computed as
+`lane - 8` for assistant, tool and unknown rows, so the padding and the measurement agreed on the
+wrong model.
+
+**The change, in measurement and rendering together.** The outer row padding is 0; `BODY_INSET` is
+`0.0`; `geometry.width` is the lane itself for assistant, tool and unknown rows, and the human cap is
+`lane.min(0.702 * lane, 0.82 * lane)` with no outer subtraction. The unboxed rows that still carried
+14px (retry, turn-failure notice) and 8px (the tool row's button) are zeroed, as is the process
+seat's 14px. `MIN_LANE` stays 47 — its derivation, "the 0.702 share must cover the 32px bubble inset
+plus one pixel of body", is unchanged — while `MALFORMED_LANE` drops from 104 to 96 because its old
+comment was "outer 8 + ordinary minimum bubble 96". Boxed surfaces keep their inner padding: the
+turn-trigger card is the web's `padding: 12px 16px` (`TurnTriggerNodeView.module.css:14`), the
+command row is `GenericCommandCard`'s `12px 16px`, and the bubble keeps its own `10px 16px`.
+
+**Measured, before -> after** (the `chat-transcript` preset at the reference's 1980x1319; lane
+x 660..1580 from the fixture's width handles):
+
+1. thoughts line: 678 -> **660**
+2. assistant text: 679 -> **661**
+3. assistant action row: 686 -> **668** (the reference's own 8px `margin-left`,
+   `MessageIconActions.module.css:35`, unchanged)
+4. process seat: 675 -> **661**
+5. tool result row: 695 -> **683** (first ink after its 16px leading box)
+
+The reference frame puts its own first ink at lane +1 as well (measured 565 against a lane left of
+563-564), so the two now agree within a pixel on the horizontal axis. The user bubble's fill ends at
+1577 where the lane ends at 1580 — the 3px is its 1px stroke plus antialiasing — so it is flush,
+as `.userRow { align-items: flex-end }` inside an unpadded column is.
+
+**Tests.** `a_message_row_spans_the_whole_lane_without_a_horizontal_inset` pins the new rule: the
+assistant and tool rows measure the lane itself, `BODY_INSET` is zero (the view draws bodies at
+`width - BODY_INSET`, so a non-zero inset would leave a flush row's body short), and the bubble is
+measured at the lane's 0.702 share rather than a lane less an outer inset. Five existing geometry
+expectations that encoded `lane - 8` were re-derived, not loosened: 842 -> 850, 1192 -> 1200,
+592 -> 600, 692 -> 700 (both tool and unknown roles) and 992 -> 1000 (assistant and interrupted
+assistant), plus the narrow-lane 132 -> 140.
+
+**Mistakes inside this round.**
+
+1. I first changed `MIN_LANE` to 33 by re-deriving it from the removed 8px. That was wrong — 47 comes
+   from the 0.702 share covering the 32px bubble inset plus one pixel, which the 8px never entered —
+   and the malformed-extreme-widths test caught it (`geometry.width >= 32.0` failed at a 33px lane
+   whose 0.702 share is 23px). Reverted to 47.
+2. The first pass zeroed only the message rows and the outer inset, and the recapture showed the tool
+   row still 4px inside: the seat and the tool row own their own insets in different modules. The
+   frame, not the suite, caught that they belonged to the same family.
+
+**Still different, and named.** The vertical rhythm is untouched: native still draws a 10px body
+padding and flow gaps where the reference's spacing is entirely flow margins, so a vertical
+comparison needs its own round. The reference frame remains a different state (collapsed rail,
+scrolled transcript, no header), so no pixel-level 1-to-1 claim follows from this one.
+
+**Battery (round 504).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1492 passed**, 1 ignored |
+| app, default | **0** | **1451 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 |
+| core (`--lib`) | **0** | **115 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/299-lane-flush.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |

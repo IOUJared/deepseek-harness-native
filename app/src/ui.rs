@@ -15003,7 +15003,9 @@ impl App {
                 .padding([2, 0])
                 .width(Length::Fill),
         )
-        .padding([6, 14])
+        // `ChatGroupSeat`'s root, title and content carry no horizontal padding
+        // (`ChatGroupSeat.module.css:1-20,110-116`), so the seat starts at the column's edge.
+        .padding([6, 0])
         .width(Length::Fill)
         .into()
     }
@@ -16192,7 +16194,10 @@ impl App {
                         },
                     ))
                     .style(design::ghost)
-                    .padding([0, 8])
+                    // The web's tool row has no horizontal padding of its own: its `.root` is a
+                    // flex row whose 16px leading box already separates the glyph from the column's
+                    // edge (`ToolRow.module.css:10-24`).
+                    .padding([0, 0])
                     .width(Length::Fill),
                 )
                 // `MouseArea` hands the event to its content first and returns when
@@ -16371,8 +16376,10 @@ impl App {
                             }),
                     );
                 }
+                // `.turnErrorRow` is unboxed with `padding: 2px 0`
+                // (`MessageItem.module.css:274-282`), so the row starts at the column's edge.
                 container(block)
-                    .padding([8, 14])
+                    .padding([8, 0])
                     .width(geometries[index].width)
                     .into()
             } else if let Some(retry) = record.retry.clone() {
@@ -16404,8 +16411,10 @@ impl App {
                         block = block.push(label(line.to_owned(), TEXT).size(11));
                     }
                 }
+                // The web's retry row is unboxed and carries `padding: 2px 0`
+                // (`MessageItem.module.css:198-204`), so it starts at the column's own edge.
                 container(block)
-                    .padding([6, 14])
+                    .padding([6, 0])
                     .width(geometries[index].width)
                     .into()
             } else if let Some(trigger) = record.trigger {
@@ -16484,7 +16493,9 @@ impl App {
                         self.active_search(),
                         preview.as_deref(),
                     ))
-                    .padding([10, 14])
+                    // The reference's rows have no horizontal inset of their own: the message
+                    // column is the only box they sit in (`ChatView.module.css:54-59`).
+                    .padding([10, 0])
                     .width(geometry.width)
                     .style(|_| panel(BASE))
                     .into()
@@ -16786,7 +16797,7 @@ impl App {
                             assembled = assembled.push(card);
                         }
                         container(assembled)
-                            .padding([10, 14])
+                            .padding([10, 0])
                             .width(geometry.width)
                             .style(|_| panel(BASE))
                             .into()
@@ -16865,7 +16876,9 @@ impl App {
                 } else {
                     iced::alignment::Horizontal::Left
                 })
-                .padding([flow_gap_before(&rendered, index), 4.0])
+                // No horizontal inset: the reference's rows span the message column exactly, and
+                // the column already carries the scroller's 32px side inset.
+                .padding([flow_gap_before(&rendered, index), 0.0])
                 .height(geometries[index].height)
                 .width(Length::Fill)
                 .clip(true);

@@ -43,13 +43,20 @@ const PREVIEW_LINES: f32 = 4.0;
 /// the bottom of the body was clipped.
 pub(crate) const TOOL_BODY_GAP: f32 = 4.0;
 /// The horizontal inset a row body is measured and rendered at, so the two agree.
-pub(crate) const BODY_INSET: f32 = 28.0;
+///
+/// Zero: the reference's chat rows sit flush with the message column. `.column` is the only
+/// horizontal box they live in and adds no padding (`ChatView.module.css:54-59`), the assistant
+/// body adds none of its own (`AssistantMarkdown.module.css:9-18`), and the user side pads only
+/// *inside* `.bubble` (`MessageItem.module.css:22-40`). Native used to reserve 28px here (two 14px
+/// halves) plus an 8px outer inset, which put every body 18px inside the column.
+pub(crate) const BODY_INSET: f32 = 0.0;
 /// The narrowest lane whose user bubble still has room: the reference's 0.702
 /// share must cover the 32px bubble inset plus one pixel of body. Below this the
 /// lane is malformed and takes [`MALFORMED_LANE`].
 const MIN_LANE: f32 = 47.0;
 const MAX_LANE: f32 = 4096.0;
-const MALFORMED_LANE: f32 = 104.0; // Outer 8 + ordinary minimum bubble 96.
+/// The lane a malformed width falls back to: an ordinary minimum bubble's 96px.
+const MALFORMED_LANE: f32 = 96.0;
 const FONT: Font = Font::with_name("DejaVu Sans");
 type NativeParagraph = <iced::Renderer as text::Renderer>::Paragraph;
 
@@ -103,8 +110,7 @@ impl fmt::Debug for Cache {
 /// The width a human row is measured at: the user-stack cap the bubble and the
 /// referenced-session summary share (`MessageItem.module.css:10-21`).
 pub(crate) fn human_measure_width(lane: f32) -> f32 {
-    (lane - 8.0)
-        .min((lane * crate::design::USER_BUBBLE_SHARE).min(lane * crate::design::USER_STACK_SHARE))
+    lane.min((lane * crate::design::USER_BUBBLE_SHARE).min(lane * crate::design::USER_STACK_SHARE))
 }
 /// The height the referenced-session summary adds to a row: the user stack's gap plus
 /// the line's own measured height at that same width, so a label list that wraps
@@ -167,13 +173,7 @@ impl Cache {
         // so a narrow lane narrows the bubble instead of holding a fixed cap.
         let user_cap =
             (lane * crate::design::USER_BUBBLE_SHARE).min(lane * crate::design::USER_STACK_SHARE);
-        let measurement_width = if human {
-            (lane - 8.0).min(user_cap)
-        } else if assistant {
-            lane - 8.0
-        } else {
-            lane
-        };
+        let measurement_width = if human { lane.min(user_cap) } else { lane };
         let lane_bits = measurement_width.to_bits();
         {
             let mut entries = self.entries.borrow_mut();
@@ -202,13 +202,13 @@ impl Cache {
         let geometry =
             if role == "Tool call" || role == "Tool result" {
                 Geometry {
-                    width: lane - 8.0,
+                    width: lane,
                     body_height: self.tool_line(),
                     height: self.tool_line() + ROW_CHROME,
                 }
             } else if !human && !assistant {
                 Geometry {
-                    width: lane - 8.0,
+                    width: lane,
                     body_height: 75.0,
                     height: 156.0,
                 }
@@ -441,10 +441,12 @@ mod tests {
         assert_eq!(cache.shapes.get(), 2);
         // The unboxed assistant column tracks the shared content width.
         let assistant = cache.geometry(2, "Assistant", "PUBLIC", 0.0, 850.0);
-        assert_eq!(assistant.width, 842.0);
+        // The assistant column is the lane itself: the reference's rows add no horizontal inset
+        // (`ChatView.module.css:54-59`), so nothing is subtracted here.
+        assert_eq!(assistant.width, 850.0);
         assert_eq!(
             cache.geometry(2, "Assistant", "PUBLIC", 0.0, 1200.0).width,
-            1192.0
+            1200.0
         );
         assert_eq!(cache.shapes.get(), 4);
         let tool = cache.geometry(3, "Tool call", "PUBLIC", 0.0, 740.0);
@@ -456,6 +458,39 @@ mod tests {
         // on the lane, so it never shapes.
         assert_eq!(cache.shapes.get(), 4);
     }
+    #[test]
+    fn a_message_row_spans_the_whole_lane_without_a_horizontal_inset() {
+        let cache = Cache::default();
+        // The reference's chat rows live in `.column`, which is the only horizontal box they sit
+        // in and carries no padding of its own (`ChatView.module.css:54-59`), so every row spans
+        // the lane. Native reserved 8px here plus 28px inside the row, which put each body 18px
+        // inside the column.
+        assert_eq!(
+            cache.geometry(1, "Assistant", "PUBLIC", 0.0, 900.0).width,
+            900.0
+        );
+        assert_eq!(
+            cache.geometry(2, "Tool call", "PUBLIC", 0.0, 900.0).width,
+            900.0
+        );
+        // The view draws a row body at `width - BODY_INSET`, so a non-zero inset would leave the
+        // body short of the lane even when the row itself spans it.
+        assert_eq!(BODY_INSET, 0.0);
+        assert_eq!(
+            cache.geometry(3, "Assistant", "PUBLIC", 0.0, 900.0).width - BODY_INSET,
+            900.0
+        );
+        // The user bubble keeps the reference's 0.702 share of that same lane; the share is the
+        // binding term, so no outer subtraction may shrink it further.
+        let long = "PUBLIC words ".repeat(200);
+        let bubble = cache.geometry(4, "You", &long, 0.0, 900.0).width;
+        assert!(
+            bubble > 900.0 * crate::design::USER_BUBBLE_SHARE - 64.0,
+            "the bubble is measured at the lane's share, not a lane less an outer inset"
+        );
+        assert!(bubble <= 900.0 * crate::design::USER_BUBBLE_SHARE + 1.0);
+    }
+
     #[test]
     fn cached_geometry_matches_fresh_native_oracle_across_caps_roles_and_unicode() {
         let cache = Cache::default();
@@ -541,7 +576,8 @@ mod tests {
             0.0,
             600.0,
         );
-        assert_eq!(assistant.width, 592.0);
+        // The assistant column is the lane, with no outer inset of its own.
+        assert_eq!(assistant.width, 600.0);
         let narrow = cache.geometry(
             7,
             "Assistant · live",
@@ -549,7 +585,7 @@ mod tests {
             0.0,
             140.0,
         );
-        assert_eq!(narrow.width, 132.0);
+        assert_eq!(narrow.width, 140.0);
         assert!(narrow.body_height > assistant.body_height);
         assert_eq!(cache.shapes.get(), 4);
         assert_eq!(
@@ -573,7 +609,7 @@ mod tests {
             assert_eq!(
                 cache.geometry(0, role, "PUBLIC", 0.0, 700.0),
                 Geometry {
-                    width: 692.0,
+                    width: 700.0,
                     body_height: 24.0,
                     height: 36.0
                 }
@@ -589,7 +625,7 @@ mod tests {
             assert_eq!(
                 cache.geometry(0, role, "PUBLIC", 0.0, 700.0),
                 Geometry {
-                    width: 692.0,
+                    width: 700.0,
                     body_height: 75.0,
                     height: 156.0
                 }
@@ -683,6 +719,8 @@ mod tests {
                     assert!(
                         // The narrowest accepted lane's 0.702 share is 32.99, so the
                         // floor is the bubble's own minimum rather than a round 33.
+                        // No outer inset is subtracted any more, so the assistant row's
+                        // width is the lane itself.
                         geometry.width >= 32.0 && (line..=cap).contains(&geometry.body_height)
                     );
                     assert_eq!(geometry.height, chrome_height(role) + geometry.body_height);
@@ -718,16 +756,16 @@ mod tests {
             cache.geometry(4, "You", &long, 0.0, 1000.0).width
                 <= 1000.0 * crate::design::USER_BUBBLE_SHARE
         );
-        // The unboxed assistant column spans the lane less its outer padding.
+        // The unboxed assistant column spans the lane exactly.
         assert_eq!(
             cache.geometry(5, "Assistant", "Hi", 0.0, 1000.0).width,
-            992.0
+            1000.0
         );
         assert_eq!(
             cache
                 .geometry(6, "Interrupted assistant attempt", "Hi", 0.0, 1000.0)
                 .width,
-            992.0
+            1000.0
         );
     }
 
