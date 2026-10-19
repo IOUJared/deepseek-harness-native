@@ -11189,3 +11189,37 @@ a layout question, not a fixture one.
 | capture | — | none: the crumb trail is not drawn in this layout |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 440 — a job's stop confirmation expires
+
+The reference arms its stop control for three seconds and lets it fall back to idle
+(`JobListAction.tsx:52-56,423-430`, with a test asserting the fallback). Native armed it until the user
+pressed again or armed another row, so an armed `✕` and its refusal line could survive indefinitely —
+and a stray press much later would have sent a `job/kill` the user no longer meant.
+
+Arming now schedules `Message::JobArmExpired` for three seconds; the message disarms only the row it
+was armed for, so arming a second row cannot be cancelled by the first row's timer.
+
+Tests: `a_job_stop_confirmation_disarms_itself` — the first press arms without sending anything, the
+timer disarms it, and a later press therefore arms again rather than killing.
+
+**Still no frame for the jobs panel**, and this round narrowed the cause rather than repeating it: with
+the preset building the conversation and `Event::JobsRows` seeding four jobs (asserted at build time),
+the crumb still does not appear in the captured header. The next step is a test that inspects the
+rendered header tree for `native-jobs-action`, not another capture attempt.
+
+**Battery (round 440).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1433 passed**, 1 ignored |
+| app, default | **0** | **1411 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: the crumb is still absent from the captured header |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

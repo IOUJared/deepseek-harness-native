@@ -444,6 +444,8 @@ pub enum Message {
     ScheduleHistoryPrompt(String),
     /// The guide's `Copied` confirmation has been shown for its second.
     GuideCopyExpired,
+    /// A job's stop confirmation has been armed for its three seconds.
+    JobArmExpired(String),
     /// Steer every queued message, one at a time, as the reference's empty-draft chord does.
     QueueSteerAll,
     /// Open or close the composer's attach menu.
@@ -3920,15 +3922,27 @@ impl App {
             }
             Message::KillJob(id) => {
                 // Two clicks, as the reference's own copy requires: the second one asks the Host.
+                // An armed confirmation disarms itself after three seconds
+                // (`JobListAction.tsx:52-56,423-430`), so a stray press later cannot stop a job the
+                // user armed and forgot.
                 if self.jobs_armed.as_deref() == Some(id.as_str()) {
                     self.jobs_armed = None;
                     if let Some(session) = self.selected.clone() {
                         self.command(Command::JobKill { session, job: id });
                     }
                 } else {
-                    self.jobs_armed = Some(id);
+                    self.jobs_armed = Some(id.clone());
                     self.jobs_kill_error = None;
+                    return Task::perform(
+                        async move {
+                            tokio::time::sleep(std::time::Duration::from_millis(3_000)).await;
+                        },
+                        move |()| Message::JobArmExpired(id),
+                    );
                 }
+            }
+            Message::JobArmExpired(id) if self.jobs_armed.as_deref() == Some(id.as_str()) => {
+                self.jobs_armed = None;
             }
             Message::ToggleJobOutput(id) => {
                 let opening = self.jobs_expanded.as_deref() != Some(id.as_str());

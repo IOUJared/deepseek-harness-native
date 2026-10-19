@@ -743,3 +743,34 @@ fn only_a_running_job_offers_a_stop_and_any_row_opens_it() {
     drop(app.update(Message::ToggleJobOutput(other.clone())));
     assert!(app.jobs_expanded.is_none(), "a second press folds it");
 }
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
+fn a_job_stop_confirmation_disarms_itself() {
+    let (size, _scale) = super::layout_fixture::preset_size("conversation").unwrap();
+    let (mut app, mut queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "conversation",
+        size,
+        None,
+    );
+    app.set_jobs();
+    // The fixture seeds one row already armed (its own capture shows the confirm state); this test
+    // starts from the unarmed state a panel opens in.
+    app.jobs_armed = None;
+    while queue.try_recv().is_ok() {}
+    // The first press arms; nothing reaches the Host.
+    drop(app.update(Message::KillJob("shell-1".into())));
+    assert_eq!(app.jobs_armed.as_deref(), Some("shell-1"));
+    assert!(
+        queue.try_recv().is_err(),
+        "arming sends no kill to the Host"
+    );
+    // The armed state expires on its own, as the reference's three-second window does.
+    drop(app.update(Message::JobArmExpired("shell-1".into())));
+    assert!(app.jobs_armed.is_none());
+    // A later press therefore arms again instead of killing.
+    drop(app.update(Message::KillJob("shell-1".into())));
+    assert_eq!(app.jobs_armed.as_deref(), Some("shell-1"));
+    assert!(queue.try_recv().is_err(), "no kill was sent");
+}
