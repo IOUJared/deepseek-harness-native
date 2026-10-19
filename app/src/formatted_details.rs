@@ -74,7 +74,14 @@ pub fn parse(source: &str) -> Result<Document, Failure> {
     if source.len() > INPUT_BYTES {
         return Err(Failure::Bytes);
     }
-    build(Parser::new_ext(source, Options::ENABLE_TABLES))
+    // Tables, footnotes and math are the three extensions the reference's markdown renderer turns
+    // on (`render.tsx:338,388`, `MarkdownText.tsx:29`). A footnote renders as its marked paragraph
+    // and the reference becomes `[n]` text; math has no native typesetter, so its source is drawn
+    // as code — the recorded deliberate difference (`NATIVE-UI-PARITY.md`, renderer row).
+    build(Parser::new_ext(
+        source,
+        Options::ENABLE_TABLES | Options::ENABLE_FOOTNOTES | Options::ENABLE_MATH,
+    ))
 }
 
 struct Frame {
@@ -139,6 +146,8 @@ struct Builder {
     /// An open image: its alt text accumulates here, because the HTML alt attribute
     /// and the reference's fallback are the image's plain text.
     alt: Option<String>,
+    /// A footnote definition's `[n]` marker, waiting for the paragraph it labels.
+    pending_marker: Option<String>,
     text_bytes: usize,
     spans: usize,
 }
@@ -163,6 +172,17 @@ fn build<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<Document, Fa
                 }
             }
             Event::Code(text) => builder.text(&text, true)?,
+            // No native typesetter: the TeX source is drawn as code rather than left as literal
+            // `$…$` text, which is the closest honest rendering.
+            Event::InlineMath(text) => builder.text(&text, true)?,
+            Event::DisplayMath(text) => {
+                // The parser wraps display math in a paragraph, so the source is drawn inside it
+                // as code — the same "no typesetter, show the source" rule as inline math.
+                builder.text(&text, true)?;
+            }
+            Event::FootnoteReference(name) => {
+                builder.text(&format!("[{}]", crate::reducer::bounded(&name, 64)), false)?;
+            }
             Event::SoftBreak | Event::HardBreak => builder.text("\n", false)?,
             Event::Rule => {
                 // Rule has no field for container provenance.
@@ -209,7 +229,10 @@ impl Builder {
 
     fn begin_inline(&mut self, heading: Option<u8>, explicit: bool) -> Result<(), Failure> {
         self.flush_synthetic()?;
-        let marker = self.items.last_mut().and_then(|item| item.marker.take());
+        let marker = self
+            .pending_marker
+            .take()
+            .or_else(|| self.items.last_mut().and_then(|item| item.marker.take()));
         if let Some(marker) = &marker {
             self.charge(marker.len())?;
         }
@@ -464,6 +487,14 @@ impl Builder {
                     spans: Vec::new(),
                 });
             }
+            // A footnote definition labels the paragraph it contains with the reference's `[n]`.
+            // The definition itself is a container, not a paragraph, so the marker waits for the
+            // paragraph inside it.
+            Tag::FootnoteDefinition(name) => {
+                let marker = format!("[{}] ", crate::reducer::bounded(&name, 64));
+                self.charge(marker.len())?;
+                self.pending_marker = Some(marker);
+            }
             // Images, HTML and all other unsupported tags fail closed.
             _ => return Err(Failure::Unsupported),
         }
@@ -485,6 +516,11 @@ impl Builder {
                     text: code.text,
                     indent: code.indent,
                 })?;
+            }
+            // A footnote definition is a container: its paragraph has already flushed itself.
+            TagEnd::FootnoteDefinition => {
+                self.flush_synthetic()?;
+                self.pending_marker = None;
             }
             TagEnd::BlockQuote(None) => {
                 self.flush_synthetic()?;
@@ -1140,5 +1176,64 @@ mod tests {
         assert_eq!(format!("{error:?}"), "Unsupported");
         let copied = error;
         assert_eq!(copied, error);
+    }
+}
+
+#[cfg(test)]
+mod extension_tests {
+    //! Footnotes and math: the two markdown extensions the reference enables.
+    use super::*;
+
+    fn texts(blocks: &[Block]) -> Vec<String> {
+        blocks
+            .iter()
+            .map(|block| match block {
+                Block::Paragraph { spans, marker, .. } => format!(
+                    "{}{}",
+                    marker.clone().unwrap_or_default(),
+                    spans
+                        .iter()
+                        .map(|span| span.text.as_str())
+                        .collect::<String>()
+                ),
+                Block::Code { language, text, .. } => {
+                    format!("```{} {text}", language.clone().unwrap_or_default())
+                }
+                _ => "<other>".to_owned(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_footnote_keeps_its_reference_and_its_definition() {
+        let doc = parse("Body text[^1].\n\n[^1]: The note.\n").expect("a documented footnote");
+        let texts = texts(&doc.blocks);
+        assert_eq!(texts[0], "Body text[1].", "{texts:?}");
+        assert!(
+            texts
+                .iter()
+                .any(|text| text.starts_with("[1] ") && text.contains("The note.")),
+            "{texts:?}"
+        );
+    }
+
+    #[test]
+    fn math_is_drawn_as_its_source() {
+        let doc = parse("Inline $a^2$ and a fence:\n\n```math\nx = 1\n```\n").expect("math");
+        let rendered = texts(&doc.blocks);
+        assert_eq!(rendered[0], "Inline a^2 and a fence:", "{rendered:?}");
+        // A fenced `math` block is a code block like any other, so it keeps the fence's newline.
+        assert_eq!(rendered[1], "```math x = 1\n", "{rendered:?}");
+        // Display math arrives inside its paragraph, so it draws as code text there.
+        let doc = parse("$$x = 1$$\n").expect("display math");
+        assert_eq!(texts(&doc.blocks), vec!["x = 1".to_owned()]);
+    }
+
+    #[test]
+    fn a_document_without_either_extension_is_unchanged() {
+        let doc = parse("Plain **bold** text.\n").unwrap();
+        assert_eq!(texts(&doc.blocks), vec!["Plain bold text.".to_owned()]);
+        // An unsupported construct still fails closed.
+        assert!(parse("<div>html</div>\n").is_err());
     }
 }

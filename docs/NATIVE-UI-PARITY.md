@@ -212,9 +212,10 @@ preview, replaced by the details panel (deliberate); inline code chips and the C
 clipboard, both blocked on Iced rather than on native code; agent-preset selection — *landed*
 (item 11); and the live-only checks in `NATIVE-LIVE-VERIFICATION.md`.
 
-The **scheduled-task** surface is *not* on this list: the page, its create/delete flow and the
-`schedule` turn-trigger title are all built (`schedules_view`, `turn_trigger`'s
-`"schedule" => "Automation task"`). An earlier revision of this index called a "turn-tail schedule
+The **scheduled-task** surface is mostly on the native side: the page, the history/edit/delete flow
+and the `schedule` turn-trigger title are built (`schedules_view`, `turn_trigger`'s
+`"schedule" => "Automation task"`). What is *not* built is **creating** a schedule from the app —
+the page says tasks come from the model's schedule tool, and no create control or endpoint exists. An earlier revision of this index called a "turn-tail schedule
 row" absent; re-reading `ui-chat`'s nodes, the only other scheduled surface is the **model-retry
 row**, which round 381 built (`shots/181-model-retry.png`).
 
@@ -6379,14 +6380,18 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 
 | Reference surface | Native status |
 | --- | --- |
-| Chat, renderer, tools, thoughts, turn triggers, images, copy/branch/edit/fork | cloned |
+| Chat: renderer, thoughts, turn triggers, copy/branch/edit/fork | cloned (markdown: tables, footnotes and math; math draws its source, since no native typesetter exists — see the renderer note below) |
 | Composer: slash, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned |
 | Sidebar: sessions, search, pin/archive/trash, workspace filter, navigation sheet | cloned (time-grouped list, not the grouped browser) |
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
 | Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab) |
 | Goals, plan mode, permissions, approvals/questions, jobs, subagents, session log | cloned |
+| Tool rows: one row per call with the folded result, relative path, `+N −N`, and the structured cards — diff, read, terminal, search, web, ask-user | cloned (no per-tool glyphs — the reference's SVGs have no DejaVu equivalent — and no process-group or turn-process fold above the rows) |
+| Model-retry row, turn duration, failure and output-limit rows, card Copy control | cloned |
+| Composer usage pill: tokens, cache hit, speed, turn/step counts, and the Host's session-statistics dialog | cloned |
 | Deliverables: summary, file list, diffs, desktop open | cloned (no right-Sidebar review tab) |
 | Message feedback: ratings, categories, note | cloned (session `/feedback` remains a Host command) |
+| Chat images: a user message's image attachment and markdown images | difference: alt text and a text placeholder — no decode/texture path, and the fetch policy is the user's decision (open item 1) |
 | Right Sidebar: document preview and resource tabs | difference: full-page details panel, no PDF/Office renderers |
 | Workspace browser: grouped/animated rows, drag order, per-row menus | difference: workspace filter + navigation sheet |
 | Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory; the app's Host serves browse, so Browse… falls back to the in-app list and `pick` reports unavailable) |
@@ -9180,4 +9185,47 @@ presets' field-by-field assertions.
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/186-…`, `187-…`, `status: passed` |
 | app bin | — | **20** dead-code warnings (unchanged) |
+| tree | — | clean before the commit |
+
+### Round 387 — markdown footnotes and math, and the coverage table checked against the code
+
+A read-only pass over the "Reference surface coverage" table (14 rows, 10 claiming native coverage)
+found two rows whose claim the code did not support, and one adjacent claim in the open-items index
+that was wrong. The table is the document's canonical list of what exists, so this round corrected it
+and closed what it could.
+
+**Footnotes and math now parse.** Native's markdown parser enabled only tables
+(`formatted_details.rs:77`), so a GFM footnote or any `$…$` math failed *closed* — the whole document
+fell back to plain source. The parser now enables `ENABLE_FOOTNOTES` and `ENABLE_MATH`, maps the
+footnote container and its reference (`[n]` marker on the definition paragraph, `[n]` text at the
+reference), and draws inline and display math as code-styled source. No native typesetter exists, so
+"show the source in code" is the honest rendering — the reference maps both to KaTeX — and that is
+recorded in the table's renderer row rather than left implicit.
+
+**The table itself** now names what actually exists. The old row bundled "images" into a cloned
+claim, but a chat image is a text placeholder (`reducer.rs:1315`) with no decode path and a fetch
+policy that is still the user's decision, so images have their own row marked a difference. The tool
+rows and cards, the model-retry row, turn duration, failure rows, the card Copy control and the
+statistics dialog — all built this session — had no row at all; they do now. The process-group and
+turn-process folds, which the reference draws above the rows, are named as the remaining difference.
+
+**The scheduled-task claim** in the open-items index said the create/delete flow was built. Delete,
+edit and history exist; create does not — the page says so itself, and no create endpoint is wired.
+The index now says exactly that.
+
+Gates: fixture **1364**, default unchanged by a docs-only tail; transport, core, JS, format, clippy
+and examples all re-run green in the round's own battery below.
+
+**Battery (round 387).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1364 passed**, 1 ignored |
+| app, default | **0** | **1352 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | tree | — | clean before the commit |
