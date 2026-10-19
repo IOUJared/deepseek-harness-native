@@ -22,6 +22,19 @@ pub(super) fn submitted_text(data: &Value, recorded: &BTreeSet<&str>) -> Option<
     (!text.is_empty()).then(|| bounded(&text, MAX_DISPLAY_BYTES))
 }
 
+/// The reference's turn-failure and output-limit rows: a title, the reason, and the recorded code
+/// (`MessageItem.tsx:129-160`, `locale.ts:358-362`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Notice {
+    pub title: String,
+    pub message: String,
+    /// The Host's own code, drawn as a chip so a reader can quote it; absent when none was recorded.
+    pub code: Option<String>,
+    /// The reference draws a failure with its error dot and the output cap with its warning dot
+    /// (`MessageItem.tsx:136,152`).
+    pub warning: bool,
+}
+
 pub(super) fn turn_notice(data: &Value) -> Option<String> {
     let reason = &data["reason"];
     let text = match reason["kind"].as_str() {
@@ -63,7 +76,8 @@ pub(super) fn turn_notice(data: &Value) -> Option<String> {
         Some("interrupted") => {
             "The response was interrupted. Your conversation is retained.".into()
         }
-        Some("max-tokens") => "The response reached the model's output limit.".into(),
+        // The reference states what to do about it, not only that it happened.
+        Some("max-tokens") => "The response reached the model's output limit. The reply was cut off; earlier output is preserved in the conversation. Send \"continue\" to let the model resume.".into(),
         _ => format!("Unrecognized turn ending: {}", safe_json(reason)),
     };
     Some(bounded(&text, MAX_DISPLAY_BYTES))
@@ -130,4 +144,97 @@ pub(super) fn surface_update(
         _ => nodes.push(event.seq),
     }
     Ok(())
+}
+
+/// The typed failure row for a terminal turn ending, mirroring the reference's
+/// `TurnErrorItem`/`TurnMaxTokensItem`: a title, the mapped reason, and the recorded code.
+/// `None` for every other ending — those keep their single notice line.
+pub(super) fn notice_for(reason: &Value) -> Option<Notice> {
+    match reason["kind"].as_str() {
+        Some("error") => {
+            let error = &reason["error"];
+            let code = error["code"].as_str().map(|code| bounded(code, 64));
+            // The reference maps its own codes to human sentences and shows anything else as the
+            // provider wrote it (`MessageItem.tsx:52-60`).
+            let message = match code.as_deref() {
+                Some("ACCOUNT_SIGNED_OUT") => {
+                    "Stopped because you signed out of DeepSeek.".to_owned()
+                }
+                Some("ACCOUNT_SIGN_IN_REQUIRED") => {
+                    "Sign in to DeepSeek and ensure the request destination supports account authentication."
+                        .to_owned()
+                }
+                Some("QUOTA" | "ACCOUNT_QUOTA") => "Request quota exhausted.".to_owned(),
+                Some("AUTH") => "API key is invalid.".to_owned(),
+                _ => bounded(
+                    error["message"]
+                        .as_str()
+                        .unwrap_or("The agent could not complete the request."),
+                    MAX_DISPLAY_BYTES,
+                ),
+            };
+            Some(Notice {
+                title: if code.as_deref() == Some("ACCOUNT_SIGNED_OUT") {
+                    "Task stopped".to_owned()
+                } else {
+                    "This turn failed".to_owned()
+                },
+                message,
+                code,
+                warning: false,
+            })
+        }
+        Some("max-tokens") => Some(Notice {
+            title: "Output token limit reached".to_owned(),
+            message:
+                "The reply was cut off; earlier output is preserved in the conversation. Send \
+                      \"continue\" to let the model resume."
+                    .to_owned(),
+            code: None,
+            warning: true,
+        }),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod notice_tests {
+    //! The failure row's copy and code chip, checked against the reference's dictionary.
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn known_codes_get_the_reference_copy_and_the_chip() {
+        let notice =
+            notice_for(&json!({"kind": "error", "error": {"code": "QUOTA", "message": "x"}}))
+                .unwrap();
+        assert_eq!(notice.title, "This turn failed");
+        assert_eq!(notice.message, "Request quota exhausted.");
+        assert_eq!(notice.code.as_deref(), Some("QUOTA"));
+        let signed_out =
+            notice_for(&json!({"kind": "error", "error": {"code": "ACCOUNT_SIGNED_OUT"}})).unwrap();
+        assert_eq!(signed_out.title, "Task stopped");
+        // An unknown code keeps the provider's message and still shows the code.
+        let other = notice_for(
+            &json!({"kind": "error", "error": {"code": "SOMETHING", "message": "PUBLIC detail"}}),
+        )
+        .unwrap();
+        assert_eq!(other.message, "PUBLIC detail");
+        assert_eq!(other.code.as_deref(), Some("SOMETHING"));
+    }
+
+    #[test]
+    fn the_output_limit_states_what_to_do() {
+        let notice = notice_for(&json!({"kind": "max-tokens"})).unwrap();
+        assert_eq!(notice.title, "Output token limit reached");
+        assert!(
+            notice.message.contains("Send \"continue\""),
+            "{}",
+            notice.message
+        );
+        assert_eq!(notice.code, None);
+        // Every other ending keeps its single line.
+        assert!(notice_for(&json!({"kind": "aborted"})).is_none());
+        assert!(notice_for(&json!({"kind": "completed"})).is_none());
+    }
 }

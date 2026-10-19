@@ -148,6 +148,8 @@ pub const PRESETS: &[&str] = &[
     "turn-total",
     "stats-dialog",
     "settings-shortcuts",
+    "turn-error",
+    "turn-max-tokens",
     "context-injects",
     "assistant-tool-call",
     "assistant-tool-call-expanded",
@@ -230,6 +232,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "turn-total" => Some((Size::new(1040.0, 760.0), 1.0)),
         "stats-dialog" => Some((Size::new(1040.0, 760.0), 1.0)),
         "settings-shortcuts" => Some((Size::new(1040.0, 900.0), 1.0)),
+        "turn-error" | "turn-max-tokens" => Some((Size::new(1040.0, 620.0), 1.0)),
         "chat-density" => Some((Size::new(1040.0, 1000.0), 1.0)),
         "tool-activity-narrow" => Some((Size::new(760.0, 840.0), 1.0)),
         "tool-activity-tiny" => Some((Size::new(608.0, 448.0), 1.25)),
@@ -687,6 +690,26 @@ fn public_tool_applied_records() -> Vec<Value> {
         }
     }
     records
+}
+
+/// One prompt and one failed turn, so the reference's failure row draws its title, mapped reason
+/// and code chip. Synthetic PUBLIC metadata; no request was made and none failed.
+fn public_turn_error_records(reason: Value) -> Vec<Value> {
+    let event = |seq: u64, kind: &str, data: Value| {
+        json!({"type":"event", "event":{
+            "type":kind, "seq":seq, "time":1000+seq, "data":data, "surfaceOp":"append"
+        }})
+    };
+    vec![
+        event(
+            0,
+            "user/message",
+            json!({"role":"user", "id":"PUBLIC-turn-error-user", "source":{"kind":"user"},
+                "content":[{"type":"text","text":"PUBLIC turn-error fixture · no model request ran."}]}),
+        ),
+        event(1, "turn/start", json!({"turn":1})),
+        event(2, "turn/end", json!({"turn":1, "reason": reason})),
+    ]
 }
 
 /// One prompt and one reply inside a clean turn boundary, so the settled reply states the
@@ -1321,6 +1344,12 @@ pub fn build(
         public_retry_records()
     } else if preset == "turn-total" {
         public_turn_total_records()
+    } else if preset == "turn-error" {
+        public_turn_error_records(json!({"kind":"error","error":{
+            "code":"QUOTA","message":"PUBLIC provider message that the mapped copy replaces."
+        }}))
+    } else if preset == "turn-max-tokens" {
+        public_turn_error_records(json!({"kind":"max-tokens"}))
     } else if preset == "tool-activity-diff-long" {
         // The same transcript with a longer edit, so the card's 9-row cap and its fold control
         // are drawn. Every line is synthetic PUBLIC metadata.
@@ -2184,6 +2213,29 @@ pub fn build(
                     .as_deref(),
                 Some("Retry delay: 4s\nFailure reason: PUBLIC upstream unavailable · synthetic")
             );
+        }
+        "turn-error" => {
+            let notice = app
+                .transcript
+                .rows()
+                .iter()
+                .find_map(|row| row.notice.clone())
+                .expect("the failed turn's row");
+            assert_eq!(notice.title, "This turn failed");
+            // The reference's own mapping for a quota code, not the provider's sentence.
+            assert_eq!(notice.message, "Request quota exhausted.");
+            assert_eq!(notice.code.as_deref(), Some("QUOTA"));
+        }
+        "turn-max-tokens" => {
+            let notice = app
+                .transcript
+                .rows()
+                .iter()
+                .find_map(|row| row.notice.clone())
+                .expect("the capped turn's row");
+            assert_eq!(notice.title, "Output token limit reached");
+            assert!(notice.message.contains("Send \"continue\""));
+            assert_eq!(notice.code, None);
         }
         "settings-shortcuts" => {
             // The editor's own rows now carry the reference's `settings.open` chord. The shared

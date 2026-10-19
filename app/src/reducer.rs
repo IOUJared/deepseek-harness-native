@@ -107,6 +107,9 @@ pub struct DisplayRow {
     /// `Referenced session · labels` (`ui-chat/src/client/chat/MessageItem.tsx:225-229`,
     /// labels from `conversation-nodes/event-projection.ts:83-87`).
     pub references: Vec<String>,
+    /// The typed failure row for a terminal turn ending (`chat_presentation::notice_for`): a
+    /// title, the mapped reason and the recorded code. `None` for every other row.
+    pub notice: Option<chat_presentation::Notice>,
     /// The model-retry chain this row states, when it is a retry row. One row per chain, not one
     /// per event (`retry.ts:76-100`); later events patch this row and stay Trajectory-only.
     pub retry: Option<crate::reducer::retry_ui::State>,
@@ -978,6 +981,9 @@ impl Transcript {
                 output: None,
                 failed: false,
                 retry: None,
+                notice: (kind == "turn/end")
+                    .then(|| chat_presentation::notice_for(&event.data["reason"]))
+                    .flatten(),
             };
             // One row per model-retry chain (`retry.ts:76-100`): the first `llm/retry` opens it,
             // later attempts and their `-started` receipts patch it, and a turn or step that

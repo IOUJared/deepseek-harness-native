@@ -9137,3 +9137,47 @@ key, a stored rebinding moves it, and a bare or shifted comma resolves to nothin
 | DP-2 capture | — | `shots/185-settings-shortcuts.png`, `status: passed` |
 | app bin | — | **20** dead-code warnings (unchanged) |
 | tree | — | clean before the commit |
+
+### Round 386 — the turn-failure and output-limit rows
+
+Native drew a terminal turn's ending as one text line. The reference splits it into a typed row
+(`MessageItem.tsx:129-160`): a state dot, a title — `This turn failed`, `Task stopped` for a
+signed-out account, `Output token limit reached` for the cap — the mapped reason, and the Host's own
+error code as a chip.
+
+**The row** now carries that shape. `chat_presentation::notice_for` returns the title, the mapped
+message and the code for an `error` and a `max-tokens` ending, and nothing for every other ending
+(which keep their single notice line). The code mapping is the reference's own: `ACCOUNT_SIGNED_OUT`
+→ `Stopped because you signed out of DeepSeek.`, `ACCOUNT_SIGN_IN_REQUIRED` → the sign-in sentence,
+`QUOTA`/`ACCOUNT_QUOTA` → `Request quota exhausted.`, `AUTH` → `API key is invalid.`, and anything
+else keeps the provider's message while still showing its code. The dot is the reference's error red
+for a failure and its warning amber for the cap.
+
+**The output-limit copy** also gained the reference's actionable half — "The reply was cut off;
+earlier output is preserved in the conversation. Send "continue" to let the model resume." — which
+native had reduced to a statement that the limit was reached.
+
+Evidence: `shots/186-turn-error.png` (red dot, `This turn failed`, `Request quota exhausted.`, a
+`QUOTA` chip) and `shots/187-turn-max-tokens.png` (amber dot, `Output token limit reached`, the
+continue hint), both DP-2 alongside and `status: passed`, in the new `turn-error` and
+`turn-max-tokens` presets.
+
+Tests: two in `chat_presentation::notice_tests` (the mapped codes with their chips, an unknown code
+keeping the provider's message, the cap's hint, and every other ending having none) plus the two
+presets' field-by-field assertions.
+
+**Battery (round 386).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1361 passed**, 1 ignored |
+| app, default | **0** | **1349 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/186-…`, `187-…`, `status: passed` |
+| app bin | — | **20** dead-code warnings (unchanged) |
+| tree | — | clean before the commit |

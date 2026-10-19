@@ -12866,6 +12866,7 @@ impl App {
             output: None,
             failed: false,
             retry: None,
+            notice: None,
         });
         let rows: Vec<_> = self
             .transcript
@@ -13166,6 +13167,7 @@ impl App {
                     output: None,
                     failed: false,
                     retry: None,
+                    notice: None,
                 },
                 lane,
             )
@@ -14007,6 +14009,7 @@ impl App {
             output: None,
             failed: false,
             retry: None,
+            notice: None,
         });
         let len = self.transcript.display_rows(true).count() + usize::from(partial.is_some());
         let rendered: Vec<&DisplayRow> = self
@@ -14267,6 +14270,39 @@ impl App {
                     );
                 }
                 activity_column.into()
+            } else if let Some(notice) = record.notice.clone() {
+                // The reference's terminal-failure row (`MessageItem.tsx:129-160`): a red dot, the
+                // title, the mapped reason and — when the Host recorded one — the code chip.
+                let ink = if notice.warning { design::GOLD } else { DANGER };
+                let mut block = column![
+                    row![
+                        label("●", ink).size(10),
+                        label(notice.title, TEXT).size(12),
+                        Space::new().width(Length::Fill),
+                    ]
+                    .spacing(7)
+                    .align_y(iced::Alignment::Center),
+                    label(short(&notice.message, 400), MUTED).size(11),
+                ]
+                .spacing(3);
+                if let Some(code) = notice.code {
+                    block = block.push(
+                        container(label(code, MUTED).size(10).font(MONO))
+                            .padding([1, 6])
+                            .style(|_| iced::widget::container::Style {
+                                background: Some(design::SURFACE.into()),
+                                border: iced::Border {
+                                    radius: 6.0.into(),
+                                    ..Default::default()
+                                },
+                                ..Default::default()
+                            }),
+                    );
+                }
+                container(block)
+                    .padding([8, 14])
+                    .width(geometries[index].width)
+                    .into()
             } else if let Some(retry) = record.retry.clone() {
                 // The reference's model-retry row (`TurnTriggerNodeView.tsx:60-110`): one unboxed
                 // line stating the chain's latest attempt, with the recorded delay and failure
@@ -18211,6 +18247,7 @@ mod tests {
             output: None,
             failed: false,
             retry: None,
+            notice: None,
         }
     }
     #[test]
@@ -21235,6 +21272,7 @@ mod tests {
             output: None,
             failed: false,
             retry: None,
+            notice: None,
         };
         assert_eq!(activity_body_source(&row), "let a = 1;\nlet b = 2;");
     }
