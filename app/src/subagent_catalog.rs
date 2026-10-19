@@ -238,12 +238,18 @@ pub fn format_duration(ms: u64) -> String {
     format!("{seconds}s")
 }
 
-/// One row of the catalog menu's tree: the entry, its indent level, whether it has children,
-/// and whether those children are showing.
+/// One row of the catalog menu's tree: the entry, its indent level, whether it can be opened, and
+/// whether its children are showing.
+///
+/// `expandable` is not "has children": the reference shows a chevron for anything that is not a
+/// **known leaf** — a child whose own catalog has not been read yet can still have descendants
+/// (`SubagentHeaderLineage.tsx:195-198,319-331`), so the row must offer the toggle and let the read
+/// that follows fill the branch in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TreeRow {
     pub entry: Entry,
     pub level: usize,
+    pub expandable: bool,
     pub has_children: bool,
     pub expanded: bool,
 }
@@ -255,13 +261,13 @@ pub struct TreeRow {
 pub fn tree_rows(
     roots: &[Entry],
     expanded: &std::collections::BTreeSet<String>,
-    mut catalog_for: impl FnMut(&str) -> Vec<Entry>,
+    mut catalog_for: impl FnMut(&str) -> Option<Vec<Entry>>,
 ) -> Vec<TreeRow> {
     fn walk(
         entries: &[Entry],
         level: usize,
         expanded: &std::collections::BTreeSet<String>,
-        catalog_for: &mut impl FnMut(&str) -> Vec<Entry>,
+        catalog_for: &mut impl FnMut(&str) -> Option<Vec<Entry>>,
         visited: &mut std::collections::BTreeSet<String>,
         out: &mut Vec<TreeRow>,
     ) {
@@ -273,19 +279,25 @@ pub fn tree_rows(
             if !visited.insert(entry.id.clone()) {
                 continue;
             }
-            let children: Vec<_> = if level + 1 < MAX_DEPTH {
+            let catalog = if level + 1 < MAX_DEPTH {
                 catalog_for(&entry.id)
-                    .into_iter()
-                    .filter(|child| !visited.contains(&child.id))
-                    .collect()
             } else {
-                Vec::new()
+                Some(Vec::new())
             };
+            // Known leaf: the catalog was read and held nothing. Anything else — rows present, or no
+            // catalog yet — keeps the toggle.
+            let known_leaf = catalog.as_ref().is_some_and(Vec::is_empty);
+            let children: Vec<_> = catalog
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|child| !visited.contains(&child.id))
+                .collect();
             let has_children = !children.is_empty();
-            let open = has_children && expanded.contains(&entry.id);
+            let open = expanded.contains(&entry.id) && !known_leaf;
             out.push(TreeRow {
                 entry: entry.clone(),
                 level,
+                expandable: !known_leaf,
                 has_children,
                 expanded: open,
             });
@@ -472,9 +484,9 @@ mod tests {
         let mut expanded = BTreeSet::new();
         expanded.insert("PUBLIC-a".to_owned());
         let rows = tree_rows(&roots, &expanded, |id| match id {
-            "PUBLIC-a" => catalogs(&["PUBLIC-b", "PUBLIC-c"]),
-            "PUBLIC-b" => catalogs(&["PUBLIC-d"]),
-            _ => Vec::new(),
+            "PUBLIC-a" => Some(catalogs(&["PUBLIC-b", "PUBLIC-c"])),
+            "PUBLIC-b" => Some(catalogs(&["PUBLIC-d"])),
+            _ => None,
         });
         let seen: Vec<_> = rows
             .iter()
@@ -497,9 +509,9 @@ mod tests {
         );
         expanded.insert("PUBLIC-b".to_owned());
         let rows = tree_rows(&roots, &expanded, |id| match id {
-            "PUBLIC-a" => catalogs(&["PUBLIC-b", "PUBLIC-c"]),
-            "PUBLIC-b" => catalogs(&["PUBLIC-d"]),
-            _ => Vec::new(),
+            "PUBLIC-a" => Some(catalogs(&["PUBLIC-b", "PUBLIC-c"])),
+            "PUBLIC-b" => Some(catalogs(&["PUBLIC-d"])),
+            _ => None,
         });
         let seen: Vec<_> = rows
             .iter()
@@ -519,9 +531,9 @@ mod tests {
             &roots,
             &BTreeSet::from(["PUBLIC-a".to_owned()]),
             |id| match id {
-                "PUBLIC-a" => catalogs(&["PUBLIC-b"]),
-                "PUBLIC-b" => catalogs(&["PUBLIC-a"]),
-                _ => Vec::new(),
+                "PUBLIC-a" => Some(catalogs(&["PUBLIC-b"])),
+                "PUBLIC-b" => Some(catalogs(&["PUBLIC-a"])),
+                _ => None,
             },
         );
         assert_eq!(cycle.len(), 2);

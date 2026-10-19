@@ -4850,7 +4850,14 @@ impl App {
             }
             Message::ToggleSubagentBranch(id) if self.layout_controls_enabled() => {
                 if !self.subagent_expanded.remove(&id) {
+                    let opening = id.clone();
                     self.subagent_expanded.insert(id);
+                    // Opening a branch whose catalog has not been read asks for it, which is what the
+                    // reference does on the same press (`SubagentHeaderLineage.tsx:554-561`). A branch
+                    // that already holds rows needs no read.
+                    if self.catalog_for(&opening).is_none() {
+                        return self.update(Message::RefreshRoster);
+                    }
                 }
             }
             Message::SubagentOpen(id) if self.layout_controls_enabled() => {
@@ -9507,17 +9514,20 @@ impl App {
     /// carries no catalog, so the header keeps a plain current crumb.
     /// One session's own catalog, for a nested branch. Absent when the summary carries no
     /// projection or no rows.
-    fn catalog_for(&self, id: &str) -> Vec<subagent_catalog::Entry> {
-        let Some(summary) = SessionId::new(id)
+    /// One child's own catalog: `None` when it has not been read, which is what tells an unknown
+    /// branch from a known leaf (`SubagentHeaderLineage.tsx:195-198`).
+    fn catalog_for(&self, id: &str) -> Option<Vec<subagent_catalog::Entry>> {
+        let summary = SessionId::new(id)
             .ok()
-            .and_then(|id| self.sessions.get(&id))
-        else {
-            return Vec::new();
-        };
-        let Some(projections) = summary.projections.as_ref() else {
-            return Vec::new();
-        };
-        subagent_catalog::entries(&projections.values)
+            .and_then(|id| self.sessions.get(&id))?;
+        let projections = summary.projections.as_ref()?;
+        let value = projections.values.get("subagentCatalog")?;
+        Some(
+            subagent_catalog::entries(&projections.values)
+                .into_iter()
+                .collect::<Vec<_>>(),
+        )
+        .filter(|_| value.is_array())
     }
     fn parent_catalog(&self) -> Option<Vec<subagent_catalog::Entry>> {
         let selected = self.selected.as_ref()?;
@@ -9610,7 +9620,7 @@ impl App {
         for row in rows {
             let entry = &row.entry;
             // A branch toggle keeps its column even when absent, so sibling labels align.
-            let toggle: Element<'_, Message> = if row.has_children {
+            let toggle: Element<'_, Message> = if row.expandable {
                 button(label(if row.expanded { "▾" } else { "▸" }, MUTED).size(11))
                     .on_press(Message::ToggleSubagentBranch(entry.id.clone()))
                     .style(design::ghost)
@@ -23164,10 +23174,13 @@ mod tests {
                 projections: None,
             },
         );
-        let grandchildren = app.catalog_for("public-child-reviewer");
+        let grandchildren = app
+            .catalog_for("public-child-reviewer")
+            .expect("the reviewer's catalog was read");
         assert_eq!(grandchildren.len(), 1);
         assert_eq!(grandchildren[0].label, "PUBLIC helper");
-        assert!(app.catalog_for("public-grandchild-helper").is_empty());
+        // A child with no catalog key is an *unknown* branch, not a known leaf.
+        assert!(app.catalog_for("public-grandchild-helper").is_none());
         let _ = app.update(Message::ToggleSubagentMenu(true));
         let _ = app.update(Message::ToggleSubagentBranch(
             "public-child-reviewer".into(),

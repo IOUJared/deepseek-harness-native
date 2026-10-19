@@ -12367,3 +12367,35 @@ in flight.
 | capture | — | none: state visibility, proved by its test |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 473 — an unread branch keeps its toggle
+
+The last subagent finding from that audit: the reference shows a chevron for anything that is **not a
+known leaf** — a child whose own catalog has not been read can still have descendants
+(`SubagentHeaderLineage.tsx:195-198,319-331`) — and pressing it refreshes that child's projection
+(`:554-561`). Native drew the toggle only when children were already in hand, so a child whose catalog
+had not been retained showed no chevron at all and its descendants were unreachable.
+
+`catalog_for` now answers `Option`: `None` means "not read", `Some(empty)` means "read, and a leaf".
+`tree_rows` names that difference on the row as `expandable` (not `has_children`), the toggle draws for
+any expandable row, and opening one whose catalog is unknown dispatches the roster read — the same one
+round 471 added — so the branch can fill itself in.
+
+Tests: the model's tree tests now distinguish the two, the existing UI test asserts an unread child's
+catalog is `None` rather than empty, and the suite passes with the new `expandable` shape (1456).
+
+**Battery (round 473).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1456 passed**, 1 ignored |
+| app, default | **0** | **1424 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: a branch's toggle, proved by its tests |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
