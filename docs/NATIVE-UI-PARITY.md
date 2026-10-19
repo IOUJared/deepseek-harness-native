@@ -6387,7 +6387,8 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
 | Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab) |
 | Goals, plan mode, permissions, approvals/questions, jobs, subagents, session log | cloned |
-| Tool rows: one row per call with the folded result, relative path, `+N −N`, and the structured cards — diff, read, terminal, search, web, ask-user | cloned (no per-tool glyphs — the reference's SVGs have no DejaVu equivalent); each run of step activity sits under a process-group seat that closes once the turn settles and opens on click, as the reference's does — at the default `Standard` work-details mode, whose policy table is landed and tested; the Settings row that selects a mode is the next item) |
+| Tool rows: one row per call with the folded result, relative path, `+N −N`, and the structured cards — diff, read, terminal, search, web, ask-user | cloned (no per-tool glyphs — the reference's SVGs have no DejaVu equivalent); each run of step activity sits under a process-group seat whose live label, running detail, folding and grouping follow the **Work details** preference — Compact / Standard / Detailed / Verbose, chosen in Settings → General and persisted locally) |
+| Reasoning disclosure wording | difference: native says `Thoughts` where the reference says `Thought for a while` (`message.turnProcess.thoughtForAWhile`), by the user's stated preference for the shorter label; a settled row still previews its first line under the `settledReasoningPreview` policy |
 | Model-retry row, command row (a manual `/compact` folded into one marker), turn duration, failure and output-limit rows, card Copy control, created-task (`schedule_create`) card, skill row | cloned (the skill row has no `Inspect` action: native has no right Sidebar to open it in) |
 | Composer usage pill: tokens, cache hit, speed, turn/step counts, and the Host's session-statistics dialog | cloned |
 | Deliverables: summary, file list, diffs, desktop open | cloned (no right-Sidebar review tab) |
@@ -9801,4 +9802,40 @@ still pass with the extra view parameter.
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/219-thoughts-preview.png`, `status: passed` |
 | app bin | — | **20** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 403 — two record corrections after the work-details rounds
+
+Two statements in the record had gone stale, and one deliberate difference had never been written
+down at all.
+
+**The coverage table** still said "the Settings row that selects a mode is the next item". That row
+landed in round 400, so the table now states what exists: the seat's live label, running detail,
+folding and grouping follow the **Work details** preference chosen in Settings → General. (The
+round-400 patch had matched a similar-looking row further down and left this one untouched — a
+reminder that a "replace the first match" edit in a long table needs its neighbourhood read.)
+
+**The reasoning wording** is now recorded as a deliberate difference: native says `Thoughts` where
+the reference says `Thought for a while` (`message.turnProcess.thoughtForAWhile`), by the user's
+stated preference for the shorter label. The settled preview from round 402 still applies, so the
+difference is the noun, not the behaviour. It belongs in the table because "every deliberate
+difference recorded with reason" is part of this work's definition of done, and this one had only
+ever lived in conversation.
+
+No code changed, so no capture: the evidence is the corrected record, and the battery below re-runs
+the suite against the commit that carries it.
+
+**Battery (round 403).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1398 passed**, 1 ignored |
+| app, default | **0** | 1383 passed, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| app bin | — | 20 dead-code warnings (unchanged) |
 | tree | — | clean before the commit |
