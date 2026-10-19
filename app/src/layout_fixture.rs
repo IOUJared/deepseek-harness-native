@@ -144,6 +144,7 @@ pub const PRESETS: &[&str] = &[
     "tool-activity-web",
     "tool-activity-ask",
     "tool-activity-applied",
+    "model-retry",
     "context-injects",
     "assistant-tool-call",
     "assistant-tool-call-expanded",
@@ -222,6 +223,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "assistant-tool-call" | "assistant-tool-call-expanded" => {
             Some((Size::new(1040.0, 760.0), 1.0))
         }
+        "model-retry" => Some((Size::new(1040.0, 760.0), 1.0)),
         "chat-density" => Some((Size::new(1040.0, 1000.0), 1.0)),
         "tool-activity-narrow" => Some((Size::new(760.0, 840.0), 1.0)),
         "tool-activity-tiny" => Some((Size::new(608.0, 448.0), 1.25)),
@@ -679,6 +681,45 @@ fn public_tool_applied_records() -> Vec<Value> {
         }
     }
     records
+}
+
+/// A conversation whose only non-human activity is a model-retry chain: one attempt started, one
+/// waiting out its delay (`retry.ts:20-100`). Every value is synthetic PUBLIC metadata; no model
+/// request was made and none failed.
+fn public_retry_records() -> Vec<Value> {
+    let event = |seq: u64, kind: &str, data: Value| {
+        json!({"type":"event", "event":{
+            "type":kind, "seq":seq, "time":1000+seq, "data":data, "surfaceOp":"append"
+        }})
+    };
+    let retry = |retry: u64, delay: u64| {
+        json!({"retryId":"PUBLIC-retry-chain", "turn":1, "step":1, "provider":"deepseek",
+            "mode":"normal", "policyKey":"PUBLIC-policy", "retry":retry, "maxRetries":3,
+            "delayMs":delay, "failure":{"message":"PUBLIC upstream unavailable · synthetic"}})
+    };
+    vec![
+        event(
+            0,
+            "user/message",
+            json!({"role":"user", "id":"PUBLIC-retry-user", "source":{"kind":"user"},
+                "content":[{"type":"text","text":"PUBLIC retry fixture · no model request ran."}]}),
+        ),
+        event(1, "llm/retry", retry(1, 2000)),
+        event(
+            2,
+            "llm/retry-started",
+            json!({"retryId":"PUBLIC-retry-chain", "turn":1, "step":1, "retry":1}),
+        ),
+        event(3, "llm/retry", retry(2, 4000)),
+        event(
+            4,
+            "assistant/message",
+            json!({"turn":1, "step":1,
+                "stream":[{"type":"text-chunks", "time0":1004, "index":0, "dt":[],
+                    "texts":["PUBLIC synthetic assistant text · the retry row states recorded metadata, not a real failure."]}]
+            }),
+        ),
+    ]
 }
 
 /// A conversation whose only tool call is an `ask_user_question`, recorded with the question and
@@ -1234,6 +1275,8 @@ pub fn build(
         public_ask_records()
     } else if preset == "tool-activity-applied" {
         public_tool_applied_records()
+    } else if preset == "model-retry" {
+        public_retry_records()
     } else if preset == "tool-activity-diff-long" {
         // The same transcript with a longer edit, so the card's 9-row cap and its fold control
         // are drawn. Every line is synthetic PUBLIC metadata.
@@ -2058,6 +2101,24 @@ pub fn build(
                 _ => super::plan_mode::Mode::Leaving,
             };
             assert_eq!(mode, expected);
+        }
+        "model-retry" => {
+            // One row for the chain, stating the latest attempt and carrying the failure reason.
+            let rows: Vec<_> = app
+                .transcript
+                .display_rows(false)
+                .filter(|row| row.retry.is_some())
+                .collect();
+            assert_eq!(rows.len(), 1, "one row per chain");
+            assert_eq!(rows[0].text, "Waiting to retry model request (2/3) · 4s");
+            assert_eq!(
+                rows[0]
+                    .retry
+                    .as_ref()
+                    .and_then(|state| state.detail())
+                    .as_deref(),
+                Some("Retry delay: 4s\nFailure reason: PUBLIC upstream unavailable · synthetic")
+            );
         }
         "command-menu" => {
             // The composer asked for the advertisement when the slash was typed;

@@ -12697,6 +12697,7 @@ impl App {
             surface: false,
             output: None,
             failed: false,
+            retry: None,
         });
         let rows: Vec<_> = self
             .transcript
@@ -12996,6 +12997,7 @@ impl App {
                     surface: false,
                     output: None,
                     failed: false,
+                    retry: None,
                 },
                 lane,
             )
@@ -13836,6 +13838,7 @@ impl App {
             surface: false,
             output: None,
             failed: false,
+            retry: None,
         });
         let len = self.transcript.display_rows(true).count() + usize::from(partial.is_some());
         let rendered: Vec<&DisplayRow> = self
@@ -14096,6 +14099,29 @@ impl App {
                     );
                 }
                 activity_column.into()
+            } else if let Some(retry) = record.retry.clone() {
+                // The reference's model-retry row (`TurnTriggerNodeView.tsx:60-110`): one unboxed
+                // line stating the chain's latest attempt, with the recorded delay and failure
+                // beneath it. Not expandable: the reference draws the detail block always.
+                let mut block = column![
+                    row![
+                        label("⟳", MUTED).size(12),
+                        label(retry.line(), MUTED).size(12),
+                        Space::new().width(Length::Fill),
+                    ]
+                    .spacing(7)
+                    .align_y(iced::Alignment::Center)
+                ]
+                .spacing(2);
+                if let Some(detail) = retry.detail() {
+                    for line in detail.lines() {
+                        block = block.push(label(line.to_owned(), TEXT).size(11));
+                    }
+                }
+                container(block)
+                    .padding([6, 14])
+                    .width(geometries[index].width)
+                    .into()
             } else if let Some(trigger) = record.trigger {
                 // The reference's turn-trigger notice (`TurnTriggerNodeView.tsx`): an
                 // unboxed, expandable line naming the non-human producer, above the turn
@@ -17986,6 +18012,7 @@ mod tests {
             surface: false,
             output: None,
             failed: false,
+            retry: None,
         }
     }
     #[test]
@@ -21009,6 +21036,7 @@ mod tests {
             surface: false,
             output: None,
             failed: false,
+            retry: None,
         };
         assert_eq!(activity_body_source(&row), "let a = 1;\nlet b = 2;");
     }

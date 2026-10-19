@@ -215,8 +215,8 @@ clipboard, both blocked on Iced rather than on native code; agent-preset selecti
 The **scheduled-task** surface is *not* on this list: the page, its create/delete flow and the
 `schedule` turn-trigger title are all built (`schedules_view`, `turn_trigger`'s
 `"schedule" => "Automation task"`). An earlier revision of this index called a "turn-tail schedule
-row" absent; re-reading `ui-chat`'s nodes, the only other scheduled surface is the model-retry row's
-`scheduled` state ("retrying in Ns"), which native states in its own retry row.
+row" absent; re-reading `ui-chat`'s nodes, the only other scheduled surface is the **model-retry
+row**, which round 381 built (`shots/181-model-retry.png`).
 
 **A note on the numbering below.** These entries are an append-only journal: numbers were reused as
 later rounds inserted items, so there are two entries numbered 3, two 8 and two 9, and some entries
@@ -8931,4 +8931,49 @@ title are all built; the index says so now.
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/180-tool-applied-totals.png`, `status: passed` |
 | app bin | — | **19** dead-code warnings (unchanged) |
+| tree | — | clean before the commit |
+
+### Round 381 — the model-retry row
+
+Round 380 corrected an index line by claiming native "states the retry in its own retry row". It did
+not: native had no retry row at all, and `llm/retry` fell through the generic branch into a
+Trajectory-only JSON line. This round builds the row the claim assumed.
+
+**The model** (`reducer/retry_ui.rs`) follows the session format's own validation
+(`payload-validation.ts:119-138`): `mode` is `normal` (which requires `maxRetries`, and `retry` may
+not exceed it) or `always` (which must omit it); `retry` is at least 1; `delayMs` is a non-negative
+integer inside the timer range; `provider` and `policyKey` are non-empty. The failure's message is
+the reason the row states. `State` holds the chain's attempts plus the started receipts, and derives
+the reference's copy: `Waiting to retry model request (2/3) · 4s` while scheduled, `Retried model
+request (2/3)` once a receipt arrives, `Model request retry cancelled (1/3)` when the owning turn
+closed first; `always` mode omits the ceiling.
+
+**The row** is one per chain, not one per event (`retry.ts:76-100`): the first `llm/retry` opens it,
+later attempts and `llm/retry-started` receipts patch it, and a `turn/end` or `step/end` cancels a
+still-scheduled attempt. It draws as an unboxed line — a clock glyph, the state line, then the
+recorded `Retry delay: 4s` and `Failure reason: …` beneath it. Every record stays in Trajectory, so
+nothing is lost.
+
+Evidence: `shots/181-model-retry.png` (DP-2 alongside, `status: passed`) in the new `model-retry`
+preset: one attempt started, one waiting out 4 seconds, with its reason.
+
+Tests: five in `retry_ui` (a normal retry's position and countdown, an `always` chain without a
+ceiling, a started attempt, a cancelled one, and the format's payload rules) and four in
+`retry_row_tests` (one row per chain patched by later attempts, the started receipt, the close
+cancelling a scheduled attempt, and a payload the format rejects contributing nothing).
+
+**Battery (round 381).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1346 passed**, 1 ignored |
+| app, default | **0** | **1337 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/181-model-retry.png`, `status: passed` |
+| app bin | — | **20** dead-code warnings (19 before; the retry module adds one) |
 | tree | — | clean before the commit |

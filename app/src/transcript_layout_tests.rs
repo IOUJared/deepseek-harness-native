@@ -16,6 +16,7 @@ fn row(key: u64, role: &str) -> DisplayRow {
         surface: false,
         output: None,
         failed: false,
+        retry: None,
     }
 }
 #[test]

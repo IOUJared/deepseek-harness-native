@@ -19,6 +19,8 @@ pub mod inline_diff;
 /// every example that embeds this module root then sees it.
 #[path = "read_card.rs"]
 pub mod read_card;
+#[path = "retry_ui.rs"]
+pub mod retry_ui;
 /// The reference's search card for a `grep`/`glob` call.
 #[path = "search_card.rs"]
 pub mod search_card;
@@ -99,6 +101,9 @@ pub struct DisplayRow {
     /// `Referenced session · labels` (`ui-chat/src/client/chat/MessageItem.tsx:225-229`,
     /// labels from `conversation-nodes/event-projection.ts:83-87`).
     pub references: Vec<String>,
+    /// The model-retry chain this row states, when it is a retry row. One row per chain, not one
+    /// per event (`retry.ts:76-100`); later events patch this row and stay Trajectory-only.
+    pub retry: Option<crate::reducer::retry_ui::State>,
     /// The paired `tool/result`'s recorded body, folded onto its call row. The reference draws
     /// one row per call with the result inside it (`ToolCallTree.tsx`); native keeps the result
     /// record as a Trajectory-only row and folds these two facts onto the call.
@@ -824,6 +829,8 @@ impl Transcript {
         // One row per call, as the reference draws it: a `tool/call` is indexed here so its
         // `tool/result` can fold onto it instead of adding a second activity line to Chat.
         let mut calls: std::collections::BTreeMap<(String, u64, u64), u64> = Default::default();
+        // Retry id → the Chat row that states the chain.
+        let mut retries: BTreeMap<String, u64> = BTreeMap::new();
         let mut paired_calls: BTreeMap<u64, u64> = BTreeMap::new();
         for event in self.records.values() {
             if self
@@ -953,7 +960,77 @@ impl Transcript {
                 surface,
                 output: None,
                 failed: false,
+                retry: None,
             };
+            // One row per model-retry chain (`retry.ts:76-100`): the first `llm/retry` opens it,
+            // later attempts and their `-started` receipts patch it, and a turn or step that
+            // closes while an attempt is still scheduled cancels it.
+            if kind == "llm/retry" || kind == "llm/retry-started" {
+                let retry_id = event.data["retryId"]
+                    .as_str()
+                    .filter(|id| !id.is_empty())
+                    .unwrap_or("");
+                let key = retries.get(retry_id).copied();
+                match (kind, key) {
+                    ("llm/retry", Some(key)) => {
+                        if let (Some(row), Some(attempt)) = (
+                            rows.iter_mut().find(|row| row.key == key),
+                            crate::reducer::retry_ui::attempt(&event.data),
+                        ) && let Some(state) = row.retry.as_mut()
+                        {
+                            state.attempts.push(attempt);
+                            row.text = state.line();
+                        }
+                    }
+                    ("llm/retry-started", Some(key)) => {
+                        if let Some(row) = rows.iter_mut().find(|row| row.key == key)
+                            && let Some(state) = row.retry.as_mut()
+                            && let Some(retry) = event.data["retry"]
+                                .as_u64()
+                                .and_then(|retry| u32::try_from(retry).ok())
+                        {
+                            state.started.push(retry);
+                            row.text = state.line();
+                        }
+                    }
+                    ("llm/retry", None) => {
+                        if !retry_id.is_empty()
+                            && let Some(attempt) = crate::reducer::retry_ui::attempt(&event.data)
+                        {
+                            let state = crate::reducer::retry_ui::State {
+                                attempts: vec![attempt],
+                                started: Vec::new(),
+                                cancelled: false,
+                            };
+                            row.retry = Some(state.clone());
+                            row.role = "Model retry".into();
+                            row.text = state.line();
+                            row.chat = true;
+                            retries.insert(retry_id.to_owned(), event.seq);
+                        }
+                    }
+                    _ => {}
+                }
+                // The record itself stays in Trajectory; the chain row above is what Chat draws.
+                if retry_id.is_empty() || retries.get(retry_id) != Some(&event.seq) {
+                    row.chat = false;
+                }
+                rows.push(row);
+                continue;
+            }
+            if matches!(kind, "turn/end" | "step/end") {
+                for row in rows.iter_mut().filter(|row| row.retry.is_some()) {
+                    if let Some(state) = row.retry.as_mut()
+                        && !state.cancelled
+                        && state
+                            .current()
+                            .is_some_and(|current| !state.started.contains(&current.retry))
+                    {
+                        state.cancelled = true;
+                        row.text = state.line();
+                    }
+                }
+            }
             // Pair a result with its call by the wire's own identifiers, exactly as the
             // activity fold pairs them. A result that names no call keeps its own row: an
             // unpaired result is information, not a duplicate.
@@ -2031,5 +2108,107 @@ mod settled_diff_tests {
         let lines = lines(&transcript);
         assert!(lines.contains(&"intended".to_owned()), "{lines:?}");
         assert!(!lines.contains(&"applied b".to_owned()), "{lines:?}");
+    }
+}
+
+#[cfg(test)]
+mod retry_row_tests {
+    //! One Chat row per model-retry chain, patched by later attempts, cancelled by a close.
+    use super::*;
+
+    fn event(seq: u64, kind: &str, data: serde_json::Value) -> Value {
+        serde_json::json!({"type":"event","event":{"type":kind,"seq":seq,"time":1000+seq,"data":data}})
+    }
+    fn frame(records: Vec<Value>) -> SessionFollowFrame {
+        serde_json::from_value(serde_json::json!({
+            "type": "snapshot", "records": records, "cursor": 4, "hasMore": false,
+            "header": {"version": 4, "id": "PUBLIC-retry", "createdAt": 0, "isSeeded": false},
+            "projections": {"asOfSeq": 4, "values": {}},
+            "assistantStream": {"revision": 0}
+        }))
+        .unwrap()
+    }
+    fn retry(seq: u64, retry: u32, delay: u64) -> Value {
+        event(
+            seq,
+            "llm/retry",
+            serde_json::json!({"retryId": "PUBLIC-chain", "turn": 1, "step": 1,
+                "provider": "deepseek", "mode": "normal", "policyKey": "PUBLIC-policy",
+                "retry": retry, "maxRetries": 3, "delayMs": delay,
+                "failure": {"message": "PUBLIC upstream 503"}}),
+        )
+    }
+
+    #[test]
+    fn a_chain_is_one_row_patched_by_later_attempts() {
+        let mut transcript = Transcript::new(0);
+        transcript
+            .apply(0, frame(vec![retry(1, 1, 2_000), retry(2, 2, 4_000)]))
+            .unwrap();
+        let chat: Vec<_> = transcript.display_rows(false).collect();
+        assert_eq!(chat.len(), 1, "one row per chain");
+        let state = chat[0].retry.as_ref().expect("the chain");
+        assert_eq!(state.attempts.len(), 2);
+        assert_eq!(chat[0].role, "Model retry");
+        assert_eq!(chat[0].text, "Waiting to retry model request (2/3) · 4s");
+        // Trajectory keeps both records.
+        assert_eq!(transcript.display_rows(true).count(), 2);
+    }
+
+    #[test]
+    fn a_started_receipt_names_the_state_and_drops_the_countdown() {
+        let mut transcript = Transcript::new(0);
+        transcript
+            .apply(0, frame(vec![
+                retry(1, 1, 2_000),
+                event(2, "llm/retry-started", serde_json::json!({"retryId": "PUBLIC-chain", "turn": 1, "step": 1, "retry": 1})),
+            ]))
+            .unwrap();
+        let chat: Vec<_> = transcript.display_rows(false).collect();
+        assert_eq!(chat.len(), 1);
+        assert_eq!(chat[0].text, "Retried model request (1/3)");
+    }
+
+    #[test]
+    fn a_turn_end_cancels_a_scheduled_attempt() {
+        let mut transcript = Transcript::new(0);
+        transcript
+            .apply(
+                0,
+                frame(vec![
+                    retry(1, 1, 2_000),
+                    event(
+                        2,
+                        "turn/end",
+                        serde_json::json!({"turn": 1, "reason": {"kind": "error"}}),
+                    ),
+                ]),
+            )
+            .unwrap();
+        assert_eq!(
+            transcript.rows()[0].text,
+            "Model request retry cancelled (1/3)"
+        );
+    }
+
+    #[test]
+    fn a_payload_the_format_rejects_contributes_no_row() {
+        let mut transcript = Transcript::new(0);
+        transcript
+            .apply(0, frame(vec![
+                event(1, "llm/retry", serde_json::json!({"retryId": "PUBLIC-chain", "turn": 1})),
+                // No retry id at all: not a chain.
+                event(2, "llm/retry", serde_json::json!({"mode": "normal", "retry": 1, "maxRetries": 2, "delayMs": 0, "provider": "p", "policyKey": "k"})),
+            ]))
+            .unwrap();
+        let kinds: Vec<&str> = transcript
+            .rows()
+            .iter()
+            .map(|row| row.kind.as_str())
+            .collect();
+        assert!(
+            transcript.rows().iter().all(|row| row.retry.is_none()),
+            "{kinds:?}"
+        );
     }
 }
