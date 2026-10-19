@@ -1343,3 +1343,32 @@ fn a_press_in_the_conversation_dismisses_the_composer_menu() {
     assert!(!app.composer_menu_open());
     assert_eq!(app.editor.text(), draft);
 }
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
+fn a_blank_session_has_no_header_chrome() {
+    let (size, _scale) = super::layout_fixture::preset_size("conversation").unwrap();
+    let (mut app, _queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "conversation",
+        size,
+        None,
+    );
+    // A recorded conversation keeps its header.
+    assert!(!app.blank_header());
+    // The Host marking the session blank while records exist is not blank on screen.
+    let session = app.selected.clone().expect("a selected session");
+    app.sessions.get_mut(&session).expect("the summary").blank = true;
+    assert!(!app.blank_header(), "records keep the header");
+    // A blank session with no records drops the title, the tabs and the seam.
+    let (mut app, _queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "hero-workspace-selected",
+        size,
+        None,
+    );
+    let session = app.selected.clone().expect("a selected session");
+    app.sessions.get_mut(&session).expect("the summary").blank = true;
+    app.transcript = crate::reducer::Transcript::new(app.generation);
+    assert!(app.blank_header(), "a blank session hides the chrome");
+}

@@ -13394,3 +13394,43 @@ capability, and it is named here rather than implied.
 | DP-2 capture | — | `shots/293-detail-wrap.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 500 — a blank session has no header chrome
+
+A header-band audit (21 reference elements, 15 traced in depth) found the first-run state wrong. The
+reference's **blank** phase keeps the navigation controls and drops the title, the tabs and the seam
+(`ConversationHeader.tsx:16,24`, `ConversationSession.tsx:66,70`,
+`ConversationRoot.module.css:30-35` "Blank Sessions retain navigation controls without conversation title
+or tabs"); native always drew a `New chat` heading, the Chat/Trajectory strip and the divider above the
+hero.
+
+`blank_header` now answers whether the selected session is blank *on screen* — the Host's flag and no
+retained rows, because a session the Host calls blank but which already holds records is not blank to the
+reader — and the band collapses to zero height for it. The sidebar keeps every control.
+
+Tests: `a_blank_session_has_no_header_chrome` — a recorded conversation keeps its header, a Host-blank
+session with records keeps it too, and a blank session with no records hides the chrome.
+
+Evidence: `shots/294-hero-blank.png` (DP-2 alongside, `status: passed`) — the hero with no title, no tabs
+and no divider above it.
+
+**Recorded from the same audit for the next round**: the subagent count renders at the far right after the
+identity, where the reference orders it first in the actions band (`ui-subagent/src/client/index.ts:84-90`,
+`order: -30`); and the reference's header has a reminders chip (`ui-schedule/src/client/index.ts:208-216`)
+that native has never had — the sidebar's Scheduled tasks row is its only entry.
+
+**Battery (round 500).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1485 passed**, 1 ignored |
+| app, default | **0** | **1446 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/294-hero-blank.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

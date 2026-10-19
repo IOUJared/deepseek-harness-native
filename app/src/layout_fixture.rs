@@ -27,6 +27,7 @@ pub const PRESETS: &[&str] = &[
     "subagent-readonly",
     "subagent-sibling",
     "hero-workspace-selected",
+    "hero-blank",
     "wide-welcome",
     "narrow-welcome",
     "tiny-welcome",
@@ -319,7 +320,8 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "subagent-catalog-error"
         | "subagent-readonly"
         | "subagent-sibling"
-        | "hero-workspace-selected" => Some((Size::new(1040.0, 700.0), 1.0)),
+        | "hero-workspace-selected"
+        | "hero-blank" => Some((Size::new(1040.0, 700.0), 1.0)),
         "working-narrow" => Some((Size::new(760.0, 560.0), 1.0)),
         "chat-submitted"
         | "chat-preparation-error"
@@ -1604,7 +1606,16 @@ pub fn build(
     }
     app.workspaces = vec![workspace];
     assert!(app.management.baseline(vec![], vec![selected_id.clone()]));
-    let records = if preset.starts_with("assistant-details") {
+    // The blank phase: the session exists and holds nothing, so the header keeps no chrome and the
+    // hero is the whole conversation (`ConversationHeader.tsx:16,24`).
+    if preset == "hero-blank" {
+        if let Some(session) = app.sessions.get_mut(&selected_id) {
+            session.blank = true;
+        }
+    }
+    let records = if preset == "hero-blank" {
+        Vec::new()
+    } else if preset.starts_with("assistant-details") {
         let source = if preset == "assistant-details-fallback" {
             "# PUBLIC unsupported source\n\n![PUBLIC no image loaded](file:///PUBLIC/no-image.png)\n\n<p>PUBLIC HTML shown literally; never interpreted.</p>"
         } else {

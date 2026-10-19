@@ -10141,6 +10141,17 @@ impl App {
         .style(|_| panel(BASE))
         .into()
     }
+    /// Whether the selected session is the reference's **blank** phase: a session with nothing recorded
+    /// yet. Its header keeps the navigation controls and drops the title, the tabs and the seam
+    /// (`ConversationSession.tsx:66,70`, `ConversationRoot.module.css:30-35`).
+    fn blank_header(&self) -> bool {
+        self.selected
+            .as_ref()
+            .and_then(|id| self.sessions.get(id))
+            .is_some_and(|session| session.blank)
+            // A session the Host marks blank but which already holds records is not blank on screen.
+            && self.transcript.rows().is_empty()
+    }
     fn header(&self) -> Element<'_, Message> {
         let heading = self
             .selected
@@ -10235,6 +10246,11 @@ impl App {
                 .style(design::scrollable_style)
                 .height(94),
             );
+        }
+        // A blank session keeps the band's height and nothing else: no title, no tabs, no seam
+        // (`ConversationRoot.module.css:30-35`).
+        if self.blank_header() {
+            return container(Space::new().height(0)).width(Length::Fill).into();
         }
         let mut band = column![header];
         if self.transcript_tabs_visible() {
