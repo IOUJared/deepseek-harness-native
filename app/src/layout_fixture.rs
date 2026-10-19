@@ -139,6 +139,7 @@ pub const PRESETS: &[&str] = &[
     "tool-activity-diff",
     "tool-activity-diff-long",
     "tool-activity-read",
+    "tool-activity-terminal",
     "context-injects",
     "assistant-tool-call",
     "assistant-tool-call-expanded",
@@ -207,7 +208,8 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "tool-activity-edit-error"
         | "tool-activity-diff"
         | "tool-activity-diff-long"
-        | "tool-activity-read" => Some((Size::new(1040.0, 1040.0), 1.0)),
+        | "tool-activity-read"
+        | "tool-activity-terminal" => Some((Size::new(1040.0, 1040.0), 1.0)),
         "context-injects" | "context-injects-trajectory" => Some((Size::new(1040.0, 900.0), 1.0)),
         "assistant-tool-call" | "assistant-tool-call-expanded" => {
             Some((Size::new(1040.0, 760.0), 1.0))
@@ -629,6 +631,26 @@ fn public_tool_edit_error_records() -> Vec<Value> {
     records
 }
 
+/// The same records with the bash result rewritten as the reference's *completed failing call*: the
+/// shell settles a non-zero exit with `isError` false and the status as a trailing marker
+/// (`terminal-card-model.ts:86-92`), which is what turns the row into a terminal card.
+fn public_tool_terminal_records() -> Vec<Value> {
+    let mut records = public_tool_records();
+    for record in &mut records {
+        let event = &mut record["event"];
+        if event["type"] == "tool/result"
+            && event["data"]["message"]["toolCallId"] == "PUBLIC-bash-call"
+        {
+            event["data"]["message"]["isError"] = json!(false);
+            event["data"]["message"]["content"] = json!([{
+                "type":"text",
+                "text":"PUBLIC terminal output line one\nPUBLIC terminal output line two\n[exit code: 2]"
+            }]);
+        }
+    }
+    records
+}
+
 /// The same records with an optional `file` content part on the first user
 /// message, so a preset can render the attachment card the reference stacks
 /// above the bubble (`MessageItem.tsx:194-221`). A macro body cannot hold the
@@ -1016,6 +1038,8 @@ pub fn build(
         public_tool_records_with(Some("PUBLIC-note.txt"))
     } else if preset == "tool-activity-edit-error" {
         public_tool_edit_error_records()
+    } else if preset == "tool-activity-terminal" {
+        public_tool_terminal_records()
     } else if preset == "tool-activity-diff-long" {
         // The same transcript with a longer edit, so the card's 9-row cap and its fold control
         // are drawn. Every line is synthetic PUBLIC metadata.
@@ -1977,6 +2001,30 @@ pub fn build(
             }));
             assert!(app.activity_expanded.contains(&1));
         }
+        "tool-activity-terminal" => {
+            // The bash call expands into the reference's terminal card: the prompt line from the
+            // call's own arguments and working directory, the output rows, and the exit pill the
+            // shell carries as result data rather than as an error flag.
+            let card = app
+                .transcript
+                .activity(5, app.path_roots())
+                .and_then(|activity| activity.terminal)
+                .expect("the bash call's terminal card");
+            assert_eq!(card.command, vec!["printf PUBLIC_fixture_no_execution"]);
+            assert_eq!(card.status.as_deref(), Some("exit code 2"));
+            assert_eq!(
+                card.output,
+                vec![
+                    "PUBLIC terminal output line one".to_owned(),
+                    "PUBLIC terminal output line two".to_owned()
+                ]
+            );
+            drop(app.update(Message::ToggleActivity {
+                generation: app.generation,
+                key: 5,
+            }));
+            assert!(app.activity_expanded.contains(&5));
+        }
         "tool-activity-expanded" => {
             // The recorded Bash call expands inside the conversation; the detail
             // panel stays closed and no tool is executed.
@@ -2537,10 +2585,12 @@ mod tests {
                 // other tool-activity preset keeps the single Bash failure.
                 assert_eq!(
                     report["publicRecordedErrorMarkerCount"],
-                    if preset == "tool-activity-edit-error" {
-                        2
-                    } else {
-                        1
+                    match preset {
+                        "tool-activity-edit-error" => 2,
+                        // The terminal preset rewrites the bash result as the reference's
+                        // *completed failing call*: no error flag, the exit status is result data.
+                        "tool-activity-terminal" => 0,
+                        _ => 1,
                     }
                 );
                 if preset == "tool-activity-edit-error" {
@@ -2586,7 +2636,12 @@ mod tests {
                     app.transcript.activity(4, app.path_roots()).unwrap().title,
                     "Edit · functions.edit · result"
                 );
-                assert!(app.transcript.activity(6, app.path_roots()).unwrap().failed);
+                // The bash result's error flag: true everywhere except the terminal preset, which
+                // records the reference's completed failing call (status as result data) instead.
+                assert_eq!(
+                    app.transcript.activity(6, app.path_roots()).unwrap().failed,
+                    preset != "tool-activity-terminal"
+                );
                 // Programmatic local view action only: not physical input or execution proof.
                 drop(app.update(app.detail_request(3).unwrap()));
                 // The long-diff preset records a different edit body, so only the presets that

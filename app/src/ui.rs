@@ -12849,10 +12849,18 @@ impl App {
                         .and_then(|activity| activity.read)
                 })
                 .flatten();
-            let body = match (&read, &diff) {
-                (Some(card), _) => self.read_card_height(card, row.key),
-                (None, Some(diff)) => self.diff_card_height(diff, row.key),
-                (None, None) => conversation_content::tool_body_height(
+            let terminal = (row.role == "Tool call")
+                .then(|| {
+                    self.transcript
+                        .activity(row.key, self.path_roots())
+                        .and_then(|activity| activity.terminal)
+                })
+                .flatten();
+            let body = match (&read, &terminal, &diff) {
+                (Some(card), _, _) => self.read_card_height(card, row.key),
+                (None, Some(card), _) => self.terminal_card_height(card, row.key),
+                (None, None, Some(diff)) => self.diff_card_height(diff, row.key),
+                (None, None, None) => conversation_content::tool_body_height(
                     activity_body_source(row),
                     geometry.width - chat_geometry::BODY_INSET,
                     self.content_delta_secondary(),
@@ -13102,6 +13110,142 @@ impl App {
             .id("native-tool-diff")
             .width(Length::Fill)
             .height(self.diff_card_height(diff, key))
+            .padding(iced::Padding {
+                top: design::DIFF_PAD_TOP,
+                right: 0.0,
+                bottom: design::DIFF_PAD_BOTTOM,
+                left: 0.0,
+            })
+            .clip(true)
+            .style(|_| iced::widget::container::Style {
+                background: Some(design::OVERLAY.into()),
+                border: iced::Border {
+                    radius: design::RADIUS_LG.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .into()
+    }
+    /// The terminal card's drawn height: the prompt rows, the output rows (or `No output`), one
+    /// fold row when capped, and the card's padding.
+    fn terminal_card_height(&self, card: &crate::reducer::terminal_card::Card, key: u64) -> f32 {
+        let rows = card.drawn_rows(self.diff_expanded.contains(&key)) as f32;
+        let line = design::CODE_LINE + self.content_delta_secondary();
+        design::DIFF_PAD_TOP + design::DIFF_PAD_BOTTOM + line * (rows + 1.0)
+    }
+    /// The reference's `TerminalBlock` in a chat row (`TerminalBlock.tsx:216-266`): one prompt row
+    /// per command line led by the working directory's label, the status pill when the settle was
+    /// not clean, and the output rows with the head/tail fold at `terminal_card::MAX_ROWS`. The
+    /// run-state dot is the one part not drawn: the row above already carries the state, which is
+    /// the `runStateDot={false}` variant the primitive supports.
+    fn terminal_card(
+        &self,
+        card: &crate::reducer::terminal_card::Card,
+        key: u64,
+    ) -> Element<'static, Message> {
+        let expanded = self.diff_expanded.contains(&key);
+        let shown = card.shown(expanded);
+        let line = design::CODE_LINE + self.content_delta_secondary();
+        let mut header = row![].spacing(6).align_y(iced::Alignment::Center);
+        for (index, command) in card.command.iter().enumerate() {
+            let prompt = if index == 0 {
+                card.cwd.clone().unwrap_or_else(|| "$".into())
+            } else {
+                "$".into()
+            };
+            header = header
+                .push(label(prompt, MUTED).size(design::CODE_FONT).font(MONO))
+                .push(
+                    label(command.clone(), TEXT)
+                        .size(design::CODE_FONT)
+                        .font(MONO),
+                );
+        }
+        header = header.push(Space::new().width(Length::Fill));
+        if let Some(status) = &card.status {
+            header = header.push(
+                container(label(status.clone(), DANGER).size(11))
+                    .padding(iced::Padding {
+                        top: 1.0,
+                        right: 8.0,
+                        bottom: 1.0,
+                        left: 8.0,
+                    })
+                    .style(|_| iced::widget::container::Style {
+                        background: Some(design::SURFACE.into()),
+                        border: iced::Border {
+                            radius: 999.0.into(),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    }),
+            );
+        }
+        let mut body = Column::new().push(
+            container(header)
+                .height(line)
+                .width(Length::Fill)
+                .align_y(iced::Alignment::Center),
+        );
+        for text in shown.head {
+            body = body.push(
+                container(
+                    label(text.clone(), MUTED)
+                        .size(design::CODE_FONT)
+                        .font(MONO),
+                )
+                .height(line)
+                .width(Length::Fill)
+                .padding(iced::Padding {
+                    top: 0.0,
+                    right: 0.0,
+                    bottom: 0.0,
+                    left: design::DIFF_STAT_LEFT,
+                }),
+            );
+        }
+        if shown.hidden > 0 {
+            let copy = if expanded {
+                "Collapse".to_owned()
+            } else {
+                format!("… {} more lines", shown.hidden)
+            };
+            body = body.push(
+                button(label(copy, MUTED).size(design::CODE_FONT))
+                    .on_press(Message::ToggleDiff(key))
+                    .style(design::ghost)
+                    .padding(iced::Padding {
+                        top: 0.0,
+                        right: 0.0,
+                        bottom: 0.0,
+                        left: design::DIFF_LINE_PAD,
+                    })
+                    .height(line)
+                    .width(Length::Fill),
+            );
+        }
+        for text in shown.tail {
+            body = body.push(
+                container(
+                    label(text.clone(), MUTED)
+                        .size(design::CODE_FONT)
+                        .font(MONO),
+                )
+                .height(line)
+                .width(Length::Fill)
+                .padding(iced::Padding {
+                    top: 0.0,
+                    right: 0.0,
+                    bottom: 0.0,
+                    left: design::DIFF_STAT_LEFT,
+                }),
+            );
+        }
+        container(body)
+            .id("native-tool-terminal")
+            .width(Length::Fill)
+            .height(self.terminal_card_height(card, key))
             .padding(iced::Padding {
                 top: design::DIFF_PAD_TOP,
                 right: 0.0,
@@ -13437,10 +13581,18 @@ impl App {
                                 .and_then(|activity| activity.read)
                         })
                         .flatten();
-                    activity_column = activity_column.push(match (&read, &diff) {
-                        (Some(card), _) => self.read_card(card, record.key),
-                        (None, Some(diff)) => self.diff_card(diff, record.key),
-                        (None, None) => conversation_content::tool_body_view(
+                    let terminal = (record.role == "Tool call")
+                        .then(|| {
+                            self.transcript
+                                .activity(record.key, self.path_roots())
+                                .and_then(|activity| activity.terminal)
+                        })
+                        .flatten();
+                    activity_column = activity_column.push(match (&read, &terminal, &diff) {
+                        (Some(card), _, _) => self.read_card(card, record.key),
+                        (None, Some(card), _) => self.terminal_card(card, record.key),
+                        (None, None, Some(diff)) => self.diff_card(diff, record.key),
+                        (None, None, None) => conversation_content::tool_body_view(
                             activity_body,
                             conversation_content::tool_body_height(
                                 activity_body,

@@ -39,6 +39,8 @@ pub struct Summary {
     /// The line-numbered `read` card for a settled read call whose result carries the metadata
     /// the reference validates (`read-card-model.ts:104-137`). `None` keeps the text body.
     pub read: Option<crate::reducer::read_card::Card>,
+    /// The terminal card for a settled `bash`/`pwsh` call (`terminal-card-model.ts:283-341`).
+    pub terminal: Option<crate::reducer::terminal_card::Card>,
 }
 
 /// The diff card's rows are file content, so the debug form names the card and its row count
@@ -57,6 +59,22 @@ impl std::fmt::Debug for Summary {
                     .diff
                     .as_ref()
                     .map(|diff| format!("{} lines", diff.lines.len())),
+            )
+            // The cards are file content and command output, so the debug form names them and
+            // their row counts instead of printing them — the same rule as the diff.
+            .field(
+                "read",
+                &self
+                    .read
+                    .as_ref()
+                    .map(|card| format!("{} lines", card.lines.len())),
+            )
+            .field(
+                "terminal",
+                &self
+                    .terminal
+                    .as_ref()
+                    .map(|card| format!("{} lines", card.output.len())),
             )
             .finish()
     }
@@ -93,6 +111,8 @@ pub(super) fn summarize_paired<'a>(
                     &output,
                     roots,
                 );
+                summary.terminal =
+                    crate::reducer::terminal_card::derive(&event.data, &result.data, roots);
             }
             Some(summary)
         }
@@ -132,6 +152,7 @@ pub(super) fn summarize_paired<'a>(
                     edits: None,
                     diff: None,
                     read: None,
+                    terminal: None,
                 },
                 |call| text_summary_label(&call.data, true, failed, roots),
             ))
@@ -150,6 +171,7 @@ pub(super) fn summarize_paired<'a>(
             edits: None,
             diff: None,
             read: None,
+            terminal: None,
         }),
         "compaction/summary" => {
             let range = &event.data["shadowedRange"];
@@ -164,6 +186,7 @@ pub(super) fn summarize_paired<'a>(
                 edits: None,
                 diff: None,
                 read: None,
+                terminal: None,
             })
         }
         "compaction/end" => event.data["error"].as_str().map_or_else(
@@ -176,6 +199,7 @@ pub(super) fn summarize_paired<'a>(
                     edits: None,
                     diff: None,
                     read: None,
+                    terminal: None,
                 })
             },
         ),
@@ -236,6 +260,7 @@ fn loop_guard_summary(data: &Value) -> Summary {
             edits: None,
             diff: None,
             read: None,
+            terminal: None,
         },
         _ => Summary {
             title: "Loop guard · repeated identical call".into(),
@@ -244,6 +269,7 @@ fn loop_guard_summary(data: &Value) -> Summary {
             edits: None,
             diff: None,
             read: None,
+            terminal: None,
         },
     }
 }
@@ -259,6 +285,7 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
             edits: None,
             diff: None,
             read: None,
+            terminal: None,
         };
     }
     let verb = match name {
@@ -323,6 +350,7 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
         edits,
         diff,
         read: None,
+        terminal: None,
     }
 }
 
@@ -1279,5 +1307,49 @@ mod tests {
             )
             .is_none()
         );
+    }
+}
+
+#[cfg(test)]
+mod card_debug_tests {
+    //! A card's `Debug` is a label, never the content it carries: the summary may be logged.
+    use super::*;
+
+    #[test]
+    fn the_cards_are_named_by_their_row_count_only() {
+        let mut summary = Summary {
+            title: "Read · functions.read".into(),
+            target: Some("src/a.rs".into()),
+            failed: false,
+            edits: None,
+            diff: None,
+            read: Some(crate::reducer::read_card::Card {
+                label: "src/a.rs".into(),
+                lines: vec![crate::reducer::read_card::Line {
+                    number: 1,
+                    text: "PRIVATE-CONTENT".into(),
+                }],
+                total_lines: 1,
+                lang: None,
+                windowed: false,
+            }),
+            terminal: Some(crate::reducer::terminal_card::Card {
+                cwd: Some("app".into()),
+                command: vec!["PRIVATE-CONFIG-COMMAND".into()],
+                output: vec!["PRIVATE-OUTPUT".into()],
+                status: Some("exit code 1".into()),
+            }),
+        };
+        let debug = format!("{summary:?}");
+        assert!(!debug.contains("PRIVATE-"), "{debug}");
+        assert!(debug.contains("1 lines"), "{debug}");
+        // The card's own Debug is equally quiet.
+        assert!(
+            !format!("{:?}", summary.terminal.as_ref().unwrap()).contains("PRIVATE-"),
+            "{debug}"
+        );
+        summary.read = None;
+        summary.terminal = None;
+        assert!(format!("{summary:?}").contains("terminal: None"));
     }
 }

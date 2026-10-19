@@ -16,6 +16,10 @@ pub mod inline_diff;
 /// every example that embeds this module root then sees it.
 #[path = "read_card.rs"]
 pub mod read_card;
+/// The reference's terminal card for a `bash`/`pwsh` call, declared beside the other cards for the
+/// same reason.
+#[path = "terminal_card.rs"]
+pub mod terminal_card;
 pub use assistant_parts::AssistantParts;
 use assistant_parts::{Block, Kind};
 #[path = "chat_presentation.rs"]

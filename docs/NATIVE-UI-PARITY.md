@@ -372,16 +372,17 @@ the authoritative short form.
    its `tool/call` and draws one row per call, as the reference does; the result record remains a
    Trajectory-only row, so nothing is lost. See that round for the pairing rules and the rows that
    changed.
-8. **The expanded tool body's card family — two of the cards are now built.** The reference
+8. **The expanded tool body's card family — three of the cards are now built.** The reference
    picks a structured card per tool before any text card (`ToolRow.tsx:169-170`: ask-user,
    terminal, diff, read, image, search, web, details, then the IN/OUT text card) and draws it with
-   the shared primitive (`:258-341`). Native draws the **diff** card (round 362, arguments only) and
-   the **read** card (round 373: a typed, validated projection of the result's `meta` with the
-   reference's own rules, numbered rows, the head/tail fold at 8 rows and the "Showing N of M lines"
-   status). What remains of this family is `bash` output as recorded text rather than the
-   reference's `TerminalBlock`, the `str_replace_editor` shape, and the ask-user/image/search/web
-   cards. So the difference is now **text where the reference picks a structured card**, and it
-   covers the terminal, search and web families only.
+   the shared primitive (`:258-341`). Native draws the **diff** card (round 362, arguments only),
+   the **read** card (round 373: a typed, validated `meta` projection, numbered rows, the head/tail
+   fold at 8 rows and the "Showing N of M lines" status) and the **terminal** card (round 374: the
+   prompt label from the resolved workdir, the status pill parsed from the trailing
+   `[exit code: N]`/`[killed by signal: X]` marker, the output rows and the 16-row fold). What
+   remains of this family is the `str_replace_editor` shape and the ask-user/image/search/web
+   cards, so the difference is **text where the reference picks a structured card**, for those
+   families only.
 9. **Permission default row in Settings — landed.** The reference has *two* permission pickers;
    both are drawn here now (`settings.rs:1550-1580`, settings-general permission row,
    `shots/70-…`–`73-…`), and the record below is kept because it names the second surface and its
@@ -8608,4 +8609,54 @@ form proving line text never leaves the model — plus the fixture's card assert
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/172-tool-read-card.png`, `status: passed` |
 | app bin | — | **19** dead-code warnings (18 before; the read card adds one) |
+| tree | — | clean before the commit |
+
+### Round 374 — the terminal card: exit status as result data
+
+The second structured tool card. A shell call is the one tool family whose *failure* is not an error
+flag: the bash tool settles a failing command as a completed call, `isError` stays false, and the
+exit status arrives as a trailing `[exit code: N]` or `[killed by signal: X]` marker the shell
+renderer appends. The reference parses that marker into a status pill and draws the command as a
+terminal; native drew the whole thing as text.
+
+**The model** (`reducer/terminal_card.rs`) follows `terminal-card-model.ts:283-341`: the call must be
+`bash`/`pwsh` (alpha spellings included) with a non-empty `command`, a finite positive `timeoutMs` if
+present, string `workdir` and boolean `run_in_background`. A call with no `description` is the
+*persistent* shell provider, whose result has no single process status, and keeps the text body; so
+does a background call, an error result, or anything that fails a rule. The workdir resolves against
+the session workspace and collapses `.`/`..` segments, then labels as its last segment, `~` for home,
+or the path itself. Output loses its ANSI sequences (native has no styled-run renderer) and its
+status marker, and a command that printed nothing says `No output`.
+
+**The card** draws one prompt row per command line — the first led by the resolved directory label,
+later rows a bare `$`, which is the reference's own rule that the cwd labels the *call* — the status
+pill at the right, and the output rows with the primitive's 16-row head/tail fold (8 + 8) behind the
+same `… N more lines` control the other two cards use. The one part not drawn is the run-state dot:
+the row above already carries the state, which is the primitive's `runStateDot={false}` variant.
+
+Evidence: `shots/173-tool-terminal-card.png` (DP-2 alongside, `status: passed`) in the new
+`tool-activity-terminal` preset, whose bash result is recorded the way the reference records a failing
+command — `isError: false`, output, then `[exit code: 2]`. The card shows `workspace`, the command,
+`exit code 2`, and the two output lines; the error-marker count assertion records that this preset
+carries no error flag.
+
+Tests: eight in `terminal_card` — a clean settle with no pill, a failing command as a completed call,
+a signal taking precedence, empty and escape-only output, a multi-line command, the 8/8 cap on 20
+lines, the six refused cases, and the prompt label over home/relative/absolute workdirs — plus the
+preset's card assertions, and one that proves neither card prints its content through `Debug`.
+
+**Battery (round 374).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1305 passed**, 1 ignored |
+| app, default | **0** | **1298 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/173-tool-terminal-card.png`, `status: passed` |
+| app bin | — | **19** dead-code warnings (unchanged) |
 | tree | — | clean before the commit |
