@@ -214,9 +214,11 @@ clipboard, both blocked on Iced rather than on native code; agent-preset selecti
 
 The **scheduled-task** surface is mostly on the native side: the page, the history/edit/delete flow
 and the `schedule` turn-trigger title are built (`schedules_view`, `turn_trigger`'s
-`"schedule" => "Automation task"`). What is *not* built is a **form** that creates a schedule: the reference
-has none either — its creation path is the `schedule_create` tool, whose card now draws natively —
-and the page says the same thing. An earlier revision of this index called a "turn-tail schedule
+`"schedule" => "Automation task"`). A **form** that creates a schedule exists in neither client: both create through the
+`schedule_create` tool, whose card draws natively. The reference's page does offer a **New** action,
+which only starts a session and leaves the instruction to the model
+(`TaskManagerPage.tsx:120`, `ui-schedule/src/client/index.ts:175`); native now offers the same control
+(round 424). An earlier revision of this index called a "turn-tail schedule
 row" absent; re-reading `ui-chat`'s nodes, the only other scheduled surface is the **model-retry
 row**, which round 381 built (`shots/181-model-retry.png`).
 
@@ -6385,7 +6387,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the slash menu groups its two sources as the reference does (`Commands`, then `Skills`), states `Loading…` while the advertisement is in flight and shows a command's argument hint under the draft (the reference draws it inside the editor), but has no breadcrumbs or subagent source, files are chosen one at a time through a path field, no image thumbnails in the rail, and a send awaiting admission is stated by the composer's own banner (with Check, Review and Stop-original) rather than as a queue row;  steering the whole queue is a `Steer all` control on the strip (the reference triggers it from an empty draft); and these deliberate differences: the reference inverts its submission policy on Cmd/Ctrl+Enter (`view-binding.ts:120-130`), while native keeps Ctrl+Enter a plain send alias by the user's explicit confirmation (`docs/SESSION-PROMPT.md`); and native's goal bar states a running goal's controls where the reference adds `hint.goal`/`hint.goal.active` ghost copy beside the draft) |
 | Sidebar: sessions, search, pin/archive/trash, workspace filter, navigation sheet | cloned (time-grouped list, not the grouped browser) |
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
-| Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab). A read-only audit of this surface found work still open, recorded in round 417: rows now state their rule, `Enabled`/`Inactive`, and their next-run and delivery instants as local text with a relative next-run form; retention is one line instead of a disclosure; the page has status tabs (All/Enabled/Inactive), a search field, next-time ordering, the reference's empty-state variants and its retention disclosure, but no New action, no linked-session control, no deletion notice, no `schedule/changed` refresh and no retry for a failed history read |
+| Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab). A read-only audit of this surface found work still open, recorded in round 417: rows now state their rule, `Enabled`/`Inactive`, and their next-run and delivery instants as local text with a relative next-run form; retention is one line instead of a disclosure; the page has status tabs (All/Enabled/Inactive), a search field, next-time ordering, the reference's empty-state variants and its retention disclosure, and its `New` action, but no linked-session control, no deletion notice, no `schedule/changed` refresh and no retry for a failed history read |
 | Goals, plan mode, permissions, approvals/questions, jobs, subagents, session log | cloned |
 | Tool rows: one row per call with the folded result, relative path, `+N −N`, and the structured cards — diff, read, terminal, search, web, ask-user | cloned (no per-tool glyphs — the reference's SVGs have no DejaVu equivalent); each run of step activity sits under a process-group seat whose live label, running detail, folding and grouping follow the **Work details** preference — Compact / Standard / Detailed / Verbose, chosen in Settings → General and persisted locally) |
 | Reasoning disclosure wording | difference: native says `Thoughts` where the reference says `Thought for a while` (`message.turnProcess.thoughtForAWhile`), by the user's stated preference for the shorter label; a settled row still previews its first line under the `settledReasoningPreview` policy |
@@ -10569,5 +10571,40 @@ the control's evidence.
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/238-schedules-retention.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 424 — the schedules page offers New
+
+The schedules audit found the page's header carried only Refresh and Close, and noted that the parity
+doc's claim about creation was wrong: the reference's page *does* offer a **New** action
+(`TaskManagerPage.tsx:120`), and all it does is start a session (`ui-schedule/src/client/index.ts:175`)
+— the task itself still comes from the model's `schedule_create` tool. "Neither client has a create
+form" and "neither client offers a way to start one" are different statements, and the doc had blurred
+them.
+
+Native's header now offers `New`, the same primary control, dispatching the app's existing
+new-session action and disabled under the same condition the sidebar's button uses. The index entry
+that claimed the reference had no such control is corrected in the same commit.
+
+Evidence: `shots/239-schedules-new.png` (DP-2 alongside, `status: passed`) in the `schedules` preset —
+`New` beside Refresh and Close.
+
+Tests: the control reuses `Message::NewSession`, whose guards are already covered by the sidebar's
+tests; this round's own evidence is the frame and the corrected claim.
+
+**Battery (round 424).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1416 passed**, 1 ignored |
+| app, default | **0** | **1399 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/239-schedules-new.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |

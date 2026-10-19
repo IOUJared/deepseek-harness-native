@@ -15952,6 +15952,13 @@ impl App {
     fn schedules_view(&self) -> Element<'_, Message> {
         let header = row![
             label("Scheduled tasks", TEXT).size(22).width(Length::Fill),
+            // The reference's page offers New, which starts a session and leaves the task to the
+            // model's `schedule_create` tool — it never writes a schedule itself
+            // (`TaskManagerPage.tsx:120`, `ui-schedule/src/client/index.ts:175`).
+            button(label("New", TEXT).size(11))
+                .on_press_maybe(self.can_create().then_some(Message::NewSession))
+                .style(design::primary)
+                .padding([4, 10]),
             button(label("Refresh", MUTED).size(11))
                 .on_press(Message::RefreshSchedules)
                 .style(design::ghost)
