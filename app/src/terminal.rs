@@ -373,6 +373,10 @@ pub enum Action {
     EditInput { ticket: Ticket, text: String },
     /// Explicit consent to send the input line to the selected Host terminal.
     Write(Ticket),
+    /// One keystroke, sent as the bytes the key stands for. The reference pipes the terminal's own
+    /// key handler to the Host (`ui-sidebar-terminal/src/client/terminal.tsx:101`), so Enter, arrows,
+    /// Ctrl-C and Escape reach the shell instead of being typed into a line that never ends.
+    Key { ticket: Ticket, data: String },
     /// Enter the create review.
     ReviewCreate(Ticket),
     /// Leave the create review without writing.
@@ -783,6 +787,49 @@ impl Terminal {
                     editor: self.editor,
                 };
                 let data = self.input.clone();
+                self.write_pending = Some(receipt.clone());
+                self.notice = Notice::WritePending;
+                return Some(Effect::Write(WriteSubmission { receipt, data }));
+            }
+            Action::Key { ticket, data }
+                if self.current(&ticket, context)
+                    && self.environment.is_some()
+                    && self.write_pending.is_none()
+                    && self.create_pending.is_none()
+                    && self.close_pending.is_none()
+                    && !data.is_empty()
+                    && data.len() as u64 <= self.max_input_bytes =>
+            {
+                if self.control() == Control::Elsewhere {
+                    self.notice = Notice::ControlElsewhere;
+                    return None;
+                }
+                let (Some(id), Some(attachment)) = (self.selected.clone(), self.attachment.clone())
+                else {
+                    self.notice = if self.selected.is_some() {
+                        Notice::Detached
+                    } else {
+                        Notice::InputRefused
+                    };
+                    return None;
+                };
+                let attempt = match self.attempt.checked_add(1) {
+                    Some(value) => value,
+                    None => {
+                        self.exhausted();
+                        return None;
+                    }
+                };
+                self.attempt = attempt;
+                let receipt = WriteReceipt {
+                    ticket,
+                    id,
+                    attachment,
+                    attempt,
+                    editor: self.editor,
+                };
+                // A keystroke never edits the typed line: the bytes go straight to the Host, the way
+                // the reference's terminal has no line at all.
                 self.write_pending = Some(receipt.clone());
                 self.notice = Notice::WritePending;
                 return Some(Effect::Write(WriteSubmission { receipt, data }));
@@ -1919,6 +1966,51 @@ mod tests {
         );
         assert_ne!(terminal.notice(), &Notice::OutputGap);
         assert_eq!(terminal.output().text(), "PUBLIC resynchronisedPUBLIC next");
+    }
+
+    #[test]
+    fn a_key_sends_its_bytes_without_touching_the_typed_line() {
+        let mut terminal = opened();
+        let _follow = select(&mut terminal);
+        let t = ticket(&terminal);
+        let _ = terminal.apply(
+            Action::EditInput {
+                ticket: t.clone(),
+                text: "PUBLIC typed".into(),
+            },
+            &context(),
+        );
+        let Some(Effect::Write(submission)) = terminal.apply(
+            Action::Key {
+                ticket: t.clone(),
+                data: "\r".into(),
+            },
+            &context(),
+        ) else {
+            panic!("a keystroke is one write");
+        };
+        assert_eq!(submission.data, "\r");
+        // The field is untouched: the reference's terminal has no line for a key to land in.
+        assert_eq!(terminal.input(), "PUBLIC typed");
+        // An empty keystroke is not a write at all.
+        terminal.frame(
+            &_follow,
+            TerminalFrame::State {
+                info: info("PUBLIC-terminal-1"),
+            },
+        );
+        assert!(
+            terminal
+                .apply(
+                    Action::Key {
+                        ticket: t,
+                        data: String::new(),
+                    },
+                    &context()
+                )
+                .is_none(),
+            "an empty keystroke sends nothing"
+        );
     }
 
     #[test]

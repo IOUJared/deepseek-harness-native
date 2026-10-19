@@ -153,6 +153,9 @@ mod sidebar_ui;
 mod sidebar_ui_tests;
 #[path = "subagent_catalog.rs"]
 mod subagent_catalog;
+/// The bytes one keystroke stands for, for the terminal panel.
+#[path = "terminal_keys.rs"]
+pub mod terminal_keys;
 #[cfg(test)]
 #[path = "terminal_ui_tests.rs"]
 mod terminal_ui_tests;
@@ -7529,6 +7532,20 @@ impl App {
     /// falling back to the default it was moved away from.
     fn key_pressed(&mut self, key: keyboard::Key, modifiers: keyboard::Modifiers) -> Task<Message> {
         use crate::keybindings::Invoke;
+        // The terminal panel owns the keyboard while it is open: the reference pipes its terminal's
+        // key handler to the Host, so Enter, arrows, Escape and Ctrl combinations reach the shell
+        // instead of the composer (`ui-sidebar-terminal/src/client/terminal.tsx:101,138`). A key the
+        // mapping does not name falls through, so the panel's own Escape and shortcuts still work.
+        if self.terminal.is_open()
+            && self.settings.capture_for.is_none()
+            && let Some(data) = terminal_keys::bytes(&key, modifiers)
+            && let Some(ticket) = self.terminal.ticket()
+        {
+            return self.update(Message::Terminal(crate::terminal::Action::Key {
+                ticket,
+                data,
+            }));
+        }
         // The open date/clock popover owns arrows, Enter and Escape; it is modal over the page
         // but not over a shortcut capture, which still records the pressed key.
         if self.at_picker.is_some() && self.settings.capture_for.is_none() && modifiers.is_empty() {

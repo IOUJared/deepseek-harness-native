@@ -11893,3 +11893,50 @@ Tests: the same zero-command and metadata assertions cover this preset; the noti
 | DP-2 capture | — | `shots/265-terminal-readonly.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 460 — typing into the terminal reaches the shell
+
+The largest terminal gap: the reference pipes its terminal's key handler straight to the Host
+(`ui-sidebar-terminal/src/client/terminal.tsx:101,138`), so Enter, arrows, Escape and Ctrl combinations
+reach the shell. Native had a single-line field and a Write button, so a typed command arrived
+unterminated and Ctrl-C was impossible.
+
+Two pieces, both tested:
+
+1. `terminal_keys::bytes` maps a key press to the bytes it stands for — named keys to their escape
+   sequences, Ctrl+letter to its control byte, a printable character as itself, and **nothing** for a
+   key the table does not name.
+2. `Action::Key` sends those bytes through the same guarded write path the button uses: it refuses when
+   another attachment holds control, when the panel is detached, while any operation is outstanding, and
+   over the Host's byte bound. It never edits the typed line, because the reference's terminal has no
+   line for a key to land in.
+
+The panel owns the keyboard while open: `key_pressed` diverts a mapped key to the terminal and lets
+everything it does not name fall through, so Escape and the app's shortcuts still work.
+
+Tests: `terminal_keys` (named keys, Ctrl-C and Ctrl-D as control bytes, an unmapped key sending
+nothing) and `a_key_sends_its_bytes_without_touching_the_typed_line` (one write, the field untouched, an
+empty keystroke sending nothing).
+
+The test caught a real bug before the frame ever existed: the first Ctrl mapping formatted the control
+byte as a decimal string, which would have sent the literal characters "3" to the shell for Ctrl-C.
+
+**Recorded limit**: this is a key-to-bytes translation, not an emulator. The screen is still the
+sanitized text panel recorded in `FEATURE-PARITY.md:22`, so a full-screen TUI will not render — but its
+keys, including Ctrl-C, now reach the process.
+
+**Battery (round 460).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1446 passed**, 1 ignored |
+| app, default | **0** | **1421 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: key routing has no visual state of its own |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
