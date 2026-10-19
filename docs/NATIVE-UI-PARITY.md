@@ -3392,13 +3392,17 @@ Still deliberate, with reasons unchanged:
 
 1. the row's **state dot shape** for `running` uses `◐` where the reference animates a 14px
    spinner a static fixture cannot show;
-2. **Clear** is not rendered — what it clears is unread;
-3. **duration** is not rendered — the projection carries no timestamps;
-4. the output buffer is **not a code font** — this app has one UI font;
-5. the kill control's **visible glyph** is a plain `✕` — the reference names it through a label.
+2. the output buffer is **not a code font** — this app has one UI font;
+3. the kill control's **visible glyph** is a plain `✕` — the reference names it through a label;
+4. the duration cell carries **no tooltip** — `iced` has no tooltip widget, so "Running for …" /
+   "Took …" is not drawn.
 
-The feature is complete at every layer the reference defines, and the remaining differences are
-the five above rather than missing work.
+Cards 2 and 3 of the earlier list here (**Clear** and the **duration** cell) are built: rounds 448 and
+453 added them once the transport carried the instants and the semantics were read
+(`JobListAction.tsx:467-476,193-202`). The rest of the jobs surface — ordering, progress text, the
+finished fold, the trigger dot, the output `Copy`, the inline stream error, the panel's width and
+scroll cap, and opening a row only when it has output — landed in rounds 444-454, each with its own
+capture.
 
    **The rebinding settling step is half done, and the read corrected an assumption.** I had
    treated `ui-shortcuts/src/client/store.ts` as the binding store because the doc called it that.
@@ -11704,4 +11708,32 @@ guessing.
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/263-jobs-observable.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 455 — the jobs record stops contradicting the jobs code
+
+The jobs section of this index still said "the feature is complete at every layer the reference
+defines" above a list that included two items later rounds built (**Clear** and the **duration** cell)
+and a transport claim that is no longer true (the projection now carries the timestamps). A reader
+would have taken the list as current and the summary as a guarantee.
+
+The list now names only what is deliberate — the animated spinner standing behind a static `◐`, the
+single UI font, the plain `✕`, and the missing duration tooltip — and says which items were built and
+in which rounds, with the transport change named as the reason they could be.
+
+No code changed; this is the index being corrected to match the code, which is the same failure mode as
+the earlier stale "retention is one line" row and is why each round's notes end with a battery rather
+than a claim.
+
+**Battery (round 455).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | 1442 passed, 1 ignored (unchanged this round) |
+| app, default | **0** | 1417 passed, 1 ignored (unchanged) |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | 115 passed (unchanged) |
+| JS runtime | **0** | 419 pass, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| capture | — | none: documentation only |
 | tree | — | clean before the commit |
