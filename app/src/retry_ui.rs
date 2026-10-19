@@ -63,9 +63,22 @@ impl State {
             _ => "Waiting to retry model request",
         }
     }
+    /// Seconds left before the Host retries: the attempt's own delay minus the time recorded since
+    /// its `llm/retry` event. The reference counts down while an attempt is scheduled
+    /// (`TurnTriggerNodeView.tsx:66-71`); a started or cancelled attempt has no countdown.
+    pub fn remaining_seconds(&self, now_ms: i64, recorded_ms: i64) -> Option<u64> {
+        let current = self.current()?;
+        if self.phase() != Some(Phase::Scheduled) {
+            return None;
+        }
+        let elapsed = now_ms.saturating_sub(recorded_ms).max(0) as u64;
+        Some(current.delay_ms.saturating_sub(elapsed).div_ceil(1000))
+    }
     /// The reference's `{label} ({retry}/{maximum}) · {seconds}s`, with the `always` mode omitting
-    /// the ceiling and a started attempt omitting the countdown.
-    pub fn line(&self) -> String {
+    /// the ceiling and a started attempt omitting the countdown. `now_ms` drives the countdown; the
+    /// row's recorded time is passed in so a record read long after it ran still counts down from
+    /// where it stands.
+    pub fn line_at(&self, now_ms: i64, recorded_ms: i64) -> String {
         let Some(current) = self.current() else {
             return self.title().to_owned();
         };
@@ -73,17 +86,15 @@ impl State {
             Some(max) => format!("({}/{max})", current.retry),
             None => format!("({})", current.retry),
         };
-        match self.phase() {
-            Some(Phase::Started) | Some(Phase::Cancelled) => {
-                format!("{} {}", self.title(), position)
-            }
-            _ => format!(
-                "{} {} · {}s",
-                self.title(),
-                position,
-                current.delay_ms / 1000
-            ),
+        match self.remaining_seconds(now_ms, recorded_ms) {
+            Some(seconds) => format!("{} {} · {seconds}s", self.title(), position),
+            None => format!("{} {}", self.title(), position),
         }
+    }
+    /// The line as the record itself states it: no time has passed, so the countdown is the full
+    /// delay. Used where only the record is available (Trajectory text, tests).
+    pub fn line(&self) -> String {
+        self.line_at(0, 0)
     }
     /// The body: the recorded delay and the failure that caused the retry.
     pub fn detail(&self) -> Option<String> {
@@ -177,7 +188,8 @@ mod tests {
         let state = chain(vec![
             attempt(&data(7, "always", Value::Null, 1_500)).unwrap(),
         ]);
-        assert_eq!(state.line(), "Waiting to retry model request (7) · 1s");
+        // `retrySeconds` rounds 1500 ms up to two seconds.
+        assert_eq!(state.line(), "Waiting to retry model request (7) · 2s");
     }
 
     #[test]
@@ -221,5 +233,56 @@ mod tests {
         let mut without = data(1, "normal", json!(2), 0);
         without["failure"] = json!({});
         assert_eq!(attempt(&without).unwrap().failure, None);
+    }
+}
+
+#[cfg(test)]
+mod countdown_tests {
+    //! The countdown is arithmetic over the record's own clock, not a stored timer.
+    use super::*;
+    use serde_json::json;
+
+    fn state(delay: u64) -> State {
+        State {
+            attempts: vec![Attempt {
+                retry: 1,
+                max: Some(3),
+                delay_ms: delay,
+                failure: None,
+            }],
+            started: Vec::new(),
+            cancelled: false,
+        }
+    }
+
+    #[test]
+    fn the_countdown_falls_and_stops_at_zero() {
+        let chain = state(4_000);
+        assert_eq!(chain.remaining_seconds(1_000, 1_000), Some(4));
+        assert_eq!(
+            chain.line_at(2_000, 1_000),
+            "Waiting to retry model request (1/3) · 3s"
+        );
+        // The last partial second still reads one second: the reference ceils it.
+        assert_eq!(chain.remaining_seconds(4_500, 1_000), Some(1));
+        assert_eq!(chain.remaining_seconds(9_000, 1_000), Some(0));
+        // A record read before its own timestamp (clock skew) is not a negative countdown.
+        assert_eq!(chain.remaining_seconds(0, 1_000), Some(4));
+    }
+
+    #[test]
+    fn a_started_or_cancelled_chain_has_no_countdown() {
+        let mut started = state(4_000);
+        started.started.push(1);
+        assert_eq!(started.remaining_seconds(1_500, 1_000), None);
+        assert_eq!(started.line_at(1_500, 1_000), "Retried model request (1/3)");
+        let mut cancelled = state(4_000);
+        cancelled.cancelled = true;
+        assert_eq!(cancelled.remaining_seconds(1_500, 1_000), None);
+        // Parsed payloads behave the same as constructed ones.
+        let parsed = attempt(&json!({"retryId": "r", "provider": "p", "mode": "normal",
+            "policyKey": "k", "retry": 1, "maxRetries": 2, "delayMs": 2_000}))
+        .unwrap();
+        assert_eq!(parsed.delay_ms, 2_000);
     }
 }

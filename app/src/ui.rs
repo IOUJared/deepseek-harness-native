@@ -525,6 +525,8 @@ pub enum Message {
     },
     /// One second after [`Message::CopyCard`], so the button's `Copied` label reverts.
     CardCopyExpired(u64),
+    /// One second while a model-retry attempt is scheduled, so its countdown falls.
+    RetryTick,
     /// Clipboard text ready to insert into the focused tagged field.
     ClipboardPasteText(Option<String>),
     /// The focused tagged field and the text to insert into it.
@@ -1159,6 +1161,11 @@ pub struct App {
     /// The tool card whose copy button currently reads `Copied` (`use-copy-feedback.ts`: one
     /// second, then back to `Copy`).
     card_copied: Option<u64>,
+    /// When each model-retry row was first seen, in this machine's milliseconds. The reference
+    /// anchors a retry's countdown to its first render rather than to the Host's event clock
+    /// (`MessageItem.tsx:66-69`), and native keeps the same anchor so a replayed record counts
+    /// down from the delay it states instead of from a stale timestamp.
+    retry_anchored: std::collections::BTreeMap<u64, i64>,
     /// The inline goal editor: the exact revision and the draft objective.
     goal_edit: Option<(dsh_native_transport::dto::GoalRef, String)>,
     /// The goal revision whose clear waits for a second press.
@@ -1497,6 +1504,7 @@ impl App {
                 at_picker: None,
                 diff_expanded: std::collections::BTreeSet::new(),
                 card_copied: None,
+                retry_anchored: std::collections::BTreeMap::new(),
                 goal_activation: std::collections::BTreeMap::new(),
                 goal_activation_serial: 0,
                 goal_activation_read: None,
@@ -1634,7 +1642,15 @@ impl App {
         } else {
             Subscription::none()
         };
+        // A scheduled model retry states a countdown; one tick a second keeps it honest and costs
+        // nothing while no chain is waiting.
+        let retry_countdown = if self.retry_countdown_active() {
+            iced::time::every(Duration::from_secs(1)).map(|_| Message::RetryTick)
+        } else {
+            Subscription::none()
+        };
         Subscription::batch([
+            retry_countdown,
             Subscription::run_with(self.feed.clone(), worker::stream).map(Message::Worker),
             Subscription::run_with(
                 self.accessibility_source.clone(),
@@ -5015,6 +5031,9 @@ impl App {
             Message::CardCopyExpired(key) if self.card_copied == Some(key) => {
                 self.card_copied = None;
             }
+            // The countdown is derived from the clock at render time, so a tick changes no state;
+            // its only job is to make iced draw the next second.
+            Message::RetryTick => {}
             Message::EditReply { generation, key }
                 if self.edit_message_allowed(generation, key) =>
             {
@@ -6776,6 +6795,7 @@ impl App {
                 // Follow delivery dispatches nothing. The offer is read from
                 // the projection the frame carries, so no round trip is needed
                 // to know whether this Host mounts plan mode.
+                self.anchor_retries();
                 self.plan_published = Some(plan_mode::published(self.transcript.projections()));
                 self.request_changes();
                 self.refresh_feedback();
@@ -12578,6 +12598,39 @@ impl App {
                 .prepare(self.generation, key, parts.reasoning, parts.answer),
         )
     }
+    /// The retry row's anchor, for a test that must not wait a second.
+    #[cfg(all(test, feature = "public-layout-fixture"))]
+    pub(crate) fn retry_anchor_for(&self, key: u64) -> Option<i64> {
+        self.retry_anchored.get(&key).copied()
+    }
+    /// Whether a visible retry row is waiting out its delay, which is the only state a per-second
+    /// tick can change.
+    fn retry_countdown_active(&self) -> bool {
+        self.transcript.rows().iter().any(|row| {
+            row.chat
+                && row
+                    .retry
+                    .as_ref()
+                    .and_then(crate::reducer::retry_ui::State::phase)
+                    == Some(crate::reducer::retry_ui::Phase::Scheduled)
+        })
+    }
+    /// Record when each retry row was first seen, so its countdown has a local anchor, and forget
+    /// the anchors of rows the window no longer holds.
+    fn anchor_retries(&mut self) {
+        let now = now_millis() as i64;
+        let keys: Vec<u64> = self
+            .transcript
+            .rows()
+            .iter()
+            .filter(|row| row.retry.is_some())
+            .map(|row| row.key)
+            .collect();
+        self.retry_anchored.retain(|key, _| keys.contains(key));
+        for key in keys {
+            self.retry_anchored.entry(key).or_insert(now);
+        }
+    }
     /// The raw recorded text behind a tool card: the result body Chat folded onto the call, which
     /// is what the reference's copy control copies ("the raw output when absent",
     /// `TerminalBlock.tsx:196-202`). Never the card's chrome, and never the argument JSON.
@@ -14103,10 +14156,20 @@ impl App {
                 // The reference's model-retry row (`TurnTriggerNodeView.tsx:60-110`): one unboxed
                 // line stating the chain's latest attempt, with the recorded delay and failure
                 // beneath it. Not expandable: the reference draws the detail block always.
+                // The countdown is measured against this machine's clock and the record's own
+                // Host timestamp. The reference anchors it to its first render because a browser
+                // may sit on another machine; the native transport is local by construction, so
+                // the two clocks are the same one.
+                let now = now_millis() as i64;
+                let anchor = self
+                    .retry_anchored
+                    .get(&record.key)
+                    .copied()
+                    .unwrap_or(record.time);
                 let mut block = column![
                     row![
                         label("⟳", MUTED).size(12),
-                        label(retry.line(), MUTED).size(12),
+                        label(retry.line_at(now, anchor), MUTED).size(12),
                         Space::new().width(Length::Fill),
                     ]
                     .spacing(7)
@@ -22656,5 +22719,86 @@ mod card_copy_tests {
         assert_eq!(app.card_copied, Some(5));
         let _ = app.update(Message::CardCopyExpired(5));
         assert_eq!(app.card_copied, None);
+    }
+}
+
+#[cfg(all(test, feature = "public-layout-fixture"))]
+mod retry_countdown_ui_tests {
+    //! The countdown is anchored to this machine's first sight of the row, and ticks while the
+    //! attempt is scheduled.
+    use super::*;
+
+    fn retry_app() -> App {
+        let (app, commands) = super::layout_fixture::build(
+            super::layout_fixture::test_options(),
+            "model-retry",
+            iced::Size::new(1040.0, 760.0),
+            None,
+        );
+        drop(commands);
+        app
+    }
+
+    #[test]
+    fn the_row_is_anchored_once_and_keeps_its_anchor() {
+        let mut app = retry_app();
+        let key = app
+            .transcript
+            .rows()
+            .iter()
+            .find(|row| row.retry.is_some())
+            .map(|row| row.key)
+            .expect("the retry row");
+        let first = app
+            .retry_anchor_for(key)
+            .expect("anchored when the frame applied");
+        // A later frame re-anchors nothing: the countdown must not restart.
+        let _ = app.update(Message::RetryTick);
+        app.anchor_retries();
+        assert_eq!(app.retry_anchor_for(key), Some(first));
+        // The row states a countdown from its own delay, not from the 1971 fixture timestamp.
+        let state = app
+            .transcript
+            .rows()
+            .iter()
+            .find(|row| row.key == key)
+            .and_then(|row| row.retry.clone())
+            .unwrap();
+        assert_eq!(
+            state.line_at(first, first),
+            "Waiting to retry model request (2/3) · 4s"
+        );
+    }
+
+    #[test]
+    fn a_scheduled_chain_ticks_and_a_finished_one_does_not() {
+        let mut app = retry_app();
+        assert!(
+            app.retry_countdown_active(),
+            "a scheduled attempt needs the second tick"
+        );
+        // Once the attempt starts, the countdown is gone and the tick stops.
+        let key = app
+            .transcript
+            .rows()
+            .iter()
+            .find(|row| row.retry.is_some())
+            .map(|row| row.key)
+            .unwrap();
+        let mut state = app
+            .transcript
+            .rows()
+            .iter()
+            .find(|row| row.key == key)
+            .and_then(|row| row.retry.clone())
+            .unwrap();
+        if let Some(current) = state.current().map(|current| current.retry) {
+            state.started.push(current);
+        }
+        assert_eq!(
+            state.phase(),
+            Some(crate::reducer::retry_ui::Phase::Started)
+        );
+        assert_eq!(state.remaining_seconds(0, 0), None);
     }
 }

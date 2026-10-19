@@ -8977,3 +8977,38 @@ cancelling a scheduled attempt, and a payload the format rejects contributing no
 | DP-2 capture | — | `shots/181-model-retry.png`, `status: passed` |
 | app bin | — | **20** dead-code warnings (19 before; the retry module adds one) |
 | tree | — | clean before the commit |
+
+### Round 382 — the retry countdown is live
+
+Round 381's row stated the recorded delay as a constant, so a waiting attempt read "· 4s" forever.
+The reference counts down (`retrySeconds` = `max(1, ceil(ms/1000))`, re-read on a one-second
+timer), anchoring the deadline to its **first render** rather than to the Host's event clock,
+because a browser may sit on another machine with another clock (`MessageItem.tsx:41-69`).
+
+Native now does the same: the app anchors each retry row the first time a frame carries it
+(`retry_anchored`, in this machine's milliseconds), derives `remaining = delay − (now − anchor)`
+with the reference's ceiling and its never-below-one rule, and ticks once a second — but only while
+a visible row is *scheduled*, so a started or cancelled chain costs no timer. The fixture proves it
+on its own: `shots/182-model-retry-countdown.png` was grabbed about a second after the frame
+applied, and the row reads `· 3s` where round 381's showed `· 4s`.
+
+Tests: `countdown_tests` (the fall, the last-second clamp, a zero-or-negative elapsed, a
+started/cancelled chain having none, and the parsed-payload path) and `retry_countdown_ui_tests` (the
+anchor is taken once and survives later frames, the row states its own delay rather than the fixture's
+1971 timestamp, and the tick is active only while scheduled).
+
+**Battery (round 382).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1350 passed**, 1 ignored |
+| app, default | **0** | **1339 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/182-model-retry-countdown.png`, `status: passed` |
+| app bin | — | **20** dead-code warnings (unchanged) |
+| tree | — | clean before the commit |
