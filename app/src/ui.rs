@@ -4310,7 +4310,8 @@ impl App {
                         return Task::none();
                     }
                 };
-                self.close_schedule_editor();
+                // The editor stays open until the Host commits: the reference keeps the draft on a
+                // refusal or conflict so the user can retry without retyping (`TaskDetail.tsx:665-675`).
                 self.schedules_error = None;
                 self.command(worker::Command::ScheduleUpdate {
                     session: edit.session,
@@ -5953,6 +5954,8 @@ impl App {
                             .insert("prompt".into(), serde_json::json!(prompt));
                     }
                     self.schedules_error = None;
+                    // The Host committed the edit, so the editor's own state is spent.
+                    self.close_schedule_editor();
                     // Bounded and reloaded from the same read the page already uses, so the row's
                     // kind/timing/status can never rest on an edit reply that does not carry them.
                     self.schedules_loading = true;
@@ -5964,7 +5967,10 @@ impl App {
                         Some("This task has ended and can no longer be changed.".into());
                 }
                 Ok(dsh_native_transport::dto::ScheduleUpdateOutcome::Missing) => {
-                    self.schedules_error = Some("That task changed or is gone; refreshing.".into());
+                    self.schedules_error = Some(
+                        "This task changed before the update was saved. The row shows the saved rule; try again."
+                            .into(),
+                    );
                     self.schedules_loading = true;
                     self.command(worker::Command::ScheduleCatalog);
                 }
@@ -21278,7 +21284,25 @@ mod tests {
             }
         }
         assert_eq!(updates, 1);
-        assert!(app.schedule_edit.is_none());
+        // The draft stays open until the Host commits it: a refusal must not cost the user their
+        // typing, which is what the reference's retained editor guarantees.
+        assert!(app.schedule_edit.is_some());
+        let _ = app.update(Message::Worker(Event::ScheduleUpdated {
+            session: session.clone(),
+            id: "PUBLIC-schedule".into(),
+            result: Ok(ScheduleUpdateOutcome::Missing),
+        }));
+        assert!(
+            app.schedule_edit.is_some(),
+            "a conflict keeps the draft and the row's saved rule"
+        );
+        assert!(
+            app.schedules_error
+                .as_deref()
+                .is_some_and(|error| error.contains("changed before the update was saved")),
+            "the conflict states what happened: {:?}",
+            app.schedules_error
+        );
         let _ = app.update(Message::Worker(Event::ScheduleUpdated {
             session,
             id: "PUBLIC-schedule".into(),
@@ -21287,6 +21311,10 @@ mod tests {
                 prompt: "PUBLIC instruction".into(),
             }),
         }));
+        assert!(
+            app.schedule_edit.is_none(),
+            "a committed edit closes the editor"
+        );
         assert_eq!(app.schedules[0].title, "PUBLIC renamed");
     }
     /// Every session's edge is kept, not only the selected one's: a goal disarmed while

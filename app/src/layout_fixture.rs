@@ -117,6 +117,7 @@ pub const PRESETS: &[&str] = &[
     "work-panel",
     "schedules",
     "schedules-delete",
+    "schedules-conflict",
     "mcp",
     "changes-card",
     "feedback",
@@ -323,6 +324,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "work-panel"
         | "schedules"
         | "schedules-delete"
+        | "schedules-conflict"
         | "mcp"
         | "changes-card"
         | "feedback"
@@ -1653,6 +1655,7 @@ pub fn build(
             | "work-panel"
             | "schedules"
             | "schedules-delete"
+            | "schedules-conflict"
             | "subagent-catalog"
             | "subagent-readonly"
             | "subagent-sibling"
@@ -1917,7 +1920,7 @@ pub fn build(
             },
         );
     }
-    if preset == "schedules" || preset == "schedules-delete" {
+    if preset.starts_with("schedules") {
         app.schedules_open = true;
         app.schedules_loading = false;
         app.schedules = vec![
@@ -1962,6 +1965,22 @@ pub fn build(
                 .expect("a schedule row");
             app.schedule_delete = Some(item);
         }
+    }
+
+    if preset == "schedules-conflict" {
+        // A refused save keeps the draft and states what happened, as the reference's retained
+        // editor does (`TaskDetail.tsx:665-675`).
+        let item = app
+            .schedules
+            .first()
+            .map(|item| (item.session_id.clone(), item.id.clone()))
+            .expect("a schedule row");
+        let _ = app.update(Message::ScheduleEdit(item.0, item.1));
+        app.schedules_error = Some(
+            "This task changed before the update was saved. The row shows the saved rule; try again."
+                .into(),
+        );
+        assert!(app.schedule_edit.is_some(), "the draft is retained");
     }
     if preset == "chat-thoughts" {
         let ticket = app.reply_parts(1).unwrap().ticket.unwrap();

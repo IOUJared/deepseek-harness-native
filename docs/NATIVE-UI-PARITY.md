@@ -6385,7 +6385,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the slash menu groups its two sources as the reference does (`Commands`, then `Skills`), states `Loading…` while the advertisement is in flight and shows a command's argument hint under the draft (the reference draws it inside the editor), but has no breadcrumbs or subagent source, files are chosen one at a time through a path field, no image thumbnails in the rail, and a send awaiting admission is stated by the composer's own banner (with Check, Review and Stop-original) rather than as a queue row;  steering the whole queue is a `Steer all` control on the strip (the reference triggers it from an empty draft); and these deliberate differences: the reference inverts its submission policy on Cmd/Ctrl+Enter (`view-binding.ts:120-130`), while native keeps Ctrl+Enter a plain send alias by the user's explicit confirmation (`docs/SESSION-PROMPT.md`); and native's goal bar states a running goal's controls where the reference adds `hint.goal`/`hint.goal.active` ghost copy beside the draft) |
 | Sidebar: sessions, search, pin/archive/trash, workspace filter, navigation sheet | cloned (time-grouped list, not the grouped browser) |
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
-| Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab). A read-only audit of this surface found work still open, recorded in round 417: rows now state their rule and `Enabled`/`Inactive` but their next-run and delivery instants are still raw ISO; a refused save closes the editor instead of keeping the draft; a saved prompt is truncated with no expand; retention is one line instead of a disclosure; the page has no search, no All/Enabled/Inactive filter, no New action, no next-time ordering, no empty-state variants, no linked-session control, no deletion notice, no `schedule/changed` refresh and no retry for a failed history read |
+| Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab). A read-only audit of this surface found work still open, recorded in round 417: rows now state their rule and `Enabled`/`Inactive` but their next-run and delivery instants are still raw ISO; a saved prompt is truncated with no expand; retention is one line instead of a disclosure; the page has no search, no All/Enabled/Inactive filter, no New action, no next-time ordering, no empty-state variants, no linked-session control, no deletion notice, no `schedule/changed` refresh and no retry for a failed history read |
 | Goals, plan mode, permissions, approvals/questions, jobs, subagents, session log | cloned |
 | Tool rows: one row per call with the folded result, relative path, `+N −N`, and the structured cards — diff, read, terminal, search, web, ask-user | cloned (no per-tool glyphs — the reference's SVGs have no DejaVu equivalent); each run of step activity sits under a process-group seat whose live label, running detail, folding and grouping follow the **Work details** preference — Compact / Standard / Detailed / Verbose, chosen in Settings → General and persisted locally) |
 | Reasoning disclosure wording | difference: native says `Thoughts` where the reference says `Thought for a while` (`message.turnProcess.thoughtForAWhile`), by the user's stated preference for the shorter label; a settled row still previews its first line under the `settledReasoningPreview` policy |
@@ -10396,5 +10396,40 @@ gap); the confirmation is presentation, so the frame is its evidence.
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/233-schedule-delete.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 419 — a refused schedule edit keeps the draft
+
+The schedules audit's third finding was a data-loss bug: native closed the schedule editor the moment
+Save was pressed, so a conflict, a refusal or a transport error destroyed whatever the user had typed.
+The reference keeps the editor open, sets the failure beside the rule and tells the user to retry
+(`TaskDetail.tsx:665-675`, `rule.error.unknown`: "This task changed before the update was saved. The
+row shows the saved rule; try again.").
+
+`ScheduleEditSave` no longer closes the editor; only a committed `Updated` reply closes it. A conflict
+now also uses the reference's sentence instead of "That task changed or is gone; refreshing." — the
+cached row already shows the saved rule, so no refresh is implied.
+
+Evidence: `shots/234-schedule-conflict.png` (DP-2 alongside, `status: passed`) in the new
+`schedules-conflict` preset — the editor still holding its title, instruction and timing, with the
+conflict stated above it.
+
+Tests: the schedule edit test now asserts the draft survives a `Missing` outcome with the conflict
+sentence, and that a later `Updated` reply closes it and adopts the committed title.
+
+**Battery (round 419).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1411 passed**, 1 ignored |
+| app, default | **0** | **1394 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/234-schedule-conflict.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
