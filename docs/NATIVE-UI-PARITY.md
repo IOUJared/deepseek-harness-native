@@ -13514,15 +13514,16 @@ before any 1-to-1 claim.
 
 | gate | status | result |
 | --- | --- | --- |
-| app, fixture | **0** | **1484 passed**, 1 ignored; 2 failed on a missing `ws` node module (below) |
-| app, default | **0** | **1445 passed**, 1 ignored; the same 2 |
+| app, fixture | **0** | **1486 passed**, 1 ignored (re-run on the merged tree) |
+| app, default | **0** | **1447 passed**, 1 ignored (re-run on the merged tree) |
 | format debt | **0** | 0 files, 0 hunks (`cargo fmt --check`) |
 | transport / core / JS | — | **not run**: no crate outside `app` changed |
-| clippy | — | **not run** in the isolated worktree |
+| clippy suite | **0** | app (all targets/features), core and transport passed |
 | DP-2 capture | — | `shots/296-bubble-line.png`, `status: passed` |
 
-The two failures are `worker::decision_worker::tests::actual_carrier_*`: each spawns
-`transport/tests/node_host_fixture.mjs`, which imports `ws`, and no `ws` install exists in this
-checkout — the child dies with `Cannot find module 'ws'` before the app is involved. They are
-environment, not regression: the same fixture fails when run by hand, and neither test path touches
-`chat_geometry`, `design` or the message rows.
+**A worktree artifact, corrected after the merge.** In the isolated worktree two
+`worker::decision_worker::tests::actual_carrier_*` tests failed with `Cannot find module 'ws'`. The
+module is not missing — it is an untracked `transport/tests/node_modules/ws` inside the main
+checkout, which a worktree checkout does not carry; the merged tree passes all 1486. The first
+battery recorded above was therefore the worktree's, not the merge's, and both rows are now the
+merged numbers.
