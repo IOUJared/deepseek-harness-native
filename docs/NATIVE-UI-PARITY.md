@@ -11737,3 +11737,55 @@ than a claim.
 | format debt | **0** | 0 files, 0 hunks |
 | capture | — | none: documentation only |
 | tree | — | clean before the commit |
+
+### Round 456 — a skipped terminal frame is reported
+
+A terminal audit (17 reference elements checked in depth) found native folding every output frame into
+the buffer without looking at its sequence. The reference compares each frame with the one before it
+and refuses the screen when a frame is missing — "The terminal screen could not be received. Reconnect
+to recover it." (`ui-sidebar-terminal/src/client/model.ts:294`, `locales.ts:42`) — because a silently
+short screen reads as the shell's own output.
+
+The panel now tracks the last sequence: a gap raises `Notice::OutputGap` with that sentence, the
+untrustworthy tail is not merged, and a snapshot re-establishes the base and clears the notice, which is
+the recovery the message asks for.
+
+Tests: `a_missing_output_frame_is_reported_rather_than_swallowed` — two frames in order leave the notice
+clean, a jump reports the gap and drops the tail, and a snapshot followed by the next frame continues
+cleanly.
+
+**Battery (round 456).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1443 passed**, 1 ignored |
+| app, default | **0** | **1418 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: a state notice, proved by its test |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Terminal audit (round 456) — what is left
+
+Recorded for the next rounds, same taxonomy. (b) different, (c) absent.
+
+1. (b) **Input is a line plus Write, not a keystroke stream.** The reference pipes `xterm.onData` to the
+   Host, so Enter, arrows, Ctrl-C and Esc reach the shell; native writes the field verbatim with no
+   terminator, so a typed command cannot run (`terminal.tsx:101,138` vs `ui.rs:17214,17228`,
+   `terminal.rs:779-780`). This is the largest remaining terminal gap.
+2. (b) **Taking input control is a button in the reference** ("Take control", `locales.ts:35`), a
+   re-selection in native (`ui.rs:17348-17351`).
+3. (b) The limit copy drops a fact the reference states: "Exited terminals also count toward the limit."
+   (`locales.ts:43`).
+4. (b) The shell choice is a discovery menu with loading/error/retry and a remembered preference in the
+   reference (`TerminalGuide.tsx:53-64`, `shell-preference.ts:2`); native draws chips, forgets the choice
+   each open (`terminal.rs:671`) and cannot report a discovery failure.
+5. (c) The terminal **screen** itself (an xterm emulator) and **fit-to-pane resize** stay absent — both
+   already recorded in `FEATURE-PARITY.md:22` and `NATIVE-TERMINAL.md:19-21`.
+6. (c) **Rename** and a **docked multi-terminal sidebar tab** remain unbuilt, both recorded in
+   `NATIVE-TERMINAL.md:19` and `NATIVE-UI-PARITY.md:62-66`.

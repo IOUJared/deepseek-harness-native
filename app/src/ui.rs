@@ -17260,6 +17260,12 @@ impl App {
                 MUTED,
             )
             .size(11),
+            Notice::OutputGap => label(
+                // The reference's own sentence for a screen it could not receive
+                // (`ui-sidebar-terminal/src/client/locales.ts:42`).
+                "The terminal screen could not be received. Reconnect to recover it.",
+                DANGER,
+            ),
             Notice::Detached => label(
                 "The Host attachment ended. Select the terminal again before writing; nothing was written.",
                 DANGER,

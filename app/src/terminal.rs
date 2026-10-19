@@ -203,6 +203,9 @@ pub enum Notice {
     FollowPending,
     /// Another attachment holds input control; input here is refused until the panel reattaches.
     ControlElsewhere,
+    /// The output stream skipped a frame, so the screen no longer matches the Host's
+    /// (`ui-sidebar-terminal/src/client/model.ts:294`, `locales.ts:42`).
+    OutputGap,
     CreateReview,
     Creating,
     CreateFailed,
@@ -404,6 +407,9 @@ pub struct Terminal {
     selected: Option<WebTerminalId>,
     attachment: Option<TerminalAttachmentId>,
     follow: Option<FollowTicket>,
+    /// The last output frame's sequence, so a skipped one is noticed instead of shortening the
+    /// screen (`ui-sidebar-terminal/src/client/model.ts:294`).
+    last_sequence: Option<i64>,
     output: Output,
     input: String,
     editor: u64,
@@ -432,6 +438,7 @@ impl Default for Terminal {
             selected: None,
             attachment: None,
             follow: None,
+            last_sequence: None,
             output: Output::default(),
             input: String::new(),
             editor: 0,
@@ -972,17 +979,40 @@ impl Terminal {
             return;
         }
         match frame {
-            TerminalFrame::Snapshot { screen, info, .. } => {
+            TerminalFrame::Snapshot {
+                sequence,
+                screen,
+                info,
+            } => {
                 // A malformed metadata frame is dropped, never merged into the list.
                 if dsh_native_transport::terminal::validate_info(&info).is_err() {
                     return;
                 }
                 self.output.clear();
                 self.output.push(&screen);
+                self.last_sequence = Some(sequence);
+                // A snapshot is the recovery a gap asks for, so it clears that notice.
+                if matches!(self.notice, Notice::OutputGap) {
+                    self.notice = Notice::None;
+                }
                 self.upsert(info);
                 self.control_notice();
             }
-            TerminalFrame::Output { data, .. } => self.output.push(&data),
+            TerminalFrame::Output { sequence, data } => {
+                // The reference compares every frame's sequence with the one before it and refuses
+                // the screen when a frame is missing (`model.ts:294`): a silently short buffer would
+                // read as the shell's own output. A snapshot re-establishes the base, so only the
+                // incremental stream is checked.
+                match self.last_sequence {
+                    Some(previous) if sequence > previous + 1 => {
+                        self.notice = Notice::OutputGap;
+                        return;
+                    }
+                    _ => {}
+                }
+                self.last_sequence = Some(sequence);
+                self.output.push(&data)
+            }
             TerminalFrame::State { info } => {
                 if dsh_native_transport::terminal::validate_info(&info).is_ok() {
                     self.upsert(info);
@@ -1839,6 +1869,55 @@ mod tests {
                 .is_none()
         );
         assert!(!terminal.review_create());
+    }
+
+    #[test]
+    fn a_missing_output_frame_is_reported_rather_than_swallowed() {
+        let mut terminal = opened();
+        let follow = select(&mut terminal);
+        for (sequence, data) in [(1, "PUBLIC first"), (2, "PUBLIC second")] {
+            terminal.frame(
+                &follow,
+                TerminalFrame::Output {
+                    sequence,
+                    data: data.into(),
+                },
+            );
+        }
+        assert_eq!(terminal.output().text(), "PUBLIC firstPUBLIC second");
+        // Frame 3 never arrived: the screen can no longer be trusted to match the Host.
+        terminal.frame(
+            &follow,
+            TerminalFrame::Output {
+                sequence: 4,
+                data: "PUBLIC after the gap".into(),
+            },
+        );
+        assert_eq!(terminal.notice(), &Notice::OutputGap);
+        assert!(
+            !terminal.output().text().contains("after the gap"),
+            "the untrustworthy tail is not merged into the screen"
+        );
+        // A snapshot re-establishes the base, so the stream continues cleanly from it.
+        terminal.frame(
+            &follow,
+            TerminalFrame::Snapshot {
+                sequence: 9,
+                screen: "PUBLIC resynchronised".into(),
+                info: info("PUBLIC-terminal-1"),
+            },
+        );
+        assert_eq!(terminal.output().text(), "PUBLIC resynchronised");
+        assert_ne!(terminal.notice(), &Notice::OutputGap);
+        terminal.frame(
+            &follow,
+            TerminalFrame::Output {
+                sequence: 10,
+                data: "PUBLIC next".into(),
+            },
+        );
+        assert_ne!(terminal.notice(), &Notice::OutputGap);
+        assert_eq!(terminal.output().text(), "PUBLIC resynchronisedPUBLIC next");
     }
 
     #[test]
