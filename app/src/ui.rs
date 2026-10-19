@@ -15076,12 +15076,18 @@ impl App {
                     key: seat.key,
                 })
                 .style(design::ghost)
-                .padding([2, 0])
+                // The reference's `.title` pads nothing; the 24px root height and the
+                // centred 16px leading box are its whole vertical box
+                // (`ChatGroupSeat.module.css:1-20`). Native added 6px around the
+                // button, which made the drawn header taller than the line the row
+                // reserved for it.
+                .padding([0, 0])
                 .width(Length::Fill),
         )
         // `ChatGroupSeat`'s root, title and content carry no horizontal padding
         // (`ChatGroupSeat.module.css:1-20,110-116`), so the seat starts at the column's edge.
-        .padding([6, 0])
+        .align_y(iced::Alignment::Center)
+        .height(chat_geometry::seat_height(self.content_delta()))
         .width(Length::Fill)
         .into()
     }
@@ -15109,14 +15115,26 @@ impl App {
                     .values()
                     .any(|seat| !seat.open && seat.members.contains(&index))
                 {
+                    // A folded group draws one 24px seat line at its first member's
+                    // place, and nothing at all for the members behind it. Reserving that
+                    // line, with the flow margin it takes, is what keeps a folded group
+                    // from shifting the rows below it by the seat's own height.
+                    let height = if seats.contains_key(&index) {
+                        flow_gap_before(rows, index)
+                            + chat_geometry::seat_height(self.content_delta())
+                    } else {
+                        0.0
+                    };
                     return chat_geometry::Geometry {
                         width: geometry.width,
                         body_height: 0.0,
-                        height: 0.0,
+                        height,
                     };
                 }
                 if seats.contains_key(&index) {
-                    geometry.height += design::LINE_BODY + self.content_delta();
+                    // The seat is drawn inside this row's box, so the row reserves the
+                    // header line it actually draws (`chat_geometry::seat_height`).
+                    geometry.height += chat_geometry::seat_height(self.content_delta());
                 }
                 // A row's height arrives carrying its own 12px of symmetric
                 // outer padding (`chat_geometry::ROW_CHROME`); the web instead
@@ -16124,15 +16142,24 @@ impl App {
         let seats = self.process_seats(&rendered);
         for index in range.clone() {
             let record = rendered[index];
-            // The seat draws even when its group is closed: it is the only visible part of a
-            // settled group.
-            if let Some(seat) = seats.get(&index) {
-                contents = contents.push(self.process_seat(seat));
-            }
+            // A closed group draws only its seat, at its first member's place; every
+            // other member draws nothing and reserves nothing.
             if seats
                 .values()
                 .any(|seat| !seat.open && seat.members.contains(&index))
             {
+                // The folded seat keeps the same box the open row would draw: the flow
+                // margin above it and its own 24px line, so the projection and the drawn
+                // Column agree row for row.
+                if let Some(seat) = seats.get(&index) {
+                    contents = contents.push(
+                        container(self.process_seat(seat))
+                            .padding([flow_gap_before(&rendered, index), 0.0])
+                            .height(geometries[index].height)
+                            .width(Length::Fill)
+                            .clip(true),
+                    );
+                }
                 continue;
             }
             let human = record.role == "You";
@@ -16964,12 +16991,24 @@ impl App {
             // diagnostics remain retained for the Session records disclosure.
             // The leading gap is the web's flow margin, drawn as this row's top
             // padding and reserved by `row_geometries` through the same helper.
-            let outer = container(bubble)
-                .align_x(if human {
-                    iced::alignment::Horizontal::Right
-                } else {
-                    iced::alignment::Horizontal::Left
-                })
+            let align = if human {
+                iced::alignment::Horizontal::Right
+            } else {
+                iced::alignment::Horizontal::Left
+            };
+            // A group's seat belongs to its first member's box: the reference's seat root
+            // holds the header and the member rows together (`ChatGroupSeat.tsx:173-186`).
+            // Drawn as a sibling instead, the header's reserved line stayed behind in this
+            // row as an empty 24px band under the first tool line (round 511).
+            let body: Element<'_, Message> = match seats.get(&index) {
+                Some(seat) => column![self.process_seat(seat), bubble]
+                    .align_x(align)
+                    .width(Length::Fill)
+                    .into(),
+                None => bubble.into(),
+            };
+            let outer = container(body)
+                .align_x(align)
                 // No horizontal inset: the reference's rows span the message column exactly, and
                 // the column already carries the scroller's 32px side inset.
                 .padding([flow_gap_before(&rendered, index), 0.0])
@@ -22556,6 +22595,65 @@ mod tests {
         assert_eq!(count(&app), 0, "Detailed groups only historical turns");
         app.work_details = work_details::Mode::Compact;
         assert_eq!(count(&app), 1, "Compact groups every turn");
+    }
+
+    #[cfg(feature = "public-layout-fixture")]
+    #[test]
+    fn a_group_seat_sits_inside_its_first_row_and_reserves_only_its_own_line() {
+        use layout_fixture;
+        let size = iced::Size::new(1040.0, 760.0);
+        let (app, _receiver) =
+            layout_fixture::build(layout_fixture::test_options(), "tool-activity", size, None);
+        let rows: Vec<&DisplayRow> = app.transcript.display_rows(false).collect();
+        let refs = rows.clone();
+        let seats = app.process_seats(&refs);
+        let (&index, seat) = seats.iter().next().expect("the live group has a seat");
+        assert!(seat.open, "the fixture's live group shows its members");
+        let delta = app.content_delta();
+        // One value for the line the seat draws and the line its row reserves
+        // (`ChatGroupSeat.module.css:5-9`), so the header cannot be taller than the space
+        // left for it — the split that left a 24px blank band under the first tool line.
+        assert_eq!(chat_geometry::seat_height(delta), design::LINE_BODY + delta);
+        let geometries = app.row_geometries(&refs);
+        // The first member's box is the flow margin, the seat's line and its own line;
+        // a later member is only its own line under the ladder's gap.
+        assert_eq!(
+            geometries[index].height,
+            flow_gap_before(&refs, index)
+                + chat_geometry::seat_height(delta)
+                + geometries[index].body_height
+        );
+        let second = index + 1;
+        assert_eq!(
+            geometries[second].height,
+            flow_gap_before(&refs, second) + geometries[second].body_height
+        );
+    }
+
+    #[cfg(feature = "public-layout-fixture")]
+    #[test]
+    fn a_folded_group_reserves_the_seat_line_and_nothing_of_its_members() {
+        use layout_fixture;
+        let size = iced::Size::new(1040.0, 760.0);
+        let (mut app, _receiver) =
+            layout_fixture::build(layout_fixture::test_options(), "tool-activity", size, None);
+        let rows: Vec<&DisplayRow> = app.transcript.display_rows(false).collect();
+        let refs = rows.clone();
+        let seats = app.process_seats(&refs);
+        let (&index, seat) = seats.iter().next().expect("the live group has a seat");
+        let key = seat.key;
+        let members = seat.members.clone();
+        app.process_group_open.insert(key, false);
+        let geometries = app.row_geometries(&refs);
+        // The folded group still draws its seat at the first member's place, so that row
+        // reserves the seat's line and the flow margin above it.
+        assert_eq!(
+            geometries[index].height,
+            flow_gap_before(&refs, index) + chat_geometry::seat_height(app.content_delta())
+        );
+        for member in members.into_iter().filter(|member| *member != index) {
+            assert_eq!(geometries[member].height, 0.0, "member {member}");
+        }
     }
 
     #[test]

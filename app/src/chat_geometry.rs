@@ -73,6 +73,15 @@ pub(crate) fn tool_line_height(delta: f32) -> f32 {
     TOOL_LINE_HEIGHT + delta
 }
 pub(crate) const ROW_CHROME: f32 = 12.0;
+/// The line a process group's seat header draws above its first member. The reference
+/// gives the collapsed group that height exactly (`ChatGroupSeat.module.css:5-9`:
+/// `.root:not([data-expanded]) { height: calc(24px + var(--dsh-content-font-delta)) }`),
+/// and the seat is drawn inside the first member's row box, so this is also what that
+/// row reserves for it. When the two were separate values the reservation stayed in
+/// the row as an empty band under the first tool line — the 24px gap round 511 removed.
+pub(crate) fn seat_height(delta: f32) -> f32 {
+    crate::design::LINE_BODY + delta
+}
 /// Whole lines a collapsed reply previews; the body cap is this many line boxes.
 const PREVIEW_LINES: f32 = 4.0;
 /// The vertical gap the expanded tool body sits below its compact line. The view

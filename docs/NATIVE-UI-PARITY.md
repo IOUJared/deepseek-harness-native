@@ -14004,10 +14004,12 @@ row keeps `bare + 12` because its bare height never counted chrome.
 
 **Still different, and named.** The reference's `.column` flow gap has one more rung — a
 turn-process header takes 16px — and native's seat title reserves its 24px inside the row
-instead; the fixture's own group composition (two seats for three calls) puts 54px between
-the Read and Edit lines where the reference's flat run is uniformly 30. The formatted-reply
-path keeps its own body box, unchanged here. A true pixel diff still needs a matching-state
-preset (the reference frame is a crop of a scrolled conversation).
+instead. The fixture's 54px between the Read and Edit lines was **not** a group-composition
+difference, as this round first guessed: round 511's diagnostic found one seat with three
+members and traced the extra 24px to the seat being drawn outside the row that reserved it;
+it now measures 30, the reference's own pitch. The formatted-reply path keeps its own body
+box, unchanged here. A true pixel diff still needs a matching-state preset (the reference
+frame is a crop of a scrolled conversation).
 
 **Battery (round 510).**
 
@@ -14021,3 +14023,72 @@ preset (the reference frame is a crop of a scrolled conversation).
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 capture | — | `shots/301-row-rhythm.png` + `-dp2.png` + `.json`, `status: passed`, 1980×1319 |
 | app bin | — | **21** warnings (the check reports 21 plus its own summary line) |
+
+### Round 511 — a group seat belongs to its first row
+
+**The gap, and how it was proved.** Round 510's note guessed that the 54px between the
+fixture's Read and Edit lines came from "two seats for three calls". A temporary diagnostic
+test over the same preset disproved that: the transcript has **one** seat with members
+`[1, 2, 3]`. The real cause was a split ownership. `process_seat` was drawn as a sibling
+*pushed before* its first member's row, while `row_geometries` reserved the seat's 24px line
+*inside* that row — so an open group drew a header, then its first tool line, then a 24px
+blank band where the reservation had no content. The projection also under-counted the drawn
+Column by one seat line per group, and a **folded** group reserved nothing for the 24px seat
+it draws.
+
+**The reference makes the seat part of the group's one flow item.** `ChatGroupSeat.tsx:173-186`
+renders one root holding the header div and the member body div; the collapsed root is
+`height: calc(24px + var(--dsh-content-font-delta))` (`ChatGroupSeat.module.css:5-9`) and the
+title button pads nothing (`:1-20`).
+
+**The change.** `chat_geometry::seat_height(delta)` is the one value (`LINE_BODY + delta`)
+the row reserves and the seat draws. The view pushes the seat into the first member's row box
+instead of the Column, so header and member share one clipped, reserved box; a folded group
+draws the same box shape holding only the seat (flow margin + 24px) and reserves exactly
+that, while its hidden members reserve zero. The seat's own 6px/2px padding is gone, which is
+how the header had grown taller than the line reserved for it.
+
+**Measured** (`tool-activity`, 1980×1319, `shots/302-seat-in-row.png` against 301):
+
+| measure | reference | before (301) | after (302) |
+| --- | --- | --- | --- |
+| first tool line → second tool line | 30 | 54 | **30** |
+| seat header → its first tool line | — | 31 | **20** |
+| every later tool line pitch | 30 | 30 | **30** |
+| assistant first line after the last tool line | 26 (its tool → bubble) | 38 (ink) | 28 (ink) |
+
+The folded state has its own frame: `shots/303-seat-folded.png` (`process-group-closed`,
+1040×760) shows one header line, `▼ Read files, edited files, ran commands`, with no member
+rows and the assistant paragraph correctly beneath it.
+
+**Tests.** `a_group_seat_sits_inside_its_first_row_and_reserves_only_its_own_line` pins that
+the row reserves the flow margin, one seat line and its own line — and that
+`seat_height == LINE_BODY + delta`, so the drawn seat cannot outgrow its space.
+`a_folded_group_reserves_the_seat_line_and_nothing_of_its_members` pins the folded
+reservation. The *placement* is proven by the frame, not by the suite: Iced's test harness
+sees no widget tree, which is exactly the class of failure this round fixed.
+
+**Correction to round 510.** Its "the fixture's own group composition (two seats for three
+calls) puts 54px between the Read and Edit lines" sentence was wrong twice — there is one
+seat, and the 54px was this round's defect. The round-510 note now points here.
+
+**Still open from this surface.** A live group starts **open** in native
+(`starts_folded(false) == false`), while the reference's seat disclosure begins collapsed
+(`use-disclosure.ts`: "Own one initially collapsed disclosure") and its body is hidden until
+clicked (`ChatGroupSeat.tsx:162`). That is the next round, not this one: folding a running
+turn changes the transcript's primary state and needs its own frame. The reference's separate
+*outer* turn fold (a completed turn hides its whole process behind the turn control,
+`ChatGroupSeat.tsx:152-153`) has no native counterpart either.
+
+**Battery (round 511).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1501 passed**, 1 ignored |
+| app, default | **0** | **1456 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-m1kymd2r`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-hq_hkycj`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 captures | — | `shots/302-seat-in-row.png` and `shots/303-seat-folded.png`, both `status: passed` |
+| app bin | — | **21** warnings |
