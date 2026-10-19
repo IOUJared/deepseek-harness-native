@@ -1418,7 +1418,15 @@ impl Settings {
                 design::ghost
             })
             .padding(if armed { [3, 14] } else { [0, 4] }),
-            label(if armed { String::new() } else { entry.keys }, MUTED).size(11),
+            label(
+                if armed {
+                    String::new()
+                } else {
+                    crate::keybindings::key_text(&entry.keys).to_owned()
+                },
+                MUTED,
+            )
+            .size(11),
         ]
         .spacing(8)
         .align_y(iced::Alignment::Center)
@@ -1565,6 +1573,31 @@ impl Settings {
                 rows = rows.push(label("Application", MUTED).size(11));
                 for entry in fixed {
                     rows = rows.push(self.shortcut_row(entry));
+                }
+            }
+            // The reference's fixed menu keys are listed too, in their own group and without an
+            // editor: the product's menus read these keys directly
+            // (`ui-shortcuts/src/client/fixed.ts:12-14`, `Reference.tsx:179-197`).
+            let fixed_visible: Vec<_> = crate::keybindings::FIXED_ROWS
+                .iter()
+                .filter(|(_, label, keys)| {
+                    let query = self.shortcuts_query.trim().to_lowercase();
+                    query.is_empty()
+                        || label.to_lowercase().contains(&query)
+                        || keys.to_lowercase().contains(&query)
+                })
+                .collect();
+            if !fixed_visible.is_empty() {
+                rows = rows.push(label(crate::keybindings::COPY_MENUS, MUTED).size(11));
+                for (_, name, keys) in fixed_visible {
+                    rows = rows.push(
+                        row![
+                            label(*name, MUTED).size(13).width(Length::Fill),
+                            label(*keys, MUTED).size(11),
+                        ]
+                        .spacing(8)
+                        .align_y(iced::Alignment::Center),
+                    );
                 }
             }
             if empty {

@@ -10840,10 +10840,8 @@ Recorded here so the next rounds have their list, with the same taxonomy: (b) di
 1. (b) ~~Agent presets ignore the "Show coding view" filter~~ — closed in round 431.
 2. (b) No per-preset "Mode details" / "How to use" help (`AgentPresetSection.tsx:142-147`,
    `guide-locales.ts:4-5`), and the card omits its preset id (`AgentPresetSection.tsx:136`).
-3. (b) The shortcuts list omits the reference's fixed "Menus and dialogs" rows
-   (`ui-shortcuts/src/client/fixed.ts:12-14`, rendered `Reference.tsx:179-183`) — `keybindings::fixed()`
-   exists but has no production caller — and unbound Host commands print a blank key where the
-   reference says "No shortcut" (`:195`).
+3. (b) ~~The shortcuts list omits the reference's fixed "Menus and dialogs" rows and prints a blank
+   key for an unbound command~~ — closed in round 432.
 4. (c) "Open configuration file" header action (`ui-settings-general/src/client/index.ts:221-227`,
    Host RPC `settings/openSettingsDocument`); nothing equivalent exists.
 5. (c) Permanent Account page with balance, bonus balance, Usage and Top up
@@ -10886,5 +10884,44 @@ and an unknown custom one.
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/246-presets-coding-off.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 432 — the fixed menu keys are listed, and an unbound command says so
+
+The settings audit found two small lies in the shortcuts list. The reference lists its three fixed
+menu keys — move, select, dismiss — in a "Menus and dialogs" group, readable but not editable, because
+the product's menus read those keys directly (`ui-shortcuts/src/client/fixed.ts:12-14`,
+`Reference.tsx:179-197`, `locales.ts:72-74`). Native had a `fixed()` table and no production caller, so
+the keys that control every menu were invisible in-app. And a command the user had cleared rendered a
+blank key column, which reads as a row that failed to load rather than one they unbound; the reference
+says "No shortcut" (`:195`).
+
+Both are closed: `FIXED_ROWS` carries the three rows with the reference's own labels and glyphs, drawn
+in their group after the catalog rows and filtered by the same search, and `key_text` returns
+"No shortcut" for an empty binding.
+
+Evidence: `shots/247-shortcuts-fixed.png` (DP-2 alongside, `status: passed`) in the existing
+`settings-shortcuts` preset — the Application rows above, then "Menus and dialogs" with
+`Move menu selection ↑/↓`, `Select menu item Enter`, `Close menu or top dialog Esc`, none of them
+carrying the Restore/Remove/Capture controls.
+
+Tests: two in `fixed_row_tests` — the rows are exactly the reference's three, with ids matching the
+resolver's own `fixed()` table so a conflict check sees one set; and an empty or whitespace binding
+reads "No shortcut" while a real one is unchanged.
+
+**Battery (round 432).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1425 passed**, 1 ignored |
+| app, default | **0** | **1405 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/247-shortcuts-fixed.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |

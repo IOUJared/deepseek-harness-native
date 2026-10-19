@@ -513,6 +513,10 @@ pub const COPY_MODIFIED: &str = "Modified";
 pub const COPY_RECORD: &str = "Press a shortcut";
 /// The reference's no-match line (`locales.ts` `empty`).
 pub const COPY_EMPTY: &str = "No matching shortcuts";
+/// The reference's word for a command with no keys (`locales.ts:67`).
+pub const COPY_UNBOUND: &str = "No shortcut";
+/// The reference's heading for the fixed menu keys (`locales.ts:67`).
+pub const COPY_MENUS: &str = "Menus and dialogs";
 /// The reference's conflict line (`locales.ts` `conflict`), with its curly quotes.
 pub const COPY_CONFLICT: &str = "Already used by “{commands}”";
 /// The reference's refused-key line (`locales.ts` `unsupported-key`).
@@ -622,6 +626,26 @@ fn describe(binding: &Binding) -> String {
 fn group_rank(group: &str) -> usize {
     GROUPS.iter().position(|name| *name == group).unwrap_or(0)
 }
+
+/// A key column's text: the binding, or the reference's own word for "nothing bound"
+/// (`ui-shortcuts/src/client/locales.ts:67`, `Reference.tsx:195`). A blank key column would read
+/// as a row that failed to load rather than one the user cleared.
+pub fn key_text(keys: &str) -> &str {
+    if keys.trim().is_empty() {
+        COPY_UNBOUND
+    } else {
+        keys
+    }
+}
+
+/// The fixed menu rows with their display labels, in the reference's order and group
+/// (`ui-shortcuts/src/client/fixed.ts:12-14`, `locales.ts:72-74`). They cannot be rebound: the
+/// product's menus read these keys directly.
+pub const FIXED_ROWS: [(&str, &str, &str); 3] = [
+    ("fixed.move", "Move menu selection", "↑/↓"),
+    ("fixed.select", "Select menu item", "Enter"),
+    ("fixed.dismiss", "Close menu or top dialog", "Esc"),
+];
 
 /// The built-ins the reference fixes rather than reading from the catalog
 /// (`ui-shortcuts/src/client/fixed.ts:10-16`): three menu keys, each with a display glyph and a
@@ -1336,5 +1360,38 @@ mod settings_chord_tests {
             resolve(&store, &Key::Character(",".into()), Modifiers::SHIFT),
             None
         );
+    }
+}
+
+#[cfg(test)]
+mod fixed_row_tests {
+    //! The reference's fixed menu rows and its word for an unbound command.
+    use super::*;
+
+    #[test]
+    fn the_fixed_menu_rows_are_the_references_three() {
+        assert_eq!(
+            FIXED_ROWS,
+            [
+                ("fixed.move", "Move menu selection", "↑/↓"),
+                ("fixed.select", "Select menu item", "Enter"),
+                ("fixed.dismiss", "Close menu or top dialog", "Esc"),
+            ]
+        );
+        // The same ids the resolver's `fixed()` reports, so a conflict check sees one set.
+        let ids: Vec<&str> = fixed().iter().map(|(id, ..)| *id).collect();
+        assert_eq!(
+            ids,
+            FIXED_ROWS.iter().map(|(id, ..)| *id).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn an_unbound_row_says_so_instead_of_staying_blank() {
+        assert_eq!(key_text(""), COPY_UNBOUND);
+        assert_eq!(key_text("   "), COPY_UNBOUND);
+        assert_eq!(key_text("Ctrl+K"), "Ctrl+K");
+        assert_eq!(COPY_UNBOUND, "No shortcut");
+        assert_eq!(COPY_MENUS, "Menus and dialogs");
     }
 }
