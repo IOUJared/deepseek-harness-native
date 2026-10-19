@@ -1867,3 +1867,141 @@ mod fold_tests {
         assert!(chat.iter().any(|row| row.role == "Tool result"));
     }
 }
+
+#[cfg(test)]
+mod settled_diff_tests {
+    //! A settled mutation shows what the Host recorded as applied, and keeps the reference's rule
+    //! that a settled `str_replace_editor` result has no card.
+    use super::*;
+
+    fn event(seq: u64, kind: &str, data: serde_json::Value) -> Value {
+        serde_json::json!({"type":"event","event":{"type":kind,"seq":seq,"time":1000+seq,"data":data}})
+    }
+    fn frame(records: Vec<Value>) -> SessionFollowFrame {
+        serde_json::from_value(serde_json::json!({
+            "type": "snapshot", "records": records, "cursor": 2, "hasMore": false,
+            "header": {"version": 4, "id": "PUBLIC-diff", "createdAt": 0, "isSeeded": false},
+            "projections": {"asOfSeq": 2, "values": {}},
+            "assistantStream": {"revision": 0}
+        }))
+        .unwrap()
+    }
+    fn call(name: &str, args: serde_json::Value) -> Value {
+        event(
+            1,
+            "tool/call",
+            serde_json::json!({"callId": "PUBLIC-edit", "turn": 1, "step": 1,
+                "name": name, "arguments": args.to_string()}),
+        )
+    }
+    fn result(meta: serde_json::Value) -> Value {
+        event(
+            2,
+            "tool/result",
+            serde_json::json!({"turn": 1, "step": 1, "meta": meta, "message": {
+                "role": "tool", "toolCallId": "PUBLIC-edit",
+                "source": {"kind": "tool", "callId": "PUBLIC-edit"},
+                "isError": false,
+                "content": [{"type": "text", "text": "PUBLIC recorded"}]
+            }}),
+        )
+    }
+    fn lines(transcript: &Transcript) -> Vec<String> {
+        transcript
+            .activity(1, activity::PathRoots::default())
+            .and_then(|summary| summary.diff)
+            .map(|diff| diff.lines.into_iter().map(|line| line.text).collect())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn the_applied_diff_replaces_the_intended_one() {
+        let mut transcript = Transcript::new(0);
+        transcript
+            .apply(0, frame(vec![
+                call(
+                    "functions.edit",
+                    serde_json::json!({"file_path": "src/a.rs", "old_string": "old line", "new_string": "intended line"}),
+                ),
+                result(serde_json::json!({"diffs": [
+                    {"path": "src/a.rs", "oldText": "old line", "newText": "applied line"}
+                ]})),
+            ]))
+            .unwrap();
+        let lines = lines(&transcript);
+        assert!(lines.contains(&"applied line".to_owned()), "{lines:?}");
+        assert!(!lines.contains(&"intended line".to_owned()), "{lines:?}");
+    }
+
+    #[test]
+    fn a_recorded_no_op_write_keeps_its_whole_file_diff_and_an_edit_drops_theirs() {
+        let mut transcript = Transcript::new(0);
+        transcript
+            .apply(
+                0,
+                frame(vec![
+                    call(
+                        "functions.write",
+                        serde_json::json!({"file_path": "src/a.rs", "content": "whole"}),
+                    ),
+                    result(serde_json::json!({"diffs": []})),
+                ]),
+            )
+            .unwrap();
+        assert_eq!(
+            lines(&transcript),
+            vec!["src/a.rs".to_owned(), "whole".to_owned()]
+        );
+
+        let mut transcript = Transcript::new(0);
+        transcript
+            .apply(0, frame(vec![
+                call("functions.edit", serde_json::json!({"file_path": "src/a.rs", "old_string": "a", "new_string": "b"})),
+                result(serde_json::json!({"diffs": []})),
+            ]))
+            .unwrap();
+        assert!(lines(&transcript).is_empty(), "{:?}", lines(&transcript));
+    }
+
+    #[test]
+    fn a_settled_editor_has_no_card_and_a_running_one_does() {
+        let args = serde_json::json!({"command": "str_replace", "path": "src/a.rs",
+            "old_str": "old line", "new_str": "new line"});
+        // Running: the call alone, which is how a live session first shows it.
+        let mut transcript = Transcript::new(0);
+        transcript
+            .apply(0, frame(vec![call("str_replace_editor", args.clone())]))
+            .unwrap();
+        let running = lines(&transcript);
+        assert!(running.contains(&"new line".to_owned()), "{running:?}");
+        // Settled: the reference has no result view for this tool, so the card goes away.
+        let mut transcript = Transcript::new(0);
+        transcript
+            .apply(
+                0,
+                frame(vec![
+                    call("str_replace_editor", args),
+                    result(serde_json::json!({})),
+                ]),
+            )
+            .unwrap();
+        assert!(lines(&transcript).is_empty(), "{:?}", lines(&transcript));
+    }
+
+    #[test]
+    fn a_multi_file_result_keeps_the_intended_diff_rather_than_showing_one_file() {
+        let mut transcript = Transcript::new(0);
+        transcript
+            .apply(0, frame(vec![
+                call("functions.edit", serde_json::json!({"file_path": "src/a.rs", "old_string": "old", "new_string": "intended"})),
+                result(serde_json::json!({"diffs": [
+                    {"path": "src/a.rs", "oldText": "old", "newText": "applied a"},
+                    {"path": "src/b.rs", "oldText": "old", "newText": "applied b"}
+                ]})),
+            ]))
+            .unwrap();
+        let lines = lines(&transcript);
+        assert!(lines.contains(&"intended".to_owned()), "{lines:?}");
+        assert!(!lines.contains(&"applied b".to_owned()), "{lines:?}");
+    }
+}

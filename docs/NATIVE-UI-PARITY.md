@@ -372,7 +372,7 @@ the authoritative short form.
    its `tool/call` and draws one row per call, as the reference does; the result record remains a
    Trajectory-only row, so nothing is lost. See that round for the pairing rules and the rows that
    changed.
-8. **The expanded tool body's card family — six of the cards are now built.** The reference
+8. **The expanded tool body's card family — six cards plus the applied-diff rule.** The reference
    picks a structured card per tool before any text card (`ToolRow.tsx:169-170`: ask-user,
    terminal, diff, read, image, search, web, details, then the IN/OUT text card) and draws it with
    the shared primitive (`:258-341`). Native draws the **diff** card (round 362, arguments only),
@@ -384,9 +384,12 @@ the authoritative short form.
    retained/pre-cap banner) and the **web** card (round 376: `web_search`'s answer over its numbered
    sources or `web_fetch`'s URL and HTTP status, with the provider's truncation note) and the
    **ask-user** transcript (round 377: each question with the answers it took, `Not answered` where
-   it took none, and the cancelled/interrupted verdicts). What remains of this family is the
-   `str_replace_editor` shape and the image card — the latter blocked on the image fetch policy —
-   so the difference is **text where the reference picks a structured card**, for those two only.
+   it took none, and the cancelled/interrupted verdicts). Round 378 added the `str_replace_editor`
+   shape — a running call draws its intended diff, a settled one has no card, exactly the
+   reference's rule — and made a settled `edit`/`write` prefer the diff the Host recorded as
+   **applied** over the intended one. What remains of this family is the image card alone, which is
+   blocked on the image fetch policy, so the difference is **text where the reference picks a
+   structured card**, for that one family.
 9. **Permission default row in Settings — landed.** The reference has *two* permission pickers;
    both are drawn here now (`settings.rs:1550-1580`, settings-general permission row,
    `shots/70-…`–`73-…`), and the record below is kept because it names the second surface and its
@@ -8801,5 +8804,49 @@ the 8-row cap, and the quiet `Debug` — plus the preset's row-for-row assertion
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/176-tool-ask-card.png`, `status: passed` |
+| app bin | — | **19** dead-code warnings (unchanged) |
+| tree | — | clean before the commit |
+
+### Round 378 — the applied diff, and the editor's own shape
+
+Two gaps in the diff card's *derivation*, both visible on a real session.
+
+**A settled mutation was drawing the intended change, not the change.** The reference prefers the
+diff the Host recorded as applied (`meta.diffs`) and falls back to the intended one only for a
+`write` (`diff-card-model.ts:71-104`). Native always drew the intended one, so a `write` that
+overwrote a different previous content, or an `edit` whose applied result differed from its
+arguments, showed a diff the session never had. `Transcript::activity` now takes the applied list
+when the call is settled: exactly one hunk replaces the card, an empty list keeps a `write`'s
+whole-file diff and drops an `edit`'s, and a malformed list invalidates the whole thing rather than
+being skipped. A **multi-file** applied result keeps the intended diff, because this card draws one
+file and showing the first would misrepresent the rest — a deliberate difference, recorded here.
+
+**A `str_replace_editor` was invisible.** The Anthropic-style editor names the same mutation with
+`command`/`path`/`file_text`/`old_str`/`new_str`; the reference derives its diff from those while it
+runs and draws **no** card once settled. Native recognised the tool nowhere. It now maps to its own
+verb, derives the intended diff for `create` and `str_replace` while running, and drops the card on
+settle — the reference's rule, pinned by a test that asserts both halves.
+
+Evidence: `shots/177-tool-applied-diff.png` (DP-2 alongside, `status: passed`) in the new
+`tool-activity-applied` preset, whose edit result records `newText: "PUBLIC applied text"` while the
+call's arguments say "PUBLIC new text": the card draws the applied line.
+
+Tests: `applied_tests` (the editor's two commands and its refusals, the strict narrowing, `file()`),
+and `settled_diff_tests` (applied replaces intended, the no-op write and edit rules, the editor's
+running/settled pair, and the multi-file fallback).
+
+**Battery (round 378).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1334 passed**, 1 ignored |
+| app, default | **0** | **1327 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/177-tool-applied-diff.png`, `status: passed` |
 | app bin | — | **19** dead-code warnings (unchanged) |
 | tree | — | clean before the commit |

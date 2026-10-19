@@ -74,8 +74,40 @@ pub fn derive(verb: &str, args: &Map<String, Value>) -> Option<Diff> {
             (Some(old).filter(|old| !old.is_empty()), new)
         }
         "Write" => (None, args.get("content")?.as_str()?),
+        // The Anthropic-style editor names the same mutation differently: `create` writes a whole
+        // file, `str_replace` swaps one fragment (`diff-card-model.ts:47-64`).
+        "str_replace_editor" => match args.get("command")?.as_str()? {
+            "create" => (
+                None,
+                match args.get("file_text") {
+                    None => "",
+                    Some(value) => value.as_str()?,
+                },
+            ),
+            "str_replace" => (
+                match args.get("old_str") {
+                    None => None,
+                    Some(value) => Some(value.as_str()?).filter(|old| !old.is_empty()),
+                },
+                match args.get("new_str") {
+                    None => "",
+                    Some(value) => value.as_str()?,
+                },
+            ),
+            _ => return None,
+        },
         _ => return None,
     };
+    file(path, old, new)
+}
+
+/// The card for one explicit file mutation: the path, the text it replaced (`None` for a whole
+/// file) and the text it wrote. `derive` is the argument-reading front end; the applied-diff path
+/// (`meta.diffs`) calls this directly.
+pub fn file(path: &str, old: Option<&str>, new: &str) -> Option<Diff> {
+    if path.trim().is_empty() {
+        return None;
+    }
     let old_lines = content_lines(old.unwrap_or(""));
     let new_lines = content_lines(new);
     let mut lines = vec![Line {
@@ -103,6 +135,75 @@ pub fn derive(verb: &str, args: &Map<String, Value>) -> Option<Diff> {
         previous = Some(index);
     }
     Some(Diff { lines })
+}
+
+/// What a settled result's `meta.diffs` says was actually written.
+#[derive(Clone, PartialEq, Eq)]
+pub enum Applied {
+    /// One hunk per changed file, in the Host's order; a path with `None` had no previous text.
+    Hunks(Vec<(String, Option<String>, String)>),
+    /// The Host recorded that the write changed nothing.
+    Empty,
+    /// No usable `meta.diffs`: absent, malformed, or too large to draw.
+    None,
+}
+
+/// The hunks are file content, so the debug form prints the path count and the byte lengths.
+impl std::fmt::Debug for Applied {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Applied::Hunks(hunks) => f
+                .debug_struct("Hunks")
+                .field("files", &hunks.len())
+                .field(
+                    "bytes",
+                    &hunks
+                        .iter()
+                        .map(|(path, old, new)| {
+                            path.len() + old.as_ref().map_or(0, String::len) + new.len()
+                        })
+                        .sum::<usize>(),
+                )
+                .finish(),
+            Applied::Empty => f.write_str("Empty"),
+            Applied::None => f.write_str("None"),
+        }
+    }
+}
+
+/// The reference's `appliedDiffs` (`diff-card-model.ts:71-79`): a strict narrowing of
+/// `meta.diffs`, where any malformed hunk invalidates the whole list rather than being skipped.
+pub fn applied(meta: &Value) -> Applied {
+    let Some(diffs) = meta.get("diffs").and_then(Value::as_array) else {
+        return Applied::None;
+    };
+    if diffs.is_empty() {
+        return Applied::Empty;
+    }
+    if diffs.len() > 8 {
+        return Applied::None;
+    }
+    let mut hunks = Vec::with_capacity(diffs.len());
+    for hunk in diffs {
+        if !hunk.is_object() {
+            return Applied::None;
+        }
+        let Some(path) = hunk.get("path").and_then(Value::as_str) else {
+            return Applied::None;
+        };
+        let old = match hunk.get("oldText") {
+            None | Some(Value::Null) => None,
+            Some(value) => match value.as_str() {
+                Some(text) => Some(text.to_owned()),
+                None => return Applied::None,
+            },
+        };
+        let Some(new) = hunk.get("newText").and_then(Value::as_str) else {
+            return Applied::None;
+        };
+        hunks.push((path.to_owned(), old, new.to_owned()));
+    }
+    Applied::Hunks(hunks)
 }
 
 /// The rows drawn at one fold state, over `total` rows: the head and tail split around a fold
@@ -352,5 +453,110 @@ mod tests {
         let short = shown(3, false);
         assert_eq!(short.hidden, 0);
         assert_eq!(short.head, 0..3);
+    }
+}
+
+#[cfg(test)]
+mod applied_tests {
+    //! The settled path: what the Host recorded as applied, and the editor's own argument names.
+    use super::*;
+    use serde_json::json;
+
+    fn args(value: serde_json::Value) -> Map<String, Value> {
+        value.as_object().cloned().unwrap()
+    }
+    fn texts(diff: &Diff) -> Vec<(Kind, &str)> {
+        diff.lines
+            .iter()
+            .map(|line| (line.kind, line.text.as_str()))
+            .collect()
+    }
+
+    #[test]
+    fn the_editor_creates_and_replaces() {
+        // `create`: a whole file, like `write`.
+        let diff = derive(
+            "str_replace_editor",
+            &args(json!({"command": "create", "path": "src/a.rs", "file_text": "one\ntwo"})),
+        )
+        .expect("a create");
+        assert_eq!(
+            texts(&diff),
+            vec![
+                (Kind::Path, "src/a.rs"),
+                (Kind::Added, "one"),
+                (Kind::Added, "two")
+            ]
+        );
+        // `str_replace`: the fragment it replaced.
+        let diff = derive(
+            "str_replace_editor",
+            &args(json!({"command": "str_replace", "path": "src/a.rs",
+                "old_str": "one\ntwo", "new_str": "one\nthree"})),
+        )
+        .unwrap();
+        assert!(texts(&diff).contains(&(Kind::Deleted, "two")));
+        assert!(texts(&diff).contains(&(Kind::Added, "three")));
+        // Anything else has no card.
+        assert!(
+            derive(
+                "str_replace_editor",
+                &args(json!({"command": "view", "path": "src/a.rs"}))
+            )
+            .is_none()
+        );
+        assert!(
+            derive(
+                "str_replace_editor",
+                &args(json!({"command": "str_replace", "path": "src/a.rs", "old_str": 4}))
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn the_applied_list_narrows_strictly() {
+        // Absent is not empty: an absent list means the Host recorded none.
+        assert_eq!(applied(&json!({})), Applied::None);
+        assert_eq!(applied(&json!({"diffs": []})), Applied::Empty);
+        assert_eq!(applied(&json!({"diffs": "no"})), Applied::None);
+        // One malformed hunk invalidates the list rather than being skipped: a non-string path, a
+        // non-string old side, a missing new side, or a hunk that is not an object at all.
+        for hunk in [
+            json!({"path": 4, "newText": "x"}),
+            json!({"path": "p", "oldText": 4, "newText": "x"}),
+            json!({"path": "p", "oldText": null}),
+            json!([1]),
+        ] {
+            assert_eq!(applied(&json!({"diffs": [hunk]})), Applied::None, "{hunk}");
+        }
+        assert_eq!(
+            applied(&json!({"diffs": [{"path": "p", "oldText": null, "newText": "x"}]})),
+            Applied::Hunks(vec![("p".into(), None, "x".into())])
+        );
+        // A path with previous text keeps it.
+        assert_eq!(
+            applied(&json!({"diffs": [{"path": "p", "oldText": "a", "newText": "b"}]})),
+            Applied::Hunks(vec![("p".into(), Some("a".into()), "b".into())])
+        );
+    }
+
+    #[test]
+    fn a_file_diff_needs_a_path_and_takes_an_absent_old_side() {
+        assert!(file("  ", None, "x").is_none());
+        let diff = file("src/a.rs", None, "x").unwrap();
+        assert_eq!(
+            texts(&diff),
+            vec![(Kind::Path, "src/a.rs"), (Kind::Added, "x")]
+        );
+        let diff = file("src/a.rs", Some("a"), "b").unwrap();
+        assert_eq!(
+            texts(&diff),
+            vec![
+                (Kind::Path, "src/a.rs"),
+                (Kind::Deleted, "a"),
+                (Kind::Added, "b")
+            ]
+        );
     }
 }

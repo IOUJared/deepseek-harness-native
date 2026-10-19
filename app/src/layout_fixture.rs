@@ -143,6 +143,7 @@ pub const PRESETS: &[&str] = &[
     "tool-activity-search",
     "tool-activity-web",
     "tool-activity-ask",
+    "tool-activity-applied",
     "context-injects",
     "assistant-tool-call",
     "assistant-tool-call-expanded",
@@ -215,7 +216,8 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "tool-activity-terminal"
         | "tool-activity-search"
         | "tool-activity-web"
-        | "tool-activity-ask" => Some((Size::new(1040.0, 1040.0), 1.0)),
+        | "tool-activity-ask"
+        | "tool-activity-applied" => Some((Size::new(1040.0, 1040.0), 1.0)),
         "context-injects" | "context-injects-trajectory" => Some((Size::new(1040.0, 900.0), 1.0)),
         "assistant-tool-call" | "assistant-tool-call-expanded" => {
             Some((Size::new(1040.0, 760.0), 1.0))
@@ -652,6 +654,26 @@ fn public_tool_terminal_records() -> Vec<Value> {
                 "type":"text",
                 "text":"PUBLIC terminal output line one\nPUBLIC terminal output line two\n[exit code: 2]"
             }]);
+        }
+    }
+    records
+}
+
+/// The same records with the edit result carrying the diff the Host recorded as *applied*, whose
+/// text differs from the call's arguments, so a capture shows which one the card draws
+/// (`diff-card-model.ts:71-104`). Synthetic PUBLIC metadata; no file was written.
+fn public_tool_applied_records() -> Vec<Value> {
+    let mut records = public_tool_records();
+    for record in &mut records {
+        let event = &mut record["event"];
+        if event["type"] == "tool/result"
+            && event["data"]["message"]["toolCallId"] == "PUBLIC-edit-call"
+        {
+            event["data"]["meta"] = json!({"diffs": [{
+                "path": "/PUBLIC-layout-fixture/workspace/src/PUBLIC-note.txt",
+                "oldText": "PUBLIC old text",
+                "newText": "PUBLIC applied text"
+            }]});
         }
     }
     records
@@ -1208,6 +1230,8 @@ pub fn build(
         public_web_records()
     } else if preset == "tool-activity-ask" {
         public_ask_records()
+    } else if preset == "tool-activity-applied" {
+        public_tool_applied_records()
     } else if preset == "tool-activity-diff-long" {
         // The same transcript with a longer edit, so the card's 9-row cap and its fold control
         // are drawn. Every line is synthetic PUBLIC metadata.
@@ -2294,6 +2318,22 @@ pub fn build(
                 key: 1,
             }));
             assert!(app.activity_expanded.contains(&1));
+        }
+        "tool-activity-applied" => {
+            // The card draws the applied record, not the intended arguments.
+            let diff = app
+                .transcript
+                .activity(3, app.path_roots())
+                .and_then(|activity| activity.diff)
+                .expect("the edit call's applied diff");
+            let text: Vec<&str> = diff.lines.iter().map(|line| line.text.as_str()).collect();
+            assert!(text.contains(&"PUBLIC applied text"), "{text:?}");
+            assert!(!text.contains(&"PUBLIC new text"), "{text:?}");
+            drop(app.update(Message::ToggleActivity {
+                generation: app.generation,
+                key: 3,
+            }));
+            assert!(app.activity_expanded.contains(&3));
         }
         "tool-activity-expanded" => {
             // The recorded Bash call expands inside the conversation; the detail

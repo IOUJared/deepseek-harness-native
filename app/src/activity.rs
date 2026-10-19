@@ -32,9 +32,10 @@ pub struct Summary {
     /// old→new replacement is small enough to diff. Counts only; the strings
     /// never leave this module.
     pub edits: Option<(u32, u32)>,
-    /// The inline diff card for a file-mutation call (`inline_diff::derive`). Present for
-    /// `Edit` and `Write` only; the view draws it instead of the input/output body, as the
-    /// reference does (`ToolRow.tsx:169-170, 268`).
+    /// The inline diff card for a file-mutation call (`inline_diff::derive`). Present for the
+    /// mutations the reference draws one for — `edit`, `write` and a *running*
+    /// `str_replace_editor` — and, once settled, for whatever `meta.diffs` says was applied; the
+    /// view draws it instead of the input/output body (`ToolRow.tsx:169-170, 268`).
     pub diff: Option<crate::reducer::inline_diff::Diff>,
     /// The line-numbered `read` card for a settled read call whose result carries the metadata
     /// the reference validates (`read-card-model.ts:104-137`). `None` keeps the text body.
@@ -101,6 +102,42 @@ impl std::fmt::Debug for Summary {
     }
 }
 
+/// Replace the *intended* diff a running call showed with the diff the Host recorded as actually
+/// applied (`diff-card-model.ts:71-104`), and keep the reference's own rule that a settled
+/// `str_replace_editor` result has no card. When the Host recorded no usable applied diff, the
+/// intended one stays as a documented native fallback rather than dropping a card the user was
+/// already reading.
+fn apply_settled_diff(summary: &mut Summary, call: &Value, result: &Value) {
+    if call["name"].as_str() == Some("str_replace_editor") {
+        summary.diff = None;
+        return;
+    }
+    if result["message"]["isError"].as_bool() == Some(true) {
+        return;
+    }
+    match crate::reducer::inline_diff::applied(&result["meta"]) {
+        crate::reducer::inline_diff::Applied::Hunks(hunks) => {
+            // The chat card draws one file. A multi-file result keeps the intended diff instead of
+            // silently showing the first file as if it were the only one.
+            if let [(path, old, new)] = hunks.as_slice() {
+                summary.diff = crate::reducer::inline_diff::file(path, old.as_deref(), new);
+            }
+        }
+        // A recorded no-op write still shows its intended whole-file diff, exactly as the
+        // reference's `intended.tool === 'write'` branch does; an edit has nothing to show.
+        crate::reducer::inline_diff::Applied::Empty => {
+            if call["name"]
+                .as_str()
+                .is_some_and(|name| matches!(name, "write" | "functions.write" | "tool-fs/write"))
+            {
+                return;
+            }
+            summary.diff = None;
+        }
+        crate::reducer::inline_diff::Applied::None => {}
+    }
+}
+
 pub(super) fn summarize<'a>(
     event: &SessionWireEvent,
     previous: impl Iterator<Item = &'a SessionWireEvent>,
@@ -137,6 +174,7 @@ pub(super) fn summarize_paired<'a>(
                 summary.search = crate::reducer::search_card::derive(&event.data, &result.data);
                 summary.web = crate::reducer::web_card::derive(&event.data, &result.data);
                 summary.ask = crate::reducer::ask_card::derive(&event.data, &result.data);
+                apply_settled_diff(&mut summary, &event.data, &result.data);
             }
             Some(summary)
         }
@@ -337,6 +375,9 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
         "read" | "functions.read" | "tool-fs/read" => "Read",
         "read_image" | "functions.read_image" | "tool-fs/read_image" => "Read",
         "edit" | "functions.edit" | "tool-fs/edit" => "Edit",
+        // The Anthropic-style editor is the same mutation with different argument names; its own
+        // settled result has no card, so it stays on the generic body (see `summarize_paired`).
+        "str_replace_editor" => "str_replace_editor",
         "write" | "functions.write" | "tool-fs/write" => "Write",
         "bash" | "functions.bash" | "tool-shell/bash" => "Bash",
         "ask_user_question" | "functions.ask_user_question" => "Question",
@@ -388,7 +429,7 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
             }
             // The card belongs to the row that represents the call. Native draws the call and
             // its result as two rows and the diff is the call's, so a result row carries none.
-            if !result && matches!(verb, "Edit" | "Write") {
+            if !result && matches!(verb, "Edit" | "Write" | "str_replace_editor") {
                 diff = crate::reducer::inline_diff::derive(verb, &args);
             }
             let label = match picked {
