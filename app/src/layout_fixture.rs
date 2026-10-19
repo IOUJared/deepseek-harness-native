@@ -1982,6 +1982,9 @@ pub fn build(
                         "+    let title = changes_text::title(total, single);".into(),
                         "+    let counts = changes_text::file_counts(..);".into(),
                         "     let mut card = column![];".into(),
+                        // A row longer than the panel is wide: it must wrap and reserve its lines
+                        // instead of being clipped at the edge (round 122).
+                        "+    let clamped = clamped_offset(self.attachment_rail_offset, self.attachment_rail_max_offset());".into(),
                     ],
                 }],
             }),

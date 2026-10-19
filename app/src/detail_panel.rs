@@ -110,10 +110,24 @@ impl Detail {
         {
             // One row per line, in the same widget the inline tool diff uses, so a comparison read
             // here and one read in a tool row cannot disagree about colour or rhythm.
+            // Each row reserves the lines it wraps onto, so a long comparison row is readable
+            // instead of clipped at the panel's edge (round 122).
+            let chars = ((AT_DETAIL_WIDTH - 2.0 * design::DIFF_GUTTER - design::DIFF_BAR)
+                / crate::ui::changes_text::CODE_CELL)
+                .floor()
+                .max(1.0) as usize;
             let height = design::CODE_LINE;
             let mut rows = Column::new().width(Length::Fill);
             for line in &diff.lines {
-                rows = rows.push(crate::ui::diff_line_view(line, height));
+                let lines = crate::ui::changes_text::visual_lines(
+                    &line.text,
+                    chars as f32 * crate::ui::changes_text::CODE_CELL,
+                );
+                rows = rows.push(crate::ui::diff_line_view_wrapped(
+                    line,
+                    height * lines as f32,
+                    lines > 1,
+                ));
             }
             return scrollable(rows)
                 .direction(scrollable::Direction::Vertical(

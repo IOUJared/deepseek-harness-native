@@ -157,6 +157,20 @@ pub fn diff_lines(
     (!lines.is_empty()).then_some(crate::reducer::inline_diff::Diff { lines })
 }
 
+/// How many visual lines a comparison row needs inside a given width. The panel's rows are a fixed
+/// line height, so a row that wraps must reserve every line it takes or the fixed seat clips it — the
+/// reference wraps the same rows (`FileDiff.module.css:5`). The estimate is by character count in the
+/// monospace face the rows are drawn in, at one cell of roughly [`CODE_CELL`] points.
+pub const CODE_CELL: f32 = 7.4;
+
+pub fn visual_lines(text: &str, inner_width: f32) -> usize {
+    if inner_width <= 0.0 {
+        return 1;
+    }
+    let per_line = (inner_width / CODE_CELL).floor().max(1.0) as usize;
+    text.chars().count().div_ceil(per_line).max(1)
+}
+
 /// The reference's status line while a comparison is being read (`FileDiff.tsx:147`,
 /// `locales.ts:122`).
 pub const READING: &str = "Reading changes…";
@@ -301,6 +315,21 @@ mod tests {
             READING.ends_with('…'),
             "an ellipsis, as the reference writes it"
         );
+    }
+
+    #[test]
+    fn a_long_comparison_row_reserves_every_line_it_wraps_onto() {
+        // One line fits, and the count is by characters, not bytes.
+        assert_eq!(visual_lines("", 600.0), 1);
+        assert_eq!(visual_lines("short", 600.0), 1);
+        // 600px is about 81 cells, so 81 characters fit and 82 need a second line.
+        assert_eq!(visual_lines(&"x".repeat(81), 600.0), 1);
+        assert_eq!(visual_lines(&"x".repeat(82), 600.0), 2);
+        assert_eq!(visual_lines(&"x".repeat(162), 600.0), 2);
+        assert_eq!(visual_lines(&"x".repeat(163), 600.0), 3);
+        assert_eq!(visual_lines(&"界".repeat(163), 600.0), 3);
+        // A zero width cannot divide; the row still occupies one line.
+        assert_eq!(visual_lines("anything", 0.0), 1);
     }
 
     #[test]

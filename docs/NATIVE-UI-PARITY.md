@@ -13056,3 +13056,40 @@ opens now matches.
 | DP-2 capture | — | `shots/281-context-bar.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 491 — a long comparison row wraps instead of being cut
+
+Since the diff renderer landed, every row was one clipped line: a comparison row longer than the panel
+was simply cut at its edge, with no way to read the rest. The reference wraps the same rows
+(`FileDiff.module.css:5`, the wrap control at `ReviewTab.tsx:131-142`).
+
+`changes_text::visual_lines` measures a row by character count in the monospace face the rows are drawn
+in, and the panel now reserves every line a row wraps onto and draws it with word wrapping — so the row
+reports its own height instead of the fixed seat clipping it. Short rows are unchanged, which is what the
+first capture of this round showed before a long row was seeded.
+
+Tests: `a_long_comparison_row_reserves_every_line_it_wraps_onto` — the cell count at 600px (81 characters
+fit, 82 take two lines), the same count for a multi-byte row, and a zero width still occupying one line.
+
+Evidence: `shots/282-changes-wrap.png` (DP-2 alongside, `status: passed`) — a 94-character addition drawn
+on two lines inside one green row whose bar spans both.
+
+**The reference's wrap *control* is not built**: native wraps always and has no split view. Both are
+recorded as differences rather than implied — a toggle would need its own persistence and a split view its
+own layout, and neither changes what information is reachable now that rows wrap.
+
+**Battery (round 491).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1477 passed**, 1 ignored |
+| app, default | **0** | **1439 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/282-changes-wrap.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

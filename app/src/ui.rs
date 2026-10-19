@@ -19836,6 +19836,15 @@ pub(crate) fn diff_line_view(
     line: &crate::reducer::inline_diff::Line,
     height: f32,
 ) -> Element<'static, Message> {
+    diff_line_view_wrapped(line, height, false)
+}
+/// One diff row. A wrapped row states its own height and lets the text run onto it; a clipped row is
+/// the inline tool diff's single line, which keeps that card's rhythm.
+pub(crate) fn diff_line_view_wrapped(
+    line: &crate::reducer::inline_diff::Line,
+    height: f32,
+    wrap: bool,
+) -> Element<'static, Message> {
     use crate::reducer::inline_diff::Kind;
     let (ink, fill, bar) = match line.kind {
         Kind::Deleted => (DANGER, Some(design::DIFF_DELETED_FILL), DANGER),
@@ -19872,6 +19881,11 @@ pub(crate) fn diff_line_view(
             label(line.text.clone(), ink)
                 .size(design::CODE_FONT)
                 .font(MONO)
+                .wrapping(if wrap {
+                    iced::advanced::text::Wrapping::Word
+                } else {
+                    iced::advanced::text::Wrapping::None
+                }),
         )
         .padding(iced::Padding {
             top: 0.0,
@@ -19881,7 +19895,7 @@ pub(crate) fn diff_line_view(
         })
         .width(Length::Fill)
         .height(height)
-        .clip(true),
+        .clip(!wrap),
     ]
     .height(height);
     container(content)
