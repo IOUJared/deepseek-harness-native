@@ -446,6 +446,8 @@ pub enum Message {
     GuideCopyExpired,
     /// Copy one job's command to the clipboard.
     CopyJobOutput(String),
+    /// Hide the panel's finished rows; nothing is sent to the Host.
+    ClearSettledJobs,
     /// A job's stop confirmation has been armed for its three seconds.
     JobArmExpired(String),
     /// Open or close the panel's finished section.
@@ -3963,6 +3965,26 @@ impl App {
             }
             Message::JobArmExpired(id) if self.jobs_armed.as_deref() == Some(id.as_str()) => {
                 self.jobs_armed = None;
+            }
+            Message::ClearSettledJobs => {
+                // Local to this panel: the rows leave the list and their buffered output goes with
+                // them, and an expanded settled row closes (`JobListAction.tsx:467-476`).
+                self.jobs
+                    .retain(|job| job.status == "running" || job.status == "stopping");
+                if self
+                    .jobs_expanded
+                    .as_ref()
+                    .is_some_and(|id| !self.jobs.iter().any(|job| &job.id == id))
+                {
+                    self.jobs_expanded = None;
+                }
+                if self
+                    .jobs_armed
+                    .as_ref()
+                    .is_some_and(|id| !self.jobs.iter().any(|job| &job.id == id))
+                {
+                    self.jobs_armed = None;
+                }
             }
             Message::CopyJobOutput(text) => {
                 // The clipboard is the App's to write; the row only names what to copy.
@@ -10109,11 +10131,24 @@ impl App {
         // running, so live work is never crowded out (`JobListAction.tsx:333,352,537-549`).
         if settled > 0 {
             let arrow = if settled_open { "▾" } else { "▸" };
+            // The reference's heading carries a Clear for the finished rows it lists
+            // (`JobListAction.tsx:537-549`): it hides settled rows from this view only, it never
+            // asks the Host to forget anything.
             panel = panel.push(
-                button(label(format!("{arrow} Finished {settled}"), MUTED).size(11))
-                    .on_press(Message::ToggleJobSettled)
-                    .style(design::ghost)
-                    .padding([0, 0]),
+                row![
+                    button(label(format!("{arrow} Finished {settled}"), MUTED).size(11))
+                        .on_press(Message::ToggleJobSettled)
+                        .style(design::ghost)
+                        .padding([0, 0]),
+                    Space::new().width(Length::Fill),
+                    button(label("Clear", MUTED).size(10))
+                        .on_press(Message::ClearSettledJobs)
+                        .style(design::ghost)
+                        .padding([0, 4]),
+                ]
+                .spacing(4)
+                .align_y(iced::Alignment::Center)
+                .width(Length::Fill),
             );
         }
         if settled > 0 && settled_open {

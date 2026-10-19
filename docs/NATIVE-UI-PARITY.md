@@ -11463,3 +11463,35 @@ frame is the evidence that the control is drawn where the buffer is.
 | DP-2 capture | — | `shots/257-jobs-output-copy.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 448 — the finished jobs can be cleared
+
+The jobs audit's last readable item: the reference puts a `Clear` beside its finished heading
+(`JobListAction.tsx:537-549`), and clearing only hides those rows from that view — it never asks the
+Host to forget anything (`:467-476`). Native had no way to get a long finished list out of the panel.
+
+`Clear` now sits at the right of the `Finished N` heading and drops the settled rows from the panel,
+together with their buffered output, closing an expanded settled row and an armed stop that belonged to
+one of them. Nothing is dispatched: the rows return on the next `jobs/list` frame.
+
+Evidence: `shots/258-jobs-clear.png` (DP-2 alongside, `status: passed`) — `▸ Finished 2` with `Clear`
+at the right of the panel, above the armed stop confirmation.
+
+Tests: `clearing_finished_jobs_keeps_the_live_ones` — the live rows survive, every settled row and its
+output goes, and the expanded cleared row closes.
+
+**Battery (round 448).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1436 passed**, 1 ignored |
+| app, default | **0** | **1411 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/258-jobs-clear.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

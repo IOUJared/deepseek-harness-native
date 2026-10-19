@@ -839,3 +839,39 @@ fn the_finished_jobs_fold_follows_live_work() {
     assert_eq!(live, 0);
     assert!(app.jobs_settled_open.unwrap_or(live == 0));
 }
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
+fn clearing_finished_jobs_keeps_the_live_ones() {
+    let (size, _scale) = super::layout_fixture::preset_size("conversation").unwrap();
+    let (mut app, _queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "conversation",
+        size,
+        None,
+    );
+    app.set_jobs();
+    // An expanded settled row closes with the clear, and a running one survives.
+    app.jobs_expanded = Some("grep-3".into());
+    app.jobs_output
+        .insert("grep-3".into(), "PUBLIC settled output".into());
+    let live_before = app
+        .jobs
+        .iter()
+        .filter(|job| job.status == "running" || job.status == "stopping")
+        .count();
+    assert!(live_before >= 1);
+    drop(app.update(Message::ClearSettledJobs));
+    assert_eq!(app.jobs.len(), live_before, "only live work is left");
+    assert!(
+        app.jobs
+            .iter()
+            .all(|job| job.status == "running" || job.status == "stopping")
+    );
+    assert!(
+        app.jobs_expanded.is_none(),
+        "the cleared row's output closed"
+    );
+    // It is a view action: nothing was asked of the Host.
+    assert!(app.jobs.is_empty() == false);
+}
