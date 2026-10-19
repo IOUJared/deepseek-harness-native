@@ -13434,3 +13434,38 @@ that native has never had — the sidebar's Scheduled tasks row is its only entr
 | DP-2 capture | — | `shots/294-hero-blank.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 501 — the subagent count sits beside the title it counts
+
+The second finding from the header audit: the reference's actions band orders the subagent catalog
+**first**, directly after the title crumbs (`ui-subagent/src/client/index.ts:84-90`, `order: -30`, "Leads
+the band, directly after the title crumbs"), while native pushed it after the identity's `Fill`, so it
+rendered at the far right, beside the overflow control rather than beside the title.
+
+The band is now laid in the reference's order: crumbs, the working badge, the subagent catalog, the
+running stop control, then the free space, then `More`. A count about the conversation reads next to the
+conversation's name.
+
+Evidence: `shots/295-header-order.png` (DP-2 alongside, `status: passed`) — `PUBLIC parent with subagents`
+followed immediately by `2 subagents`, with `More ▾` closing the row.
+
+**Recorded from the same audit, still open**: the reference's header also carries a **reminders chip**
+(`ui-schedule/src/client/index.ts:208-216`, `order: -5`: an icon-only clock with "{count} reminders" and a
+popover of rows with a per-row delete). Native's only entry to schedules is the sidebar's Scheduled tasks
+row. That is a real element native has never had and is named here for a later round.
+
+**Battery (round 501).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1485 passed**, 1 ignored |
+| app, default | **0** | **1446 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/295-header-order.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

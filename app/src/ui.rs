@@ -10167,18 +10167,16 @@ impl App {
         } else {
             64
         };
-        let mut identity = row![
-            container(self.header_crumbs(&heading, title_limit))
-                .width(Length::Fill)
-                .clip(true)
-        ]
-        .spacing(8)
-        .align_y(iced::Alignment::Center)
-        .width(Length::Fill);
+        // The band's order is the reference's slot order: the title crumbs, the subagent catalog
+        // directly after them (order -30), the running control, then the free space and the overflow
+        // control that closes the row (`ui-subagent/src/client/index.ts:84-90`,
+        // `ConversationRoot.module.css:72-79`). Before this the catalog sat after the free space, so
+        // it rendered at the far right away from the title it counts.
+        let mut crumbs = row![self.header_crumbs(&heading, title_limit)].spacing(8);
         if let Some(session) = observed.filter(|session| session.running) {
-            identity = identity.push(self.working_badge(session));
+            crumbs = crumbs.push(self.working_badge(session));
         }
-        let mut actions = row![identity]
+        let mut actions = row![crumbs]
             .spacing(6)
             .height(design::HEADER_TITLE_ROW)
             .align_y(iced::Alignment::Center);
@@ -10188,6 +10186,7 @@ impl App {
         if self.panel_stop_visible() {
             actions = actions.push(self.stop_button());
         }
+        actions = actions.push(Space::new().width(Length::Fill));
         actions = actions.push(
             button(
                 label(
