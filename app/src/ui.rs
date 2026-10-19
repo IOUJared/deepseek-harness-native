@@ -8309,6 +8309,11 @@ impl App {
                 label: label.to_owned(),
                 owner: None,
                 status: status.to_owned(),
+                progress: None,
+                detail: None,
+                started_at: None,
+                finished_at: None,
+                output: None,
             };
         // The panel is opened in the fixture, and the first row is armed: the closed action state
         // and the unarmed rows both have their own captures.
@@ -23022,6 +23027,11 @@ mod tests {
                 label: "Run the test suite".to_owned(),
                 owner: None,
                 status: "running".to_owned(),
+                progress: None,
+                detail: None,
+                started_at: None,
+                finished_at: None,
+                output: None,
             },
         ])));
         assert_eq!(app.jobs.len(), 1, "the Host's list is the panel's list");

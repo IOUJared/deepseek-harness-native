@@ -3540,6 +3540,11 @@ pub fn build(
                     "completed"
                 }
                 .into(),
+                progress: None,
+                detail: None,
+                started_at: None,
+                finished_at: None,
+                output: None,
             });
         }
     }

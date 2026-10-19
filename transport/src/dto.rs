@@ -697,6 +697,44 @@ pub struct JobView {
     pub owner: Option<String>,
     /// The lifecycle state: running, stopping, completed, killed or failed.
     pub status: String,
+    /// The producer's live progress line (`3/10`, the current phase); cleared at settlement
+    /// (`packages/jobs/jobs/src/view.ts:82-83`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<String>,
+    /// The terminal reason (`exit code: 3`), or a recorded kill reason (`:84-85`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    /// Epoch ms when the job was registered (`:86-87`). A job whose Host omits it sorts last
+    /// rather than pretending to be the oldest.
+    #[serde(rename = "startedAt", default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<u64>,
+    /// Epoch ms when the job settled; absent while live (`:88-89`).
+    #[serde(
+        rename = "finishedAt",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub finished_at: Option<u64>,
+    /// The output ring's coordinates: `total` is the next chunk's offset, `earliest` the oldest
+    /// retained byte (`:90-102`). `total == 0` means nothing was written, which is what decides
+    /// whether a row can be expanded at all.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<JobOutput>,
+}
+
+/// One job's output-ring coordinates (`packages/jobs/jobs/src/view.ts:96-102`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobOutput {
+    #[serde(default)]
+    pub total: u64,
+    #[serde(default)]
+    pub earliest: u64,
+    #[serde(
+        rename = "spillPaths",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub spill_paths: Option<Vec<String>>,
 }
 
 /// The `jobs/list` request: a required session whose visible set the frame replaces wholesale
@@ -1204,4 +1242,76 @@ pub struct DirectoryListing {
     pub crumbs: Vec<DirectoryEntry>,
     pub entries: Vec<DirectoryEntry>,
     pub truncated: bool,
+}
+
+#[cfg(test)]
+mod job_view_tests {
+    //! The producer's job fields: progress, detail, both instants, and the output ring.
+    use super::*;
+
+    #[test]
+    fn a_full_job_view_keeps_the_producers_own_facts() {
+        let frame: JobListFrame = serde_json::from_str(
+            r#"{"jobs":[{"id":"bash-1","kind":"bash","label":"Run the tests","status":"completed",
+                 "owner":"PUBLIC-session","progress":"3/10","detail":"exit code: 3",
+                 "startedAt":1792227600000,"finishedAt":1792227660000,
+                 "output":{"total":2048,"earliest":0,"spillPaths":["/tmp/PUBLIC-spill"]}}]}"#,
+        )
+        .expect("the Host's own frame shape");
+        let job = &frame.jobs[0];
+        assert_eq!(job.progress.as_deref(), Some("3/10"));
+        assert_eq!(job.detail.as_deref(), Some("exit code: 3"));
+        assert_eq!(job.started_at, Some(1_792_227_600_000));
+        assert_eq!(job.finished_at, Some(1_792_227_660_000));
+        let output = job.output.as_ref().expect("the ring's coordinates");
+        assert_eq!(output.total, 2048);
+        assert_eq!(output.earliest, 0);
+        assert_eq!(
+            output.spill_paths.as_deref(),
+            Some(&["/tmp/PUBLIC-spill".to_owned()][..])
+        );
+    }
+
+    #[test]
+    fn a_live_job_may_state_only_what_the_producer_knows() {
+        // A running job has no finished instant and no detail; a deployment may omit the ring.
+        let frame: JobListFrame = serde_json::from_str(
+            r#"{"jobs":[{"id":"bash-1","kind":"bash","label":"Run the tests","status":"running",
+                 "startedAt":1792227600000}]}"#,
+        )
+        .expect("the minimal shape is readable");
+        let job = &frame.jobs[0];
+        assert!(job.finished_at.is_none());
+        assert!(job.detail.is_none());
+        assert!(job.progress.is_none());
+        assert!(job.output.is_none());
+        assert_eq!(job.started_at, Some(1_792_227_600_000));
+    }
+
+    #[test]
+    fn nothing_the_host_omits_is_serialized_back() {
+        let job = JobView {
+            id: "bash-1".into(),
+            kind: "bash".into(),
+            label: "Run the tests".into(),
+            owner: None,
+            status: "running".into(),
+            progress: None,
+            detail: None,
+            started_at: None,
+            finished_at: None,
+            output: None,
+        };
+        let encoded = serde_json::to_string(&job).expect("serializable");
+        for absent in [
+            "progress",
+            "detail",
+            "startedAt",
+            "finishedAt",
+            "output",
+            "owner",
+        ] {
+            assert!(!encoded.contains(absent), "{absent} in {encoded}");
+        }
+    }
 }

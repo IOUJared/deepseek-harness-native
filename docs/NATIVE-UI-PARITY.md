@@ -11561,3 +11561,39 @@ Tests: the panel's behaviour tests are unchanged and pass; the frame is the evid
 | DP-2 capture | — | `shots/260-jobs-panel-cap.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 451 — the transport keeps the producer's job facts
+
+Every remaining jobs gap came down to one cause: native's `JobView` kept five fields and dropped
+everything else the Host sends. The producer's `JobView` carries `progress`, `detail`, `startedAt`,
+`finishedAt` and the output ring's `total`/`earliest`/`spillPaths`
+(`packages/jobs/jobs/src/view.ts:65-102`), and the four unbuilt panel behaviours all read from them.
+
+The DTO now carries all of it: `progress` and `detail` as optional strings, `startedAt`/`finishedAt`
+as optional epoch millis with the Host's own camelCase names, and `output` as an optional
+`JobOutput { total, earliest, spill_paths }`. Nothing is invented when the Host omits a field — a live
+job has no `finished_at` and no `detail`, and a deployment that sends no ring leaves `output: None`
+rather than a zeroed struct pretending to be measured.
+
+Tests: three in `transport::dto::job_view_tests` — a full frame keeps every producer fact, the minimal
+live frame parses with the absences intact, and serializing a sparse row writes none of the omitted
+keys.
+
+This is wire work without a frame; the panel's ordering, progress text, duration cell and
+expand-when-observable behaviours are the next rounds, each with its own capture.
+
+**Battery (round 451).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1436 passed**, 1 ignored |
+| app, default | **0** | **1411 passed**, 1 ignored |
+| transport | **0** | **59** + 17 + 91 + 7 (three new) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | — | not re-run this round (no example touched) |
+| capture | — | none: wire change, proved by tests |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
