@@ -429,6 +429,8 @@ pub enum Message {
     CopyDetailSource(detail_panel::Stamp),
     ToggleThoughts(conversation_content::Ticket),
     /// Expand or collapse one tool row's recorded body inside the conversation.
+    /// Set the Trajectory tab's record filter.
+    TrajectorySearch(String),
     /// Set the schedules page's search text.
     ScheduleSearch(String),
     /// Set the schedules page's status filter.
@@ -1120,6 +1122,8 @@ pub struct App {
     /// Delivery records whose saved prompt is unfolded, by message id: the reference clamps a long
     /// prompt and offers Expand/Collapse (`DeliveryHistory.tsx:55-60`).
     schedule_history_expanded: std::collections::BTreeSet<String>,
+    /// The Trajectory tab's own record filter (`TrajectoryToolbar.tsx:114-124`).
+    trajectory_query: String,
     /// The page's own outcome line: the reference confirms a deletion with a shell toast, and this
     /// app states it in place instead (`DeleteToast.tsx:80-87`).
     schedules_notice: Option<String>,
@@ -1552,6 +1556,7 @@ impl App {
                 schedule_history_expanded: Default::default(),
                 schedule_retention_open: false,
                 schedules_notice: None,
+                trajectory_query: String::new(),
                 schedule_query: String::new(),
                 schedule_filter: crate::reducer::schedule_card::Filter::All,
                 queue_steer_all: Default::default(),
@@ -4361,6 +4366,9 @@ impl App {
                     limit: 20,
                     before: None,
                 });
+            }
+            Message::TrajectorySearch(query) if self.records_expanded => {
+                self.trajectory_query = query;
             }
             Message::ScheduleSearch(query) if self.schedules_open => {
                 self.schedule_query = query;
@@ -8946,6 +8954,8 @@ impl App {
                 )
                 .into()
         };
+        // The reference's Trajectory tab has its own record filter (`TrajectoryToolbar.tsx:114-124`);
+        // it applies to records, so it is drawn only while that tab is showing.
         let mut tabs = row![tab("Chat", !expanded)]
             .spacing(design::TAB_GAP)
             .padding([0.0, design::HEADER_TABS_INSET]);
@@ -14589,6 +14599,40 @@ impl App {
             home: self.options.backend.user_home.to_str(),
         }
     }
+    /// The rows the transcript shows. In Trajectory a search query narrows them, matching the
+    /// reference's own record filter (`TrajectoryToolbar.tsx:114-124`,
+    /// `trajectory-search-index.ts:124-132`): case-insensitive, space-separated terms, all of which
+    /// must appear in the record's kind, role, text or raw body.
+    fn visible_rows(&self) -> Vec<&DisplayRow> {
+        let rows: Vec<&DisplayRow> = self
+            .transcript
+            .display_rows(self.records_expanded)
+            .collect();
+        if !self.records_expanded {
+            return rows;
+        }
+        let terms: Vec<String> = self
+            .trajectory_query
+            .split_whitespace()
+            .map(str::to_lowercase)
+            .collect();
+        if terms.is_empty() {
+            return rows;
+        }
+        rows.into_iter()
+            .filter(|row| {
+                let haystack = format!(
+                    "{} {} {} {}",
+                    row.kind,
+                    row.role,
+                    row.text,
+                    self.transcript.raw_text(row.key).unwrap_or_default()
+                )
+                .to_lowercase();
+                terms.iter().all(|term| haystack.contains(term))
+            })
+            .collect()
+    }
     fn transcript_view(&self) -> Element<'_, Message> {
         let partial = self.transcript.partial().map(|text| DisplayRow {
             key: u64::MAX,
@@ -14611,8 +14655,8 @@ impl App {
         });
         let len = self.transcript.display_rows(true).count() + usize::from(partial.is_some());
         let rendered: Vec<&DisplayRow> = self
-            .transcript
-            .display_rows(self.records_expanded)
+            .visible_rows()
+            .into_iter()
             .chain(partial.as_ref())
             .collect();
         if rendered.is_empty() {
@@ -15458,6 +15502,19 @@ impl App {
             button(label("Find", MUTED).size(11))
                 .on_press(Message::SearchOpen)
                 .style(design::ghost),
+            // The reference's Trajectory tab carries its own record filter
+            // (`TrajectoryToolbar.tsx:114-124`); it narrows records, so it is drawn only there.
+            if self.records_expanded {
+                let field: Element<'_, Message> = text_input("Search", &self.trajectory_query)
+                    .on_input(Message::TrajectorySearch)
+                    .size(11)
+                    .padding(4)
+                    .width(200)
+                    .into();
+                field
+            } else {
+                Space::new().width(0).into()
+            },
             Space::new().width(Length::Fill),
             button(
                 label(

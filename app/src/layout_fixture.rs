@@ -2100,6 +2100,7 @@ pub fn build(
                 .is_some_and(|row| row.session_id.as_str() == "PUBLIC-layout-review")
         );
     }
+
     if preset == "chat-thoughts" {
         let ticket = app.reply_parts(1).unwrap().ticket.unwrap();
         drop(app.update(Message::ToggleThoughts(ticket)));

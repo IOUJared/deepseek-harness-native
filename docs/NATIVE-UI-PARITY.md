@@ -6383,7 +6383,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 
 | Reference surface | Native status |
 | --- | --- |
-| Chat: renderer, thoughts, turn triggers, copy/branch/edit/fork | cloned (markdown: tables, footnotes and math; math draws its source, since no native typesetter exists — see the renderer note below) |
+| Chat: renderer, thoughts, turn triggers, copy/branch/edit/fork | cloned (search is a native addition: the reference has no conversation Find bar and leaves text search to the browser's own find, exposing collapsed subtrees to it through `hidden="until-found"`) (markdown: tables, footnotes and math; math draws its source, since no native typesetter exists — see the renderer note below) |
 | Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the slash menu groups its two sources as the reference does (`Commands`, then `Skills`), states `Loading…` while the advertisement is in flight and shows a command's argument hint under the draft (the reference draws it inside the editor), but has no breadcrumbs or subagent source, files are chosen one at a time through a path field, no image thumbnails in the rail, and a send awaiting admission is stated by the composer's own banner (with Check, Review and Stop-original) rather than as a queue row;  steering the whole queue is a `Steer all` control on the strip (the reference triggers it from an empty draft); and these deliberate differences: the reference inverts its submission policy on Cmd/Ctrl+Enter (`view-binding.ts:120-130`), while native keeps Ctrl+Enter a plain send alias by the user's explicit confirmation (`docs/SESSION-PROMPT.md`); and native's goal bar states a running goal's controls where the reference adds `hint.goal`/`hint.goal.active` ghost copy beside the draft) |
 | Sidebar: sessions, search, pin/archive/trash, workspace filter, navigation sheet | cloned (time-grouped list, not the grouped browser) |
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
@@ -10678,5 +10678,45 @@ than asserted twice.
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/242-linked-session.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 427 — the Trajectory record filter, and the truth about Find
+
+**The Trajectory tab now filters records.** The reference's Trajectory toolbar has its own search input
+(`TrajectoryToolbar.tsx:114-124`), matching case-insensitive, space-separated terms over a record's
+kind, text and raw body (`trajectory-search-index.ts:36-68,124-132`). Native's Trajectory was a plain
+list. `visible_rows` now narrows it when a query is set and the tab is showing, matching every term
+against kind, role, display text and the record's serialized data; Chat is untouched by the control
+because it is a record filter.
+
+**The audit corrected a false parity claim.** It found that the reference has **no conversation Find
+bar at all**: `ConversationHeader.tsx:19-24` renders three slots, no find/search component exists for
+the conversation, the desktop shell's edit menu has no Find item and never calls `findInPage`. Text
+search there is the *browser's* find over the DOM, and the app's only participation is `hidden="until-
+found"` plus a `beforematch` reveal so collapsed sections can be found. Native's Find bar with its
+count and Ctrl+F command is therefore an addition, not a port — and the coverage table now says so
+instead of implying it was cloned.
+
+Two real reference-anchored gaps remain and are recorded: native's search does not reach tool/process
+bodies (the reference exposes them to the browser's find), and the reference's Trajectory filter now has
+a native counterpart but no capture: the fixture's preset plumbing returned an empty transcript for a
+Trajectory-only view, so the filter's evidence this round is its test — `the_trajectory_filter_narrows_
+records_by_all_of_its_terms`, which asserts that a term keeps fewer rows, that every term must match,
+that case does not matter, and that Chat is unaffected.
+
+**Battery (round 427).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1418 passed**, 1 ignored |
+| app, default | **0** | 1399 passed, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: the fixture produced an empty transcript for this view |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |

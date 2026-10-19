@@ -527,6 +527,12 @@ impl Transcript {
             event.event_type == "turn/end" && event.data["turn"].as_u64() == Some(turn)
         })
     }
+    /// One record's serialized data, for the Trajectory search: the reference's filter matches a
+    /// record's raw body as well as its display text (`trajectory-search-index.ts:36-68`).
+    pub fn raw_text(&self, key: u64) -> Option<String> {
+        let event = self.records.get(&key)?;
+        serde_json::to_string(&event.data).ok()
+    }
     /// One call row's own arguments, for the process group's live detail. Alpha records them as a
     /// JSON string; a recorded object is accepted as it stands.
     pub fn tool_args(&self, key: u64) -> Option<serde_json::Value> {

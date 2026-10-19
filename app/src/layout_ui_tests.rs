@@ -105,6 +105,47 @@ fn closing_state_rejects_local_menu_and_info_changes() {
 }
 #[cfg(feature = "public-layout-fixture")]
 #[test]
+fn the_trajectory_filter_narrows_records_by_all_of_its_terms() {
+    let (size, _scale) = super::layout_fixture::preset_size("tool-activity").unwrap();
+    let (mut app, _queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "tool-activity",
+        size,
+        None,
+    );
+    // Chat shows conversation rows; the filter is a Trajectory control and must not touch them.
+    assert!(app.visible_rows().len() >= 2);
+    let chat_rows = app.visible_rows().len();
+    app.trajectory_query = "no-such-record".into();
+    assert_eq!(app.visible_rows().len(), chat_rows, "Chat is not filtered");
+
+    app.trajectory_query.clear();
+    app.records_expanded = true;
+    let all = app.visible_rows().len();
+    assert!(all >= 2, "Trajectory lists the records: {all}");
+    // A term that no record carries narrows the list away, and every term must be present.
+    app.trajectory_query = "PUBLIC nonexistent".into();
+    assert!(app.visible_rows().is_empty());
+    app.trajectory_query = "tool/call".into();
+    let calls = app.visible_rows().len();
+    assert!(
+        calls >= 1 && calls <= all,
+        "a record kind matches: {calls} of {all}"
+    );
+    // The filter is a real narrowing, not a no-op: it keeps fewer rows than the unfiltered tab.
+    app.trajectory_query.clear();
+    let unfiltered = app.visible_rows().len();
+    assert!(calls < unfiltered, "{calls} of {unfiltered}");
+    // Case does not matter.
+    app.trajectory_query = "TOOL/CALL".into();
+    assert_eq!(app.visible_rows().len(), calls);
+    // Two terms are conjunctive: a kind plus a word only some calls carry.
+    app.trajectory_query = "tool/call Public-note".into();
+    assert!(app.visible_rows().len() <= calls);
+}
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
 fn a_failed_history_read_offers_a_retry_that_asks_again() {
     use crate::worker::Command;
     let (size, _scale) = super::layout_fixture::preset_size("schedules-history-error").unwrap();
