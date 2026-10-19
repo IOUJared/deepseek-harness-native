@@ -194,6 +194,7 @@ pub const PRESETS: &[&str] = &[
     "model-retry",
     "turn-total",
     "turn-usage",
+    "turn-usage-retry",
     "stats-dialog",
     "settings-shortcuts",
     "turn-error",
@@ -299,6 +300,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "model-retry" => Some((Size::new(1040.0, 760.0), 1.0)),
         "turn-total" => Some((Size::new(1040.0, 760.0), 1.0)),
         "turn-usage" => Some((Size::new(1040.0, 760.0), 1.0)),
+        "turn-usage-retry" => Some((Size::new(1040.0, 760.0), 1.0)),
         "stats-dialog" => Some((Size::new(1040.0, 760.0), 1.0)),
         "settings-shortcuts" => Some((Size::new(1040.0, 900.0), 1.0)),
         "turn-error" | "turn-max-tokens" | "quota-toast" => Some((Size::new(1040.0, 620.0), 1.0)),
@@ -1846,6 +1848,41 @@ pub fn build(
             json!({"type":"event","event":{"type":"tool-workflow/run-end","seq":5,"time":1005,
                 "data":{"runId":"PUBLIC-run","stopReason":"completed"}}}),
         ]
+    } else if preset == "turn-usage-retry" {
+        // One Turn with two attempts — the first answered and then retried — so the reading is their
+        // sum, not the last message's own usage (`turn-usage.ts:190-300`).
+        vec![
+            json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
+                "surfaceOp":"append","data":{"role":"user","id":"PUBLIC-usage-retry-user",
+                    "source":{"kind":"user"},
+                    "content":[{"type":"text","text":"PUBLIC turn-usage-retry fixture · no model request ran."}]}}}),
+            json!({"type":"event","event":{"type":"turn/start","seq":1,"time":1000,
+                "surfaceOp":"append","data":{"turn":1}}}),
+            json!({"type":"event","event":{"type":"step/start","seq":2,"time":1000,
+                "surfaceOp":"append","data":{"turn":1,"step":1}}}),
+            json!({"type":"event","event":{"type":"assistant/message","seq":3,"time":1001,
+                "surfaceOp":"append","data":{"turn":1,"step":1,
+                    "usage":{"uncachedInputTokens":100,"cacheReadTokens":900,
+                        "outputTokens":10,"totalTokens":1010},
+                    "message":{"source":{"provider":"PUBLIC","model":"PUBLIC-model"}},
+                    "stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],
+                        "texts":["PUBLIC first attempt; the retry replaced it."]}]}}}),
+            json!({"type":"event","event":{"type":"llm/retry","seq":4,"time":1002,
+                "surfaceOp":"append","data":{"turn":1,"step":1}}}),
+            json!({"type":"event","event":{"type":"llm/retry-started","seq":5,"time":1003,
+                "surfaceOp":"append","data":{"turn":1,"step":1}}}),
+            json!({"type":"event","event":{"type":"assistant/message","seq":6,"time":1004,
+                "surfaceOp":"append","data":{"turn":1,"step":1,
+                    "usage":{"uncachedInputTokens":200,"cacheReadTokens":1800,
+                        "outputTokens":20,"totalTokens":2020},
+                    "message":{"source":{"provider":"PUBLIC","model":"PUBLIC-model"}},
+                    "stream":[{"type":"text-chunks","time0":1004,"index":0,"dt":[],
+                        "texts":["PUBLIC second attempt; the pill states both."]}]}}}),
+            json!({"type":"event","event":{"type":"step/end","seq":7,"time":1005,
+                "surfaceOp":"append","data":{"turn":1,"step":1}}}),
+            json!({"type":"event","event":{"type":"turn/end","seq":8,"time":1006,
+                "surfaceOp":"append","data":{"turn":1,"reason":{"kind":"completed"}}}}),
+        ]
     } else if preset == "turn-usage" {
         // One completed Turn whose assistant message carries every accounting bucket, so the
         // dialog's rows all have values (`TurnUsagePanel.tsx:52-105`).
@@ -2676,6 +2713,10 @@ pub fn build(
         // The accounting dialog open over the settled row: a state a press reaches, set before the
         // frame rather than clicked into it.
         app.usage_expanded.insert(2);
+    }
+    if preset == "turn-usage-retry" {
+        // The dialog open on the Turn's closing message, where the aggregate reading sits.
+        app.usage_expanded.insert(6);
     }
     if preset == "turn-rail-hover" {
         // A pointer resting on the sixth Turn's mark: the preview card's state, set before the frame

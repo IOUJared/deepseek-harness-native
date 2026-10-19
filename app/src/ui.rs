@@ -170,6 +170,9 @@ mod terminal_ui_tests;
 pub mod time_text;
 #[path = "turn_outline.rs"]
 pub mod turn_outline;
+/// One completed Turn's exact token accounting, folded from its attempts.
+#[path = "turn_usage.rs"]
+pub mod turn_usage;
 /// The reference's work-details modes and the presentation policy each enables.
 #[path = "work_details.rs"]
 pub mod work_details;

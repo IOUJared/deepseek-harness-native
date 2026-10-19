@@ -5621,6 +5621,11 @@ popover dialog anchored to the pill; there are no provider/model route rows (tha
 attribution), and the reading comes from the assistant message's usage rather than the reference's
 whole-turn aggregate across attempts. The label is a text control, not a drawn icon.
 
+**~~Superseded~~ — rounds 521 and 526.** The inline line became the reference's anchored dialog with
+the route and every bucket (521), and the reading became the Turn's aggregate across its attempts,
+stated once on the record that closes it (526, `app/src/turn_usage.rs`). Two of the three differences
+recorded above are therefore closed; the label is still a text control.
+
 **Battery (round 285).**
 
 | gate | status | result |
@@ -14826,4 +14831,53 @@ support.
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-q3ho4z7s`) |
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 capture | — | `shots/319-workflow-interrupted.png`, `status: passed`, 760x560 |
+| app bin | — | **21** warnings |
+
+### Round 526 — a Turn's usage is the sum of its attempts
+
+**The gap.** Rounds 521 read one assistant record's `usage`. The reference never does: its disclosure
+is "exact provider-reported token accounting for **every attempt in one completed Turn**"
+(`contract/chat-nodes.ts:68-83`), folded by `deriveTurnTokenUsage` from `turn/start` through
+`turn/end` (`packages/llm/token-meter/src/turn-usage.ts:126-300`). A Turn that retried therefore
+reported only its last attempt in native, and a Turn with several steps showed one pill per assistant
+row instead of one pill per Turn.
+
+**The change.** New `app/src/turn_usage.rs` is that fold: a three-state attempt machine (pending /
+open / settled) over the Turn's own records, one sample per attempt boundary
+(`step/start`, `llm/retry-started` → open; `assistant/attempt`/`assistant/message` → a sample;
+`step/end`, `llm/retry` → idle), usage read from `data.usage` **or** the stream's last usage chunk, the
+route read from the message's own `source`, safe sums, and the reference's bucket rule — `cacheRead` /
+`cacheWrite` / `reasoning` survive only when **every** attempt reported them, routes only when every
+attempt named one. Any missing boundary, unbracketed Turn, attempt without usage or contradictory step
+end makes the whole disclosure unavailable, and the caller keeps the single-record reading it had.
+
+`Transcript::turn_usage`/`turn_usage_detail` now prefer the aggregate and only on the assistant record
+that **closes** the Turn, so the pill appears once per Turn.
+
+**Frame.** `shots/320-turn-usage-retry.png` (1040x760, new `turn-usage-retry` preset: two attempts with
+a retry between them): one `Usage 3.0K tok` pill and a dialog reading `Turn usage 3.0K tok`,
+`Provider / model PUBLIC/PUBLIC-model`, `Cache hit 90.0%`, `Uncached input 300 tok`,
+`Cached input 2.7K tok`, `Output 30 tok` — the sum of 1010 and 2020, not the 2020 the last message
+alone reported.
+
+**Tests.** Six in `turn_usage`: two closed attempts summed (and a second sample in one step refused);
+an unbracketed Turn, an unclosed attempt and an attempt without usage each yield `None`; and cache
+buckets/routes surviving only with unanimous reports (including route deduplication).
+
+**Recorded limits.** Native's fold accepts a sample from `data.usage` or the stream's last usage chunk
+where the reference also accepts `streamUsage` on attempt records; native treats `llm/retry` as
+closing a settled attempt, which is the reference's own step-end path. The aggregate is not a Host
+projection — it is derived from the same retained records in both clients.
+
+**Battery (round 526).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1529 passed**, 1 ignored |
+| app, default | **0** | **1473 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-d0jmqef7`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-kwm8v2or`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 capture | — | `shots/320-turn-usage-retry.png`, `status: passed`, 1040x760 |
 | app bin | — | **21** warnings |

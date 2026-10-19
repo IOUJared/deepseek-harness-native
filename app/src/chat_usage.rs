@@ -403,6 +403,48 @@ impl TurnUsageDetail {
     }
 }
 
+/// The label one Turn's aggregate usage states, in the reference's `{count} tok` form
+/// (`message.turnUsage.count`), or `None` when the total is empty or implausible.
+pub fn turn_usage_label(usage: &crate::ui::turn_usage::TurnUsage) -> Option<String> {
+    if usage.total == 0 || usage.total > MAX_COUNT {
+        return None;
+    }
+    Some(format!(
+        "{} tok",
+        crate::ui::subagent_catalog::format_tokens(usage.total)
+    ))
+}
+
+/// The dialog's rows for one Turn aggregate: the same buckets the single-record path states, summed
+/// across attempts (`TurnUsagePanel.tsx:52-105`).
+pub fn turn_usage_detail_from(usage: &crate::ui::turn_usage::TurnUsage) -> Option<TurnUsageDetail> {
+    let cache_hit = usage
+        .cache_read
+        .and_then(|cached| cache_hit_tenths(cached, usage.total.saturating_sub(usage.output)));
+    let routes = usage
+        .routes
+        .as_ref()
+        .map(|routes| {
+            routes
+                .iter()
+                .map(|route| format!("{}/{}", route.provider, route.model))
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default();
+    let detail = TurnUsageDetail {
+        total: Some(usage.total),
+        input: Some(usage.uncached_input),
+        cache_read: usage.cache_read,
+        cache_write: usage.cache_write,
+        output: Some(usage.output),
+        reasoning: usage.reasoning,
+        cache_hit,
+        routes,
+    };
+    detail.has_rows().then_some(detail)
+}
+
 /// The cached share of a billed prompt with one decimal, as the turn dialog states it: `100` when
 /// every prompt token was cached, one rounded tenth otherwise (`token-format.ts:67-79`,
 /// `TurnUsagePanel.tsx:39-42`). `None` when nothing was billed.

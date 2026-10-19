@@ -221,11 +221,47 @@ impl Transcript {
     /// The projections that describe this retained window.
     /// One assistant record's compact turn usage, if its usage carries a positive count.
     pub fn turn_usage(&self, key: u64) -> Option<String> {
+        if let Some(usage) = self.turn_aggregate(key) {
+            return crate::ui::chat_usage::turn_usage_label(&usage);
+        }
         crate::ui::chat_usage::turn_usage(self.records.get(&key)?)
     }
-    /// One assistant record's accounting rows, when its usage carries any bucket.
+    /// One completed Turn's accounting rows: the aggregate across its attempts when the lifecycle
+    /// proves it, otherwise the one record's own usage (`turn-usage.ts:190-300`).
     pub fn turn_usage_detail(&self, key: u64) -> Option<crate::ui::chat_usage::TurnUsageDetail> {
+        if let Some(usage) = self.turn_aggregate(key) {
+            return crate::ui::chat_usage::turn_usage_detail_from(&usage);
+        }
         crate::ui::chat_usage::turn_usage_detail(self.records.get(&key)?)
+    }
+    /// The Turn's aggregate usage, only on the record that closes it: the reference keeps one
+    /// reading per completed Turn, not one per assistant message
+    /// (`TurnUsagePanel.tsx:29-48`, `TurnTailChatData.usage`).
+    fn turn_aggregate(&self, key: u64) -> Option<crate::ui::turn_usage::TurnUsage> {
+        let record = self.records.get(&key)?;
+        if record.event_type != "assistant/message" {
+            return None;
+        }
+        let turn = record.data["turn"].as_u64()?;
+        // The reading belongs to the Turn's last assistant message.
+        let last = self
+            .records
+            .values()
+            .filter(|event| event.event_type == "assistant/message")
+            .filter(|event| event.data["turn"].as_u64() == Some(turn))
+            .map(|event| event.seq)
+            .max()?;
+        if last != record.seq {
+            return None;
+        }
+        // The fold wants the Turn's own records in log order, from its start to its end.
+        let mut events: Vec<&SessionWireEvent> = self
+            .records
+            .values()
+            .filter(|event| event.data["turn"].as_u64() == Some(turn))
+            .collect();
+        events.sort_by_key(|event| event.seq);
+        crate::ui::turn_usage::derive(events.into_iter())
     }
     /// Fold the durable workflow events into one record per run, keyed by start seq.
     pub fn workflow_runs(&self) -> std::collections::BTreeMap<u64, WorkflowRun> {
