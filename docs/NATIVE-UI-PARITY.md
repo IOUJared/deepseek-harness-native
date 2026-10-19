@@ -12467,3 +12467,35 @@ claim is corrected in the same commit).
 | capture | — | none: card copy, proved by its tests |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 476 — a turn's card shows its final change announcement
+
+The changed-files audit's third finding: a turn can announce `workspace/changes` more than once — an
+interim summary while work continues, then a final one — and the reference keeps the **last**, because
+its state is overwritten on every announcement (`turn-deliverables.ts:26,182`). Native took the first
+from a seq-ascending map, so a turn that had already announced a complete summary still showed the
+partial one.
+
+`changes_seq` now takes the maximum seq for the turn, which is the same "latest" the reference keeps.
+
+Tests: `a_turn_that_announces_twice_reports_its_last_announcement` — three contiguous events, two for one
+turn, and the lookup answers the second while a later turn keeps its own. Getting the test to compile
+took three tries and each failure taught the shape: a frame wraps a wire event that carries its own
+`type`/`seq`/`time`, and the follow stream is contiguous from seq 0, so gaps are refused rather than
+skipped.
+
+**Battery (round 476).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1459 passed**, 1 ignored |
+| app, default | **0** | **1427 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: a lookup rule, proved by its test |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

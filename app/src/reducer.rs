@@ -329,12 +329,18 @@ impl Transcript {
             })
             .collect()
     }
-    /// The announcing `workspace/changes` seq for one turn, if any.
+    /// The **latest** announcing `workspace/changes` seq for one turn, if any.
+    ///
+    /// A turn can record changes more than once — an interim announcement while work continues, then a
+    /// final one. The reference keeps the last: its state is overwritten on every announcement
+    /// (`turn-deliverables.ts:26,182`). Taking the first showed a partial summary for a turn that had
+    /// already announced more.
     pub fn changes_seq(&self, turn: u64) -> Option<u64> {
         self.changes_events()
             .into_iter()
-            .find(|(candidate, _)| *candidate == turn)
+            .filter(|(candidate, _)| *candidate == turn)
             .map(|(_, seq)| seq)
+            .max()
     }
     /// The whole-log decode speed from the retained assistant records.
     pub fn decode_speed(&self) -> Option<String> {
@@ -2557,5 +2563,38 @@ mod manual_compaction_tests {
             .and_then(|row| row.command.clone())
             .unwrap();
         assert_eq!(command.manual_compaction, None);
+    }
+}
+
+#[cfg(test)]
+mod changes_announcement_tests {
+    //! A turn's changed-files card shows its **latest** announcement, not its first.
+    use super::*;
+    use serde_json::json;
+
+    fn announcement(turn: u64, seq: u64) -> SessionFollowFrame {
+        // A wire event carries its own `type`, `seq` and `time` beside `data`; the frame wraps it.
+        SessionFollowFrame::Event {
+            event: serde_json::from_value(json!({
+                "type": "workspace/changes", "seq": seq, "time": 1000 + seq,
+                "data": {"turn": turn, "total": 1, "added": seq, "deleted": 0, "files": []}
+            }))
+            .expect("a changes announcement"),
+        }
+    }
+
+    #[test]
+    fn a_turn_that_announces_twice_reports_its_last_announcement() {
+        let mut transcript = Transcript::new(0);
+        // The follow stream is contiguous, so the events are 1..=3.
+        transcript.apply(0, announcement(1, 0)).expect("the first");
+        // An interim announcement mid-turn, then the final one.
+        transcript.apply(0, announcement(1, 1)).expect("the second");
+        transcript
+            .apply(0, announcement(2, 2))
+            .expect("another turn");
+        assert_eq!(transcript.changes_seq(1), Some(1), "the newest for turn 1");
+        assert_eq!(transcript.changes_seq(2), Some(2));
+        assert_eq!(transcript.changes_seq(3), None);
     }
 }
