@@ -14967,3 +14967,42 @@ multi-line HTML block's internal line structure is preserved rather than collaps
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 capture | — | `shots/322-markdown-html.png`, `status: passed`, 1040x760 |
 | app bin | — | **21** warnings |
+
+### Round 529 — a link or image *title* no longer drops the reply to plain text
+
+**The gap.** Round 528 left a titled link and a titled image as the renderer's refusals, and a refusal
+fails the whole document. Neither reference renderer draws a title: a link title is a `title` attribute
+(a browser tooltip) and an image title the same (`ui-primitives/src/markdown/render.tsx:333-337`), so
+refusing one lost every heading, table and code block in the reply to keep a string no pixel used.
+
+**The change.** `Tag::Link` and `Tag::Image` accept their title and drop it: the link keeps its
+reference behaviour — the label followed by the inert destination in the text — and the image keeps its
+alt run. The refusals that remain are the ones that lose *visible* structure: an image nested in an
+image, a table inside a list or quote, a list inside a quote, and a heading inside a container.
+
+**Frame.** `shots/323-markdown-titled.png` (1040x760, new `markdown-titled` preset): `PUBLIC **formatted**
+text beside a [titled link](… "PUBLIC tooltip").` drawn with "formatted" bold and the link as
+`titled link (https://example.invalid/PUBLIC)`, then
+`Then ![PUBLIC alt only](… "PUBLIC tooltip") and a \`code run\`.` with the image as its tertiary-italic
+alt run and the code in mono — every construct formatted, no tooltip text on screen.
+
+**Tests.** The link test now asserts a titled link reads `label (destination)`; the image test asserts a
+titled image keeps its alt run and its `alt` styling. The tests that used titled markup as their
+"unsupported" exemplar moved to a **list inside a quote**, which still fails closed.
+
+**Recorded gap for the next round.** `> - item` (a list inside a quote) is refused, as is `- > item` and
+a heading inside any container: the flat paragraph model stores list depth and quote membership in
+separate fields and cannot keep their order. That is the renderer's remaining structural refusal.
+
+**Battery (round 529).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1532 passed**, 1 ignored |
+| app, default | **0** | **1476 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-30g_vegz`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-8_9k9d6l`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 capture | — | `shots/323-markdown-titled.png`, `status: passed`, 1040x760 |
+| app bin | — | **21** warnings |

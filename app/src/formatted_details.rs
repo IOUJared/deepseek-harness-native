@@ -465,22 +465,18 @@ impl Builder {
                 self.ensure_inline()?;
                 self.struck += 1;
             }
-            Tag::Link {
-                dest_url, title, ..
-            } => {
-                // Link titles have no presentation field: never silently drop
-                // one. The fallback retains its exact source representation.
-                if !title.is_empty() {
-                    return Err(Failure::Unsupported);
-                }
+            Tag::Link { dest_url, .. } => {
+                // A link title is a tooltip in the reference's own renderer, never visible copy
+                // (`render.tsx:333-337`): dropping it changes no pixel, and refusing it would drop
+                // the whole reply to plain text.
                 self.ensure_inline()?;
                 destination = Some(dest_url.into_string());
             }
-            Tag::Image {
-                dest_url, title, ..
-            } => {
+            Tag::Image { dest_url, .. } => {
+                // Same for an image's title: the reference shows the image, and native its alt
+                // text; neither draws the title.
                 self.ensure_inline()?;
-                if !title.is_empty() || self.alt.is_some() {
+                if self.alt.is_some() {
                     return Err(Failure::Unsupported);
                 }
                 destination = Some(dest_url.into_string());
@@ -865,9 +861,12 @@ mod tests {
             joined(paragraph(&email.blocks[0]).0),
             "a@example.invalid (a@example.invalid)"
         );
-        failure(
-            "[label](https://example.invalid \"title\")",
-            Failure::Unsupported,
+        // A title is a tooltip, never visible copy: it is dropped rather than failing the
+        // reply, and the destination still reads as inert text (`render.tsx:333-337`).
+        let titled = document("[label](https://example.invalid \"title\")");
+        assert_eq!(
+            joined(paragraph(&titled.blocks[0]).0),
+            "label (https://example.invalid)"
         );
     }
 
@@ -1018,9 +1017,12 @@ mod tests {
         let spans = paragraph(&without_alt.blocks[0]).0;
         assert_eq!(spans[0].text, "image.png");
         assert!(spans[0].alt);
-        // A titled image is refused rather than silently losing the title, and the
-        // destination stays visible as text for a plain link.
-        failure("![alt](u \"title\")", Failure::Unsupported);
+        // A titled image keeps its alt run: the title is a tooltip neither renderer draws.
+        let titled = document("![PUBLIC alt](u \"title\")");
+        let spans = paragraph(&titled.blocks[0]).0;
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].text, "PUBLIC alt");
+        assert!(spans[0].alt);
     }
     #[test]
     fn tables_keep_their_header_inline_runs_and_bounds() {
@@ -1070,10 +1072,9 @@ mod tests {
     #[test]
     fn unsupported_content_anywhere_fails_whole_source() {
         for source in [
-            // A titled link and a titled image are still refused; raw HTML is now drawn literally
-            // (`render.tsx:333-335`).
-            "[x](https://PUBLIC \"title\")",
-            "![x](https://PUBLIC \"title\")",
+            // A list inside a quote is still refused: the flat paragraph model cannot keep
+            // the order of mixed list/quote ancestry.
+            "> - PUBLIC nested",
             "> # heading",
             "- # heading",
             "> ---",
@@ -1282,9 +1283,9 @@ mod tests {
 
     #[test]
     fn diagnostics_only_expose_content_free_failure_variants() {
-        // A titled image is refused, so it can stand in for content that must never reach a
-        // diagnostic.
-        let private_source = "PRIVATE_TOKEN ![PRIVATE_ALT](PRIVATE_SRC \"PRIVATE_TITLE\")";
+        // A list inside a quote is refused, so it can stand in for content that must never
+        // reach a diagnostic.
+        let private_source = "PRIVATE_TOKEN\n\n> - PRIVATE_NESTED";
         let error = match parse(private_source) {
             Err(error) => error,
             Ok(_) => panic!("expected unsupported HTML"),
@@ -1349,9 +1350,8 @@ mod extension_tests {
     fn a_document_without_either_extension_is_unchanged() {
         let doc = parse("Plain **bold** text.\n").unwrap();
         assert_eq!(texts(&doc.blocks), vec!["Plain bold text.".to_owned()]);
-        // An unsupported construct still fails closed.
-        // A titled image is still refused; raw HTML is drawn literally.
-        assert!(parse("![alt](src \"title\")").is_err());
+        // An unsupported construct still fails closed; raw HTML is drawn literally.
+        assert!(parse("> - nested").is_err());
         assert!(parse("<div>html</div>\n").is_ok());
     }
 }
