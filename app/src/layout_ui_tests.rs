@@ -774,3 +774,31 @@ fn a_job_stop_confirmation_disarms_itself() {
     assert_eq!(app.jobs_armed.as_deref(), Some("shell-1"));
     assert!(queue.try_recv().is_err(), "no kill was sent");
 }
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
+fn a_session_switch_drops_the_previous_jobs() {
+    let (size, _scale) = super::layout_fixture::preset_size("conversation").unwrap();
+    let (mut app, _queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "conversation",
+        size,
+        None,
+    );
+    app.set_jobs();
+    app.jobs_armed = Some("shell-1".into());
+    assert_eq!(app.jobs.len(), 4);
+    let other = app
+        .sessions
+        .keys()
+        .find(|id| Some(*id) != app.selected.as_ref())
+        .cloned()
+        .expect("another session");
+    drop(app.update(Message::Select(other)));
+    // Nothing of the old session's background work survives: no rows, no armed stop, no buffered
+    // output to show beside a job this session never started.
+    assert!(app.jobs.is_empty());
+    assert!(app.jobs_armed.is_none());
+    assert!(app.jobs_expanded.is_none());
+    assert!(app.jobs_output.is_empty());
+}

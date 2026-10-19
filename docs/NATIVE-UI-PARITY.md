@@ -11223,3 +11223,39 @@ rendered header tree for `native-jobs-action`, not another capture attempt.
 | capture | — | none: the crumb is still absent from the captured header |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 441 — a session switch drops the previous session's jobs
+
+The jobs audit found the panel's rows surviving a session change: the reference keeps jobs in a
+per-session roster (`JobListAction.tsx:326`), while native assigned `self.jobs` only when a `jobs/list`
+frame arrived. After switching sessions the header still counted, listed and could attempt to stop the
+**old** session's jobs until the new read landed — an action against the wrong session.
+
+`choose` now clears the job rows, the armed stop, the expanded row and its buffered output along with
+the rest of the per-session caches it already resets.
+
+Tests: `a_session_switch_drops_the_previous_jobs` — with four seeded jobs and an armed row, selecting
+another session leaves no rows, no armed confirmation, no expansion and no buffered output.
+
+**The jobs frame remains the one gap this surface cannot show yet**, and this round spent its evidence
+budget on locating it rather than repeating attempts: a 1600px-wide preset displaying the same
+conversation still drew no jobs crumb, while the capture report contains `native-jobs-action`. So the
+element is *constructed* but does not occupy visible space in the header band, which points at the
+header's identity row rather than at the fixture. That is the next test to write — one that inspects
+the header's laid-out children instead of a screenshot.
+
+**Battery (round 441).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1434 passed**, 1 ignored |
+| app, default | **0** | **1411 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: the crumb is constructed but not laid out visibly |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

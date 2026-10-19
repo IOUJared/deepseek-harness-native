@@ -2830,6 +2830,14 @@ impl App {
         // is still in flight keeps its own session-scoped flag.
         self.goal_edit = None;
         self.goal_clear = None;
+        // Background jobs belong to the session that started them: the reference keeps them in a
+        // per-session roster (`JobListAction.tsx:326`), so a previous session's rows must not be
+        // counted, listed or stopped from this one while its own read is in flight.
+        self.jobs.clear();
+        self.jobs_armed = None;
+        self.jobs_expanded = None;
+        self.jobs_output.clear();
+        self.jobs_kill_error = None;
         self.goal_error = None;
         self.edit_review = None;
         self.draft_review = None;
