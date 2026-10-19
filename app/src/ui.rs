@@ -8065,6 +8065,37 @@ impl App {
 
     /// Fixture-only: seed the in-app folder listing, which a real run reads from the Host.
     #[cfg(feature = "public-layout-fixture")]
+    /// A turn that edited more files than the card shows while folded, so the fold control is drawn
+    /// (`ChangedFiles.tsx:18`).
+    pub(crate) fn seed_changes_summary_many(&mut self) {
+        let file = |path: &str, added: u64, deleted: u64| dsh_native_transport::dto::ChangedFile {
+            path: path.into(),
+            display: path.into(),
+            added,
+            deleted,
+            binary: false,
+            oversized: false,
+        };
+        let files = vec![
+            file("src/main.rs", 120, 4),
+            file("src/lib.rs", 32, 1),
+            file("app/src/ui.rs", 1_240, 380),
+            file("docs/NATIVE-UI-PARITY.md", 44, 2),
+            file("app/src/changes_text.rs", 61, 0),
+            file("transport/src/dto.rs", 8, 8),
+            file("app/src/reducer.rs", 3, 3),
+        ];
+        self.changes.insert(
+            2,
+            ChangesState::Ready(dsh_native_transport::dto::ChangesSummary {
+                turn: 1,
+                total: files.len() as u64,
+                added: files.iter().map(|file| file.added).sum(),
+                deleted: files.iter().map(|file| file.deleted).sum(),
+                files,
+            }),
+        );
+    }
     pub(crate) fn seed_directory_listing(&mut self) {
         let entry = |name: &str| dsh_native_transport::dto::DirectoryEntry {
             name: name.into(),
@@ -11282,8 +11313,13 @@ impl App {
             .padding([1, 2]),
         ]
         .spacing(2);
+        // The reference folds a long list at four rows and offers the rest from the card's own
+        // bottom control (`ChangedFiles.tsx:48,98-104`); before this the card showed up to twenty
+        // rows at once with no way back, and the rest were unreachable while the header still
+        // counted them.
+        let (visible, _) = changes_text::visible_rows(summary.files.len(), open);
         if open {
-            for (index, file) in summary.files.iter().take(20).enumerate() {
+            for (index, file) in summary.files.iter().take(visible).enumerate() {
                 let counts = changes_text::file_counts(
                     file.binary,
                     file.oversized,
@@ -11314,6 +11350,14 @@ impl App {
                 );
             }
         }
+        if let Some(fold) = changes_text::fold_label(summary.files.len(), open) {
+            card = card.push(
+                button(label(fold, MUTED).size(9))
+                    .on_press(Message::ToggleChanges(seq))
+                    .style(design::ghost)
+                    .padding([1, 2]),
+            );
+        }
         Some(card.into())
     }
     /// The changed-files card's reserved height for a reply row.
@@ -11325,7 +11369,10 @@ impl App {
         if self.changes_expanded.contains(&seq) {
             // Each row is a padded ghost button; reserve the padding as well as the text
             // lines or the fixed row clips its last file.
-            line + summary.files.len().min(20) as f32 * (line + 4.0) + 6.0
+            let (visible, fold) = changes_text::visible_rows(summary.files.len(), true);
+            line + visible as f32 * (line + 4.0)
+                + if fold.is_some() { line + 4.0 } else { 0.0 }
+                + 6.0
         } else {
             line
         }

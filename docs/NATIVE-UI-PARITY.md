@@ -12529,3 +12529,41 @@ first is not a tail, the second is, and a later turn does not retroactively chan
 | capture | — | none: a placement rule, proved by its test |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 478 — a long file list folds at four rows
+
+The changed-files audit's second absent element: the reference folds its list at `COLLAPSED_ROWS = 4`
+and offers the rest from the card's own bottom control — `All 7 files` closed, `Collapse` open
+(`ChangedFiles.tsx:18,48,98-104`, `locales.ts:106,108`). Native showed up to twenty rows at once with no
+control, and the rows past twenty were unreachable while the header still counted them.
+
+`changes_text::visible_rows` and `fold_label` decide the fold, the card draws the control it names, and
+its reserved height counts that row so the fixed-height seat cannot clip it.
+
+**A bug round 107 introduced, caught by this round's frame**: the turn-tail check counted *every* later
+record of the turn, and a turn's `workspace/changes` announcement is itself a row after the reply — so
+the card that round 107 fixed stopped drawing at all. The capture showed a conversation with no card
+where the seed had one. `is_turn_tail` now only looks at later assistant replies, which is what can
+actually own the card. This is why a frame is not optional for a change to what is drawn.
+
+Tests: `a_long_list_folds_at_four_rows_and_offers_the_rest` — four files show with no control, seven fold
+at four with `All 7 files`, and an open card shows all seven with `Collapse`.
+
+Evidence: `shots/269-changes-fold.png` (DP-2 alongside, `status: passed`) — `Edited 7 files +1,508 -398`,
+seven rows and `Collapse`.
+
+**Battery (round 478).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1461 passed**, 1 ignored |
+| app, default | **0** | **1428 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks (the first pass found 16 hunks in `reducer.rs`; `cargo fmt` fixed them before the commit) |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/269-changes-fold.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

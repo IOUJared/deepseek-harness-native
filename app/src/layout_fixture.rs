@@ -137,6 +137,7 @@ pub const PRESETS: &[&str] = &[
     "schedules-linked",
     "mcp",
     "changes-card",
+    "changes-fold",
     "feedback",
     "workflow-run",
     "context-pressure",
@@ -366,6 +367,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "schedules-linked"
         | "mcp"
         | "changes-card"
+        | "changes-fold"
         | "feedback"
         | "workflow-run"
         | "context-pressure"
@@ -1776,7 +1778,7 @@ pub fn build(
                     "stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],
                         "texts":["PUBLIC synthetic answer carrying a positive rating."]}]}}}),
         ]
-    } else if preset == "changes-card" {
+    } else if preset == "changes-card" || preset == "changes-fold" {
         vec![
             json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
                 "surfaceOp":"append","data":{"role":"user","id":"PUBLIC-changes-message",
@@ -1924,6 +1926,11 @@ pub fn build(
     }
     if preset == "changes-card" {
         app.seed_changes_summary();
+    }
+    if preset == "changes-fold" {
+        app.seed_changes_summary_many();
+        // Open, so the frame shows the four rows the fold shows plus its own control.
+        app.changes_expanded.insert(2);
     }
     if preset == "mcp" {
         // The panel's own read answer, delivered through the controller the app draws from.

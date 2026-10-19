@@ -333,10 +333,15 @@ impl Transcript {
     /// changed-files card (`ui-deliverables/src/client/index.ts:61-81`: a turn-tail registration).
     /// A turn with an interim assistant message and a final reply must draw the card once, not twice.
     pub fn is_turn_tail(&self, key: u64, turn: u64) -> bool {
-        !self
-            .rows()
-            .iter()
-            .any(|row| row.key > key && row.turn == Some(turn))
+        !self.rows().iter().any(|row| {
+            // Only an assistant reply can own the card: the turn's other records (a
+            // `workspace/changes` announcement, a tool result) come after the reply they belong to and
+            // would otherwise hide the card entirely.
+            row.key > key
+                && row.turn == Some(turn)
+                && (row.role.starts_with("Assistant")
+                    || row.role == "Interrupted assistant attempt")
+        })
     }
     /// The **latest** announcing `workspace/changes` seq for one turn, if any.
     ///
