@@ -1385,6 +1385,8 @@ pub fn build(
     app.roster_pending = false;
     app.transport_epoch = worker::TRANSPORT_EPOCH;
     app.account = "PUBLIC local metadata · no account lookup".into();
+    // The subagent catalog's dropdown draws only while its menu flag is set. This is the state one
+    // press reaches, and the preset exists to show the three activity states side by side.
 
     let selected: SessionSummary = serde_json::from_value(json!({
         "agentAvailable":true, "sessionId":"PUBLIC-layout-conversation", "updatedAt":1000,
@@ -1457,9 +1459,6 @@ pub fn build(
         }))
         .expect("fixed PUBLIC parent metadata");
         app.sessions.insert(parent.session_id.clone(), parent);
-        // The catalog's dropdown draws only while its menu flag is set: this preset shows the
-        // state a user reaches with one press, so the three activity states are visible.
-        app.subagent_menu = true;
         for (id, title, running) in [
             ("PUBLIC-child-reviewer", "PUBLIC reviewer", true),
             ("PUBLIC-child-scout", "PUBLIC scout", false),
@@ -3558,6 +3557,33 @@ pub fn build(
                 finished_at: None,
                 output: None,
             });
+        }
+    }
+    if preset == "subagent-catalog" {
+        app.subagent_menu = true;
+        // The two children the parent's catalog names, with the projections the rows read: one
+        // running, one whose last turn finished (the reference's `completed`).
+        for (id, title, timing) in [
+            (
+                "PUBLIC-child-reviewer",
+                "PUBLIC reviewer",
+                json!({"settledMs": 84000, "lastTurnCompleted": false}),
+            ),
+            (
+                "PUBLIC-child-scout",
+                "PUBLIC scout",
+                json!({"settledMs": 30000, "lastTurnCompleted": true}),
+            ),
+        ] {
+            let summary: SessionSummary = serde_json::from_value(json!({
+                "agentAvailable":true, "sessionId":id, "updatedAt":1000,
+                "running":false, "blank":false, "cwd":"/PUBLIC-layout-fixture/workspace",
+                "parentSessionId":"PUBLIC-layout-conversation", "origin":"subagent",
+                "projections":{"kind":"cached","asOfSeq":-1,
+                    "values":{"title":title,"subagentTiming":timing}}
+            }))
+            .expect("fixed PUBLIC child metadata");
+            app.sessions.insert(summary.session_id.clone(), summary);
         }
     }
     if preset == "jobs-panel" || preset == "jobs-panel-error" {

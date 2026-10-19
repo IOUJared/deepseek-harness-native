@@ -12080,11 +12080,10 @@ Tests: `a_childs_activity_distinguishes_completed_from_never_run` — running wi
 timing means idle, `lastTurnCompleted: true` means completed, an open last turn stays idle, and the three
 labels.
 
-**The dropdown frame remains out of reach, and this round records why**: the `subagent-catalog` preset now
-seeds a completed child and sets the menu flag, yet two captures came back byte-identical to the previous
-frame, so the flag alone does not open the popup — it is built inside the header action and something
-closes it before the render. That is the next thing to read, and it is recorded instead of being
-photographed as if it worked.
+**The dropdown frame arrived in the next round**, after a debug print showed `entries=2 menu=false` at
+render: the flag had been set inside the *trail* preset's block, not the catalog's, and the child
+sessions were seeded before the roster loop that overwrote them. Both are fixed, and the frame now shows
+the three states.
 
 **Battery (round 464).**
 
@@ -12099,5 +12098,37 @@ photographed as if it worked.
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | capture | — | none: the dropdown does not open under the preset's flag |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 465 — the subagent dropdown shows all three activity states
+
+Round 464 built the third state but could not photograph it. The cause was twofold and both halves were
+fixture mistakes, found by one debug print rather than a fourth capture attempt: the menu flag had been
+set inside the **trail** preset's block instead of the catalog's, and the two child sessions were seeded
+*before* the roster loop that then overwrote them with plain summaries carrying no `subagentTiming`.
+
+With the flag set where every preset passes and the children seeded last, the dropdown shows what the
+code produces: `PUBLIC reviewer · continuable · inactive` with a faint dot and `1m 24s`, and
+`PUBLIC scout · one-shot · completed` with a gold dot and `30s`.
+
+Evidence: `shots/267-subagent-activity.png` (DP-2 alongside, `status: passed`).
+
+Tests: unchanged — the state rule is covered by `a_childs_activity_distinguishes_completed_from_never_run`;
+the frame is the evidence that the row text and the dot colour both follow it.
+
+**Battery (round 465).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1449 passed**, 1 ignored |
+| app, default | **0** | 1424 passed, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/267-subagent-activity.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
