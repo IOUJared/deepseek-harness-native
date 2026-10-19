@@ -9690,3 +9690,39 @@ including `verbose` never folding.
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | app bin | — | **23** dead-code warnings (three new policy helpers await their Settings row) |
 | tree | — | clean before the commit |
+
+### Round 400 — Work details becomes a real preference
+
+Round 399 landed the policy table with no way to choose a mode. This round adds the row: Settings →
+General now offers **Work details** with the reference's description and its four options — Compact,
+Standard, Detailed, Verbose — Standard selected by default (`TranscriptViewRow.tsx`,
+`locale.ts:296-301`).
+
+The choice is persisted under `layout.workDetails` in the same local store as the content width and
+size, written only when it leaves the default (a cleared key is Standard), and it reaches the seat:
+Compact and Standard group every turn, Detailed groups only historical turns, Verbose groups nothing
+at all — so its rows keep their own disclosure and no seat is drawn. A clicked seat still wins over
+the mode's default fold.
+
+Evidence: `shots/217-settings-work-details.png` (DP-2 alongside, `status: passed`) — the General page
+with the row, its description and Standard highlighted.
+
+Tests: two UI tests — the mode round-trips through the settings route for all four values, and the
+mode decides whether a turn has a seat (Standard 1, Compact 1, Detailed 0, Verbose 0 on a live
+preset) — plus the four policy tests from round 399.
+
+**Battery (round 400).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1396 passed**, 1 ignored |
+| app, default | **0** | **1381 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/217-settings-work-details.png`, `status: passed` |
+| app bin | — | **20** dead-code warnings |
+| tree | — | clean before the commit |

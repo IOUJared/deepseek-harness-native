@@ -133,9 +133,6 @@ mod permission_ui_tests;
 mod plan_control;
 #[path = "plan_mode.rs"]
 mod plan_mode;
-/// The reference's work-details modes and the presentation policy each enables.
-#[path = "work_details.rs"]
-pub mod work_details;
 #[cfg(test)]
 #[path = "prompt_recovery_ui_tests.rs"]
 mod prompt_recovery_ui_tests;
@@ -153,6 +150,9 @@ mod subagent_catalog;
 #[cfg(test)]
 #[path = "terminal_ui_tests.rs"]
 mod terminal_ui_tests;
+/// The reference's work-details modes and the presentation policy each enables.
+#[path = "work_details.rs"]
+pub mod work_details;
 #[cfg(test)]
 #[path = "work_panel_ui_tests.rs"]
 mod work_panel_ui_tests;
@@ -1088,6 +1088,8 @@ pub struct App {
     /// What Enter/Send do while the agent is running: queue the next turn (default) or steer
     /// the running one. Persisted in the layout namespace.
     busy_enter: crate::settings::BusyEnter,
+    /// The reference's Work details mode: how much of a turn's process Chat shows.
+    work_details: work_details::Mode,
     /// The queue dock's multi-item list is open.
     queue_expanded: bool,
     /// Expanded turn-trigger notices, by record key.
@@ -1408,6 +1410,8 @@ impl App {
         let content_font_size = stored(draft_store::LAYOUT_CONTENT_SIZE)
             .and_then(draft_store::parse_layout_size)
             .map_or(design::CONTENT_FONT_DEFAULT, design::content_size);
+        let work_details =
+            work_details::Mode::parse(stored(draft_store::LAYOUT_WORK_DETAILS).unwrap_or_default());
         let busy_enter = stored(draft_store::LAYOUT_BUSY_ENTER)
             .and_then(crate::settings::BusyEnter::parse)
             .unwrap_or_default();
@@ -1498,6 +1502,7 @@ impl App {
                 content_font_size,
                 coding_view,
                 busy_enter,
+                work_details,
                 queue_expanded: false,
                 queue_edit: None,
                 queue_remove_armed: None,
@@ -2162,6 +2167,11 @@ impl App {
             (
                 draft_store::LAYOUT_CODING_VIEW,
                 (!self.coding_view).then(|| "false".to_owned()),
+            ),
+            (
+                draft_store::LAYOUT_WORK_DETAILS,
+                (self.work_details != work_details::Mode::default())
+                    .then(|| self.work_details.key().to_owned()),
             ),
         ] {
             let Ok(entry) = SessionId::new(key) else {
@@ -3464,6 +3474,13 @@ impl App {
                 // whose wildcard would otherwise absorb them: a button whose arm sits after a
                 // catch-all compiles and does nothing, which is how this surface was once inert.
                 match &action {
+                    crate::settings::Action::WorkDetails(mode) => {
+                        if self.work_details != *mode {
+                            self.work_details = *mode;
+                            self.persist_preference();
+                        }
+                        return Task::none();
+                    }
                     crate::settings::Action::BusyEnter(value) => {
                         if self.busy_enter != *value {
                             self.busy_enter = *value;
@@ -7444,6 +7461,7 @@ impl App {
             loading: self.catalog_read.pending(),
             failed: self.model_controls.catalog_is_failed(),
             busy_enter: self.busy_enter,
+            work_details: self.work_details,
             coding_view: self.coding_view,
             presets: self
                 .agent_roster
@@ -13187,12 +13205,12 @@ impl App {
             .zip(names.iter())
             .map(|(row, name)| (row.role.as_str(), row.turn, *name))
             .collect();
-        // The default work-details mode's policy decides whether a turn has a seat at all and
-        // whether a settled one starts folded (`presentation-policy.ts:32-36`).
-        let policy = work_details::Mode::default().policy();
+        // The chosen Work details mode decides whether a turn has a seat at all and whether a
+        // settled one starts folded (`presentation-policy.ts:32-36`).
+        let policy = self.work_details.policy();
         crate::reducer::process_group::groups(&segments)
             .into_iter()
-            .map(|group| {
+            .filter_map(|group| {
                 let key = rows[group.first].key;
                 // The reference leaves a running turn's group open and closes it when the turn
                 // settles; a clicked disclosure wins over that default.
@@ -13201,6 +13219,11 @@ impl App {
                     .last()
                     .and_then(|last| rows[*last].turn)
                     .is_some_and(|turn| self.transcript.turn_ended(turn));
+                // A mode that does not group this turn state draws no seat, and its rows stay as
+                // they are (`presentation-policy.ts:44-50`: Detailed groups history, Verbose none).
+                if !policy.groups(settled) {
+                    return None;
+                }
                 let open = self
                     .process_group_open
                     .get(&key)
@@ -13228,7 +13251,7 @@ impl App {
                     ),
                     live,
                 );
-                (
+                Some((
                     group.first,
                     Seat {
                         key,
@@ -13236,7 +13259,7 @@ impl App {
                         members: group.members,
                         open,
                     },
-                )
+                ))
             })
             .collect()
     }
@@ -20157,6 +20180,49 @@ mod tests {
         }
         assert_eq!((picks, lists), (0, 1));
     }
+    #[test]
+    fn the_work_details_mode_is_local_state_and_reaches_every_caller() {
+        let (mut app, _receiver) = managed_app();
+        let _ = app.update(Message::Settings(crate::settings::Action::Open));
+        // The reference's default is Standard.
+        assert_eq!(app.work_details, work_details::Mode::Standard);
+        assert_eq!(
+            app.settings_route_facts().work_details,
+            work_details::Mode::Standard
+        );
+        for mode in work_details::Mode::ALL {
+            let _ = app.update(Message::Settings(crate::settings::Action::WorkDetails(
+                mode,
+            )));
+            assert_eq!(app.work_details, mode);
+            assert_eq!(app.settings_route_facts().work_details, mode);
+        }
+        let _ = app.update(Message::Settings(crate::settings::Action::WorkDetails(
+            work_details::Mode::Standard,
+        )));
+        assert_eq!(app.work_details, work_details::Mode::Standard);
+    }
+
+    #[cfg(feature = "public-layout-fixture")]
+    #[test]
+    fn the_work_details_mode_decides_whether_a_turn_has_a_seat() {
+        use layout_fixture;
+        let size = iced::Size::new(1040.0, 760.0);
+        let (mut app, _receiver) =
+            layout_fixture::build(layout_fixture::test_options(), "tool-activity", size, None);
+        let count = |app: &App| {
+            let rows: Vec<_> = app.transcript.display_rows(false).collect();
+            app.process_seats(&rows).len()
+        };
+        assert_eq!(count(&app), 1, "Standard groups a live turn");
+        app.work_details = work_details::Mode::Verbose;
+        assert_eq!(count(&app), 0, "Verbose groups nothing");
+        app.work_details = work_details::Mode::Detailed;
+        assert_eq!(count(&app), 0, "Detailed groups only historical turns");
+        app.work_details = work_details::Mode::Compact;
+        assert_eq!(count(&app), 1, "Compact groups every turn");
+    }
+
     #[test]
     fn the_coding_view_toggle_is_local_state() {
         let (mut app, _receiver) = managed_app();

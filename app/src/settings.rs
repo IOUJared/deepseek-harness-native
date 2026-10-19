@@ -194,6 +194,8 @@ pub struct RouteFacts {
     pub busy_enter: BusyEnter,
     /// The native "Show coding view" preference (reference developer tools).
     pub coding_view: bool,
+    /// The work-details mode (`settings.transcript.*`: how much of a turn's process is shown).
+    pub work_details: crate::ui::work_details::Mode,
     /// The Host's preset roster, once the section's read answered. `None` is "not read yet".
     pub presets: Option<Vec<dsh_native_core::AgentPresetRow>>,
     /// The preset whose "set as new task default" write is in flight.
@@ -321,6 +323,9 @@ pub enum Action {
     BusyEnter(BusyEnter),
     /// Sets the "Show coding view" preference; the App owns and persists it.
     CodingView(bool),
+    /// Select the work-details mode; the App owns and persists it.
+    WorkDetails(crate::ui::work_details::Mode),
+
     Account(account::Action),
     Cloudflare(cloudflare::Action),
     Plugins(crate::plugins::Action),
@@ -1632,6 +1637,34 @@ impl Settings {
                 ]
                 .spacing(6),
             );
+        // The reference's General page offers Work details — Compact / Standard / Detailed /
+        // Verbose (`TranscriptViewRow.tsx`, `locale.ts:296-301`) — because it decides how much of a
+        // turn's process Chat shows. Native persists the same choice locally.
+        body = body
+            .push(label(crate::ui::work_details::SETTINGS_TITLE, TEXT).size(13))
+            .push(label(crate::ui::work_details::SETTINGS_DESCRIPTION, MUTED))
+            .push({
+                let mut options = row![].spacing(6);
+                for mode in crate::ui::work_details::Mode::ALL {
+                    options = options.push(
+                        button(
+                            label(
+                                mode.label(),
+                                if route.work_details == mode {
+                                    TEXT
+                                } else {
+                                    MUTED
+                                },
+                            )
+                            .size(13),
+                        )
+                        .on_press(Action::WorkDetails(mode))
+                        .style(design::ghost)
+                        .padding([4, 8]),
+                    );
+                }
+                options
+            });
         // The reference's General page offers "Show coding view" (developer tools); native
         // persists the same preference locally instead of reading a Host config form.
         body = body.push(
