@@ -28,6 +28,9 @@ pub struct Prepared {
     /// which falls back to the plain view.
     reasoning_document: Option<formatted::Document>,
     widths: RefCell<Vec<(u32, bool, f32)>>,
+    /// Which of this reply's code blocks the user unwrapped. The owner sets it before measuring or
+    /// drawing, so the height cache and the render always agree (`CodeWrap`).
+    wrap: RefCell<CodeWrap>,
     /// The content-size deltas this reply's sizes were prepared at. The cache that
     /// built it clears whenever either changes, so a reply can never be drawn or
     /// measured at a size other than the one it was prepared for.
@@ -35,6 +38,15 @@ pub struct Prepared {
     delta_secondary: f32,
 }
 impl Prepared {
+    /// Adopt one reply's code-wrap state. A change invalidates the measured heights, because a
+    /// wrapped block is taller than the same block unwrapped.
+    pub fn set_code_wrap(&self, wrap: CodeWrap) {
+        let mut current = self.wrap.borrow_mut();
+        if *current != wrap {
+            *current = wrap;
+            self.widths.borrow_mut().clear();
+        }
+    }
     /// The body text size at this reply's content size.
     fn body_size(&self) -> f32 {
         design::BODY_SIZE + self.delta
@@ -89,6 +101,7 @@ impl Prepared {
                 self.delta,
                 self.delta_secondary,
                 Ladder::Body,
+                &self.wrap.borrow(),
             )
         } else {
             plain_height(
@@ -116,6 +129,7 @@ impl Prepared {
                         self.delta,
                         self.delta_secondary,
                         Ladder::Compact,
+                        &self.wrap.borrow(),
                     ),
                     None => plain_height(
                         &self.reasoning,
@@ -183,6 +197,7 @@ impl Prepared {
                     self.delta_secondary,
                     Ladder::Compact,
                     query,
+                    &self.wrap.borrow(),
                 ),
                 None => first_offset(
                     vec![span(self.reasoning.clone()).color(MUTED)],
@@ -211,6 +226,7 @@ impl Prepared {
                         self.delta,
                         self.delta_secondary,
                         Ladder::Compact,
+                        &self.wrap.borrow(),
                     ),
                     None => plain_height(
                         &self.reasoning,
@@ -232,6 +248,7 @@ impl Prepared {
                 self.delta_secondary,
                 Ladder::Body,
                 query,
+                &self.wrap.borrow(),
             )
             .map_or(0.0, |offset| {
                 (y + offset).clamp(0.0, self.body_height(width, expanded))
@@ -296,6 +313,7 @@ impl Prepared {
                         inner,
                         None,
                         None,
+                        &CodeWrap::default(),
                         query,
                         self.delta,
                         self.delta_secondary,
@@ -329,6 +347,7 @@ impl Prepared {
                                 self.delta,
                                 self.delta_secondary,
                                 Ladder::Compact,
+                                &self.wrap.borrow(),
                             ),
                             None => plain_height(
                                 &self.reasoning,
@@ -354,6 +373,7 @@ impl Prepared {
                 width,
                 self.ticket,
                 copied,
+                &self.wrap.borrow(),
                 query,
                 self.delta,
                 self.delta_secondary,
@@ -447,6 +467,7 @@ impl Cache {
             document,
             reasoning_document,
             widths: RefCell::new(Vec::new()),
+            wrap: RefCell::new(CodeWrap::default()),
             delta: self.delta.get(),
             delta_secondary: self.delta_secondary.get(),
         });
@@ -1161,10 +1182,12 @@ fn table_height(
 }
 fn block_height(
     block: &formatted::Block,
+    index: usize,
     width: f32,
     delta: f32,
     delta_secondary: f32,
     ladder: Ladder,
+    wrap: &CodeWrap,
 ) -> f32 {
     match block {
         formatted::Block::Paragraph {
@@ -1204,13 +1227,16 @@ fn block_height(
             )
         }
         formatted::Block::Code { text, .. } => {
+            // A wrapped block can be several lines tall, so the same state that draws it has to
+            // measure it (`CodeCard.module.css:113-134`).
+            let no_wrap = !wrap.wrapped(index);
             plain_height(
                 text,
-                width,
+                width - if no_wrap { 0.0 } else { 2.0 * design::CODE_PAD },
                 design::CODE_FONT as f32 + delta_secondary,
                 design::code_line(delta_secondary),
                 MONO,
-                true,
+                no_wrap,
             ) + design::CODE_CHROME
         }
         formatted::Block::Table {
@@ -1239,6 +1265,7 @@ pub(crate) fn document_first_offset(
     delta_secondary: f32,
     ladder: Ladder,
     query: &str,
+    wrap: &CodeWrap,
 ) -> Option<f32> {
     let size = ladder.size(delta, delta_secondary);
     let line = ladder.line(delta, delta_secondary);
@@ -1330,7 +1357,7 @@ pub(crate) fn document_first_offset(
         }
         // Exactly what the render reserves: the collapsed gap in front of the block
         // plus the block's own height.
-        y += gap + block_height(block, width, delta, delta_secondary, ladder);
+        y += gap + block_height(block, index, width, delta, delta_secondary, ladder, wrap);
     }
     None
 }
@@ -1340,6 +1367,7 @@ fn document_height(
     delta: f32,
     delta_secondary: f32,
     ladder: Ladder,
+    wrap: &CodeWrap,
 ) -> f32 {
     if document.blocks.is_empty() {
         return 20.0;
@@ -1349,11 +1377,45 @@ fn document_height(
         .iter()
         .enumerate()
         .map(|(index, block)| {
-            block_height(block, width, delta, delta_secondary, ladder)
+            block_height(block, index, width, delta, delta_secondary, ladder, wrap)
                 + document_gap(&document.blocks, index, ladder)
         })
         .sum::<f32>()
 }
+/// Which of one reply's code blocks are unwrapped. The reference's card wraps by default and its
+/// toolbar toggles one block at a time back to preserved columns
+/// (`CodeBlock.tsx:156-166`, `CodeCard.module.css:113-134`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CodeWrap {
+    unwrapped: std::collections::BTreeSet<usize>,
+}
+
+impl CodeWrap {
+    /// Whether the document block at `index` wraps its source.
+    fn wrapped(&self, index: usize) -> bool {
+        !self.unwrapped.contains(&index)
+    }
+    /// One reply's wrap state, given the `(reply, block)` pairs the app has unwrapped.
+    pub(crate) fn for_reply(
+        unwrapped: &std::collections::BTreeSet<(u64, usize)>,
+        key: u64,
+    ) -> Self {
+        Self {
+            unwrapped: unwrapped
+                .iter()
+                .filter(|(reply, _)| *reply == key)
+                .map(|(_, index)| *index)
+                .collect(),
+        }
+    }
+}
+
+/// The wrap control's label: what a press will do to the block it sits on, as the reference's
+/// toolbar names it (`CodeToolbar.tsx:47-58`).
+pub(crate) fn code_wrap_label(wrapped: bool) -> &'static str {
+    if wrapped { "No wrap" } else { "Wrap" }
+}
+
 /// The code block's copy label: the reference's `Copied` confirmation for one second after a
 /// successful write, then its idle label (`CodeBlock.tsx:156-170`).
 pub(crate) fn code_copy_label(copied: Option<usize>, index: usize) -> &'static str {
@@ -1369,6 +1431,7 @@ fn document_view(
     width: f32,
     ticket: Option<Ticket>,
     copied: Option<usize>,
+    wrap: &CodeWrap,
     query: &str,
     delta: f32,
     delta_secondary: f32,
@@ -1483,6 +1546,17 @@ fn document_view(
                         .size(design::CODE_FONT)
                         .line_height(iced::Pixels(design::CODE_BANNER_LINE))
                         .width(Length::Fill),
+                        // The reference's toolbar toggles one block between wrapped and preserved
+                        // columns (`CodeToolbar.tsx:47-58`), and its card wraps by default.
+                        button(
+                            label(code_wrap_label(wrap.wrapped(index)), MUTED)
+                                .size(design::CODE_FONT),
+                        )
+                        .on_press_maybe(
+                            ticket.map(|ticket| Message::ToggleCodeWrap(ticket, index)),
+                        )
+                        .style(design::ghost)
+                        .padding([2, 4]),
                         // The reference flips its copy control to `Copied` for one second
                         // (`CodeBlock.tsx:156-170`), so the label states that window here.
                         button(
@@ -1504,26 +1578,45 @@ fn document_view(
                 } else {
                     tokens
                 };
+                let wrapped = wrap.wrapped(index);
                 let code = rich_text(marked(tokens, query))
                     .font(MONO)
                     .size((design::CODE_FONT as f32 + delta_secondary).round() as u32)
                     .line_height(design::code_line(delta_secondary))
-                    .wrapping(text::Wrapping::None);
-                let code = scrollable(container(code).padding(design::CODE_PAD))
-                    .direction(scrollable::Direction::Horizontal(
-                        scrollable::Scrollbar::default(),
-                    ))
-                    .height(
-                        plain_height(
-                            source,
-                            width,
-                            design::CODE_FONT as f32 + delta_secondary,
-                            design::code_line(delta_secondary),
-                            MONO,
-                            true,
-                        ) + 2.0 * design::CODE_PAD,
+                    .wrapping(if wrapped {
+                        text::Wrapping::Word
+                    } else {
+                        text::Wrapping::None
+                    });
+                // A wrapped card measures the text it will wrap; an unwrapped one keeps one line's
+                // height and scrolls sideways (`CodeCard.module.css:113-134`).
+                let height = plain_height(
+                    source,
+                    width - if wrapped { 2.0 * design::CODE_PAD } else { 0.0 },
+                    design::CODE_FONT as f32 + delta_secondary,
+                    design::code_line(delta_secondary),
+                    MONO,
+                    !wrapped,
+                ) + 2.0 * design::CODE_PAD;
+                let code: Element<'static, Message> = if wrapped {
+                    container(
+                        container(code)
+                            .padding(design::CODE_PAD)
+                            .height(height)
+                            .clip(true),
                     )
-                    .width(Length::Fill);
+                    .height(height)
+                    .width(Length::Fill)
+                    .into()
+                } else {
+                    scrollable(container(code).padding(design::CODE_PAD))
+                        .direction(scrollable::Direction::Horizontal(
+                            scrollable::Scrollbar::default(),
+                        ))
+                        .height(height)
+                        .width(Length::Fill)
+                        .into()
+                };
                 // The banner and the pre own their own padding, so the block adds
                 // none; only a list indent moves the whole block right.
                 container(Column::new().push(banner).push(code).spacing(0))
@@ -1560,7 +1653,11 @@ fn document_view(
         };
         body = body.push(
             container(Column::new().push(Space::new().height(gap)).push(content))
-                .height(block_height(block, width, delta, delta_secondary, ladder) + gap + covered)
+                .height(
+                    block_height(block, index, width, delta, delta_secondary, ladder, wrap)
+                        + gap
+                        + covered,
+                )
                 .clip(true),
         );
     }
@@ -1875,14 +1972,29 @@ mod tests {
         let width = 400.0;
         let offset = p.first_match_offset(width, false, "target");
         let document = formatted::parse(source).unwrap();
-        let expected = block_height(&document.blocks[0], width, 0.0, 0.0, Ladder::Body)
-            + document_gap(&document.blocks, 1, Ladder::Body)
+        let expected = block_height(
+            &document.blocks[0],
+            0,
+            width,
+            0.0,
+            0.0,
+            Ladder::Body,
+            &CodeWrap::default(),
+        ) + document_gap(&document.blocks, 1, Ladder::Body)
             + design::CODE_BANNER_HEIGHT
             + design::CODE_PAD;
         assert!((offset - expected).abs() < 0.5, "{offset} vs {expected}");
         // And the same document at the compact ladder walks the compact heights.
         assert_eq!(
-            document_first_offset(&document, width, 0.0, 0.0, Ladder::Body, "target"),
+            document_first_offset(
+                &document,
+                width,
+                0.0,
+                0.0,
+                Ladder::Body,
+                "target",
+                &CodeWrap::default(),
+            ),
             Some(expected)
         );
     }
@@ -2040,10 +2152,31 @@ mod tests {
             blocks: vec![paragraph(), heading(2)],
         };
         assert_eq!(
-            document_height(&document, 400.0, 0.0, 0.0, Ladder::Body),
-            block_height(&paragraph(), 400.0, 0.0, 0.0, Ladder::Body)
-                + block_height(&heading(2), 400.0, 0.0, 0.0, Ladder::Body)
-                + design::RULE_GAP
+            document_height(
+                &document,
+                400.0,
+                0.0,
+                0.0,
+                Ladder::Body,
+                &CodeWrap::default()
+            ),
+            block_height(
+                &paragraph(),
+                0,
+                400.0,
+                0.0,
+                0.0,
+                Ladder::Body,
+                &CodeWrap::default()
+            ) + block_height(
+                &heading(2),
+                1,
+                400.0,
+                0.0,
+                0.0,
+                Ladder::Body,
+                &CodeWrap::default(),
+            ) + design::RULE_GAP
         );
     }
     #[test]

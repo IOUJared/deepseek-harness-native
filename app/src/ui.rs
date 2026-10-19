@@ -525,6 +525,8 @@ pub enum Message {
     QuotaToastTick,
     /// The code block's copy confirmation window ended.
     CodeCopyExpired(u64, usize),
+    /// Toggle one code block between wrapped and preserved columns.
+    ToggleCodeWrap(conversation_content::Ticket, usize),
     ToggleActivity {
         generation: u64,
         key: u64,
@@ -1773,6 +1775,9 @@ pub struct App {
     /// The code block whose Copy control just confirmed, and the reply it belongs to. The reference
     /// flips the button to `Copied` for one second (`CodeBlock.tsx:156-170`).
     code_copied: Option<(u64, usize)>,
+    /// The code blocks a reader unwrapped, by reply key and document block index. Everything else
+    /// wraps, which is the reference's card default (`CodeBlock.tsx:156-166`).
+    code_unwrapped: std::collections::BTreeSet<(u64, usize)>,
     /// The frame-wide quota banner, while one is showing. The reference posts it from an
     /// *appended* quota failure and fades it out after four seconds (`apply.ts:80-100`,
     /// `Toast.tsx:11-14,46-60`).
@@ -2121,6 +2126,7 @@ impl App {
                 seat_hover: None,
                 turn_rail_hover: None,
                 code_copied: None,
+                code_unwrapped: std::collections::BTreeSet::new(),
                 quota_toast: None,
                 rail_page_target: None,
                 rail_pulse: 0,
@@ -5946,6 +5952,14 @@ impl App {
             Message::ToggleDiff(key) if self.composer_visible() => {
                 if !self.diff_expanded.remove(&key) {
                     self.diff_expanded.insert(key);
+                }
+            }
+            Message::ToggleCodeWrap(ticket, index)
+                if ticket.generation == self.generation && self.composer_visible() =>
+            {
+                let pair = (ticket.key, index);
+                if !self.code_unwrapped.remove(&pair) {
+                    self.code_unwrapped.insert(pair);
                 }
             }
             Message::CopyCode(ticket, index)
@@ -14771,7 +14785,11 @@ impl App {
         }
     }
     fn reply_parts(&self, key: u64) -> Option<std::rc::Rc<conversation_content::Prepared>> {
+        // The wrap state lives on the reply so its height cache and its render read one source;
+        // adopt the app's current choice before anything measures or draws it.
+        let wrap = conversation_content::CodeWrap::for_reply(&self.code_unwrapped, key);
         if let Some(prepared) = self.reply_content.get(self.generation, key) {
+            prepared.set_code_wrap(wrap);
             return Some(prepared);
         }
         let parts = if key == u64::MAX {
@@ -14779,10 +14797,11 @@ impl App {
         } else {
             self.transcript.assistant_parts(key)
         }?;
-        Some(
+        let prepared =
             self.reply_content
-                .prepare(self.generation, key, parts.reasoning, parts.answer),
-        )
+                .prepare(self.generation, key, parts.reasoning, parts.answer);
+        prepared.set_code_wrap(wrap);
+        Some(prepared)
     }
     /// An element that opens a popover of its own: `anchor` is drawn as-is, and `popup` appears
     /// anchored beneath it while `open`. A caller that passes `false` gets the plain element, so a
@@ -15769,6 +15788,10 @@ impl App {
             .height(Length::Fill)
             .into(),
         )
+    }
+    /// Whether one code block wraps its source: everything wraps unless the reader unwrapped it.
+    fn code_wrap_wrapped(&self, key: u64, index: usize) -> bool {
+        !self.code_unwrapped.contains(&(key, index))
     }
     /// The code block whose copy control is confirming inside one reply, if any.
     fn copied_code(&self, key: u64) -> Option<usize> {
@@ -23855,6 +23878,56 @@ mod tests {
         assert_eq!(
             flow_gap_for(&live_refs, live_answer, &live_gaps),
             design::TURN_GAP
+        );
+    }
+
+    #[test]
+    fn a_code_block_wraps_by_default_and_toggles_one_block_at_a_time() {
+        let (mut app, _receiver) = managed_app();
+        let key = 5;
+        let reply = |app: &App| {
+            assert_eq!(
+                conversation_content::code_wrap_label(app.code_wrap_wrapped(key, 0)),
+                "No wrap",
+                "a fresh block offers the wrap action, so it is wrapped now"
+            );
+        };
+        reply(&app);
+        assert_eq!(app.code_wrap_wrapped(key, 0), true);
+        // The press unwraps exactly that block.
+        drop(app.update(Message::ToggleCodeWrap(
+            conversation_content::Ticket {
+                generation: app.generation,
+                key,
+                revision: 1,
+            },
+            0,
+        )));
+        assert!(
+            !app.code_wrap_wrapped(key, 0),
+            "the pressed block is unwrapped"
+        );
+        assert!(app.code_wrap_wrapped(key, 1), "its neighbour is untouched");
+        assert!(
+            app.code_wrap_wrapped(key + 1, 0),
+            "another reply is untouched"
+        );
+        assert_eq!(
+            conversation_content::code_wrap_label(app.code_wrap_wrapped(key, 0)),
+            "Wrap"
+        );
+        // A second press restores it.
+        drop(app.update(Message::ToggleCodeWrap(
+            conversation_content::Ticket {
+                generation: app.generation,
+                key,
+                revision: 1,
+            },
+            0,
+        )));
+        assert!(
+            app.code_wrap_wrapped(key, 0),
+            "the second press restores wrapping"
         );
     }
 

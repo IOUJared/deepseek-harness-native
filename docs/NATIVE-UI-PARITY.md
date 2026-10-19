@@ -15127,3 +15127,45 @@ label rule states both windows, and the matching expiry closes it.
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 capture | — | `shots/326-code-copied.png`, `status: passed`, 1040x620 |
 | app bin | — | **21** warnings |
+
+### Round 533 — a code card wraps by default, and one block can turn that off
+
+**The gap.** The reference's reply code blocks render the **card** variant: `MarkdownText` passes
+`copyLabel`/`copiedLabel`/`toolbarLabels` to `CodeBlock`, so the banner carries a language label, a
+wrap toggle and a copy control, and the card's own default is `wrapped = true` — `pre-wrap` with a
+`No wrap` action to return to preserved columns
+(`ui-primitives/src/markdown/render.tsx:394-410`, `CodeBlock.tsx:156-166`,
+`CodeCard.module.css:113-134`). Native always drew `Wrapping::None` inside a horizontal scroll: every
+long line was permanently in the *unwrapped* state, with no way back and no control that said so.
+
+**The change.** Wrapping is per block and defaults to on. `CodeWrap` holds the document block indices a
+reader unwrapped; it lives on `Prepared` (so the height cache and the render read one source) and
+`set_code_wrap` clears the measured heights when it changes, because a wrapped block is taller.
+`block_height`, `document_height`, `document_first_offset` and `document_view` take it, so the reserve
+and the paint agree. A wrapped block measures at `width - 2 * CODE_PAD` with word wrapping and no
+scrollable; an unwrapped one keeps one line's height and scrolls sideways. The banner gains the
+reference's toggle — `No wrap` while wrapped, `Wrap` while not — beside the copy control.
+
+**Frame.** `shots/327-code-wrapped.png` (1040x560, new `code-wrapped` preset): one long `rust` line
+wrapped across two lines inside the card, whose height grew to hold both, with `No wrap` and
+`Copy code` on the banner.
+
+**Tests.** `a_code_block_wraps_by_default_and_toggles_one_block_at_a_time` — a fresh block is wrapped,
+the press unwraps exactly that block (not its neighbour, not another reply), the label flips to `Wrap`,
+and a second press restores wrapping.
+
+**Recorded difference.** The reference's toolbar draws icon buttons with tooltips; native draws the
+same actions as text controls, its standing substitution where the web's icons have no native set.
+
+**Battery (round 533).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1536 passed**, 1 ignored |
+| app, default | **0** | **1480 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-k2y4ujjh`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-t3ub5oxc`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 capture | — | `shots/327-code-wrapped.png`, `status: passed`, 1040x560 |
+| app bin | — | **21** warnings |
