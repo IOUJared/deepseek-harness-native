@@ -12399,3 +12399,31 @@ catalog is `None` rather than empty, and the suite passes with the new `expandab
 | capture | — | none: a branch's toggle, proved by its tests |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 474 — the catalog's failure state has a frame
+
+Round 472 built the loading, failure and Retry states from tests alone. A `subagent-catalog-error` preset
+now seeds a failed roster read with no children, which is exactly the case those states exist for, and
+the frame shows what the code does: the header action standing as `Subagents` with no count, the failure
+in danger ink beneath it, and **Retry** beside it.
+
+Evidence: `shots/268-subagent-catalog-error.png` (DP-2 alongside, `status: passed`).
+
+Tests: unchanged — the state machine is covered by `an_empty_catalog_states_loading_then_the_failure`;
+this round adds the picture.
+
+**Battery (round 474).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1456 passed**, 1 ignored |
+| app, default | **0** | **1424 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/268-subagent-catalog-error.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

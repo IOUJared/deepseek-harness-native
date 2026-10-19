@@ -23,6 +23,7 @@ pub const PRESETS: &[&str] = &[
     "no-session",
     "subagent-trail",
     "subagent-catalog",
+    "subagent-catalog-error",
     "subagent-readonly",
     "subagent-sibling",
     "hero-workspace-selected",
@@ -303,6 +304,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "working-phase-6"
         | "subagent-trail"
         | "subagent-catalog"
+        | "subagent-catalog-error"
         | "subagent-readonly"
         | "subagent-sibling"
         | "hero-workspace-selected" => Some((Size::new(1040.0, 700.0), 1.0)),
@@ -1710,6 +1712,7 @@ pub fn build(
             | "settings-full-access"
             | "schedules-linked"
             | "subagent-catalog"
+            | "subagent-catalog-error"
             | "subagent-readonly"
             | "subagent-sibling"
     ) || preset.starts_with("context-")
@@ -3558,6 +3561,14 @@ pub fn build(
                 output: None,
             });
         }
+    }
+    if preset == "subagent-catalog-error" {
+        // The catalog's failure state: the control stands, and the popup states the error beside its
+        // Retry (`SubagentHeaderLineage.tsx:219-231`). No children are seeded, because a failed read is
+        // exactly the case where none arrived.
+        app.subagent_menu = true;
+        app.roster_refreshing = false;
+        app.roster_error = Some("PUBLIC session list unavailable".into());
     }
     if preset == "subagent-catalog" {
         app.subagent_menu = true;
