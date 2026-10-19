@@ -6,12 +6,32 @@
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-/// One Turn the outline names: its number and the seq a window paged back through it would start
-/// at (`turn/start` anchors every entry, `projection.ts:5-10`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// One Turn the outline names: its number, the seq a window paged back through it would start at
+/// (`turn/start` anchors every entry, `projection.ts:5-10`), and the bounded previews the rail's card
+/// shows (`projection.ts:32-34`: 50 characters of prompt, 120 of response).
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OutlineTurn {
     pub turn: u64,
     pub seq: u64,
+    pub prompt: String,
+    pub response: String,
+}
+
+/// A preview bound the wire already enforces; loaded Turns reuse it so a card states the same words
+/// before and after its events load (`turn-navigation.ts:8-14`).
+pub const PROMPT_LIMIT: usize = 50;
+pub const RESPONSE_LIMIT: usize = 120;
+
+/// The reference's preview fold: space-join the text, collapse whitespace, and cap at the limit with
+/// a trailing ellipsis (`projection.ts:37-55`).
+pub fn preview(text: &str, limit: usize) -> String {
+    let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.chars().count() > limit {
+        let kept: String = normalized.chars().take(limit.saturating_sub(1)).collect();
+        format!("{}…", kept.trim_end())
+    } else {
+        normalized
+    }
 }
 
 /// Decode the projection's wire view. A damaged entry is dropped — a mark cannot exist without its
@@ -32,7 +52,20 @@ pub fn turns(projections: &BTreeMap<String, Value>) -> Vec<OutlineTurn> {
         if turns.last().is_some_and(|last| last.turn >= turn) {
             continue;
         }
-        turns.push(OutlineTurn { turn, seq });
+        turns.push(OutlineTurn {
+            turn,
+            seq,
+            prompt: row
+                .get("prompt")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .unwrap_or_default(),
+            response: row
+                .get("response")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .unwrap_or_default(),
+        });
     }
     turns
 }
@@ -57,10 +90,35 @@ mod tests {
         assert_eq!(
             turns,
             vec![
-                OutlineTurn { turn: 1, seq: 0 },
-                OutlineTurn { turn: 2, seq: 9 }
+                OutlineTurn {
+                    turn: 1,
+                    seq: 0,
+                    prompt: "PUBLIC prompt".into(),
+                    response: "PUBLIC answer".into(),
+                },
+                OutlineTurn {
+                    turn: 2,
+                    seq: 9,
+                    prompt: String::new(),
+                    response: String::new(),
+                }
             ]
         );
+    }
+
+    #[test]
+    fn a_preview_collapses_whitespace_and_caps_with_an_ellipsis() {
+        assert_eq!(
+            preview("  PUBLIC   spaced\n\ttext  ", PROMPT_LIMIT),
+            "PUBLIC spaced text"
+        );
+        let long = "word ".repeat(40);
+        let clipped = preview(&long, PROMPT_LIMIT);
+        assert_eq!(clipped.chars().count(), PROMPT_LIMIT);
+        assert!(clipped.ends_with('…'));
+        // A value exactly at the limit is not clipped.
+        let exact = "x".repeat(PROMPT_LIMIT);
+        assert_eq!(preview(&exact, PROMPT_LIMIT), exact);
     }
 
     #[test]
@@ -77,12 +135,11 @@ mod tests {
         // The entry without a seq drops; the descending Turn 1 after it drops; the good Turn 2
         // that follows the damaged one is still a mark.
         assert_eq!(
-            turns,
-            vec![
-                OutlineTurn { turn: 1, seq: 0 },
-                OutlineTurn { turn: 2, seq: 4 },
-                OutlineTurn { turn: 3, seq: 12 }
-            ]
+            turns
+                .iter()
+                .map(|turn| (turn.turn, turn.seq))
+                .collect::<Vec<_>>(),
+            vec![(1, 0), (2, 4), (3, 12)]
         );
     }
 

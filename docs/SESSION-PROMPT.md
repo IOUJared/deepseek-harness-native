@@ -152,7 +152,7 @@ python3 -c "import json;d=json.load(open('/tmp/dsh-shots/NAME.json'));print(d.ge
 - Modes are presets: `chat-transcript`, `settings-*`, `sidebar-*`, `plan-mode*`, `queued-idle`,
   `mcp`, `schedules`, `workflow-run`, … see `layout_fixture.rs`'s preset list.
 - Archive to `~/.local/share/dsh-macos-shell-reference/shots/<n>-name.png` (+ `-dp2.png`, `.json`)
-  and mirror the buffer into `app/evidence/`. Next number is **314** (shot 313 is the newest).
+  and mirror the buffer into `app/evidence/`. Next number is **315** (shot 314 is the newest).
   **Check this line after every capture**: rounds 94–119 incremented a reworded sentence and left it
   at 266 while the archive moved to 280 (milestone round, `docs/NATIVE-UI-PARITY.md`).
 - When the fixture's check disagrees with a correct picture, read the check's inputs before touching

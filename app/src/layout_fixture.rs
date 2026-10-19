@@ -178,6 +178,7 @@ pub const PRESETS: &[&str] = &[
     "process-group-closed",
     "process-group-open",
     "turn-rail",
+    "turn-rail-hover",
     "tool-activity-attachment",
     "tool-activity-edit-error",
     "tool-activity-diff",
@@ -299,7 +300,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "command-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "process-group-closed" | "process-group-open" => Some((Size::new(1040.0, 760.0), 1.0)),
         // Four Turns, and a column wide enough for the rail (the transcript must exceed 900px).
-        "turn-rail" => Some((Size::new(1400.0, 820.0), 1.0)),
+        "turn-rail" | "turn-rail-hover" => Some((Size::new(1400.0, 820.0), 1.0)),
         "manual-compaction" => Some((Size::new(1040.0, 620.0), 1.0)),
         "chat-density" => Some((Size::new(1040.0, 1000.0), 1.0)),
         "tool-activity-narrow" => Some((Size::new(760.0, 840.0), 1.0)),
@@ -1808,7 +1809,7 @@ pub fn build(
             json!({"type":"event","event":{"type":"tool-workflow/run-end","seq":5,"time":1005,
                 "data":{"runId":"PUBLIC-run","stopReason":"completed"}}}),
         ]
-    } else if preset == "turn-rail" {
+    } else if preset.starts_with("turn-rail") {
         // Four clean Turns, each a prompt and an answer, so the rail has a mark per Turn and a
         // viewport that starts inside a later one once it is scrolled.
         // The window holds the newest four Turns; the outline below also names the four before it,
@@ -1961,7 +1962,7 @@ pub fn build(
         "agent-preset" => json!({"agentPreset":{"id":"implementer","name":"Implementer"}}),
         // Every Turn of the session, with the load-through seq of each; the panel's window holds
         // only the newest four (`session-turn-outline/src/projection.ts:84-140`).
-        "turn-rail" => json!({"turnOutline": (1..=8).map(|turn| json!({
+        "turn-rail" | "turn-rail-hover" => json!({"turnOutline": (1..=8).map(|turn| json!({
             "turn": turn,
             "seq": if turn >= 5 { (turn - 5) * 3 + 12 } else { (turn - 1) * 3 },
             "prompt": format!("PUBLIC rail question {turn}."),
@@ -2041,7 +2042,7 @@ pub fn build(
         .collect();
     let snapshot: SessionFollowFrame = serde_json::from_value(json!({
         "type":"snapshot", "records":records, "cursor":cursor,
-        "hasMore":preset == "history-more" || preset == "turn-rail",
+        "hasMore":preset == "history-more" || preset.starts_with("turn-rail"),
         "header":{"version":4, "id":"PUBLIC-layout-conversation", "createdAt":1000, "isSeeded":false},
         "projections":{"asOfSeq":cursor, "values":projection_values}, "assistantStream":{"revision":0}
     })).expect("fixed PUBLIC valid follow snapshot");
@@ -2607,6 +2608,11 @@ pub fn build(
     }
     if preset == "collapsed-wide" {
         app.sidebar_expanded = false;
+    }
+    if preset == "turn-rail-hover" {
+        // A pointer resting on the sixth Turn's mark: the preview card's state, set before the frame
+        // rather than pointed at during it.
+        app.turn_rail_hover = Some(6);
     }
     if preset == "process-group-open" {
         // The turn's control is folded until the reader opens it, so the opened turn needs its

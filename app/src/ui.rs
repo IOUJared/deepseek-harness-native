@@ -1243,11 +1243,14 @@ enum RailAnchor {
     Unloaded { seq: u64 },
 }
 
-/// One mark on the transcript's turn rail.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// One mark on the transcript's turn rail, with the bounded previews its card states
+/// (`turn-rail-items.ts:11-21`, `TurnNavigator.module.css:130-180`).
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct RailTurn {
     turn: u64,
     anchor: RailAnchor,
+    prompt: String,
+    response: String,
 }
 
 /// What a press on a rail mark does (`TurnNavigator.tsx:98-108`).
@@ -15159,9 +15162,30 @@ impl App {
                 _ => loaded.push(RailTurn {
                     turn,
                     anchor: RailAnchor::Loaded(next.min(index)),
+                    prompt: String::new(),
+                    response: String::new(),
                 }),
             }
             next = index + 1;
+        }
+        // The previews the rail card states: the Turn's prompt and its final answer, bounded to the
+        // reference's budgets (`turn-navigation.ts:8-58`).
+        for rail in &mut loaded {
+            let RailAnchor::Loaded(first) = rail.anchor else {
+                continue;
+            };
+            rail.prompt = rows
+                .get(first)
+                .filter(|row| row.role == "You")
+                .map(|row| turn_outline::preview(&row.text, turn_outline::PROMPT_LIMIT))
+                .unwrap_or_default();
+            rail.response = rows
+                .iter()
+                .filter(|row| row.turn == Some(rail.turn))
+                .filter(|row| row.role.starts_with("Assistant") && !row.text.is_empty())
+                .next_back()
+                .map(|row| turn_outline::preview(&row.text, turn_outline::RESPONSE_LIMIT))
+                .unwrap_or_default();
         }
         // The reference merges the loaded window with the `turnOutline` projection, so a Turn the
         // window does not hold keeps its mark and pages history when pressed
@@ -15169,15 +15193,31 @@ impl App {
         let outline = turn_outline::turns(self.transcript.projections());
         let mut turns: Vec<RailTurn> = outline
             .iter()
-            .map(
-                |entry| match loaded.iter().find(|rail| rail.turn == entry.turn) {
-                    Some(rail) => *rail,
+            .map(|entry| {
+                match loaded.iter().find(|rail| rail.turn == entry.turn) {
+                    // The window's own previews win where it has them; the outline fills the rest
+                    // (`turn-rail-items.ts:78-88`).
+                    Some(rail) => RailTurn {
+                        prompt: if rail.prompt.is_empty() {
+                            entry.prompt.clone()
+                        } else {
+                            rail.prompt.clone()
+                        },
+                        response: if rail.response.is_empty() {
+                            entry.response.clone()
+                        } else {
+                            rail.response.clone()
+                        },
+                        ..rail.clone()
+                    },
                     None => RailTurn {
                         turn: entry.turn,
                         anchor: RailAnchor::Unloaded { seq: entry.seq },
+                        prompt: entry.prompt.clone(),
+                        response: entry.response.clone(),
                     },
-                },
-            )
+                }
+            })
             .collect();
         // An absent or stale projection must not hide a loaded Turn's mark.
         for rail in loaded {
@@ -15278,6 +15318,85 @@ impl App {
     /// short hairline (`TurnNavigator.module.css:60-100`). It is absent while the transcript is
     /// narrower than 900px, and for a session with fewer than two Turns
     /// (`TurnNavigator.tsx:61-63`, `.module.css:200-204`).
+    /// Where the ladder starts: centered in the transcript's band, and never above its top.
+    /// The rail is placed by this number rather than by alignment so the preview card can sit
+    /// beside one mark (`TurnNavigator.module.css:34-44` centers the frame the same way).
+    fn rail_top(&self, marks: usize) -> f32 {
+        let height = marks as f32 * design::TURN_RAIL_PITCH;
+        (self.viewport - height).max(0.0) / 2.0
+    }
+    /// The preview card's height for one Turn: its padding plus a prompt line and up to three
+    /// response lines (`TurnNavigator.module.css:130-180`).
+    fn rail_card_height(&self, rail: &RailTurn) -> f32 {
+        2.0 * design::TURN_RAIL_CARD_PAD
+            + if rail.prompt.is_empty() {
+                0.0
+            } else {
+                design::TURN_RAIL_CARD_PROMPT_LINE
+            }
+            + if rail.response.is_empty() {
+                0.0
+            } else {
+                design::TURN_RAIL_CARD_RESPONSE_GAP
+                    + design::TURN_RAIL_CARD_RESPONSE_LINES * design::TURN_RAIL_CARD_RESPONSE_LINE
+            }
+    }
+    /// The card's top for one mark: centered on it, then clamped inside the band, which is the
+    /// reference's `clamp(0px, center - height / 2, 100% - height)`
+    /// (`TurnNavigator.module.css:131-137`).
+    fn rail_card_top(&self, marks: usize, index: usize, card: f32) -> f32 {
+        let center = self.rail_top(marks)
+            + index as f32 * design::TURN_RAIL_PITCH
+            + design::TURN_RAIL_MARK_HEIGHT / 2.0;
+        (center - card / 2.0).clamp(0.0, (self.viewport - card).max(0.0))
+    }
+    /// The hovered mark's preview card: the Turn's prompt over its last answer, on the floating
+    /// surface the reference uses, 10px to the left of the ladder
+    /// (`TurnNavigator.module.css:130-180`).
+    fn rail_card(&self, rail: &RailTurn, width: f32) -> Element<'_, Message> {
+        let mut body = Column::new().width(Length::Fill);
+        if !rail.prompt.is_empty() {
+            body = body.push(
+                container(label(rail.prompt.clone(), TEXT).size(13))
+                    .height(design::TURN_RAIL_CARD_PROMPT_LINE)
+                    .clip(true)
+                    .width(Length::Fill),
+            );
+        }
+        if !rail.response.is_empty() {
+            body = body
+                .push(Space::new().height(design::TURN_RAIL_CARD_RESPONSE_GAP))
+                .push(
+                    container(label(rail.response.clone(), MUTED).size(12))
+                        .height(
+                            design::TURN_RAIL_CARD_RESPONSE_LINES
+                                * design::TURN_RAIL_CARD_RESPONSE_LINE,
+                        )
+                        .clip(true)
+                        .width(Length::Fill),
+                );
+        }
+        container(body)
+            .padding(iced::Padding {
+                top: design::TURN_RAIL_CARD_PAD,
+                right: design::TURN_RAIL_CARD_SIDE_PAD,
+                bottom: design::TURN_RAIL_CARD_PAD,
+                left: design::TURN_RAIL_CARD_SIDE_PAD,
+            })
+            .width(width)
+            .height(self.rail_card_height(rail))
+            .clip(true)
+            .style(|_| container::Style {
+                background: Some(OVERLAY.into()),
+                border: iced::Border {
+                    color: design::LINE,
+                    width: 1.0,
+                    radius: design::RADIUS_LG.into(),
+                },
+                ..Default::default()
+            })
+            .into()
+    }
     fn turn_rail(&self) -> Option<Element<'_, Message>> {
         if self.content_column() <= design::TURN_RAIL_MIN_COLUMN {
             return None;
@@ -15343,17 +15462,51 @@ impl App {
             .max_height(design::TURN_RAIL_MAX_HEIGHT)
             .clip(true)
             .width(design::TURN_RAIL_WIDTH);
+        let top = self.rail_top(turns.len());
+        let ladder = container(rail)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(iced::Alignment::End)
+            .align_y(iced::Alignment::Start)
+            .padding(iced::Padding {
+                top,
+                right: design::TURN_RAIL_INSET,
+                ..Default::default()
+            });
+        // The hovered mark's preview card rides beside the ladder: `min(300px, column - 120px)`,
+        // 10px from its left edge, clamped to the band (`TurnNavigator.module.css:130-180`).
+        let hovered = self.turn_rail_hover.and_then(|turn| {
+            turns
+                .iter()
+                .position(|rail| rail.turn == turn)
+                .map(|index| (index, &turns[index]))
+        });
+        let Some((index, rail)) = hovered else {
+            return Some(ladder.into());
+        };
+        let card = self.rail_card_height(rail);
+        let width = design::TURN_RAIL_CARD_WIDTH
+            .min(self.content_column() - design::TURN_RAIL_CARD_COLUMN_INSET)
+            .max(120.0);
         Some(
-            container(rail)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .align_x(iced::Alignment::End)
-                .align_y(iced::Alignment::Center)
-                .padding(iced::Padding {
-                    right: design::TURN_RAIL_INSET,
-                    ..Default::default()
-                })
-                .into(),
+            iced::widget::stack![
+                ladder,
+                container(self.rail_card(rail, width))
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .align_x(iced::Alignment::End)
+                    .align_y(iced::Alignment::Start)
+                    .padding(iced::Padding {
+                        top: self.rail_card_top(turns.len(), index, card),
+                        right: design::TURN_RAIL_INSET
+                            + design::TURN_RAIL_WIDTH
+                            + design::TURN_RAIL_CARD_GAP,
+                        ..Default::default()
+                    })
+            ]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into(),
         )
     }
     /// The rows that take the reference's 16px `turn-process` rung: the first process row of a
@@ -23508,6 +23661,8 @@ mod tests {
                             seq: (turn - 1) * 3,
                         }
                     },
+                    prompt: format!("PUBLIC rail question {turn}."),
+                    response: format!("PUBLIC rail answer {turn}."),
                 })
                 .collect::<Vec<_>>()
         );
@@ -23547,7 +23702,7 @@ mod tests {
             .iter()
             .map(|geometry| geometry.height)
             .collect();
-        let third = rails[5];
+        let third = &rails[5];
         let RailAnchor::Loaded(first) = third.anchor else {
             panic!("the preset's sixth Turn is loaded");
         };
@@ -23572,7 +23727,7 @@ mod tests {
         let (mut app, _receiver) =
             layout_fixture::build(layout_fixture::test_options(), "turn-rail", size, None);
         let rows: Vec<_> = app.transcript.display_rows(false).collect();
-        let target = app.rail_turns(&rows)[5];
+        let target = app.rail_turns(&rows)[5].clone();
         let heights: Vec<f32> = app
             .row_geometries(&rows)
             .iter()
@@ -23589,6 +23744,72 @@ mod tests {
             "the mark scrolls to its Turn's first row"
         );
         assert!(!app.follow_bottom, "a jump leaves the live tail");
+    }
+
+    #[cfg(feature = "public-layout-fixture")]
+    #[test]
+    fn the_rail_card_states_a_turns_prompt_and_its_last_answer() {
+        use layout_fixture;
+        let size = iced::Size::new(1400.0, 820.0);
+        let (app, _receiver) =
+            layout_fixture::build(layout_fixture::test_options(), "turn-rail", size, None);
+        let rows: Vec<_> = app.transcript.display_rows(false).collect();
+        let rails = app.rail_turns(&rows);
+        // A loaded Turn states the window's own prompt and final answer (`turn-navigation.ts:44-58`).
+        let loaded = rails
+            .iter()
+            .find(|rail| rail.turn == 6)
+            .expect("the sixth Turn is loaded");
+        assert_eq!(loaded.prompt, "PUBLIC rail question 6.");
+        assert_eq!(loaded.response, "PUBLIC rail answer 6.");
+        // An unloaded Turn falls back to the outline's previews.
+        let unloaded = rails
+            .iter()
+            .find(|rail| rail.turn == 2)
+            .expect("the second Turn is only in the outline");
+        assert_eq!(unloaded.prompt, "PUBLIC rail question 2.");
+        assert_eq!(unloaded.response, "PUBLIC rail answer 2.");
+        // The card's height is its padding plus one prompt line and three response lines.
+        assert_eq!(
+            app.rail_card_height(loaded),
+            2.0 * design::TURN_RAIL_CARD_PAD
+                + design::TURN_RAIL_CARD_PROMPT_LINE
+                + design::TURN_RAIL_CARD_RESPONSE_GAP
+                + design::TURN_RAIL_CARD_RESPONSE_LINES * design::TURN_RAIL_CARD_RESPONSE_LINE
+        );
+        let mut empty = loaded.clone();
+        empty.prompt.clear();
+        empty.response.clear();
+        assert_eq!(
+            app.rail_card_height(&empty),
+            2.0 * design::TURN_RAIL_CARD_PAD
+        );
+    }
+
+    #[cfg(feature = "public-layout-fixture")]
+    #[test]
+    fn the_card_sits_beside_its_mark_and_stays_inside_the_band() {
+        use layout_fixture;
+        let size = iced::Size::new(1400.0, 820.0);
+        let (mut app, _receiver) =
+            layout_fixture::build(layout_fixture::test_options(), "turn-rail", size, None);
+        let rows: Vec<_> = app.transcript.display_rows(false).collect();
+        let rails = app.rail_turns(&rows);
+        let card = app.rail_card_height(&rails[5]);
+        app.viewport = 820.0;
+        // The ladder is centered in the band and the card is centered on its mark
+        // (`TurnNavigator.module.css:34-44,131-137`).
+        let pitch = design::TURN_RAIL_PITCH;
+        let top = app.rail_top(rails.len());
+        assert_eq!(top, (820.0 - rails.len() as f32 * pitch) / 2.0);
+        assert_eq!(
+            app.rail_card_top(rails.len(), 5, card),
+            top + 5.0 * pitch + design::TURN_RAIL_MARK_HEIGHT / 2.0 - card / 2.0
+        );
+        // A short band clamps the card inside it, at both ends of the ladder.
+        app.viewport = card + 10.0;
+        assert_eq!(app.rail_card_top(rails.len(), 0, card), 0.0);
+        assert_eq!(app.rail_card_top(rails.len(), rails.len() - 1, card), 10.0);
     }
 
     #[cfg(feature = "public-layout-fixture")]

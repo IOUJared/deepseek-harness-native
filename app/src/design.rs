@@ -225,6 +225,19 @@ pub const TURN_RAIL_INSET: f32 = 12.0;
 pub const TURN_RAIL_MAX_HEIGHT: f32 = 420.0;
 /// The rail hides while its column is at or under 900px (`TurnNavigator.module.css:200-204`).
 pub const TURN_RAIL_MIN_COLUMN: f32 = 900.0;
+/// The rail's hover preview card: `min(300px, column - 120px)` wide, `padding: 10px 12px`, one 13px
+/// prompt line and up to three 12px response lines, 10px beside the mark, clamped to the band
+/// (`TurnNavigator.module.css:130-180`).
+pub const TURN_RAIL_CARD_WIDTH: f32 = 300.0;
+pub const TURN_RAIL_CARD_COLUMN_INSET: f32 = 120.0;
+pub const TURN_RAIL_CARD_GAP: f32 = 10.0;
+pub const TURN_RAIL_CARD_PAD: f32 = 10.0;
+pub const TURN_RAIL_CARD_SIDE_PAD: f32 = 12.0;
+/// The card's own lines: 13px prompt at 18, 12px response at 17, three of them at most.
+pub const TURN_RAIL_CARD_PROMPT_LINE: f32 = 18.0;
+pub const TURN_RAIL_CARD_RESPONSE_LINE: f32 = 17.0;
+pub const TURN_RAIL_CARD_RESPONSE_LINES: f32 = 3.0;
+pub const TURN_RAIL_CARD_RESPONSE_GAP: f32 = 4.0;
 /// The transcript scroller's own vertical inset: the web's `.scroll` padding is
 /// `16px calc(clearance + 16px)` (`ChatView.module.css:26-29`), so the first row
 /// starts 16px below the header and the last ends 16px above the composer.

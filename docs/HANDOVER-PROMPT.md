@@ -27,7 +27,7 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > 2. Measure the baselines rather than trusting this file:
 >    - fixture: `cargo test --manifest-path app/Cargo.toml --locked --offline --jobs 2 --features public-layout-fixture --bin dsh-native-app -- --test-threads=2`
 >    - default: the same without `--features`
->    - at handover: **1514** fixture / **1461** default, 1 ignored each (round 518).
+>    - at handover: **1517** fixture / **1462** default, 1 ignored each (round 519).
 > 3. Load `.agents/skills/native-ui-parity/SKILL.md` (and `.agents/skills/impeccable-rust/SKILL.md` for
 >    Rust changes) — `AGENTS.md` makes both mandatory for this work. Then read `docs/SESSION-PROMPT.md`
 >    (capture conventions, next shot number), `docs/VERIFICATION.md`, and the coverage table at the end
@@ -65,12 +65,11 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 >   frame (same window size, same sidebar state, same conversation data).
 >
 > ### Live backlog at handover (verify each before working it)
-> 1. **The rail's preview card, busy pulse and internal scroller** — the reference grows a 300px
->    prompt/response card beside a hovered mark, pulses a paging mark and scrolls a ladder taller than
->    its 420px band with faded ends; native clips.
-> 2. **The `turnOutline` push is unverified live** — round 518 reads the projection and the fixture
->    seeds it, but no real session has been read to confirm the Host pushes it to native; the same
->    projection carries the previews the card needs.
+> 1. **The rail's busy pulse and internal scroller** — the reference pulses a paging mark and scrolls
+>    a ladder taller than its 420px band with faded ends; native clips. The card's enter and follow
+>    animations are likewise unbuilt (native draws the card at its resting place).
+> 2. **The `turnOutline` push is unverified live** — rounds 518–519 read the projection and the fixture
+>    seeds it, but no real session has been read to confirm the Host pushes it to native.
 > 3. **The turn control's counts** — the reference publishes `data-turn-process-messages`,
 >    `-tool-calls` and `-subagents` for the control's accessible state
 >    (`TurnProcessNodeView.tsx:38-41`); native's label states only the duration or end state.
@@ -95,8 +94,8 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > insets (rounds 504, 510), the group seat's 24px blank band (round 511), the folded-by-default seat
 > with its expanded title gap (round 512), a settled turn's process control (round 513), the
 > turn-process 16px flow rung (round 514), the seat's activity-to-chevron leading glyph (round 516),
-> the transcript's turn rail over the loaded window (round 517), and the rail's outline half with
-> paging to an unloaded Turn (round 518).
+> the transcript's turn rail over the loaded window (round 517), the rail's outline half with paging
+> to an unloaded Turn (round 518), and the rail's hover preview card (round 519).
 >
 > ### Etiquette
 > Be terse. Prefer numbered lists over tables in replies. Challenge your own claims; walk back anything

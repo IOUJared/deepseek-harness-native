@@ -14489,3 +14489,53 @@ the fixture seeds the projection, and the push is unverified until a real sessio
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 capture | — | `shots/313-rail-outline.png`, `status: passed`, 1400x820 |
 | app bin | — | **21** warnings |
+
+### Round 519 — the rail's hover preview card
+
+**The gap.** Rounds 517 and 518 named it. The reference grows a card beside a hovered mark: one 13px
+prompt line over up to three 12px response lines on a floating layer-1 surface
+(`TurnNavigator.module.css:130-180`), positioned `right: calc(100% + 10px)` of the 28px frame,
+`min(300px, column - 120px)` wide with `padding: 10px 12px`, clamped inside the band, and
+`pointer-events: none`. Its words come from the loaded window first — the Turn's prompt and its final
+answer, folded and bounded to 50 and 120 characters (`turn-navigation.ts:8-58`) — and the outline fills
+what the window lacks (`turn-rail-items.ts:78-88`).
+
+**The change.** `turn_outline::turns` now decodes the wire's `prompt` and `response` alongside the Turn
+and seq, and `turn_outline::preview` is the reference's fold (space-join, collapse whitespace, cap with
+an ellipsis). `RailTurn` carries both previews: a loaded Turn states its own prompt row and its last
+answer row, the outline fills an empty side, and the window wins where it has words. The card's
+geometry is three pure helpers — `rail_top` centers the ladder in the observed band, `rail_card_height`
+is padding plus the lines it states, `rail_card_top` centers the card on its mark and clamps it inside
+the band — because Iced has no absolute positioning, so both the ladder and the card are placed by
+those numbers instead of by alignment. `rail_card` draws the floating surface, and the ladder now
+starts at `rail_top` rather than being centered by the container so the two agree.
+
+**Frame.** `shots/314-rail-card.png` (1400x820, new `turn-rail-hover` preset that seeds a pointer on the
+sixth Turn's mark): the eight-tick ladder with the card beside the sixth mark — `PUBLIC rail question
+6.` in primary ink over `PUBLIC rail answer 6.` in muted ink — floating over the message column exactly
+as the reference's overlay does.
+
+**Tests.** `a_preview_collapses_whitespace_and_caps_with_an_ellipsis` (fold, cap, exact-length), the
+outline decoder now asserting the previews it carries, `the_rail_card_states_a_turns_prompt_and_its_last_answer`
+(a loaded Turn's own words, an unloaded Turn's outline words, and the card's height for prompt + three
+response lines and for an empty card), and
+`the_card_sits_beside_its_mark_and_stays_inside_the_band` (centered on its mark; clamped to both ends of
+a band shorter than the card).
+
+**Still open.** The card's 120ms enter animation and its 140ms vertical follow, the paging **busy**
+pulse, and the frame's internal scroller with faded ends. The card is a plain container, so it is
+non-interactive like the reference's `pointer-events: none`; that is a constructional match rather than
+a tested one.
+
+**Battery (round 519).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1517 passed**, 1 ignored |
+| app, default | **0** | **1462 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-monrunh6`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-azpflj81`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 capture | — | `shots/314-rail-card.png`, `status: passed`, 1400x820 |
+| app bin | — | **21** warnings |
