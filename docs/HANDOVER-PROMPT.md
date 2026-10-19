@@ -27,7 +27,7 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > 2. Measure the baselines rather than trusting this file:
 >    - fixture: `cargo test --manifest-path app/Cargo.toml --locked --offline --jobs 2 --features public-layout-fixture --bin dsh-native-app -- --test-threads=2`
 >    - default: the same without `--features`
->    - at handover: **1519** fixture / **1464** default, 1 ignored each (round 520).
+>    - at handover: **1521** fixture / **1465** default, 1 ignored each (round 521).
 > 3. Load `.agents/skills/native-ui-parity/SKILL.md` (and `.agents/skills/impeccable-rust/SKILL.md` for
 >    Rust changes) — `AGENTS.md` makes both mandatory for this work. Then read `docs/SESSION-PROMPT.md`
 >    (capture conventions, next shot number), `docs/VERIFICATION.md`, and the coverage table at the end
@@ -70,6 +70,9 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 >    140ms vertical follow (native draws it at rest).
 > 2. **The `turnOutline` push is unverified live** — rounds 518–519 read the projection and the fixture
 >    seeds it, but no real session has been read to confirm the Host pushes it to native.
+> 3. **A flaky examples test** — `single_instance::tests::a_second_launch_reaches_the_owner_that_holds_the_lock`
+>    failed once in round 521 ("the owner answers on its socket") and passed on the re-run; it is a
+>    Unix-socket timing test, and the cause is not established.
 > 3. **The turn control's counts** — the reference publishes `data-turn-process-messages`,
 >    `-tool-calls` and `-subagents` for the control's accessible state
 >    (`TurnProcessNodeView.tsx:38-41`); native's label states only the duration or end state.
@@ -95,8 +98,8 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > with its expanded title gap (round 512), a settled turn's process control (round 513), the
 > turn-process 16px flow rung (round 514), the seat's activity-to-chevron leading glyph (round 516),
 > the transcript's turn rail over the loaded window (round 517), the rail's outline half with paging
-> to an unloaded Turn (round 518), the rail's hover preview card (round 519), and a paging mark's pulse
-> with a windowed long ladder (round 520).
+> to an unloaded Turn (round 518), the rail's hover preview card (round 519), a paging mark's pulse
+> with a windowed long ladder (round 520), and the Turn usage accounting dialog (round 521).
 >
 > ### Etiquette
 > Be terse. Prefer numbered lists over tables in replies. Challenge your own claims; walk back anything

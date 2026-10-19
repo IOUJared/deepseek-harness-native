@@ -14584,3 +14584,53 @@ pins, not on the capture.
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 capture | — | `shots/315-rail-busy.png`, `status: passed`, 1400x820 |
 | app bin | — | **21** warnings |
+
+### Round 521 — the turn usage pill opens the Turn's accounting
+
+**The gap.** The coverage table recorded it in one clause: native draws the per-turn usage reading
+only — "the reference's click-open accounting dialog is not built". The reference's
+`TurnUsagePanel` is a "Usage {total}" pill whose press portals a dialog above the trigger: a title row
+with the exact total, a hairline, then the attributed route, the cache-hit share, uncached input,
+cached input, cache write and output (`TurnUsagePanel.tsx:29-105`, `stat-dialog.module.css:1-96`).
+
+**The change.** `chat_usage::TurnUsageDetail` now states the buckets themselves instead of one
+pre-joined line: `total`, `input`, `cache_read`, `cache_write`, `output`, `reasoning`, the attributed
+`routes` and the cached `cache_hit` share. The share follows the reference's own arithmetic —
+`cacheRead / (total - output)`, falling back to the summed billed input when the record states no
+total — and its own formatting: `100` when every prompt token was cached, one rounded tenth
+otherwise (`token-format.ts:67-79`). The pill now opens `turn_usage_view`, an anchored dialog with the
+reference's rows and copy (Turn usage, Provider / model, Cache hit, Uncached input, Cached input,
+Cache write, Output with its reasoning share). The inline detail line is gone, so `usage_height`
+reserves nothing: the dialog floats over the row rather than inside it.
+
+**Frame.** `shots/316-turn-usage.png` (1040x760, new `turn-usage` preset whose assistant record carries
+every bucket and whose dialog is opened): `Turn usage` with `8.1K tok`, then Provider / model
+`PUBLIC/PUBLIC-model`, Cache hit `83.3%`, Uncached input `1.2K tok`, Cached input `6.0K tok`, Cache
+write `800 tok`, Output `900 tok (250 tok reasoning)`.
+
+**Tests.** The two `chat_usage` tests now assert the structured buckets, both cache-hit arithmetics
+(`85.7%` from total − output; `83.3%` with reasoning present) and the route join;
+`an_expanded_usage_line_is_reserved_above_both_geometry_paths` became the opposite contract — the dialog
+grows the row by nothing on either geometry path — and
+`the_usage_pill_opens_the_turns_accounting_and_closes_it_again` presses the pill twice against the
+fixture preset.
+
+**A flaky gate, retained.** The first `--suite examples` run this round **failed**:
+`single_instance::tests::a_second_launch_reaches_the_owner_that_holds_the_lock` panicked on
+"the owner answers on its socket" (`verification-d3557ugp`). The re-run passed
+(`verification-85l7chtk`) with no code change between them, and nothing in this round touches
+`single_instance`; the failing test is a Unix-socket timing test. Recorded as an observed flake rather
+than a fixed defect — one pass after one failure is not evidence of a cause.
+
+**Battery (round 521).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1521 passed**, 1 ignored |
+| app, default | **0** | **1465 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-5nq8ueoh`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed on the re-run (`verification-85l7chtk`); the first run failed one unrelated socket test, recorded above |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 capture | — | `shots/316-turn-usage.png`, `status: passed`, 1040x760 |
+| app bin | — | **21** warnings |

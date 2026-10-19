@@ -14681,6 +14681,77 @@ impl App {
     }
     /// The reference's `Session statistics` dialog (`StatsPills.tsx:244-270`): the timed figures,
     /// then the token-usage section the compact pill already summarizes.
+    /// One completed Turn's accounting dialog: the reference's `TurnUsagePanel` body — the title row
+    /// with the exact total, a hairline, then the model route and every bucket
+    /// (`TurnUsagePanel.tsx:52-105`, `stat-dialog.module.css:17-96`).
+    fn turn_usage_view(&self, detail: &chat_usage::TurnUsageDetail) -> Element<'_, Message> {
+        let exact = |value: u64| format!("{} tok", subagent_catalog::format_tokens(value));
+        let mut rows: Vec<(String, String)> = Vec::new();
+        if !detail.routes.is_empty() {
+            rows.push(("Provider / model".into(), detail.routes.clone()));
+        }
+        if let Some(hit) = &detail.cache_hit {
+            rows.push(("Cache hit".into(), format!("{hit}%")));
+        }
+        if let Some(value) = detail.input {
+            rows.push(("Uncached input".into(), exact(value)));
+        }
+        if let Some(value) = detail.cache_read {
+            rows.push(("Cached input".into(), exact(value)));
+        }
+        if let Some(value) = detail.cache_write {
+            rows.push(("Cache write".into(), exact(value)));
+        }
+        if let Some(value) = detail.output {
+            let mut text = exact(value);
+            if let Some(reasoning) = detail.reasoning {
+                text.push_str(&format!(" ({} reasoning)", exact(reasoning)));
+            }
+            rows.push(("Output".into(), text));
+        }
+        let mut body = column![
+            row![
+                label("Turn usage", TEXT).size(12),
+                Space::new().width(Length::Fill),
+                label(detail.total.map(exact).unwrap_or_else(|| "—".into()), TEXT).size(12),
+            ]
+            .align_y(iced::Alignment::Center),
+            container(Space::new())
+                .height(1)
+                .width(Length::Fill)
+                .style(|_| {
+                    container::Style {
+                        background: Some(SURFACE.into()),
+                        ..Default::default()
+                    }
+                }),
+        ]
+        .spacing(6)
+        .width(300);
+        for (name, value) in rows {
+            body = body.push(
+                row![
+                    label(name, MUTED).size(12),
+                    Space::new().width(Length::Fill),
+                    label(value, TEXT).size(12),
+                ]
+                .align_y(iced::Alignment::Center),
+            );
+        }
+        container(body)
+            .padding(16)
+            .width(300)
+            .style(|_| container::Style {
+                background: Some(OVERLAY.into()),
+                border: iced::Border {
+                    color: design::LINE,
+                    width: 1.0,
+                    radius: design::RADIUS_LG.into(),
+                },
+                ..Default::default()
+            })
+            .into()
+    }
     fn stats_dialog_view(&self) -> Element<'_, Message> {
         let Some(stats) = self.stats() else {
             return container(Space::new()).into();
@@ -15004,12 +15075,10 @@ impl App {
     }
     /// The line box the expanded per-turn accounting adds under the action row. Drawn for every
     /// non-human row that carries usage, formatted or not, so both geometry branches reserve it.
-    fn usage_height(&self, key: u64) -> f32 {
-        if self.usage_expanded.contains(&key) && self.transcript.turn_usage_detail(key).is_some() {
-            design::content_secondary(self.content_font_size).max(12.0) + 2.0
-        } else {
-            0.0
-        }
+    fn usage_height(&self, _key: u64) -> f32 {
+        // The turn's accounting is an anchored dialog over the row, not a line inside it
+        // (`TurnUsagePanel.tsx:48-52` portals it), so it reserves no height.
+        0.0
     }
     fn row_geometry(&self, row: &DisplayRow, lane: f32) -> chat_geometry::Geometry {
         let mut geometry = self.row_geometry_base(row, lane);
@@ -17582,23 +17651,29 @@ impl App {
                                 .padding([ACTION_PAD, ACTION_PAD]),
                         );
                     }
-                    // The reference's per-turn usage action (`TurnUsagePanel.tsx`): a compact
-                    // "Usage N tok" label on the completed assistant row. Native draws the
-                    // reading only; the reference's click-open accounting dialog is not built.
-                    if !human && let Some(usage) = self.transcript.turn_usage(record.key) {
+                    // The reference's per-turn usage action (`TurnUsagePanel.tsx:29-48`): a compact
+                    // "Usage N tok" pill whose press opens the accounting dialog above it.
+                    let usage_detail = (!human)
+                        .then(|| self.transcript.turn_usage_detail(record.key))
+                        .flatten();
+                    if let (Some(usage), Some(detail)) =
+                        (self.transcript.turn_usage(record.key), &usage_detail)
+                    {
                         let expanded = self.usage_expanded.contains(&record.key);
-                        footer = footer.push(
-                            button(
-                                label(
-                                    format!("Usage {usage} {}", if expanded { "▾" } else { "▸" }),
-                                    MUTED,
-                                )
-                                .size(10),
+                        let pill = button(
+                            label(
+                                format!("Usage {usage} {}", if expanded { "▾" } else { "▸" }),
+                                MUTED,
                             )
-                            .on_press(Message::ToggleTurnUsage(record.key))
-                            .style(design::ghost)
-                            .padding([1, 2]),
-                        );
+                            .size(10),
+                        )
+                        .style(design::ghost)
+                        .padding([1, 2]);
+                        footer = footer.push(anchored_popup::anchored(
+                            pill.into(),
+                            expanded.then(|| self.turn_usage_view(detail)),
+                            Message::ToggleTurnUsage(record.key),
+                        ));
                     }
                     if assistant || excerpt(&record.text) != record.text {
                         footer = footer.push(
@@ -17638,13 +17713,6 @@ impl App {
                             }),
                         );
                     }
-                    let usage_detail = if !human && self.usage_expanded.contains(&record.key) {
-                        self.transcript
-                            .turn_usage_detail(record.key)
-                            .map(|detail| detail.line)
-                    } else {
-                        None
-                    };
                     let mut card = Column::new();
                     if chat_geometry::status_header(&record.role) {
                         card = card
@@ -17709,9 +17777,6 @@ impl App {
                             );
                         }
                         let mut assembled = column![stack, Space::new().height(ACTION_GAP), footer];
-                        if let Some(detail) = &usage_detail {
-                            assembled = assembled.push(label(short(detail, 160), MUTED).size(10));
-                        }
                         if let Some(card) = self.changes_card(record) {
                             assembled = assembled.push(card);
                         }
@@ -17723,9 +17788,6 @@ impl App {
                             // (`AssistantMarkdown.module.css:73-78`).
                             .push(Space::new().height(RESPONSE_ACTION_GAP))
                             .push(footer);
-                        if let Some(detail) = &usage_detail {
-                            assembled = assembled.push(label(short(detail, 160), MUTED).size(10));
-                        }
                         if let Some(card) = self.changes_card(record) {
                             assembled = assembled.push(card);
                         }
@@ -23605,6 +23667,28 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "public-layout-fixture")]
+    #[test]
+    fn the_usage_pill_opens_the_turns_accounting_and_closes_it_again() {
+        use layout_fixture;
+        let size = iced::Size::new(1040.0, 760.0);
+        let (mut app, _receiver) =
+            layout_fixture::build(layout_fixture::test_options(), "turn-usage", size, None);
+        // The preset opens the dialog, and the row it belongs to carries every bucket.
+        assert!(app.usage_expanded.contains(&2));
+        let detail = app
+            .transcript
+            .turn_usage_detail(2)
+            .expect("the recorded usage");
+        assert_eq!(detail.total, Some(8100));
+        assert_eq!(detail.routes, "PUBLIC/PUBLIC-model");
+        // A press closes it; the next press opens it again.
+        drop(app.update(Message::ToggleTurnUsage(2)));
+        assert!(!app.usage_expanded.contains(&2));
+        drop(app.update(Message::ToggleTurnUsage(2)));
+        assert!(app.usage_expanded.contains(&2));
+    }
+
     #[test]
     fn a_seat_leading_states_its_activity_until_the_pointer_or_the_disclosure_swaps_the_chevron() {
         // The tool rows' own vocabulary, one covered DejaVu glyph per category: the reference's
@@ -25223,17 +25307,17 @@ mod tests {
         let collapsed = app.row_geometry(&row, lane).height;
         app.usage_expanded.insert(row.key);
         let expanded = app.row_geometry(&row, lane).height;
-        assert!(
-            expanded > collapsed,
-            "the expanded accounting line must be reserved ({collapsed} -> {expanded})"
-        );
-        assert_eq!(expanded - collapsed, app.usage_height(row.key));
-        // The reservation sits above both geometry paths, so the branch a row takes cannot lose
-        // it: the same record measured through the fallback path keeps the line.
-        let unformatted = app.row_geometry_base(&row, lane).height;
+        // The accounting is an anchored dialog over the row, not a line inside it
+        // (`TurnUsagePanel.tsx:48-52` portals it), so opening it reserves no height at all — on
+        // either geometry path.
         assert_eq!(
-            app.row_geometry(&row, lane).height - unformatted,
-            app.usage_height(row.key)
+            expanded, collapsed,
+            "the dialog must not grow the row ({collapsed} -> {expanded})"
+        );
+        assert_eq!(app.usage_height(row.key), 0.0);
+        assert_eq!(
+            app.row_geometry(&row, lane).height - app.row_geometry_base(&row, lane).height,
+            0.0
         );
     }
     #[test]

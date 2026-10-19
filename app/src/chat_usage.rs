@@ -377,7 +377,44 @@ fn cache_hit(cached: u64, billed: u64) -> Option<String> {
 /// One turn's accounting rows for the per-turn detail, from the assistant message's usage.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TurnUsageDetail {
-    pub line: String,
+    pub total: Option<u64>,
+    pub input: Option<u64>,
+    pub cache_read: Option<u64>,
+    pub cache_write: Option<u64>,
+    pub output: Option<u64>,
+    pub reasoning: Option<u64>,
+    /// The cached share of the billed input, one decimal, as the reference states it
+    /// (`TurnUsagePanel.tsx:39-42`: `formatCacheHitPercent(cacheRead, total - output, 1)`).
+    pub cache_hit: Option<String>,
+    /// `provider/model` for every attributed attempt, comma-joined (`TurnUsagePanel.tsx:43-44`).
+    pub routes: String,
+}
+
+impl TurnUsageDetail {
+    pub fn has_rows(&self) -> bool {
+        self.total.is_some()
+            || self.input.is_some()
+            || self.cache_read.is_some()
+            || self.cache_write.is_some()
+            || self.output.is_some()
+            || self.reasoning.is_some()
+            || self.cache_hit.is_some()
+            || !self.routes.is_empty()
+    }
+}
+
+/// The cached share of a billed prompt with one decimal, as the turn dialog states it: `100` when
+/// every prompt token was cached, one rounded tenth otherwise (`token-format.ts:67-79`,
+/// `TurnUsagePanel.tsx:39-42`). `None` when nothing was billed.
+fn cache_hit_tenths(cache_read: u64, prompt: u64) -> Option<String> {
+    if prompt == 0 {
+        return None;
+    }
+    if cache_read >= prompt {
+        return Some("100".into());
+    }
+    let units = (u128::from(cache_read) * 1_000 + u128::from(prompt) / 2) / u128::from(prompt);
+    Some(format!("{}.{}", units / 10, units % 10))
 }
 
 pub fn turn_usage_detail(event: &SessionWireEvent) -> Option<TurnUsageDetail> {
@@ -396,36 +433,44 @@ pub fn turn_usage_detail(event: &SessionWireEvent) -> Option<TurnUsageDetail> {
     let written = field_any(&["cacheWriteTokens"]);
     let reasoning = field_any(&["reasoningTokens"]);
     let total = field_any(&["totalTokens"]);
-    let mut parts = Vec::new();
-    for (label, value) in [
-        ("Input", input),
-        ("Cache read", cached),
-        ("Cache write", written),
-        ("Output", output),
-        ("Reasoning", reasoning),
-        ("Total", total),
-    ] {
-        if let Some(value) = value {
-            parts.push(format!(
-                "{label} {} tok",
-                crate::ui::subagent_catalog::format_tokens(value)
-            ));
-        }
-    }
-    if parts.is_empty() {
-        return None;
-    }
-    if let (Some(cached), Some(input)) = (cached, input) {
-        let billed = input
-            .saturating_add(cached)
-            .saturating_add(written.unwrap_or(0));
-        if let Some(percent) = cache_hit(cached, billed) {
-            parts.push(format!("Cache hit {percent}%"));
-        }
-    }
-    Some(TurnUsageDetail {
-        line: parts.join(" · "),
-    })
+    // The reference divides the cached tokens by the billed input — `total - output` — rather than
+    // by a sum it composes itself (`TurnUsagePanel.tsx:39-42`).
+    let cache_hit = cached.and_then(|cached| {
+        let billed = total
+            .map(|total| total.saturating_sub(output.unwrap_or(0)))
+            .unwrap_or_else(|| {
+                input
+                    .unwrap_or(0)
+                    .saturating_add(cached)
+                    .saturating_add(written.unwrap_or(0))
+            });
+        cache_hit_tenths(cached, billed)
+    });
+    let routes = usage
+        .get("routes")
+        .and_then(serde_json::Value::as_array)
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|row| {
+                    let provider = row.get("provider")?.as_str()?;
+                    let model = row.get("model")?.as_str()?;
+                    Some(format!("{provider}/{model}"))
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default();
+    let detail = TurnUsageDetail {
+        total,
+        input,
+        cache_read: cached,
+        cache_write: written,
+        output,
+        reasoning,
+        cache_hit,
+        routes,
+    };
+    detail.has_rows().then_some(detail)
 }
 
 /// The whole-log decode speed the reference's activity pill shows
@@ -873,13 +918,38 @@ mod tests {
             surface_op: None,
         };
         let detail = turn_usage_detail(&event).unwrap();
-        assert!(detail.line.contains("Input 1.0K tok"));
-        assert!(detail.line.contains("Cache read 6.0K tok"));
-        assert!(detail.line.contains("Output 345 tok"));
-        assert!(detail.line.contains("Total 7.3K tok"));
-        assert!(detail.line.contains("Cache hit 86%"));
+        assert_eq!(detail.input, Some(1000));
+        assert_eq!(detail.cache_read, Some(6000));
+        assert_eq!(detail.output, Some(345));
+        assert_eq!(detail.total, Some(7345));
+        // `formatCacheHitPercent(cacheRead, total - output, 1)`: 6000 / 7000.
+        assert_eq!(detail.cache_hit.as_deref(), Some("85.7"));
+        assert!(detail.routes.is_empty(), "this record names no route");
         event.data = json!({"usage":{}});
         assert_eq!(turn_usage_detail(&event), None);
+    }
+
+    #[test]
+    fn a_turn_usage_detail_names_every_attributed_route_and_the_reasoning_share() {
+        let event = SessionWireEvent {
+            event_type: "assistant/message".into(),
+            seq: 0,
+            time: 1,
+            data: json!({"usage":{
+                "uncachedInputTokens":1200,"cacheReadTokens":6000,"cacheWriteTokens":800,
+                "outputTokens":900,"reasoningTokens":250,"totalTokens":8100,
+                "routes":[{"provider":"PUBLIC","model":"PUBLIC-model"},
+                    {"provider":"PUBLIC-2","model":"PUBLIC-2"}]
+            }}),
+            ignorable: None,
+            source_event_seqs: None,
+            surface_op: None,
+        };
+        let detail = turn_usage_detail(&event).unwrap();
+        assert_eq!(detail.routes, "PUBLIC/PUBLIC-model, PUBLIC-2/PUBLIC-2");
+        assert_eq!(detail.reasoning, Some(250));
+        // 6000 / (8100 - 900) = 83.33…, one decimal as the reference states it.
+        assert_eq!(detail.cache_hit.as_deref(), Some("83.3"));
     }
 
     #[test]
