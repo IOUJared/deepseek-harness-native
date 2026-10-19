@@ -22,9 +22,11 @@ composer's **token/cache/speed reading** (`shots/121-…`); and **keys as data**
 commands drive the live chain instead of a hardcoded map. Later rounds added, with captures: the
 tool row's **workspace-relative path and edit pair** (`shots/158-…`), the **permission chip and its
 Host catalog** (`shots/159-…`–`161-…`), the goal bar's **Inactive Goal and Resume** (`shots/162-…`),
-the **inline diff card** and its fold (`shots/163-…`, `164-…`), and the compact navigation sheet's
-**search answer** (`shots/165-…`). The goal bar now follows Host projection pushes (round 357), which
-is the control stream the worker had never opened.
+the **inline diff card** and its fold (`shots/163-…`, `164-…`), the compact navigation sheet's
+**search answer** (`shots/165-…`), a read result drawn **without its protocol envelope**
+(`shots/166-…`), and finally **one row per tool call** with its result folded in — the plain
+transcript, a read body and the diff card (`shots/167-…`–`170-…`). The goal bar now follows Host
+projection pushes (round 357), which is the control stream the worker had never opened.
 
 **Read this before trusting the list above.** Round 257 found that the editor's per-row actions,
 the permission default row and eight Host-event handlers were **unreachable behind two catch-all
