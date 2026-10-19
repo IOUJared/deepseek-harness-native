@@ -13179,3 +13179,43 @@ year-zero date.
 | DP-2 capture | — | `shots/284-turn-trigger-dated.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 494 — the action row is ordered like the reference's, and a rating states its removal
+
+The feedback audit's two display findings. The reference's reply row orders the copy mark, then the
+feedback pair, then the branch control (`MessageIconActions.tsx:85-91`); native drew Branch first, then
+Copy, then the pair. And the reference's rating controls are icons whose accessible name says what the
+press will do — `Good response` / `Bad response` and `Remove rating` once one is set
+(`ui-messages-feedback/src/client/locales.ts:39-42`); native said `Like` / `Dislike` in every state, so
+nothing said a second press removes the rating.
+
+The row now draws copy → feedback → branch, and the set rating's own control reads `Remove rating`
+while the other stays available. Words rather than icons remain the recorded difference on this surface —
+native has no tooltip, so the words carry what the reference's accessible names carry.
+
+Tests: `a_rating_says_when_a_second_press_would_remove_it` — each state's two words, at no rating and at
+each rating.
+
+**A fixture correction this round needed, across every preset**: the presets recorded synthetic
+epoch-relative times, so the date-aware clock added in round 493 honestly rendered `1969-12-31 18:00` on
+every conversation. One shift in the fixture's record assembly now moves those times into recent
+history, so every capture shows what a real Host would produce.
+
+Evidence: `shots/285-feedback-row.png` (DP-2 alongside, `status: passed`) — copy, `Remove rating`,
+`Dislike`, `Branch` and `10/17 11:48`.
+
+**Battery (round 494).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1480 passed**, 1 ignored |
+| app, default | **0** | **1442 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/285-feedback-row.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

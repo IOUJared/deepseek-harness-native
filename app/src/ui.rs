@@ -686,6 +686,17 @@ const ACTION_GAP: f32 = 6.0;
 /// (`TurnTriggerNodeView.module.css:31`).
 const TRIGGER_BODY_MAX: f32 = 240.0;
 /// The height of the message actions row, which the web sets to 28px.
+/// One rating control's word. The reference's two buttons are icons whose accessible name states what
+/// the press will do — `Good response` / `Bad response`, and `Remove rating` once one is set
+/// (`ui-message-feedback/src/client/locales.ts:39-42`). Native has no tooltip, so the words carry it.
+fn feedback_label(rating: Option<&str>, positive: bool) -> &'static str {
+    match (rating, positive) {
+        (Some("positive"), true) | (Some("negative"), false) => "Remove rating",
+        (_, true) => "Like",
+        (_, false) => "Dislike",
+    }
+}
+/// The height of the message actions row, which the web sets to 28px.
 const ACTION_HEIGHT: f32 = 28.0;
 /// The gap between the actions themselves, which the web sets to 8px.
 const ACTION_SPACING: f32 = 8.0;
@@ -16157,23 +16168,10 @@ impl App {
                             label(crate::reducer::turn_tail::label(Some(duration)), MUTED).size(10),
                         );
                     }
-                    // The reference's turn tail carries a branch control beside copy
+                    // The reference's row orders the copy mark, then the feedback pair, then the
+                    // branch control (`MessageIconActions.tsx:85-91`).
                     // (`TurnTailNodeView.tsx:69` forks at `data.seq`). Native's reply
                     // record key is its inclusive cut.
-                    if !human && let Ok(cut) = i64::try_from(record.key) {
-                        let fork = self.fork_context();
-                        if let Some(view) = fork.view.filter(|_| fork.allowed) {
-                            footer = footer.push(
-                                button(label("Branch", MUTED).size(10))
-                                    .on_press(Message::Fork(crate::fork::Action::Open {
-                                        view,
-                                        cut: Some(cut),
-                                    }))
-                                    .style(design::ghost)
-                                    .padding([1, 2]),
-                            );
-                        }
-                    }
                     footer = footer.push(
                         button(label(ACTION_COPY, MUTED).size(glyph))
                             .on_press_maybe(self.row_copy_source(record.key).is_some().then_some(
@@ -16193,7 +16191,7 @@ impl App {
                         footer = footer.push(
                             button(
                                 label(
-                                    "Like",
+                                    feedback_label(rating, true),
                                     if rating == Some("positive") {
                                         ACCENT
                                     } else {
@@ -16209,7 +16207,7 @@ impl App {
                         footer = footer.push(
                             button(
                                 label(
-                                    "Dislike",
+                                    feedback_label(rating, false),
                                     if rating == Some("negative") {
                                         ACCENT
                                     } else {
@@ -16222,6 +16220,20 @@ impl App {
                             .style(design::ghost)
                             .padding([1, 2]),
                         );
+                    }
+                    if !human && let Ok(cut) = i64::try_from(record.key) {
+                        let fork = self.fork_context();
+                        if let Some(view) = fork.view.filter(|_| fork.allowed) {
+                            footer = footer.push(
+                                button(label("Branch", MUTED).size(10))
+                                    .on_press(Message::Fork(crate::fork::Action::Open {
+                                        view,
+                                        cut: Some(cut),
+                                    }))
+                                    .style(design::ghost)
+                                    .padding([1, 2]),
+                            );
+                        }
                     }
                     if human && self.transcript.editable_text(record.key).is_some() {
                         footer = footer.push(
@@ -25172,5 +25184,21 @@ mod send_label_tests {
         assert_eq!(running.send_label(true), "Sending…");
         running.busy_enter = crate::settings::BusyEnter::Steer;
         assert_eq!(running.send_label(false), "Steer message ↑");
+    }
+}
+
+#[cfg(test)]
+mod feedback_label_tests {
+    //! One rating control's word, at each state.
+    #[test]
+    fn a_rating_says_when_a_second_press_would_remove_it() {
+        use super::feedback_label;
+        assert_eq!(feedback_label(None, true), "Like");
+        assert_eq!(feedback_label(None, false), "Dislike");
+        // The set rating states the removal, and the other control stays available.
+        assert_eq!(feedback_label(Some("positive"), true), "Remove rating");
+        assert_eq!(feedback_label(Some("positive"), false), "Dislike");
+        assert_eq!(feedback_label(Some("negative"), false), "Remove rating");
+        assert_eq!(feedback_label(Some("negative"), true), "Like");
     }
 }

@@ -1947,6 +1947,30 @@ pub fn build(
         ]}}),
         _ => json!({}),
     };
+    // The presets record synthetic epoch-relative times (`1000`, `1001`, …). A date-aware clock then
+    // states those honestly as 1970, which is correct arithmetic on an unrealistic fixture and reads as
+    // a bug in every capture. One shift here moves them all to recent history, so a frame shows what a
+    // real Host would produce.
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(0))
+        .unwrap_or(0);
+    let fixture_base = now_ms - 2 * 24 * 60 * 60 * 1000;
+    let records: Vec<serde_json::Value> = records
+        .into_iter()
+        .map(|record| {
+            let mut record = record;
+            if let Some(time) = record
+                .get_mut("event")
+                .and_then(|event| event.get_mut("time"))
+                && let Some(value) = time.as_i64()
+                && value < 1_000_000_000_000
+            {
+                *time = serde_json::Value::from(fixture_base + value);
+            }
+            record
+        })
+        .collect();
     let snapshot: SessionFollowFrame = serde_json::from_value(json!({
         "type":"snapshot", "records":records, "cursor":cursor,
         "hasMore":preset == "history-more",
