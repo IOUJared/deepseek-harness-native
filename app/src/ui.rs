@@ -516,6 +516,8 @@ pub enum Message {
     TurnRailHoverEnd(u64),
     /// Jump the transcript to a Turn the loaded window holds.
     TurnRailJump(u64),
+    /// One step of a paging rail mark's pulse.
+    RailPulseTick,
     ToggleActivity {
         generation: u64,
         key: u64,
@@ -1253,6 +1255,36 @@ struct RailTurn {
     response: String,
 }
 
+/// The busy pulse's steps per cycle: ten 100ms steps make the reference's one-second animation
+/// (`TurnNavigator.module.css:186-193`).
+const RAIL_PULSE_PHASES: u8 = 10;
+/// The largest ladder the rail draws before it shows a window: the reference's 420px band over its
+/// 10px pitch (`TurnNavigator.module.css:47-56`).
+const RAIL_MAX_MARKS: usize = 42;
+
+/// A paging mark's opacity at one pulse phase: full at the ends of the cycle and `0.35` in the
+/// middle, the reference's `dsh-turn-mark-busy` keyframes
+/// (`TurnNavigator.module.css:186-193`).
+fn rail_mark_alpha(phase: u8) -> f32 {
+    let t = f32::from(phase % RAIL_PULSE_PHASES) / f32::from(RAIL_PULSE_PHASES);
+    1.0 - 0.65 * (1.0 - (2.0 * t - 1.0).abs())
+}
+
+/// The marks a ladder taller than its band shows: a window of at most `RAIL_MAX_MARKS` around the
+/// Turn the viewport is in. The reference scrolls the ladder inside its frame with faded ends; native
+/// has no mask, so it shows the same band as a window and says so
+/// (`TurnNavigator.module.css:52-95`).
+fn rail_window(len: usize, focus: Option<usize>) -> std::ops::Range<usize> {
+    if len <= RAIL_MAX_MARKS {
+        return 0..len;
+    }
+    let focus = focus.unwrap_or(0).min(len - 1);
+    let start = focus
+        .saturating_sub(RAIL_MAX_MARKS / 2)
+        .min(len - RAIL_MAX_MARKS);
+    start..start + RAIL_MAX_MARKS
+}
+
 /// What a press on a rail mark does (`TurnNavigator.tsx:98-108`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RailPress {
@@ -1677,6 +1709,10 @@ pub struct App {
     /// A Turn the rail has been asked to reach through history: pages keep loading until the
     /// window holds it, then the jump lands (`TurnNavigator.tsx:98-108`).
     rail_page_target: Option<u64>,
+    /// The busy pulse's phase: ten steps per second from `Message::RailPulseTick` while a rail jump
+    /// is paging, so its mark breathes at the reference's one-second cycle
+    /// (`TurnNavigator.module.css:95-99,186-193`).
+    rail_pulse: u8,
     /// Settled turns whose whole process the reader has opened, by turn number. A settled turn
     /// with no entry is folded behind its control line, as the reference's completed-turn fold
     /// is (`ChatGroupSeat.tsx:152-153`, `TurnProcessNodeView.tsx:20-33`).
@@ -2014,6 +2050,7 @@ impl App {
                 seat_hover: None,
                 turn_rail_hover: None,
                 rail_page_target: None,
+                rail_pulse: 0,
                 turn_process_open: Default::default(),
                 edit_review: None,
                 search_open: false,
@@ -2139,6 +2176,13 @@ impl App {
             },
             if self.working_animation_active() {
                 iced::time::every(Duration::from_millis(100)).map(|_| Message::WorkingTick)
+            } else {
+                Subscription::none()
+            },
+            // A rail jump that is still paging history pulses its mark, one step per 100ms so the
+            // reference's one-second cycle divides into ten (`TurnNavigator.module.css:186-193`).
+            if self.rail_page_target.is_some() {
+                iced::time::every(Duration::from_millis(100)).map(|_| Message::RailPulseTick)
             } else {
                 Subscription::none()
             },
@@ -3138,6 +3182,7 @@ impl App {
         self.seat_hover = None;
         self.turn_rail_hover = None;
         self.rail_page_target = None;
+        self.rail_pulse = 0;
         // The usage disclosure is keyed by record seq, which is not unique across sessions, so a
         // seq that was open here would open the new session's same-numbered row.
         self.usage_expanded.clear();
@@ -5757,6 +5802,9 @@ impl App {
             }
             Message::SeatHoverEnd(key) if self.seat_hover == Some(key) => {
                 self.seat_hover = None;
+            }
+            Message::RailPulseTick => {
+                self.rail_pulse = self.rail_pulse.wrapping_add(1) % RAIL_PULSE_PHASES;
             }
             Message::TurnRailHover(turn) if self.turn_rail_hover != Some(turn) => {
                 self.turn_rail_hover = Some(turn);
@@ -15407,11 +15455,14 @@ impl App {
             return None;
         }
         let active = self.active_rail_turn(&rows);
+        let active_index = active.and_then(|turn| turns.iter().position(|rail| rail.turn == turn));
+        // A ladder taller than the reference's band shows a window around the viewport's Turn.
+        let window = rail_window(turns.len(), active_index);
         let mut marks = Column::new()
             .spacing(design::TURN_RAIL_PITCH - design::TURN_RAIL_MARK_HEIGHT)
             .align_x(iced::Alignment::End)
             .width(design::TURN_RAIL_WIDTH);
-        for rail in &turns {
+        for rail in &turns[window.clone()] {
             let here = active == Some(rail.turn);
             let hovered = self.turn_rail_hover == Some(rail.turn);
             // An unloaded Turn's mark is the reference's `markUnloaded`: 40% at 60% opacity
@@ -15425,13 +15476,21 @@ impl App {
                     RailAnchor::Loaded(_) => design::TURN_RAIL_MARK_WIDTH * 0.6,
                 }
             };
-            let ink = if here {
+            let mut ink = if here {
                 TEXT
             } else if hovered {
                 MUTED
             } else {
                 design::LINE
             };
+            // A mark whose Turn is still being paged breathes at the reference's cycle
+            // (`TurnNavigator.module.css:95-99,186-193`).
+            if self.rail_page_target == Some(rail.turn) {
+                ink = iced::Color {
+                    a: rail_mark_alpha(self.rail_pulse),
+                    ..ink
+                };
+            }
             let tick = container(
                 Space::new()
                     .width(width)
@@ -15462,7 +15521,7 @@ impl App {
             .max_height(design::TURN_RAIL_MAX_HEIGHT)
             .clip(true)
             .width(design::TURN_RAIL_WIDTH);
-        let top = self.rail_top(turns.len());
+        let top = self.rail_top(window.len());
         let ladder = container(rail)
             .width(Length::Fill)
             .height(Length::Fill)
@@ -15479,7 +15538,8 @@ impl App {
             turns
                 .iter()
                 .position(|rail| rail.turn == turn)
-                .map(|index| (index, &turns[index]))
+                .filter(|index| window.contains(index))
+                .map(|index| (index - window.start, &turns[index]))
         });
         let Some((index, rail)) = hovered else {
             return Some(ladder.into());
@@ -15497,7 +15557,7 @@ impl App {
                     .align_x(iced::Alignment::End)
                     .align_y(iced::Alignment::Start)
                     .padding(iced::Padding {
-                        top: self.rail_card_top(turns.len(), index, card),
+                        top: self.rail_card_top(window.len(), index, card),
                         right: design::TURN_RAIL_INSET
                             + design::TURN_RAIL_WIDTH
                             + design::TURN_RAIL_CARD_GAP,
@@ -23784,6 +23844,43 @@ mod tests {
             app.rail_card_height(&empty),
             2.0 * design::TURN_RAIL_CARD_PAD
         );
+    }
+
+    #[test]
+    fn a_paging_mark_breathes_from_full_to_a_third_at_the_reference_cycle() {
+        // `dsh-turn-mark-busy`: opacity 1 at 0% and 100%, 0.35 at 50%
+        // (`TurnNavigator.module.css:186-193`).
+        assert_eq!(rail_mark_alpha(0), 1.0);
+        assert!(
+            (rail_mark_alpha(5) - 0.35).abs() < 0.001,
+            "{}",
+            rail_mark_alpha(5)
+        );
+        assert!((rail_mark_alpha(10) - 1.0).abs() < 0.001, "the phase wraps");
+        // It falls through the first half and rises through the second, so the dip is one breath.
+        assert!(rail_mark_alpha(2) < rail_mark_alpha(1));
+        assert!(rail_mark_alpha(8) < rail_mark_alpha(9));
+        assert!(rail_mark_alpha(5) < rail_mark_alpha(4));
+        assert!(rail_mark_alpha(5) < rail_mark_alpha(6));
+        assert_eq!(
+            RAIL_PULSE_PHASES, 10,
+            "ten steps make the reference's second"
+        );
+    }
+
+    #[test]
+    fn a_long_ladder_shows_a_window_around_the_turn_in_view() {
+        // Short ladders draw every mark.
+        assert_eq!(rail_window(3, Some(1)), 0..3);
+        assert_eq!(rail_window(RAIL_MAX_MARKS, None), 0..RAIL_MAX_MARKS);
+        // A long one keeps the band's worth of marks around the focus, never past either end.
+        let range = rail_window(100, Some(50));
+        assert_eq!(range.len(), RAIL_MAX_MARKS);
+        assert!(range.contains(&50));
+        assert_eq!(rail_window(100, Some(0)).start, 0);
+        assert_eq!(rail_window(100, Some(99)).end, 100);
+        // No focus falls back to the head of the ladder.
+        assert_eq!(rail_window(100, None), 0..RAIL_MAX_MARKS);
     }
 
     #[cfg(feature = "public-layout-fixture")]

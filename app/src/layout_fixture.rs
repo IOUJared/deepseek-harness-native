@@ -2611,8 +2611,11 @@ pub fn build(
     }
     if preset == "turn-rail-hover" {
         // A pointer resting on the sixth Turn's mark: the preview card's state, set before the frame
-        // rather than pointed at during it.
+        // rather than pointed at during it. The second Turn's mark is mid-page, caught at the dip of
+        // its one-second pulse so the frame shows the busy state the animation cycles through.
         app.turn_rail_hover = Some(6);
+        app.rail_page_target = Some(2);
+        app.rail_pulse = 5;
     }
     if preset == "process-group-open" {
         // The turn's control is folded until the reader opens it, so the opened turn needs its

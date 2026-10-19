@@ -14539,3 +14539,48 @@ a tested one.
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 capture | — | `shots/314-rail-card.png`, `status: passed`, 1400x820 |
 | app bin | — | **21** warnings |
+
+### Round 520 — a paging rail mark breathes, and a long ladder shows a window
+
+**The gap.** Round 519's handover named the last two drawing differences in the rail: the reference
+pulses the mark whose Turn is still being paged, and it scrolls a ladder taller than its 420px band
+with faded ends (`TurnNavigator.module.css:52-95,95-99,186-193`).
+
+**The pulse.** `App.rail_pulse` is a ten-step phase; a `Message::RailPulseTick` subscription runs only
+while `rail_page_target` is set, one step per 100ms, so the reference's one-second cycle divides into
+ten. `rail_mark_alpha(phase)` is the reference's `dsh-turn-mark-busy` keyframes as a triangle — full at
+the ends, **0.35** in the middle — and the paging mark's ink takes that alpha. Measured in the frame:
+the busy tick's peak luminance is 141 against its neighbours' 207, and the active mark reads 690 and
+the hovered one 454, so the three states are distinguishable in one picture.
+
+**The window.** The reference scrolls the ladder inside its frame behind 24px mask fades. Iced has no
+mask, so native shows the same band as a **window**: `rail_window(len, focus)` returns at most 42 marks
+(the 420px band over the 10px pitch) around the Turn the viewport is in, clamped to either end of the
+ladder. A long session therefore keeps every mark reachable instead of clipping the ones past 42 —
+the reference's fades are named as the difference, not the reachability.
+
+**Frame.** `shots/315-rail-busy.png` (1400x820): the `turn-rail-hover` preset now also seeds a paging
+target on the second Turn and the pulse at its dip, so one frame shows the card beside the sixth mark,
+the active fifth mark at full length, and the second mark dimmed mid-pulse.
+
+**Tests.** `a_paging_mark_breathes_from_full_to_a_third_at_the_reference_cycle` (full at 0, 0.35 at the
+midpoint, the phase wraps, falling then rising through the halves, ten steps per second) and
+`a_long_ladder_shows_a_window_around_the_turn_in_view` (a short ladder draws every mark; a long one
+keeps 42 around its focus without running past either end; no focus falls back to the head).
+
+**Recording honesty.** A still frame cannot prove an *animation*: it proves the states the animation
+moves through. The pulse's timing rests on the tick's 100ms period and the phase arithmetic the test
+pins, not on the capture.
+
+**Battery (round 520).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1519 passed**, 1 ignored |
+| app, default | **0** | **1464 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-yzxhc3cm`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-iot1ihq3`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 capture | — | `shots/315-rail-busy.png`, `status: passed`, 1400x820 |
+| app bin | — | **21** warnings |
