@@ -1060,6 +1060,25 @@ impl Transcript {
                     .as_str()
                     .filter(|id| !id.is_empty())
                     .map(str::to_owned);
+                // A manual compaction's own summary supplies the counts its marker states; the
+                // reference folds the pair into one row (`CompactionCommandCard.tsx:14-26`).
+                let summary_counts = (|| {
+                    if kind != "command/done" {
+                        return None;
+                    }
+                    let seq = event.data["sourceEventSeq"].as_u64()?;
+                    let summary = self.records.get(&seq)?;
+                    if summary.event_type != "compaction/summary" {
+                        return None;
+                    }
+                    Some((
+                        summary.data["shadowedSeqs"]
+                            .as_array()
+                            .map(|seqs| seqs.len() as u64)
+                            .unwrap_or(0),
+                        summary.data["shadowedTokenCount"].as_u64().unwrap_or(0),
+                    ))
+                })();
                 match (kind, id.as_deref().and_then(|id| commands.get(id)).copied()) {
                     ("command/run", None) => {
                         if let Some((id, patched)) = crate::reducer::command_row::run(&event.data) {
@@ -1076,6 +1095,9 @@ impl Transcript {
                         {
                             if kind == "command/done" {
                                 crate::reducer::command_row::done(command, &event.data);
+                                if summary_counts.is_some() {
+                                    command.manual_compaction = summary_counts;
+                                }
                             }
                             target.text = format!("{} · {}", command.name, command.summary());
                         }
@@ -1089,6 +1111,18 @@ impl Transcript {
                 }
                 rows.push(row);
                 continue;
+            }
+            // The summary a manual compaction folded into its command row is not drawn twice.
+            if kind == "compaction/summary"
+                && let Some(seq) = event.data["seq"].as_u64()
+                && rows.iter().any(|row| {
+                    row.command
+                        .as_ref()
+                        .is_some_and(|command| command.manual_compaction.is_some())
+                })
+            {
+                let _ = seq;
+                row.chat = false;
             }
             if matches!(kind, "turn/end" | "step/end") {
                 for row in rows.iter_mut().filter(|row| row.retry.is_some()) {
@@ -2383,5 +2417,109 @@ mod retry_row_tests {
             transcript.rows().iter().all(|row| row.retry.is_none()),
             "{kinds:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod manual_compaction_tests {
+    //! A `/compact` run and the summary it produced draw one marker, stating the structured counts.
+    use super::*;
+
+    fn event(seq: u64, kind: &str, data: serde_json::Value) -> Value {
+        serde_json::json!({"type":"event","event":{"type":kind,"seq":seq,"time":1000+seq,"data":data}})
+    }
+    fn frame(records: Vec<Value>) -> SessionFollowFrame {
+        serde_json::from_value(serde_json::json!({
+            "type": "snapshot", "records": records, "cursor": 4, "hasMore": false,
+            "header": {"version": 4, "id": "PUBLIC-compact", "createdAt": 0, "isSeeded": false},
+            "projections": {"asOfSeq": 4, "values": {}},
+            "assistantStream": {"revision": 0}
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_manual_compaction_draws_one_marker_with_its_counts() {
+        let mut transcript = Transcript::new(0);
+        transcript
+            .apply(
+                0,
+                frame(vec![
+                    event(
+                        1,
+                        "command/run",
+                        serde_json::json!({"commandId": "c1", "name": "compact"}),
+                    ),
+                    event(2, "compaction/start", serde_json::json!({})),
+                    event(
+                        3,
+                        "compaction/summary",
+                        serde_json::json!({
+                            "shadowedSeqs": [0, 1, 2, 3, 4], "shadowedTokenCount": 2400
+                        }),
+                    ),
+                    event(
+                        4,
+                        "command/done",
+                        serde_json::json!({
+                            "commandId": "c1", "kind": "success", "sourceEventSeq": 3
+                        }),
+                    ),
+                ]),
+            )
+            .unwrap();
+        let chat: Vec<_> = transcript.display_rows(false).collect();
+        assert_eq!(chat.len(), 1, "the command and its summary are one marker");
+        let command = chat[0].command.as_ref().expect("the command row");
+        assert_eq!(command.name, "compact");
+        assert_eq!(command.manual_compaction, Some((5, 2400)));
+        assert_eq!(
+            chat[0].text,
+            "compact · Compacted 5 history items (~2.4k tokens)"
+        );
+        // Trajectory still lists every record that has a row (`compaction/start` never does).
+        assert_eq!(transcript.display_rows(true).count(), 3);
+    }
+
+    #[test]
+    fn a_plain_command_without_a_summary_keeps_its_own_text() {
+        let mut transcript = Transcript::new(0);
+        transcript
+            .apply(
+                0,
+                frame(vec![
+                    event(
+                        1,
+                        "command/run",
+                        serde_json::json!({"commandId": "c1", "name": "/help"}),
+                    ),
+                    event(
+                        2,
+                        "command/done",
+                        serde_json::json!({"commandId": "c1", "kind": "success", "text": "Shown"}),
+                    ),
+                ]),
+            )
+            .unwrap();
+        let chat: Vec<_> = transcript.display_rows(false).collect();
+        assert_eq!(chat.len(), 1);
+        assert_eq!(chat[0].text, "/help · Shown");
+        assert_eq!(chat[0].command.as_ref().unwrap().manual_compaction, None);
+        // A source event that is not a compaction summary leaves the command text alone.
+        let mut transcript = Transcript::new(0);
+        transcript
+            .apply(0, frame(vec![
+                event(1, "command/run", serde_json::json!({"commandId": "c1", "name": "compact"})),
+                event(2, "assistant/message", serde_json::json!({"turn":1,"step":1,"stream":[]})),
+                event(3, "command/done", serde_json::json!({"commandId": "c1", "kind": "success", "sourceEventSeq": 2})),
+            ]))
+            .unwrap();
+        let command = transcript
+            .rows()
+            .iter()
+            .find(|row| row.command.is_some())
+            .and_then(|row| row.command.clone())
+            .unwrap();
+        assert_eq!(command.manual_compaction, None);
     }
 }

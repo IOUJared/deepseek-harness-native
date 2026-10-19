@@ -14368,47 +14368,43 @@ impl App {
                 activity_column.into()
             } else if let Some(command) = record.command.clone() {
                 // The reference's command row (`GenericCommandCard.tsx:54-90`): the command's name,
-                // its outcome, and the multi-line output behind a disclosure.
+                // its outcome, and the multi-line output behind a disclosure. One label carries the
+                // whole line: a row/`Space` composition inside this height-reserved box drew empty,
+                // while the same text as a label paints (round 391).
                 let expanded = self.activity_expanded.contains(&record.key);
                 let body = command.body();
-                let mut header = row![
-                    label(
-                        if expanded && body.is_some() {
-                            "▾"
-                        } else {
-                            "▸"
-                        },
-                        MUTED
-                    )
-                    .size(10),
-                    label(command.name.clone(), TEXT).size(12),
-                    label("·", MUTED).size(12),
-                    label(
-                        command.summary(),
-                        if command.state == crate::reducer::command_row::State::Failed {
-                            DANGER
-                        } else {
-                            MUTED
-                        }
-                    )
-                    .size(11),
-                    Space::new().width(Length::Fill),
-                ]
-                .spacing(6)
-                .align_y(iced::Alignment::Center);
-                let mut block = column![
-                    button(header)
-                        .on_press_maybe(body.map(|_| Message::ToggleActivity {
-                            generation: self.generation,
-                            key: record.key,
-                        }))
-                        .style(design::ghost)
-                        .padding([4, 0])
-                        .width(Length::Fill),
-                ]
-                .spacing(2);
+                let ink = if command.state == crate::reducer::command_row::State::Failed {
+                    DANGER
+                } else {
+                    MUTED
+                };
+                let summary = command.summary();
+                let head = format!(
+                    "{}{} · {summary}",
+                    if expanded && body.is_some() {
+                        "\u{25be} "
+                    } else {
+                        "\u{25b8} "
+                    },
+                    command.name
+                );
+                let mut block = column![];
+                match body {
+                    Some(_) => {
+                        block = block.push(
+                            button(label(head, ink).size(12))
+                                .on_press(Message::ToggleActivity {
+                                    generation: self.generation,
+                                    key: record.key,
+                                })
+                                .style(design::ghost)
+                                .padding([4, 0])
+                                .width(Length::Fill),
+                        )
+                    }
+                    None => block = block.push(label(head, ink).size(12)),
+                }
                 if expanded && let Some(body) = body {
-                    // A pre-like block: one row per line, capped at the ten the geometry reserves.
                     for line in body.lines().take(10) {
                         block = block.push(
                             label(short(line, 200), MUTED)
@@ -14417,7 +14413,7 @@ impl App {
                         );
                     }
                 }
-                container(block)
+                container(block.spacing(2))
                     .padding([6, 14])
                     .width(geometries[index].width)
                     .into()

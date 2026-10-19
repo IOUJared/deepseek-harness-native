@@ -23,6 +23,10 @@ pub struct Row {
     pub state: State,
     /// The settled outcome's text, when the Host recorded one.
     pub text: Option<String>,
+    /// A manual `/compact`'s structured counts, taken from the compaction summary the command
+    /// produced: the reference draws them as one marker instead of the command text
+    /// (`CompactionItem.tsx:56-66`, `locale.ts:331`).
+    pub manual_compaction: Option<(u64, u64)>,
 }
 
 impl Row {
@@ -30,7 +34,19 @@ impl Row {
     /// line; otherwise `Completed` or `Command failed` (`GenericCommandCard.tsx:44-52`).
     pub fn summary(&self) -> String {
         if self.state == State::Running {
-            return "Running…".to_owned();
+            // A manual compaction says what it is doing, as the reference's running copy does.
+            return if self.name == "compact" {
+                "Compacting context…".to_owned()
+            } else {
+                "Running…".to_owned()
+            };
+        }
+        if let Some((items, tokens)) = self.manual_compaction {
+            return format!(
+                "Compacted {items} history item{} (~{} tokens)",
+                if items == 1 { "" } else { "s" },
+                crate::reducer::command_row::compact_tokens(tokens)
+            );
         }
         match self.text.as_deref() {
             Some(text) if !text.contains('\n') && !text.trim().is_empty() => {
@@ -60,6 +76,16 @@ impl std::fmt::Debug for Row {
     }
 }
 
+/// The reference's token figure: whole thousands from a thousand up (`locale.ts:331` shows the
+/// raw count; the compact form keeps the row to one line).
+pub fn compact_tokens(tokens: u64) -> String {
+    if tokens >= 1_000 {
+        format!("{:.1}k", tokens as f64 / 1_000.0)
+    } else {
+        tokens.to_string()
+    }
+}
+
 /// The command a `command/run` record opens, or `None` when the record cannot name one.
 pub fn run(data: &Value) -> Option<(String, Row)> {
     let id = data["commandId"].as_str().filter(|id| !id.is_empty())?;
@@ -75,6 +101,7 @@ pub fn run(data: &Value) -> Option<(String, Row)> {
             args,
             state: State::Running,
             text: None,
+            manual_compaction: None,
         },
     ))
 }

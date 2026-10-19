@@ -153,6 +153,7 @@ pub const PRESETS: &[&str] = &[
     "schedule-create",
     "skill-row",
     "command-row",
+    "manual-compaction",
     "context-injects",
     "assistant-tool-call",
     "assistant-tool-call-expanded",
@@ -239,6 +240,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "schedule-create" => Some((Size::new(1040.0, 700.0), 1.0)),
         "skill-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "command-row" => Some((Size::new(1040.0, 700.0), 1.0)),
+        "manual-compaction" => Some((Size::new(1040.0, 620.0), 1.0)),
         "chat-density" => Some((Size::new(1040.0, 1000.0), 1.0)),
         "tool-activity-narrow" => Some((Size::new(760.0, 840.0), 1.0)),
         "tool-activity-tiny" => Some((Size::new(608.0, 448.0), 1.25)),
@@ -696,6 +698,52 @@ fn public_tool_applied_records() -> Vec<Value> {
         }
     }
     records
+}
+
+/// One `/compact` run, the summary it produced, and its receipt, so the reference's single
+/// compaction marker draws the structured counts. Synthetic PUBLIC metadata; nothing was compacted.
+fn public_manual_compaction_records() -> Vec<Value> {
+    let event = |seq: u64, kind: &str, data: Value| {
+        json!({"type":"event", "event":{
+            "type":kind, "seq":seq, "time":1000+seq, "data":data, "surfaceOp":"append"
+        }})
+    };
+    vec![
+        event(
+            0,
+            "user/message",
+            json!({"role":"user", "id":"PUBLIC-compact-user", "source":{"kind":"user"},
+                "content":[{"type":"text","text":"PUBLIC manual-compaction fixture · nothing was compacted."}]}),
+        ),
+        event(
+            1,
+            "command/run",
+            json!({"commandId":"PUBLIC-compact-1", "name":"compact"}),
+        ),
+        event(2, "compaction/start", json!({})),
+        event(
+            3,
+            "compaction/summary",
+            json!({
+                "shadowedSeqs":[0,1,2,3,4,5,6], "shadowedTokenCount": 12_400
+            }),
+        ),
+        event(
+            4,
+            "command/done",
+            json!({
+                "commandId":"PUBLIC-compact-1", "kind":"success", "sourceEventSeq": 3
+            }),
+        ),
+        event(
+            5,
+            "assistant/message",
+            json!({"turn":1, "step":2,
+                "stream":[{"type":"text-chunks", "time0":1005, "index":0, "dt":[],
+                    "texts":["PUBLIC synthetic assistant text · the compaction marker states the recorded counts."]}]
+            }),
+        ),
+    ]
 }
 
 /// One prompt and one slash-command run, so the reference's command row draws its name, outcome and
@@ -1484,6 +1532,8 @@ pub fn build(
         public_retry_records()
     } else if preset == "turn-total" {
         public_turn_total_records()
+    } else if preset == "manual-compaction" {
+        public_manual_compaction_records()
     } else if preset == "command-row" {
         public_command_records()
     } else if preset == "skill-row" {
@@ -2358,6 +2408,42 @@ pub fn build(
                     .and_then(|state| state.detail())
                     .as_deref(),
                 Some("Retry delay: 4s\nFailure reason: PUBLIC upstream unavailable · synthetic")
+            );
+        }
+        "manual-compaction" => {
+            // One marker, stating the counts the compaction summary recorded.
+            let rows: Vec<_> = app
+                .transcript
+                .display_rows(false)
+                .filter(|row| row.command.is_some())
+                .collect();
+            assert_eq!(rows.len(), 1, "one marker for the command and its summary");
+            // The row must reserve its own line, or the view's height range skips it.
+            let lane = app.chat_lane();
+            let geometry = app.row_geometry(rows[0], lane);
+            assert!(geometry.height > 0.0, "height {}", geometry.height);
+            assert!(geometry.width > 0.0, "width {}", geometry.width);
+            // The row must be reachable by the view's first branch, which asks `activity`; a
+            // command record must not answer with a tool summary.
+            assert!(
+                app.transcript
+                    .activity(rows[0].key, app.path_roots())
+                    .is_none(),
+                "a command row is not a tool row"
+            );
+            assert_eq!(
+                rows[0].text,
+                "compact · Compacted 7 history items (~12.4k tokens)"
+            );
+            assert_eq!(
+                rows[0].command.as_ref().unwrap().manual_compaction,
+                Some((7, 12_400))
+            );
+            // The compaction summary is not drawn a second time.
+            assert!(
+                app.transcript
+                    .display_rows(false)
+                    .all(|row| row.role != "Context summarized")
             );
         }
         "command-row" => {

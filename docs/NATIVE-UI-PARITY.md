@@ -6388,7 +6388,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab) |
 | Goals, plan mode, permissions, approvals/questions, jobs, subagents, session log | cloned |
 | Tool rows: one row per call with the folded result, relative path, `+N −N`, and the structured cards — diff, read, terminal, search, web, ask-user | cloned (no per-tool glyphs — the reference's SVGs have no DejaVu equivalent — and no process-group or turn-process fold above the rows) |
-| Model-retry row, command row, turn duration, failure and output-limit rows, card Copy control, created-task (`schedule_create`) card, skill row | cloned (the skill row has no `Inspect` action: native has no right Sidebar to open it in) |
+| Model-retry row, command row (a manual `/compact` folded into one marker), turn duration, failure and output-limit rows, card Copy control, created-task (`schedule_create`) card, skill row | cloned (the skill row has no `Inspect` action: native has no right Sidebar to open it in) |
 | Composer usage pill: tokens, cache hit, speed, turn/step counts, and the Host's session-statistics dialog | cloned |
 | Deliverables: summary, file list, diffs, desktop open | cloned (no right-Sidebar review tab) |
 | Message feedback: ratings, categories, note | cloned (session `/feedback` remains a Host command) |
@@ -9351,4 +9351,51 @@ nameless run contributing no Chat row) plus the preset's assertions.
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/190-command-row.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings (20 before; the command row adds one) |
+| tree | — | clean before the commit |
+
+### Round 391 — a manual compaction's single marker, and a row that drew nothing
+
+The reference folds a manual `/compact` and the compaction it produced into **one** marker: titled
+`compact`, its summary the structured counts (`Compacted 5 history items (~2.4k tokens)`), expandable
+to the summary — with the command's own text only as the fallback when no counts exist
+(`CompactionCommandCard.tsx:14-26`, `CompactionItem.tsx:56-66`). Round 390's command row had left
+this as *two* rows: the command and a separate `Context summarized` row.
+
+**The fold** now reads the compaction summary the command's `sourceEventSeq` cites, attaches its
+`shadowedSeqs` count and `shadowedTokenCount` to the command row, and marks that summary row
+Chat-invisible (`Trajectory` still lists it). A `/compact` states `Compacting context…` while
+running, the counts once settled, and its own outcome text when no summary exists.
+
+**A row that drew nothing.** The first capture of this marker was an empty frame: the row reserved
+its height and its branch ran (proved by a temporary print, since removed), yet no ink appeared. The
+cause was the row's spacer — `Space::new().width(Length::Fill)` keeps a `Fill` *height*, which
+collapses a shrink-to-fit `Row` to zero height. The row is now one label carrying the whole line
+(the chevron, the command's name, the summary) with its output lines below it, which paints, and the
+expanded body's height is reserved from the same line count the render draws (capped at ten). I first
+tried splitting the disabled-button arm from a plain container and the spacer fix alone; neither
+changed a pixel, which is why the row was rewritten rather than patched again. Shot 190 was re-taken
+because the row's markup changed.
+
+Evidence: `shots/191-manual-compaction.png` (DP-2 alongside, `status: passed`) in the new
+`manual-compaction` preset: `▸ compact · Compacted 7 history items (~12.4k tokens)` and no second
+context row. `shots/190-command-row.png` re-taken from the same markup.
+
+Tests: `manual_compaction_tests` (one marker carrying `(5, 2400)` and its text with Trajectory still
+listing every record; a plain command and a non-compaction source left alone) plus the preset's
+assertions — one marker, its exact text, and no `Context summarized` row in Chat.
+
+**Battery (round 391).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1379 passed**, 1 ignored |
+| app, default | **0** | **1367 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/191-manual-compaction.png`, `status: passed` |
+| app bin | — | **20** dead-code warnings |
 | tree | — | clean before the commit |
