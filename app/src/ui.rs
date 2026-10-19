@@ -9438,15 +9438,11 @@ impl App {
     }
     /// The direct children the Host's `subagentCatalog` projection publishes for the selected
     /// session. Empty for a child session or an unready catalog, which hides the header action.
+    /// The selected session's own children, whoever the session is. The reference shows a count action
+    /// on a root *and* on a selected child that has descendants of its own
+    /// (`SubagentHeaderLineage.tsx:744-748,796-803`); the child's action lists the child's children,
+    /// not its siblings, which the crumb switcher already offers.
     fn subagent_entries(&self) -> Vec<subagent_catalog::Entry> {
-        let root = self
-            .selected
-            .as_ref()
-            .and_then(|id| self.sessions.get(id))
-            .is_some_and(|session| session.parent_session_id.is_none());
-        if !root {
-            return Vec::new();
-        }
         subagent_catalog::entries(self.transcript.projections())
     }
     /// Why the selected catalog-addressed child cannot accept input, or `None` when the normal

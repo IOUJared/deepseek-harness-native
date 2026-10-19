@@ -12269,3 +12269,33 @@ behaviour ever needs a picture.
 | capture | — | none: the fixtures agree on both sources |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 470 — a selected child can count its own descendants
+
+The subagent audit's ninth finding: the reference shows a count action for a selected **child** whose own
+catalog names descendants (`SubagentHeaderLineage.tsx:744-748,796-803`) — the child's children, which is
+a different list from the siblings its crumb switcher offers. Native gated the action on the selection
+being a root, so a child with its own subagents showed nothing.
+
+`subagent_entries` now reads the selected session's own catalog whoever the session is; the crumb
+switcher still owns the sibling list, so the two controls answer different questions instead of one
+standing in for the other.
+
+Tests: `a_selected_child_counts_its_own_children` — a selected child whose snapshot names one grandchild;
+the action lists that grandchild, not the child's sibling, and the header action exists.
+
+**Battery (round 470).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1454 passed**, 1 ignored |
+| app, default | **0** | **1424 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: action visibility, proved by its test |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

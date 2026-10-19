@@ -1046,3 +1046,44 @@ fn a_subagent_crumb_is_titled_by_its_catalogs_label() {
         "the session's own title differs, so the two really are different sources"
     );
 }
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
+fn a_selected_child_counts_its_own_children() {
+    let (size, _scale) = super::layout_fixture::preset_size("conversation").unwrap();
+    let (mut app, _queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "conversation",
+        size,
+        None,
+    );
+    // The selected session is a *child* whose own snapshot names one grandchild: the reference shows a
+    // count action for the child's descendants, which is a different list from its crumb's siblings.
+    let child = SessionId::new("PUBLIC-middle").expect("a bounded session id");
+    app.selected = Some(child.clone());
+    app.transcript = crate::reducer::Transcript::new(app.generation);
+    let frame: dsh_native_transport::dto::SessionFollowFrame =
+        serde_json::from_value(serde_json::json!({
+            "type":"snapshot","records":[],"cursor":0,"hasMore":false,
+            "header":{"version":4,"id":"PUBLIC-middle","createdAt":1000,"isSeeded":false},
+            "projections":{"asOfSeq":0,"values":{"subagentCatalog":[
+                {"id":"PUBLIC-helper","createdAt":2,"mode":"one-shot","label":"PUBLIC helper"}
+            ]}},"assistantStream":{"revision":0}
+        }))
+        .expect("a snapshot frame");
+    drop(app.update(Message::Worker(Event::Selected {
+        generation: app.generation,
+        frame,
+    })));
+    let entries = app.subagent_entries();
+    assert_eq!(
+        entries.len(),
+        1,
+        "the child's own catalog, not its siblings"
+    );
+    assert_eq!(entries[0].id, "PUBLIC-helper");
+    assert!(
+        app.subagent_action().is_some(),
+        "a selected child with descendants shows the action"
+    );
+}
