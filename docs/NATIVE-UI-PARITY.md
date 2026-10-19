@@ -11940,3 +11940,39 @@ keys, including Ctrl-C, now reach the process.
 | capture | — | none: key routing has no visual state of its own |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 461 — the terminal remembers which shell you chose
+
+The reference remembers the shell a user picked in a preference key and re-selects it on the next visit,
+falling back to the first discovered only when the Host no longer offers it
+(`api/terminal-controller/src/client/shell-preference.ts:2`, `model.ts:125-129`). Native reset the
+selection on every open and defaulted to index 0, so a user with several shells was returned to the
+first every time.
+
+The panel now keeps the chosen shell **by path**, not by index: a new `loaded` reply looks the remembered
+path up in the Host's fresh list, selects it wherever it now sits, and only then falls back to the first
+entry. A Host that reorders its shells therefore still opens the one the user chose.
+
+Tests: `the_chosen_shell_is_remembered_across_opens` — a second shell is chosen, the panel is reopened,
+and the Host's next reply lists them in the opposite order; the remembered shell is still selected, which
+a stored index could not have produced.
+
+**Recorded difference**: the reference persists this in the browser's localStorage, so it survives a
+reload; native remembers it for the life of the process. Persisting it in the app's own layout document
+is the follow-up, and it is recorded here rather than implied.
+
+**Battery (round 461).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1447 passed**, 1 ignored |
+| app, default | **0** | **1422 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: selection state, proved by its test |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

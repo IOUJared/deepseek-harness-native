@@ -414,6 +414,10 @@ pub struct Terminal {
     /// The last output frame's sequence, so a skipped one is noticed instead of shortening the
     /// screen (`ui-sidebar-terminal/src/client/model.ts:294`).
     last_sequence: Option<i64>,
+    /// The shell the user last chose, by path: the reference remembers it
+    /// (`api/terminal-controller/src/client/shell-preference.ts:2`, `model.ts:125-129`), so opening the
+    /// panel again offers the same shell instead of the first one discovered.
+    preferred_shell: Option<String>,
     output: Output,
     input: String,
     editor: u64,
@@ -443,6 +447,7 @@ impl Default for Terminal {
             attachment: None,
             follow: None,
             last_sequence: None,
+            preferred_shell: None,
             output: Output::default(),
             input: String::new(),
             editor: 0,
@@ -680,6 +685,8 @@ impl Terminal {
                 self.list.clear();
                 self.list_loaded = false;
                 self.shells.clear();
+                // `preferred_shell` survives: the reference remembers the shell across opens, so a
+                // user who chose one is not returned to the first discovered.
                 self.shell = None;
                 self.environment = None;
                 self.selected = None;
@@ -724,6 +731,7 @@ impl Terminal {
                 if self.current(&ticket, context) && index < self.shells.len() =>
             {
                 self.shell = Some(index);
+                self.preferred_shell = Some(self.shells[index].path.clone());
             }
             Action::EditInput { ticket, text } if self.current(&ticket, context) => {
                 let editor = match self.editor.checked_add(1) {
@@ -990,8 +998,20 @@ impl Terminal {
                 self.list = loaded.list;
                 self.list_loaded = true;
                 self.shells = loaded.shells;
-                if self.shell.is_none_or(|index| index >= self.shells.len()) {
+                // The remembered shell wins when the Host still offers it; otherwise the first one
+                // stands in, which is the reference's own fallback (`model.ts:125-129`).
+                let remembered = self
+                    .preferred_shell
+                    .as_ref()
+                    .and_then(|path| self.shells.iter().position(|shell| &shell.path == path));
+                if let Some(index) = remembered {
+                    self.shell = Some(index);
+                } else if self.shell.is_none_or(|index| index >= self.shells.len()) {
                     self.shell = (!self.shells.is_empty()).then_some(0);
+                    self.preferred_shell = self
+                        .shell
+                        .and_then(|index| self.shells.get(index))
+                        .map(|shell| shell.path.clone());
                 }
                 self.environment = loaded.environment;
                 self.notice = match &self.environment {
@@ -1966,6 +1986,71 @@ mod tests {
         );
         assert_ne!(terminal.notice(), &Notice::OutputGap);
         assert_eq!(terminal.output().text(), "PUBLIC resynchronisedPUBLIC next");
+    }
+
+    #[test]
+    fn the_chosen_shell_is_remembered_across_opens() {
+        // Two shells, so a remembered choice cannot be confused with the first one.
+        let second = TerminalShell {
+            path: "/bin/PUBLIC-other".into(),
+            args: Vec::new(),
+            name: "PUBLIC other shell".into(),
+        };
+        let mut terminal = opened();
+        let read = terminal
+            .apply(Action::Refresh(ticket(&terminal)), &context())
+            .and_then(|effect| match effect {
+                Effect::Read(read) => Some(read),
+                _ => None,
+            })
+            .expect("refresh reads");
+        let first = shell();
+        terminal.loaded(
+            &read,
+            Ok(Loaded {
+                list: vec![info("PUBLIC-terminal-1")],
+                shells: vec![first.clone(), second.clone()],
+                environment: Some(environment()),
+            }),
+        );
+        let t = ticket(&terminal);
+        terminal.apply(
+            Action::ChooseShell {
+                ticket: t,
+                index: 1,
+            },
+            &context(),
+        );
+        assert_eq!(terminal.shell, Some(1));
+        // Opening again clears the list; the remembered path puts the same shell back when the
+        // Host offers it, rather than falling to the first.
+        let mut reopened = terminal;
+        let effect = reopened
+            .apply(
+                Action::Open {
+                    view: context().view.unwrap(),
+                },
+                &context(),
+            )
+            .expect("reopening reads");
+        let Effect::Read(read) = effect else {
+            panic!("reopening must not create a shell");
+        };
+        reopened.loaded(
+            &read,
+            Ok(Loaded {
+                list: vec![info("PUBLIC-terminal-1")],
+                // The Host now lists them in the other order: the remembered path still wins.
+                shells: vec![second, first],
+                environment: Some(environment()),
+            }),
+        );
+        assert_eq!(reopened.shell, Some(0), "the remembered shell, now first");
+        assert_eq!(
+            reopened.preferred_shell.as_deref(),
+            Some("/bin/PUBLIC-other"),
+            "the choice is the path, not the index"
+        );
     }
 
     #[test]
