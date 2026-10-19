@@ -11090,6 +11090,11 @@ impl App {
             return None;
         }
         let turn = row.turn?;
+        // The card belongs to the turn's tail, not to every assistant row inside it
+        // (`ui-deliverables/src/client/index.ts:61-81`).
+        if !self.transcript.is_turn_tail(row.key, turn) {
+            return None;
+        }
         let seq = self.transcript.changes_seq(turn)?;
         match self.changes.get(&seq)? {
             ChangesState::Ready(summary) if !summary.files.is_empty() => Some((seq, summary)),

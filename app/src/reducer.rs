@@ -329,6 +329,15 @@ impl Transcript {
             })
             .collect()
     }
+    /// Whether one record is the last of its turn, which is where the reference draws a turn's
+    /// changed-files card (`ui-deliverables/src/client/index.ts:61-81`: a turn-tail registration).
+    /// A turn with an interim assistant message and a final reply must draw the card once, not twice.
+    pub fn is_turn_tail(&self, key: u64, turn: u64) -> bool {
+        !self
+            .rows()
+            .iter()
+            .any(|row| row.key > key && row.turn == Some(turn))
+    }
     /// The **latest** announcing `workspace/changes` seq for one turn, if any.
     ///
     /// A turn can record changes more than once — an interim announcement while work continues, then a
@@ -2596,5 +2605,53 @@ mod changes_announcement_tests {
         assert_eq!(transcript.changes_seq(1), Some(1), "the newest for turn 1");
         assert_eq!(transcript.changes_seq(2), Some(2));
         assert_eq!(transcript.changes_seq(3), None);
+    }
+}
+
+#[cfg(test)]
+mod turn_tail_tests {
+    //! A turn's changed-files card is drawn once, at the turn's last record.
+    use super::*;
+    use serde_json::json;
+
+    fn message(turn: u64, seq: u64, role: &str) -> SessionFollowFrame {
+        SessionFollowFrame::Event {
+            event: serde_json::from_value(json!({
+                "type": "assistant/message", "seq": seq, "time": 1000 + seq,
+                "data": {"turn": turn, "step": 1, "stream": [
+                    {"type": "text-chunks", "time0": 1000 + seq, "index": 0, "dt": [],
+                     "texts": [format!("PUBLIC {role}")]}
+                ]}
+            }))
+            .expect("a message"),
+        }
+    }
+
+    #[test]
+    fn only_the_last_record_of_a_turn_is_its_tail() {
+        let mut transcript = Transcript::new(0);
+        transcript
+            .apply(0, message(1, 0, "interim"))
+            .expect("first");
+        transcript.apply(0, message(1, 1, "final")).expect("second");
+        transcript
+            .apply(0, message(2, 2, "next turn"))
+            .expect("third");
+        let rows: Vec<_> = transcript.rows().to_vec();
+        let turns: Vec<(u64, Option<u64>)> = rows.iter().map(|row| (row.key, row.turn)).collect();
+        // The first record of turn 1 is not its tail; the second is.
+        let first = turns
+            .iter()
+            .find(|(_, turn)| *turn == Some(1))
+            .expect("a turn-1 row");
+        let last = turns
+            .iter()
+            .rev()
+            .find(|(_, turn)| *turn == Some(1))
+            .expect("a turn-1 row");
+        assert!(!transcript.is_turn_tail(first.0, 1));
+        assert!(transcript.is_turn_tail(last.0, 1));
+        // A later turn does not make an earlier turn's tail false.
+        assert!(transcript.is_turn_tail(last.0, 1));
     }
 }

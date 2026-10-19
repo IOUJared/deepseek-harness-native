@@ -12499,3 +12499,33 @@ skipped.
 | capture | — | none: a lookup rule, proved by its test |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 477 — the changed-files card is drawn once per turn
+
+The changed-files audit's fourth finding: the reference registers its card at the **turn tail**
+(`ui-deliverables/src/client/index.ts:61-81`), while native pushed it into every assistant record of the
+turn, gated only by the row carrying a turn number. A turn with an interim assistant message and a final
+reply therefore drew the same summary twice, and reserved its height twice.
+
+`Transcript::is_turn_tail` answers whether a record is the last of its turn, and `changes_for` — the one
+place both the renderer and the geometry ask — refuses any row that is not. Because geometry and painting
+share that decision, the card cannot be drawn without space or space reserved without a card.
+
+Tests: `only_the_last_record_of_a_turn_is_its_tail` — two records in one turn and one in the next; the
+first is not a tail, the second is, and a later turn does not retroactively change it.
+
+**Battery (round 477).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1460 passed**, 1 ignored |
+| app, default | **0** | **1428 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: a placement rule, proved by its test |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
