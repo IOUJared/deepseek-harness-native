@@ -207,6 +207,13 @@ pub struct RouteFacts {
 /// The General page's permission row: the deployment's new-session default, the revision a
 /// write must match, whether it is writable at all, and the presets it advertises for new
 /// sessions (`PermissionRow.tsx:1-40`, `settings-store.ts:45-58`).
+/// Whether one permission value is the full-access preset, which always needs a risk
+/// acknowledgement before it can become the new-session default (`PermissionRow.tsx:81-87`).
+pub fn is_full_access(value: &str) -> bool {
+    let value = value.trim().to_ascii_lowercase().replace('_', "-");
+    value == "full-access" || value == "danger-full-access"
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PermissionDefault {
     pub current: String,
@@ -316,7 +323,14 @@ pub enum Action {
     /// was invisible and a non-confirmed save disabled the row for the rest of the visit.
     RefreshPreferences,
     /// Persists one new-session permission default; the App gates it on the descriptor.
+    /// A permission-default choice: full access arms the risk confirmation instead of writing.
     PermissionDefault(String),
+    /// The acknowledged full-access choice, which writes.
+    PermissionDefaultConfirmed(String),
+    /// Untick or tick the risk acknowledgement.
+    FullAccessAcknowledge(bool),
+    /// Close the risk confirmation without writing.
+    FullAccessCancel,
     /// Makes one roster preset the default for sessions created later; the App owns the write.
     PresetDefault(String),
     /// Sets the busy-state Enter preference; the App owns and persists it.
@@ -407,6 +421,11 @@ pub struct Settings {
     pub(crate) preference_error: Option<String>,
     /// The permission default row's preset list is open.
     permission_open: bool,
+    /// The permission-default choice awaiting the reference's risk confirmation; full access never
+    /// commits on a single press (`PermissionRow.tsx:81-87,105-125`).
+    pub full_access_confirm: Option<String>,
+    /// Whether the risk acknowledgement above the Enable button is ticked.
+    pub full_access_acknowledged: bool,
     api_help_open: bool,
     context_policy_open: bool,
     account: account::Controller,
@@ -441,6 +460,8 @@ impl Default for Settings {
             capture_error: None,
             preference_error: None,
             permission_open: false,
+            full_access_confirm: None,
+            full_access_acknowledged: false,
             api_help_open: false,
             context_policy_open: false,
             account: account::Controller::default(),
@@ -917,6 +938,36 @@ impl Settings {
         }
         if let Action::TogglePermissionDefault = action {
             self.permission_open = !self.permission_open;
+        }
+        // Full access is the one preset that never commits on a single press: the row arms the
+        // reference's risk confirmation and only the acknowledged press writes
+        // (`PermissionRow.tsx:81-87,105-125`).
+        if let Action::PermissionDefault(ref value) = action {
+            if is_full_access(value) {
+                self.full_access_confirm = Some(value.clone());
+                self.full_access_acknowledged = false;
+                self.permission_open = false;
+                return None;
+            }
+        }
+        if let Action::FullAccessAcknowledge(ticked) = action {
+            self.full_access_acknowledged = ticked;
+            return None;
+        }
+        if matches!(action, Action::FullAccessCancel) {
+            self.full_access_confirm = None;
+            self.full_access_acknowledged = false;
+            return None;
+        }
+        if let Action::PermissionDefaultConfirmed(ref value) = action {
+            if self.full_access_confirm.as_deref() != Some(value.as_str())
+                || !self.full_access_acknowledged
+            {
+                // Nothing may consume a confirmation the user has not acknowledged.
+                return None;
+            }
+            self.full_access_confirm = None;
+            self.full_access_acknowledged = false;
         }
         if let Action::ShortcutsSearch(ref raw) = action {
             if raw.len() <= 128 {
@@ -1578,7 +1629,46 @@ impl Settings {
                     .padding([4, 8])
                     .on_press_maybe(usable.then_some(Action::TogglePermissionDefault)),
                 );
-            if self.permission_open && usable {
+            // The reference's risk confirmation, in place under the row: no full-access write can
+            // happen without ticking the acknowledgement and pressing Enable
+            // (`PermissionRow.tsx:105-125`, `locales.ts:34-38`).
+            if let Some(pending) = self.full_access_confirm.clone() {
+                body = body
+                    .push(label("Enable Full access?", TEXT).size(13))
+                    .push(
+                        label(
+                            "Full access lets new sessions reduce confirmation steps and perform more actions directly, including sensitive operations, file changes, or external commands. Only use it when you trust subsequent tasks.",
+                            MUTED,
+                        )
+                        .size(11),
+                    )
+                    .push(
+                        checkbox(self.full_access_acknowledged)
+                            .label("I understand the risks and want to continue")
+                            .size(13)
+                            .on_toggle(Action::FullAccessAcknowledge),
+                    )
+                    .push(
+                        row![
+                            button(
+                                label("Enable Full access", if self.full_access_acknowledged { TEXT } else { MUTED })
+                                    .size(12)
+                            )
+                            .style(design::danger)
+                            .padding([4, 10])
+                            .on_press_maybe(
+                                self.full_access_acknowledged
+                                    .then_some(Action::PermissionDefaultConfirmed(pending)),
+                            ),
+                            button(label("Cancel", MUTED).size(12))
+                                .style(design::ghost)
+                                .padding([4, 10])
+                                .on_press(Action::FullAccessCancel),
+                        ]
+                        .spacing(6),
+                    );
+            }
+            if self.permission_open && usable && self.full_access_confirm.is_none() {
                 for (value, name) in &permission.options {
                     let ink = if *value == permission.current {
                         TEXT

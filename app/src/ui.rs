@@ -3613,7 +3613,18 @@ impl App {
                         return Task::none();
                     }
                     crate::settings::Action::PermissionDefault(name) => {
-                        return self.update(Message::PermissionDefaultPick(name.clone()));
+                        // Full access arms the risk confirmation instead of writing; the settings
+                        // handler below owns that arming (`PermissionRow.tsx:81-87`).
+                        if !crate::settings::is_full_access(name) {
+                            return self.update(Message::PermissionDefaultPick(name.clone()));
+                        }
+                    }
+                    crate::settings::Action::PermissionDefaultConfirmed(name) => {
+                        // The acknowledged press is the write; the handler below has already
+                        // refused any unacknowledged one.
+                        if self.settings.full_access_acknowledged {
+                            return self.update(Message::PermissionDefaultPick(name.clone()));
+                        }
                     }
                     crate::settings::Action::PresetDefault(id) => {
                         // One write at a time, and only with a live Host: the row shows the

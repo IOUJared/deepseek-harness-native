@@ -1863,7 +1863,8 @@ cell, so new findings go at the end of the file as plain paragraphs.
   pick commit full access directly: it passes through `RiskConfirmation`
   (`PermissionSelect.tsx:198`, `PermissionRow.tsx:105`) with a title, a warning, an explicit
   acknowledgement and Cancel/Enable (`ui-permission-presets/src/client/locales.ts:34-38`).
-  Native now carries the same guard: picking Full access opens that confirmation instead of
+  Native carries the same guard on the composer's picker and, since round 430, on Settings → General's
+permission row too (the earlier claim here covered only the picker): picking Full access opens that confirmation instead of
   submitting, the copy is the sheet's own verbatim warning, Enable stays inert until the
   acknowledgement is ticked, and Cancel or the chip's own press dismisses it. The preset
   reaches the session through the same `/permission <preset>` line as before.
@@ -10790,3 +10791,66 @@ before any capture.
 | DP-2 capture | — | `shots/244-tool-body-search.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 430 — full access cannot be enabled from Settings on one press
+
+A settings audit found a real safety gap, and a doc claim that said it was already closed. Settings →
+General's "Permission for new sessions" row wrote whatever preset was chosen — including Full access,
+the deployment-wide default for every new session — with no confirmation. The reference never does
+(`PermissionRow.tsx:81-87,105-125`): choosing Full access opens a risk confirmation with an
+acknowledgement, an Enable button that stays inert until it is ticked, and Cancel; the copy is
+`confirm.title` / `confirm.description` / `confirm.acknowledge` / `confirm.enable` / `confirm.cancel`.
+
+Native now behaves the same, and the guard lives in the model rather than in one caller: `handle`
+refuses any `PermissionDefault` naming a full-access preset until the acknowledgement is ticked, and
+refuses a confirmation that does not match the pending choice or that has not been acknowledged. The
+row's preset list closes while the confirmation is open, so a second choice cannot slip past it.
+
+The coverage text that claimed the guard already covered the settings row cited the reference's settings
+row while describing the composer's picker; it now says which surfaces carry it.
+
+Evidence: `shots/245-full-access-confirm.png` (DP-2 alongside, `status: passed`) in the new
+`settings-full-access` preset — the confirmation inside the General page, the already-disabled Enable
+button, and Cancel beside it.
+
+Tests: three in `settings_tests` — arming writes nothing and an unacknowledged Enable is refused; a
+non-full-access choice is not guarded and Cancel leaves nothing behind; and the spellings
+(`full-access`, `danger-full-access`, case and underscore variants) are all recognised.
+
+**Battery (round 430).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1422 passed**, 1 ignored |
+| app, default | **0** | **1402 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/245-full-access-confirm.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Settings audit (round 430) — the rest of what it found
+
+Recorded here so the next rounds have their list, with the same taxonomy: (b) different, (c) absent.
+
+1. (b) Agent presets ignore the "Show coding view" filter: the reference hides presets that require
+   coding tools when developer tools are off (`AgentPresetSection.tsx:105-107`,
+   `settings-store.ts:53-55`); native lists all of them, contradicting its own copy.
+2. (b) No per-preset "Mode details" / "How to use" help (`AgentPresetSection.tsx:142-147`,
+   `guide-locales.ts:4-5`), and the card omits its preset id (`AgentPresetSection.tsx:136`).
+3. (b) The shortcuts list omits the reference's fixed "Menus and dialogs" rows
+   (`ui-shortcuts/src/client/fixed.ts:12-14`, rendered `Reference.tsx:179-183`) — `keybindings::fixed()`
+   exists but has no production caller — and unbound Host commands print a blank key where the
+   reference says "No shortcut" (`:195`).
+4. (c) "Open configuration file" header action (`ui-settings-general/src/client/index.ts:221-227`,
+   Host RPC `settings/openSettingsDocument`); nothing equivalent exists.
+5. (c) Permanent Account page with balance, bonus balance, Usage and Top up
+   (`ui-settings-account/src/client/index.ts:288-295`, `AccountSection.tsx:145-220`); native inlines
+   the status block on Models with sign-in/out only.
+6. (c) Models provider directory — rows, Edit/Delete, "Add model provider", catalog fields, delete
+   confirmation (`ModelsSection.tsx:387-388,435-505,648-700`); recorded in `FEATURE-PARITY.md:13`, not
+   in this index until now.

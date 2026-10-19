@@ -123,6 +123,7 @@ pub const PRESETS: &[&str] = &[
     "schedules-retention",
     "schedules-history-error",
     "schedules-deleted",
+    "settings-full-access",
     "schedules-linked",
     "mcp",
     "changes-card",
@@ -340,6 +341,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "schedules-retention"
         | "schedules-history-error"
         | "schedules-deleted"
+        | "settings-full-access"
         | "schedules-linked"
         | "mcp"
         | "changes-card"
@@ -1680,6 +1682,7 @@ pub fn build(
             | "schedules-retention"
             | "schedules-history-error"
             | "schedules-deleted"
+            | "settings-full-access"
             | "schedules-linked"
             | "subagent-catalog"
             | "subagent-readonly"
@@ -2094,6 +2097,35 @@ pub fn build(
         app.schedules_notice = Some("Task deleted.".into());
     }
 
+    if preset == "settings-full-access" {
+        // Settings → General with the full-access risk confirmation open: one press of the preset
+        // arms it, and nothing is written until it is acknowledged and enabled
+        // (`PermissionRow.tsx:81-87,105-125`). The row reads the Host descriptor and catalog, so
+        // both are set here the way a workspace answer would.
+        app.set_settings_open();
+        app.set_permission_settings(true);
+        let option = |value: &str, name: &str| dsh_native_core::PresetOption {
+            value: value.into(),
+            name: name.into(),
+            description: None,
+        };
+        app.permission_catalog = Some(dsh_native_core::PermissionCatalog {
+            options: vec![
+                option("read-only", "Read Only"),
+                option("workspace-write", "Workspace Write"),
+                option("full-access", "Full access"),
+            ],
+            default_options: Vec::new(),
+            default_preset: "workspace-write".into(),
+        });
+        // One press of the preset arms the confirmation; nothing is written.
+        let _ = app.settings.handle(
+            crate::settings::Action::PermissionDefault("full-access".into()),
+            app.transport_epoch,
+            false,
+        );
+        assert!(app.settings.full_access_confirm.is_some());
+    }
     if preset == "schedules-linked" {
         // A task created by a different session the roster still has: the row links to it, and the
         // row created by the session already open shows no link (`TaskDetail.tsx:737-762`).

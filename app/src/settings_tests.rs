@@ -458,3 +458,76 @@ fn the_key_shape_rule_names_exactly_the_shapes_the_shell_names() {
     // the shared printable-ASCII rule only if it also carries a space.
     assert!(key_shape_error("PUBLIC_\"key").is_none());
 }
+
+/// Full access never becomes the new-session default on a single press. The guard lives in
+/// `handle`, which sees only the action, so the route a page would draw does not affect it.
+fn settings_with_permission() -> Settings {
+    let mut settings = opened();
+    settings.page = Page::General;
+    settings
+}
+
+#[test]
+fn choosing_full_access_arms_a_confirmation_instead_of_writing() {
+    let mut settings = settings_with_permission();
+    assert!(
+        settings
+            .handle(Action::PermissionDefault("full-access".into()), 1, true)
+            .is_none(),
+        "arming writes nothing"
+    );
+    assert_eq!(settings.full_access_confirm.as_deref(), Some("full-access"));
+    assert!(!settings.full_access_acknowledged);
+    // An unacknowledged Enable is refused, so the confirmation stays open.
+    assert!(
+        settings
+            .handle(
+                Action::PermissionDefaultConfirmed("full-access".into()),
+                1,
+                true
+            )
+            .is_none()
+    );
+    assert!(settings.full_access_confirm.is_some());
+    // The acknowledgement is what lets it through, and the confirmation then closes.
+    assert!(
+        settings
+            .handle(Action::FullAccessAcknowledge(true), 1, true)
+            .is_none()
+    );
+    assert!(settings.full_access_acknowledged);
+    settings.handle(
+        Action::PermissionDefaultConfirmed("full-access".into()),
+        1,
+        true,
+    );
+    assert!(settings.full_access_confirm.is_none());
+    assert!(!settings.full_access_acknowledged);
+}
+
+#[test]
+fn a_non_full_access_choice_is_not_guarded_and_cancel_writes_nothing() {
+    let mut settings = settings_with_permission();
+    settings.handle(Action::PermissionDefault("read-only".into()), 1, true);
+    assert!(settings.full_access_confirm.is_none());
+    settings.handle(Action::PermissionDefault("full-access".into()), 1, true);
+    assert!(settings.full_access_confirm.is_some());
+    settings.handle(Action::FullAccessCancel, 1, true);
+    assert!(settings.full_access_confirm.is_none());
+    assert!(!settings.full_access_acknowledged);
+}
+
+#[test]
+fn the_full_access_spellings_are_recognised() {
+    for value in [
+        "full-access",
+        "danger-full-access",
+        "Danger_Full_Access",
+        " full-access ",
+    ] {
+        assert!(is_full_access(value), "{value}");
+    }
+    for value in ["read-only", "workspace-write", ""] {
+        assert!(!is_full_access(value), "{value}");
+    }
+}
