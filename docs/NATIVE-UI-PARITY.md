@@ -8896,3 +8896,39 @@ because its app builder is; the behaviour itself is feature-independent.
 | DP-2 capture | — | `shots/178-…`, `179-…`, `status: passed` |
 | app bin | — | **19** dead-code warnings (unchanged) |
 | tree | — | clean before the commit |
+
+### Round 380 — the row's totals follow the applied rows
+
+A loose end from round 378. Once a settled mutation drew the Host's *applied* diff, the row's
+`+N -N` still came from the intended arguments, so the stat and the card below it could describe
+different changes: a one-for-one replacement in the arguments over a two-line insert in the result
+read `+1 -1` above a `+2 -1` card. The totals now come from the rows the card draws — every
+`Added` and `Deleted` line, path and gap rows excluded — so the two cannot disagree.
+
+Evidence: `shots/180-tool-applied-totals.png` (DP-2 alongside, `status: passed`) — the same
+`tool-activity-applied` preset, now recording two applied lines over a one-line argument
+replacement, with the row reading `+2 -1` above its card.
+
+Tests: `the_totals_follow_the_applied_rows_not_the_arguments` and the preset's own
+`edits == Some((2, 1))` assertion.
+
+The same round corrected this document's own open-items index, which called a "turn-tail schedule
+row" absent. Re-reading `ui-chat`'s nodes, the only other scheduled surface is the model-retry row's
+`scheduled` state, and the scheduled-task page, its create/delete flow and the `schedule` trigger
+title are all built; the index says so now.
+
+**Battery (round 380).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1337 passed**, 1 ignored |
+| app, default | **0** | **1328 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/180-tool-applied-totals.png`, `status: passed` |
+| app bin | — | **19** dead-code warnings (unchanged) |
+| tree | — | clean before the commit |
