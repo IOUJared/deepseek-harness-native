@@ -555,3 +555,26 @@ fn coding_tools_decide_which_presets_are_offered() {
     // An unknown custom preset never depends on the preference.
     assert!(!requires_coding_tools(&row("PUBLIC-custom", None)));
 }
+
+/// The card's id line is the row's own id, which is the key a composition file refers to.
+#[test]
+fn a_preset_card_names_its_id() {
+    let row = dsh_native_core::AgentPresetRow {
+        id: "team-reviewer".into(),
+        is_default: false,
+        name: Some("Team reviewer".into()),
+        description: Some("Reads a change.".into()),
+        broken: None,
+    };
+    assert_eq!(preset_id_line(&row), "id · team-reviewer");
+    // A shipped preset's display name comes from the dictionary, but its id line stays the wire id.
+    let shipped = dsh_native_core::AgentPresetRow {
+        id: "ptc".into(),
+        is_default: false,
+        name: None,
+        description: None,
+        broken: None,
+    };
+    assert_eq!(preset_id_line(&shipped), "id · ptc");
+    assert_ne!(preset_display(&shipped).0, "ptc", "the title is not the id");
+}

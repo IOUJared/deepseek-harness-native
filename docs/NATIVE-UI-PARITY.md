@@ -10839,7 +10839,7 @@ Recorded here so the next rounds have their list, with the same taxonomy: (b) di
 
 1. (b) ~~Agent presets ignore the "Show coding view" filter~~ — closed in round 431.
 2. (b) No per-preset "Mode details" / "How to use" help (`AgentPresetSection.tsx:142-147`,
-   `guide-locales.ts:4-5`), and the card omits its preset id (`AgentPresetSection.tsx:136`).
+   `guide-locales.ts:4-5`); the card's preset id landed in round 433, the guide is still open.
 3. (b) ~~The shortcuts list omits the reference's fixed "Menus and dialogs" rows and prints a blank
    key for an unbound command~~ — closed in round 432.
 4. (c) "Open configuration file" header action (`ui-settings-general/src/client/index.ts:221-227`,
@@ -10923,5 +10923,37 @@ reads "No shortcut" while a real one is unchanged.
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/247-shortcuts-fixed.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 433 — a preset card names its own id
+
+The settings audit noted the reference prints each preset card's id under its title
+(`AgentPresetSection.tsx:136`), which is the key a composition file refers to; native showed none, so
+there was no in-app way to learn that "Standard mode" is `standard` or that a card is `ptc`.
+
+Each card now carries an `id · <id>` line beneath its title, for shipped and custom presets alike.
+
+Evidence: `shots/248-preset-ids.png` (DP-2 alongside, `status: passed`) in the existing
+`settings-presets` preset — six cards, each naming its id: `standard`, `ptc`, `minimal`, `cordis`,
+`team-reviewer`, `scout`.
+
+Tests: `a_preset_card_names_its_id` — a custom row's line is its id, a shipped row's line is its wire
+id even though its *title* comes from the dictionary, and the two are asserted to differ so the test
+cannot pass by coincidence.
+
+**Battery (round 433).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1426 passed**, 1 ignored |
+| app, default | **0** | **1406 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/248-preset-ids.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |

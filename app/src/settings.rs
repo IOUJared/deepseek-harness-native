@@ -170,6 +170,12 @@ pub fn requires_coding_tools(row: &dsh_native_core::AgentPresetRow) -> bool {
     preset_is_built_in(row) && matches!(row.id.as_str(), "ptc" | "minimal")
 }
 
+/// The card's id line: the row's own id, which is the key a composition file refers to
+/// (`AgentPresetSection.tsx:136`).
+pub fn preset_id_line(row: &dsh_native_core::AgentPresetRow) -> String {
+    format!("id · {}", row.id)
+}
+
 /// Resolve one row's display name and description, in the reference's order: dictionary copy for a
 /// shipped preset, otherwise the declaration's own metadata, falling back to the id.
 pub fn preset_display(row: &dsh_native_core::AgentPresetRow) -> (String, Option<String>) {
@@ -1492,7 +1498,11 @@ impl Settings {
                             ),
                     );
                 }
-                let mut card = column![line].spacing(3);
+                // The card names its own id, as the reference does (`AgentPresetSection.tsx:136`):
+                // it is the key a composition file refers to, and the only place in the app that
+                // shows it.
+                let mut card =
+                    column![line, label(preset_id_line(row), MUTED).size(10),].spacing(3);
                 if let Some(description) = description {
                     card = card.push(label(description, MUTED).size(12));
                 }
