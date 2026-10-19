@@ -83,6 +83,9 @@ mod attachment_ui;
 #[cfg(test)]
 #[path = "attachment_ui_tests.rs"]
 mod attachment_ui_tests;
+/// The changed-files card's copy.
+#[path = "changes_text.rs"]
+pub mod changes_text;
 #[cfg(test)]
 #[path = "chat_flow_ui_tests.rs"]
 mod chat_flow_ui_tests;
@@ -11245,15 +11248,24 @@ impl App {
     fn changes_card(&self, row: &DisplayRow) -> Option<Element<'_, Message>> {
         let (seq, summary) = self.changes_for(row)?;
         let open = self.changes_expanded.contains(&seq);
+        // The reference's title names a single edited file and counts the rest
+        // (`ChangedFiles.tsx:58-60`); the counts beside it are signed and grouped.
+        let single = (summary.files.len() == 1).then(|| summary.files[0].display.as_str());
+        let title = changes_text::title(summary.total, single);
         let mut card = column![
             button(
                 row![
+                    label(title, MUTED).size(10),
+                    // Additions in the success ink and deletions in the error ink, as the
+                    // reference colours them (`ChangedFiles.module.css:20-21`).
                     label(
-                        format!(
-                            "Changed files · {} files · +{} −{}",
-                            summary.total, summary.added, summary.deleted
-                        ),
-                        MUTED,
+                        format!("+{}", changes_text::grouped(summary.added)),
+                        design::FOAM,
+                    )
+                    .size(10),
+                    label(
+                        format!("-{}", changes_text::grouped(summary.deleted)),
+                        DANGER,
                     )
                     .size(10),
                     label(if open { "▾" } else { "▸" }, MUTED).size(10),
@@ -11267,13 +11279,12 @@ impl App {
         .spacing(2);
         if open {
             for (index, file) in summary.files.iter().take(20).enumerate() {
-                let counts = if file.binary {
-                    "binary".to_owned()
-                } else if file.oversized {
-                    "oversized".to_owned()
-                } else {
-                    format!("+{} −{}", file.added, file.deleted)
-                };
+                let counts = changes_text::file_counts(
+                    file.binary,
+                    file.oversized,
+                    file.added,
+                    file.deleted,
+                );
                 card = card.push(
                     row![
                         button(

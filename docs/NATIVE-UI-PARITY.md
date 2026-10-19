@@ -55,8 +55,8 @@ composer (slash commands, `@` files and sessions with keyboard navigation and dr
 queue edit/remove/steer, goal bar, todo dock, context policy, usage), sidebar (sessions, search,
 pin/archive/trash, workspace list/filter and navigation sheet), schedules (catalog, delete, history,
 title/instruction/timing edits, date and clock pickers), goals and activation, plan and permissions,
-approvals and questions, jobs, subagents, deliverables (summary, file list, per-file diffs, desktop
-open), message feedback (rating, categories, note dialog), settings (general, API, Cloudflare,
+approvals and questions, jobs, subagents, deliverables (summary, file list, desktop open; the diff itself is still plain text —
+round 475, `NATIVE-FORMATTED-DETAILS.md:48`), message feedback (rating, categories, note dialog), settings (general, API, Cloudflare,
 Codex, plugins, shortcuts) and workspace open (Host chooser and in-app folder list) work end to end.
 
 **Deliberate differences:** the reference's right Sidebar (document preview, review
@@ -12425,5 +12425,45 @@ this round adds the picture.
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/268-subagent-catalog-error.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 475 — the changed-files card says what it edited
+
+A changed-files audit (42 reference elements, 33 traced) found the card telling the truth badly. The
+reference names the one file a turn edited — `Edited report.md` — or counts the rest, `Edited 3 files`
+(`ChangedFiles.tsx:58-60`, `locales.ts:100-101`); native printed `Changed files · 1 files · +N −N`,
+which read wrong for one file, never named it, and left both counts in the same muted ink with a
+typographic minus and no grouping.
+
+`changes_text` now owns that copy: the title with a basename for a single file, thousands grouping, the
+reference's `+N` / `-N` signs, and its own words for a comparison that cannot be shown — `too large`
+rather than `oversized` (`locales.ts:110`). The card draws additions in the success ink and deletions in
+the error ink, as the reference colours them.
+
+Tests: two in `changes_text` — a single file naming itself, counted forms at 2 and 1,234 files, and a
+path that cannot be read still counting; then grouped signed counts, `too large`, and the grouping
+boundaries at 999/1,000/1,234,567.
+
+**Recorded for the next rounds** from the same audit: the card showing the turn's *first* change
+announcement rather than its last, the card drawn under every assistant row of a turn instead of once at
+its tail, no single-file shape, no four-row fold with `All N files`/`Collapse`, no 500ms hover preview,
+no `Reading changes…` state, and the diff itself still rendered as plain text (already declared in
+`NATIVE-FORMATTED-DETAILS.md:48`, which contradicts the index's "per-file diffs work end to end" — that
+claim is corrected in the same commit).
+
+**Battery (round 475).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1458 passed**, 1 ignored |
+| app, default | **0** | **1426 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: card copy, proved by its tests |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
