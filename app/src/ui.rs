@@ -16299,6 +16299,34 @@ impl App {
                     );
             } else {
                 let mut actions = row![].spacing(4);
+                // The reference links each task to the session that created it, opening it when the
+                // roster still has it and stating why it cannot otherwise
+                // (`TaskDetail.tsx:737-762,886-888`, `task-manager-locales.ts:52-57`). A session
+                // that is the one already open needs no link.
+                if self.selected.as_ref() != Some(&item.session_id) {
+                    let known = self.sessions.get(&item.session_id).is_some();
+                    let archived = self.management.registry.archived(&item.session_id);
+                    if known && !archived {
+                        actions = actions.push(
+                            button(label("Linked session", MUTED).size(10))
+                                .on_press(Message::Select(item.session_id.clone()))
+                                .style(design::ghost)
+                                .padding([2, 6]),
+                        );
+                    } else {
+                        actions = actions.push(
+                            label(
+                                if archived {
+                                    "The original session is archived."
+                                } else {
+                                    "The original session is unavailable."
+                                },
+                                MUTED,
+                            )
+                            .size(10),
+                        );
+                    }
+                }
                 if schedule_editable(&item.status) {
                     actions = actions.push(
                         button(label("Edit", MUTED).size(10))

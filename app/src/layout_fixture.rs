@@ -123,6 +123,7 @@ pub const PRESETS: &[&str] = &[
     "schedules-retention",
     "schedules-history-error",
     "schedules-deleted",
+    "schedules-linked",
     "mcp",
     "changes-card",
     "feedback",
@@ -335,6 +336,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "schedules-retention"
         | "schedules-history-error"
         | "schedules-deleted"
+        | "schedules-linked"
         | "mcp"
         | "changes-card"
         | "feedback"
@@ -1671,6 +1673,7 @@ pub fn build(
             | "schedules-retention"
             | "schedules-history-error"
             | "schedules-deleted"
+            | "schedules-linked"
             | "subagent-catalog"
             | "subagent-readonly"
             | "subagent-sibling"
@@ -2082,6 +2085,20 @@ pub fn build(
     if preset == "schedules-deleted" {
         // The deletion's outcome, stated in place where the reference shows a shell toast.
         app.schedules_notice = Some("Task deleted.".into());
+    }
+
+    if preset == "schedules-linked" {
+        // A task created by a different session the roster still has: the row links to it, and the
+        // row created by the session already open shows no link (`TaskDetail.tsx:737-762`).
+        if let Some(row) = app.schedules.get_mut(1) {
+            row.session_id =
+                serde_json::from_value(serde_json::json!("PUBLIC-layout-review")).unwrap();
+        }
+        assert!(
+            app.schedules
+                .get(1)
+                .is_some_and(|row| row.session_id.as_str() == "PUBLIC-layout-review")
+        );
     }
     if preset == "chat-thoughts" {
         let ticket = app.reply_parts(1).unwrap().ticket.unwrap();
