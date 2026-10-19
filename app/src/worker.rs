@@ -57,6 +57,10 @@ pub enum Command {
     Codex(crate::codex::Effect),
     Export(crate::exporter::Submission),
     PluginsRead(crate::plugins::ReadTicket),
+    /// Re-read the session roster, whose summaries carry the projections a subagent catalog is built
+    /// from. The reference refreshes a child's projection when its chevron is pressed
+    /// (`SubagentHeaderLineage.tsx:554-561`); this is the same read, whole-roster.
+    RosterRefresh,
     /// Read the Host's permission-preset catalog for the chip's menu.
     PermissionCatalogRead,
     /// Read the Host's agent-preset roster for the hero chip and the header label.
@@ -980,6 +984,7 @@ fn rejected(command: Command) -> Event {
     let error = "Native concurrent operation limit reached; retry explicitly".to_owned();
     match command {
         // A read-only catalog costs nothing to refuse, and the menu keeps the design set.
+        Command::RosterRefresh => Event::Roster(Err(error.clone())),
         Command::PermissionCatalogRead => Event::PermissionCatalog(Err(error)),
         Command::PermissionSettingsRead => Event::PermissionSettings(Err(error)),
         Command::AgentPresetsRead => Event::AgentPresets(Err(error)),
@@ -2653,6 +2658,7 @@ async fn run(
                         result:client.changes_diff(&session,seq,index).await.map_err(|error|format!("Changed file: {error}")),
                     },
                     Command::ScheduleCatalog=>Event::SchedulesLoaded(client.schedule_catalog().await.map_err(|error|format!("Schedules: {error}"))),
+                    Command::RosterRefresh=>Event::Roster(client.session_list().await.map_err(|error|format!("Session list: {error}"))),
                     Command::ScheduleDelete{session,id}=>{
                         let result=client.schedule_delete(&session,&id).await.map_err(|error|format!("Schedule delete: {error}"));
                         Event::ScheduleDeleted{session,id,result}

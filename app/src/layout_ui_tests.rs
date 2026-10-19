@@ -1087,3 +1087,43 @@ fn a_selected_child_counts_its_own_children() {
         "a selected child with descendants shows the action"
     );
 }
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
+fn opening_the_catalog_re_reads_the_roster_once() {
+    let (size, _scale) = super::layout_fixture::preset_size("subagent-trail").unwrap();
+    let (mut app, mut queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "subagent-trail",
+        size,
+        None,
+    );
+    app.subagent_menu = false;
+    app.roster_refreshing = false;
+    while queue.try_recv().is_ok() {}
+    // Opening asks the Host for the roster whose projections the tree draws.
+    drop(app.update(Message::ToggleSubagentMenu(true)));
+    assert!(app.subagent_menu);
+    let mut asked = 0;
+    while let Ok(command) = queue.try_recv() {
+        if matches!(command, crate::worker::Command::RosterRefresh) {
+            asked += 1;
+        }
+    }
+    assert_eq!(asked, 1, "one read, not one per frame");
+    // A second open while the first is in flight queues nothing more.
+    app.subagent_menu = false;
+    drop(app.update(Message::ToggleSubagentMenu(true)));
+    let mut again = 0;
+    while let Ok(command) = queue.try_recv() {
+        if matches!(command, crate::worker::Command::RosterRefresh) {
+            again += 1;
+        }
+    }
+    assert_eq!(again, 0, "the in-flight read is not duplicated");
+    // The answer clears the flag, so a later open reads again.
+    drop(app.update(Message::Worker(Event::Roster(Ok(
+        dsh_native_transport::dto::SessionListValue { items: Vec::new() },
+    )))));
+    assert!(!app.roster_refreshing);
+}

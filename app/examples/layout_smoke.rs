@@ -1108,6 +1108,7 @@ impl Fixture {
                 worker::Command::Cancel { .. } => "Cancel",
                 worker::Command::Page { .. } => "Page",
                 worker::Command::Inspect => "Inspect",
+                worker::Command::RosterRefresh => "RosterRefresh",
                 worker::Command::Shutdown => "Shutdown",
             };
             if self.report["capturedCommandKinds"].is_null() {

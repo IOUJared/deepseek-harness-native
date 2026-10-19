@@ -12299,3 +12299,39 @@ the action lists that grandchild, not the child's sibling, and the header action
 | capture | — | none: action visibility, proved by its test |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 471 — opening the catalog re-reads what it draws
+
+Three subagent findings — chevrons for a child whose catalog was not retained, the catalog's error state
+with Retry, and its loading copy — all needed the same missing capability: the reference refreshes a
+child's projection when its chevron is pressed (`SubagentHeaderLineage.tsx:554-561`), and native had no
+way to ask for one.
+
+`Command::RosterRefresh` re-reads the session list, whose summaries carry the projections the catalog is
+built from, and publishing it clears the in-flight flag. Opening the catalog — from the header action or
+from an ancestor crumb — dispatches that read once, so a tree that appeared empty can fill in without the
+user reloading the app, and two opens in a row do not queue two reads.
+
+Tests: `opening_the_catalog_re_reads_the_roster_once` — the first open asks exactly once, a second open
+while the read is in flight asks nothing, and the Host's answer clears the flag so a later open asks
+again.
+
+**Caught by the gates, not by me**: adding a `Command` variant broke `examples/layout_smoke.rs`, whose
+match over the command enum is exhaustive so a capture report can name every command kind. The clippy and
+examples suites failed until the new arm was added — which is the check doing its job.
+
+**Battery (round 471).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1455 passed**, 1 ignored |
+| app, default | **0** | **1424 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: a read on open, proved by its test |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

@@ -450,6 +450,8 @@ pub enum Message {
     ScheduleHistoryPrompt(String),
     /// Open an ancestor crumb's sibling catalog, keyed by that crumb's session.
     SubagentCrumbMenu(SessionId),
+    /// Re-read the roster, whose projections the subagent catalog is built from.
+    RefreshRoster,
     /// The pointer entered or left the subagent catalog's trigger.
     SubagentHover(bool),
     /// The hover delay elapsed while the pointer was still on the trigger.
@@ -1395,6 +1397,8 @@ pub struct App {
     run_watch: run_watch::Watch,
     /// A plan-mode toggle is in flight. Inert until its reply settles.
     plan_toggle_pending: bool,
+    /// A roster refresh is in flight, so the catalog's open must not queue a second read.
+    roster_refreshing: bool,
     /// The subagent crumb whose siblings an open catalog lists; `None` means the current session's,
     /// which is what the header action opens (`ConversationSession.tsx:95-121`).
     subagent_menu_target: Option<SessionId>,
@@ -1664,6 +1668,7 @@ impl App {
                 editor_menu: false,
                 subagent_menu: false,
                 subagent_hovered: false,
+                roster_refreshing: false,
                 subagent_menu_target: None,
                 subagent_expanded: Default::default(),
                 permission_menu: false,
@@ -4107,8 +4112,18 @@ impl App {
                     self.subagent_menu = true;
                     // The header action always lists the current session's siblings.
                     self.subagent_menu_target = None;
+                    // The reference refreshes the projection it is about to draw when the tree opens
+                    // (`SubagentHeaderLineage.tsx:554-561`), so a child whose catalog was not retained
+                    // can still show its descendants. Native re-reads the roster, which carries them.
+                    return self.update(Message::RefreshRoster);
                 } else {
                     self.close_subagent_menu();
+                }
+            }
+            Message::RefreshRoster => {
+                if self.ready && !self.roster_refreshing {
+                    self.roster_refreshing = true;
+                    self.command(Command::RosterRefresh);
                 }
             }
             Message::SubagentCrumbMenu(id) if self.layout_controls_enabled() => {
@@ -6467,6 +6482,8 @@ impl App {
             }
             Event::Roster(result) => {
                 self.roster_pending = false;
+                // Whether it succeeded or not, the refresh that opening the catalog asked for is done.
+                self.roster_refreshing = false;
                 match result {
                     Ok(roster) => {
                         if roster.items.len() > 4096 {
