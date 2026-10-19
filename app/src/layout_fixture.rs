@@ -149,6 +149,7 @@ pub const PRESETS: &[&str] = &[
     "tool-activity-tiny",
     "tool-activity-details",
     "tool-activity-expanded",
+    "tool-activity-trajectory",
     "process-group-closed",
     "tool-activity-attachment",
     "tool-activity-edit-error",
@@ -234,6 +235,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "chat-search-narrow" => Some((Size::new(760.0, 840.0), 1.5)),
         "tool-activity"
         | "tool-activity-expanded"
+        | "tool-activity-trajectory"
         | "tool-activity-attachment"
         | "tool-activity-edit-error"
         | "tool-activity-diff"
@@ -2101,6 +2103,12 @@ pub fn build(
         );
     }
 
+    if preset == "tool-activity-trajectory" {
+        // The Trajectory tab with its record filter applied: the reference's own toolbar control
+        // (`TrajectoryToolbar.tsx:114-124`). The name keeps the tool-activity transcript.
+        app.records_expanded = true;
+        app.trajectory_query = "tool/call".into();
+    }
     if preset == "chat-thoughts" {
         let ticket = app.reply_parts(1).unwrap().ticket.unwrap();
         drop(app.update(Message::ToggleThoughts(ticket)));

@@ -10700,10 +10700,8 @@ instead of implying it was cloned.
 
 Two real reference-anchored gaps remain and are recorded: native's search does not reach tool/process
 bodies (the reference exposes them to the browser's find), and the reference's Trajectory filter now has
-a native counterpart but no capture: the fixture's preset plumbing returned an empty transcript for a
-Trajectory-only view, so the filter's evidence this round is its test — `the_trajectory_filter_narrows_
-records_by_all_of_its_terms`, which asserts that a term keeps fewer rows, that every term must match,
-that case does not matter, and that Chat is unaffected.
+a native counterpart (see the next round for its capture: the empty frame came from naming the preset
+outside the `tool-activity` family, whose records and snapshot flags it inherits).
 
 **Battery (round 427).**
 
@@ -10718,5 +10716,38 @@ that case does not matter, and that Chat is unaffected.
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | capture | — | none: the fixture produced an empty transcript for this view |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 428 — the Trajectory filter's captured state
+
+Round 427 shipped the Trajectory record filter with a test but no frame: every preset name I tried
+produced an empty transcript. The cause was the name, not the plumbing — a preset outside the
+`tool-activity` family gets neither that family's records nor its snapshot flags, so the tab had
+nothing to show and nothing to filter. Naming it `tool-activity-trajectory` and adding it to the size
+table gives it the family's transcript; the preset then switches to Trajectory and sets
+`tool/call` as the query.
+
+Evidence: `shots/243-trajectory-filter.png` (DP-2 alongside, `status: passed`) — the Trajectory tab with
+its `Search` field reading `tool/call` and exactly the three tool rows beneath it, with the note and
+assistant rows filtered away.
+
+Tests: the existing `the_trajectory_filter_narrows_records_by_all_of_its_terms` still covers the rules
+(a term narrows, every term must match, case does not matter, Chat is unaffected); the frame adds what
+a test cannot — that the control is drawn where the reference draws it.
+
+**Battery (round 428).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1418 passed**, 1 ignored |
+| app, default | **0** | **1399 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/243-trajectory-filter.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
