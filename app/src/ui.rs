@@ -523,6 +523,8 @@ pub enum Message {
     RailPulseTick,
     /// One tenth of a second of the quota banner's four-second life.
     QuotaToastTick,
+    /// The code block's copy confirmation window ended.
+    CodeCopyExpired(u64, usize),
     ToggleActivity {
         generation: u64,
         key: u64,
@@ -1768,6 +1770,9 @@ pub struct App {
     /// The turn-rail mark the pointer rests on, whose tick grows as the reference's preview state
     /// does (`TurnNavigator.module.css:88-100`).
     turn_rail_hover: Option<u64>,
+    /// The code block whose Copy control just confirmed, and the reply it belongs to. The reference
+    /// flips the button to `Copied` for one second (`CodeBlock.tsx:156-170`).
+    code_copied: Option<(u64, usize)>,
     /// The frame-wide quota banner, while one is showing. The reference posts it from an
     /// *appended* quota failure and fades it out after four seconds (`apply.ts:80-100`,
     /// `Toast.tsx:11-14,46-60`).
@@ -2115,6 +2120,7 @@ impl App {
                 process_group_open: Default::default(),
                 seat_hover: None,
                 turn_rail_hover: None,
+                code_copied: None,
                 quota_toast: None,
                 rail_page_target: None,
                 rail_pulse: 0,
@@ -3440,6 +3446,11 @@ impl App {
             }
             Message::ClipboardFocusedField(id) => return self.copy_field_text(id),
             Message::ClipboardCopied => return Task::none(),
+            Message::CodeCopyExpired(key, index) => {
+                if self.code_copied == Some((key, index)) {
+                    self.code_copied = None;
+                }
+            }
             Message::GuideCopyExpired => {
                 let _ = self.settings.handle(
                     crate::settings::Action::ClearGuideCopied,
@@ -5946,7 +5957,19 @@ impl App {
                     && let Some(source) = reply.code(index).filter(|source| !source.is_empty())
                 {
                     self.status = "Code copy requested.".into();
-                    return iced::clipboard::write(source.to_owned());
+                    // The reference confirms a successful write on the button itself for one
+                    // second (`CodeBlock.tsx:156-170`), so the same pair carries the window.
+                    self.code_copied = Some((ticket.key, index));
+                    let key = ticket.key;
+                    return Task::batch([
+                        iced::clipboard::write(source.to_owned()),
+                        Task::perform(
+                            async move {
+                                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                            },
+                            move |()| Message::CodeCopyExpired(key, index),
+                        ),
+                    ]);
                 }
             }
             Message::CopyReply { generation, key }
@@ -15747,6 +15770,12 @@ impl App {
             .into(),
         )
     }
+    /// The code block whose copy control is confirming inside one reply, if any.
+    fn copied_code(&self, key: u64) -> Option<usize> {
+        self.code_copied
+            .filter(|(copied, _)| *copied == key)
+            .map(|(_, index)| index)
+    }
     /// The frame-wide quota banner: a top-centered, click-through notice that holds and then
     /// fades (`Toast.tsx:46-60`, `Toast.module.css:4-48`). Its copy is the same sentence the turn's
     /// failure row states (`message.failure.quota`), because both read the same code.
@@ -17650,6 +17679,7 @@ impl App {
                         self.thoughts_expanded.contains(&record.key),
                         self.active_search(),
                         preview.as_deref(),
+                        self.copied_code(record.key),
                     ))
                     // The reference's rows have no inset of their own: the message column is
                     // the only box they sit in (`ChatView.module.css:54-59`), and an unboxed
@@ -17666,6 +17696,7 @@ impl App {
                                 self.thoughts_expanded.contains(&record.key),
                                 self.active_search(),
                                 preview.as_deref(),
+                                self.copied_code(record.key),
                             )
                         } else {
                             let source = if self.search_expands_user(record) {
@@ -23825,6 +23856,31 @@ mod tests {
             flow_gap_for(&live_refs, live_answer, &live_gaps),
             design::TURN_GAP
         );
+    }
+
+    #[test]
+    fn the_code_copy_confirmation_belongs_to_one_block_and_clears_on_its_own_timer() {
+        // The window belongs to one reply's one block: the reference flips that button only
+        // (`CodeBlock.tsx:156-170`). The press path's own set is a clipboard write plus this state,
+        // so the state and the expiry are what this test drives.
+        let (mut app, _receiver) = managed_app();
+        app.code_copied = Some((7, 1));
+        assert_eq!(app.copied_code(7), Some(1));
+        assert_eq!(app.copied_code(8), None, "another reply never inherits it");
+        drop(app.update(Message::CodeCopyExpired(7, 0)));
+        assert_eq!(
+            app.code_copied,
+            Some((7, 1)),
+            "a stale expiry cannot clear another block"
+        );
+        assert_eq!(conversation_content::code_copy_label(Some(1), 1), "Copied");
+        assert_eq!(
+            conversation_content::code_copy_label(Some(1), 0),
+            "Copy code"
+        );
+        assert_eq!(conversation_content::code_copy_label(None, 1), "Copy code");
+        drop(app.update(Message::CodeCopyExpired(7, 1)));
+        assert_eq!(app.code_copied, None, "the window closes");
     }
 
     #[test]

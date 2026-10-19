@@ -253,7 +253,7 @@ impl Prepared {
     /// one, so only this module's tests read it.
     #[cfg(test)]
     pub fn view(&self, width: f32, expanded: bool) -> Element<'static, Message> {
-        self.view_search(width, expanded, "", None)
+        self.view_search(width, expanded, "", None, None)
     }
     /// `preview` is the first line of settled reasoning, shown beside the disclosure title when the
     /// work-details mode enables it (`settledReasoningPreview`, `presentation-policy.ts:21`).
@@ -263,6 +263,7 @@ impl Prepared {
         expanded: bool,
         query: &str,
         preview: Option<&str>,
+        copied: Option<usize>,
     ) -> Element<'static, Message> {
         let width = bounded_width(width);
         let mut body = Column::new().width(Length::Fill);
@@ -293,6 +294,7 @@ impl Prepared {
                     Some(document) => container(document_view(
                         document,
                         inner,
+                        None,
                         None,
                         query,
                         self.delta,
@@ -351,6 +353,7 @@ impl Prepared {
                 document,
                 width,
                 self.ticket,
+                copied,
                 query,
                 self.delta,
                 self.delta_secondary,
@@ -1351,10 +1354,21 @@ fn document_height(
         })
         .sum::<f32>()
 }
+/// The code block's copy label: the reference's `Copied` confirmation for one second after a
+/// successful write, then its idle label (`CodeBlock.tsx:156-170`).
+pub(crate) fn code_copy_label(copied: Option<usize>, index: usize) -> &'static str {
+    if copied == Some(index) {
+        "Copied"
+    } else {
+        "Copy code"
+    }
+}
+
 fn document_view(
     document: &formatted::Document,
     width: f32,
     ticket: Option<Ticket>,
+    copied: Option<usize>,
     query: &str,
     delta: f32,
     delta_secondary: f32,
@@ -1469,10 +1483,14 @@ fn document_view(
                         .size(design::CODE_FONT)
                         .line_height(iced::Pixels(design::CODE_BANNER_LINE))
                         .width(Length::Fill),
-                        button(label("Copy code", MUTED).size(design::CODE_FONT))
-                            .on_press_maybe(ticket.map(|ticket| Message::CopyCode(ticket, index)))
-                            .style(design::ghost)
-                            .padding([2, 4])
+                        // The reference flips its copy control to `Copied` for one second
+                        // (`CodeBlock.tsx:156-170`), so the label states that window here.
+                        button(
+                            label(code_copy_label(copied, index), MUTED).size(design::CODE_FONT),
+                        )
+                        .on_press_maybe(ticket.map(|ticket| Message::CopyCode(ticket, index)))
+                        .style(design::ghost)
+                        .padding([2, 4])
                     ]
                     .align_y(iced::Alignment::Center),
                 )
@@ -1829,7 +1847,7 @@ mod tests {
         let code = p.code(1).unwrap().to_owned();
         let height = p.body_height(320.0, true);
         for query in ["PUBLIC", "42", "absent", ""] {
-            let _ = p.view_search(320.0, true, query, None);
+            let _ = p.view_search(320.0, true, query, None, None);
             assert!(p.answer == answer);
             assert!(p.code(1) == Some(code.as_str()));
             assert_eq!(p.ticket, ticket);

@@ -15089,3 +15089,41 @@ a different blockquote, and index 0 has no predecessor).
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 capture | — | `shots/325-markdown-quote-run.png`, `status: passed`, 1040x760 |
 | app bin | — | **21** warnings |
+
+### Round 532 — a code block's Copy control confirms for one second
+
+**The gap.** The reference's code block flips its copy button from `Copy code` to `Copied` for one
+second after a successful clipboard write (`ui-primitives/src/markdown/CodeBlock.tsx:156-170`). Native
+wrote the clipboard and said "Code copy requested." in the app's status line — never on the control the
+press belongs to.
+
+**The change.** `App.code_copied` holds `(reply key, document block index)` for one second; the copy
+action now batches the clipboard write with a one-second timer that clears exactly that pair, and
+`copied_code(key)` hands the index to the reply's view. `code_copy_label(copied, index)` is the label
+rule, so a press on one block never confirms another block of the same reply, and a stale timer cannot
+clear a newer confirmation.
+
+**The frame caught a misread index.** The first capture showed both blocks idle: the seed used code
+block 0, but the copy action and the label both index **document blocks** (`PreparedReply::code` reads
+`blocks.get(index)`), and the first fenced block follows a paragraph. Seeding block 1 — the block the
+press would carry — put `Copied` on the first banner and left the second at `Copy code`.
+
+**Frame.** `shots/326-code-copied.png` (1040x620, new `code-copied` preset, recaptured after the index
+fix): the `rust` block's banner reading `Copied`, the `bash` block beneath it still `Copy code`.
+
+**Tests.** `the_code_copy_confirmation_belongs_to_one_block_and_clears_on_its_own_timer` — the pair is
+per reply and per block, another reply never inherits it, a stale expiry cannot clear a newer block, the
+label rule states both windows, and the matching expiry closes it.
+
+**Battery (round 532).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1535 passed**, 1 ignored |
+| app, default | **0** | **1479 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-6d967opz`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-qs1uigk3`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 capture | — | `shots/326-code-copied.png`, `status: passed`, 1040x620 |
+| app bin | — | **21** warnings |
