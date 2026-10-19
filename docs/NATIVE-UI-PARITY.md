@@ -6382,7 +6382,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Reference surface | Native status |
 | --- | --- |
 | Chat: renderer, thoughts, turn triggers, copy/branch/edit/fork | cloned (markdown: tables, footnotes and math; math draws its source, since no native typesetter exists — see the renderer note below) |
-| Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the slash menu is one flat list without the reference's groups/sections/breadcrumbs/skeleton, files are chosen one at a time through a path field, no image thumbnails or drag hover overlay, and a pending send is not a queue row; absent: skills in the slash menu, the `File` menu entry, the Cmd/Ctrl+Enter inversion, empty-draft steer-all, the plan-mode placeholder, and the command-argument ghost hint) |
+| Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the slash menu is one flat list without the reference's groups/sections/breadcrumbs/skeleton, files are chosen one at a time through a path field, no image thumbnails or drag hover overlay, and a pending send is not a queue row; absent: skills in the slash menu, empty-draft steer-all, and the command-argument ghost hint; and these deliberate differences: the reference inverts its submission policy on Cmd/Ctrl+Enter (`view-binding.ts:120-130`), while native keeps Ctrl+Enter a plain send alias by the user's explicit confirmation (`docs/SESSION-PROMPT.md`)) |
 | Sidebar: sessions, search, pin/archive/trash, workspace filter, navigation sheet | cloned (time-grouped list, not the grouped browser) |
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
 | Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab) |
@@ -10024,5 +10024,41 @@ advertised command.
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/224-attach-menu.png`, `status: passed` |
+| app bin | — | **20** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 409 — the plan-mode placeholder, and a chord recorded as a deliberate difference
+
+**A plan-mode composer states the next action.** The reference swaps its placeholder when plan mode is
+active — `describe your task to generate plan` (`InputBar.tsx:352`, `locale.ts:392-395`) — while
+native kept its default line, so the composer never said what a message would produce in that state.
+`composer_placeholder` now owns all three lines: plan mode first, then the empty-state hero, then the
+default, and the composer reads it from one place.
+
+Evidence: `shots/225-plan-placeholder.png` (DP-2 alongside, `status: passed`) in the `plan-mode`
+preset — the active Plan chip above `describe your task to generate plan`.
+
+**Ctrl+Enter stays a plain send alias.** The reference inverts its submission policy on
+Cmd/Ctrl+Enter (`view-binding.ts:120-130`, `submission-policy.ts:36-40`), and with an empty draft
+steers the whole queue. Native keeps Ctrl+Enter as a send alias — a behaviour the user confirmed
+explicitly — so this is now recorded in the coverage table as a deliberate difference rather than left
+in the "absent" list where it read as unfinished work.
+
+Tests: the `plan-mode` and `plan-mode-applying` presets assert the plan placeholder, and the existing
+placeholder assertions for the other two states still pass.
+
+**Battery (round 409).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1403 passed**, 1 ignored |
+| app, default | **0** | **1387 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/225-plan-placeholder.png`, `status: passed` |
 | app bin | — | **20** dead-code warnings |
 | tree | — | clean before the commit |

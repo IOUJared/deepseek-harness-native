@@ -2692,6 +2692,14 @@ pub fn build(
             );
             assert_eq!(app.completion().unwrap().matches.len(), 3);
         }
+        "plan-mode" | "plan-mode-applying" => {
+            // A plan-mode composer states the next action, as the reference's placeholder does.
+            assert_eq!(
+                app.composer_placeholder(),
+                "describe your task to generate plan",
+                "plan mode states its own placeholder"
+            );
+        }
         "plan-chip" => {
             assert_eq!(
                 app.transcript.work().plan(),

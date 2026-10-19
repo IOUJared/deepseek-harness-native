@@ -9988,6 +9988,17 @@ impl App {
         .into();
         Some(chip)
     }
+    /// The composer's placeholder. A plan-mode composer states the next action instead of the
+    /// default line (`InputBar.tsx:352`, `locale.ts:395`).
+    fn composer_placeholder(&self) -> &'static str {
+        if plan_mode::mode(self.transcript.projections()).is_some() {
+            return "describe your task to generate plan";
+        }
+        if self.hero_active() && self.selected.is_some() {
+            return "Describe what you want to build, / commands, @ files or sessions";
+        }
+        "Message or run a task, / commands, @ files or sessions"
+    }
     fn plan_control(&self) -> plan_control::Control {
         plan_control::Control {
             offer: plan_control::Offer::from_published(self.plan_published),
@@ -11165,11 +11176,7 @@ impl App {
         // for a build, the docked bar offers the default line
         // (`locales.ts:20, 396-399`). Native's blocked session-less state keeps
         // the hero line, whose copy names the next step.
-        let placeholder = if self.hero_active() && self.selected.is_some() {
-            "Describe what you want to build, / commands, @ files or sessions"
-        } else {
-            "Message or run a task, / commands, @ files or sessions"
-        };
+        let placeholder = self.composer_placeholder();
         let editor = text_editor(&self.editor)
             .id(accessibility::WIDGET_COMPOSER)
             .placeholder(placeholder)
