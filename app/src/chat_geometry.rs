@@ -221,6 +221,19 @@ impl Cache {
                 } else {
                     BODY_INSET
                 };
+                // The bubble draws its own line box, so the human row measures the
+                // one the transcript will draw: `MessageItem.module.css:38` gives
+                // `.bubble` 22px where the assistant body takes 24px.
+                let line_px = if human {
+                    crate::design::BUBBLE_LINE
+                } else {
+                    crate::design::LINE_BODY
+                };
+                let line = if human {
+                    crate::design::bubble_line(self.delta.get())
+                } else {
+                    crate::design::body_line(self.delta.get())
+                };
                 let paragraph = NativeParagraph::with_text(text::Text {
                     content: preview,
                     bounds: Size::new(max_width - inset, f32::INFINITY),
@@ -231,7 +244,7 @@ impl Cache {
                     // The same box the transcript draws in. Measuring with Iced's
                     // relative default (1.3) reserved 19.5px lines for text drawn
                     // in the web's 24px box, which clipped the last wrapped line.
-                    line_height: crate::design::body_line(self.delta.get()),
+                    line_height: line,
                     font: FONT,
                     align_x: text::Alignment::Default,
                     align_y: alignment::Vertical::Top,
@@ -261,12 +274,9 @@ impl Cache {
                     // The floor is one line box and the cap is the four-line chat
                     // preview, so a collapsed reply always shows whole lines at the
                     // box the transcript draws (`PREVIEW_LINES`).
-                    measured.height.clamp(
-                        crate::design::LINE_BODY,
-                        PREVIEW_LINES * crate::design::LINE_BODY,
-                    )
+                    measured.height.clamp(line_px, PREVIEW_LINES * line_px)
                 } else {
-                    PREVIEW_LINES * crate::design::LINE_BODY
+                    PREVIEW_LINES * line_px
                 };
                 // The reference's referenced-session summary is one 13px/18px line
                 // under the bubble, inside `.userStack` (its 8px gap) and above the
@@ -511,7 +521,7 @@ mod tests {
     fn same_key_hits_reuse_shapes_and_preview_role_width_changes_invalidate() {
         let cache = Cache::default();
         let first = cache.geometry(7, "You", "Hi", 0.0, 600.0);
-        assert_eq!(first.height, 32.0 + crate::design::LINE_BODY);
+        assert_eq!(first.height, 32.0 + crate::design::BUBBLE_LINE);
         for _ in 0..8 {
             assert_eq!(cache.geometry(7, "You", "Hi", 0.0, 600.0), first);
         }
@@ -662,12 +672,18 @@ mod tests {
                     || role.starts_with("Assistant")
                     || role == "Interrupted assistant attempt"
                 {
-                    let cap = PREVIEW_LINES * crate::design::LINE_BODY;
+                    // The bubble draws a 22px line and the assistant body a 24px one,
+                    // so each role's floor and cap follow its own line box.
+                    let line = if role == "You" {
+                        crate::design::BUBBLE_LINE
+                    } else {
+                        crate::design::LINE_BODY
+                    };
+                    let cap = PREVIEW_LINES * line;
                     assert!(
                         // The narrowest accepted lane's 0.702 share is 32.99, so the
                         // floor is the bubble's own minimum rather than a round 33.
-                        geometry.width >= 32.0
-                            && (crate::design::LINE_BODY..=cap).contains(&geometry.body_height)
+                        geometry.width >= 32.0 && (line..=cap).contains(&geometry.body_height)
                     );
                     assert_eq!(geometry.height, chrome_height(role) + geometry.body_height);
                 }
@@ -688,13 +704,13 @@ mod tests {
         );
         assert!(unicode.body_height > short.body_height);
         let four = cache.geometry(2, "You", "one\ntwo\nthree\nfour", 0.0, 1000.0);
-        assert_eq!(four.body_height, PREVIEW_LINES * crate::design::LINE_BODY);
+        assert_eq!(four.body_height, PREVIEW_LINES * crate::design::BUBBLE_LINE);
         assert_eq!(
             cache.geometry(3, "You", "", 0.0, 1000.0),
             Geometry {
                 width: 96.0,
-                body_height: crate::design::LINE_BODY,
-                height: 32.0 + crate::design::LINE_BODY
+                body_height: crate::design::BUBBLE_LINE,
+                height: 32.0 + crate::design::BUBBLE_LINE
             }
         );
         let long = "PUBLIC words ".repeat(80);
@@ -712,6 +728,39 @@ mod tests {
                 .geometry(6, "Interrupted assistant attempt", "Hi", 0.0, 1000.0)
                 .width,
             992.0
+        );
+    }
+
+    #[test]
+    fn a_single_line_bubble_draws_the_bubbles_own_twenty_two_pixel_line() {
+        let cache = Cache::default();
+        // `MessageItem.module.css:38`: `.bubble` takes `22px + delta`, the assistant
+        // body `24px + delta`, so one line of each must measure differently.
+        let bubble = cache.geometry(0, "You", "Hi", 0.0, 1000.0);
+        let assistant = cache.geometry(1, "Assistant", "Hi", 0.0, 1000.0);
+        assert_eq!(bubble.body_height, crate::design::BUBBLE_LINE);
+        assert_eq!(assistant.body_height, crate::design::LINE_BODY);
+        // The sheet's own contract: "42px single-line bubble at the default size:
+        // 22 line + 10 vertical padding each side". The geometry owns the line;
+        // `USER_BUBBLE_PAD` owns the padding, so the two together must make 42.
+        assert_eq!(
+            bubble.body_height
+                + crate::design::USER_BUBBLE_PAD.top
+                + crate::design::USER_BUBBLE_PAD.bottom,
+            42.0
+        );
+        // A content-size preference moves the bubble's line with the body's delta
+        // (`calc(22px + var(--dsh-content-font-delta))`), and it stays narrower.
+        // Two lines, because a single line's minimum bounds are the glyph box
+        // rather than the line box (the floor above covers that case). The delta
+        // is the cache's own content size, not the per-row summary argument.
+        cache.set_content_delta(3.0);
+        let grown = cache.geometry(2, "You", "one\ntwo", 0.0, 1000.0);
+        assert_eq!(grown.body_height, 2.0 * (crate::design::BUBBLE_LINE + 3.0));
+        let grown_body = cache.geometry(3, "Assistant", "one\ntwo", 0.0, 1000.0);
+        assert_eq!(
+            grown_body.body_height,
+            2.0 * (crate::design::LINE_BODY + 3.0)
         );
     }
 

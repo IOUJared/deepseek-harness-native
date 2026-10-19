@@ -112,6 +112,18 @@ pub const LEADING_BOX: f32 = 16.0;
 /// `LineHeight::default()` is `1.3`, which made every native line 19.5px where
 /// the web gives 24.
 pub const LINE_BODY: f32 = 24.0;
+/// The user bubble's own line box. `.bubble` sets
+/// `line-height: calc(22px + var(--dsh-content-font-delta, 0px))`
+/// (`ui-chat/src/client/chat/MessageItem.module.css:38`), narrower than the 24px
+/// body box every other transcript row draws, and the sheet states the resulting
+/// contract in its own comment: a single-line bubble is "42px ... 22 line + 10
+/// vertical padding each side". The 1980x1319 reference agrees — four bubble lines
+/// start 22px apart while the assistant lines below them start 24px apart — so the
+/// bubble needs its own box rather than the shared body line.
+pub const BUBBLE_LINE: f32 = 22.0;
+pub fn bubble_line(delta: f32) -> iced::advanced::text::LineHeight {
+    iced::advanced::text::LineHeight::Absolute(iced::Pixels(BUBBLE_LINE + delta))
+}
 pub const LINE_COMPACT: f32 = 20.0;
 /// The transcript body size: the web's `--dsh-content-font-size` default
 /// (`gradient-shadow-text.css:57`). Native reserved and drew body text at 15,

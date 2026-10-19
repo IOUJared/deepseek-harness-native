@@ -16261,7 +16261,15 @@ impl App {
                                 &source,
                                 self.active_search(),
                                 (design::BODY_SIZE + self.content_delta()).round() as u32,
-                                design::body_line(self.content_delta()),
+                                // The bubble's own line box, not the body's: the
+                                // reference's `.bubble` is 22px where the assistant
+                                // body is 24px (`MessageItem.module.css:38`), and the
+                                // row was measured at the same 22px above.
+                                if human {
+                                    design::bubble_line(self.content_delta())
+                                } else {
+                                    design::body_line(self.content_delta())
+                                },
                                 TEXT,
                             )
                         };

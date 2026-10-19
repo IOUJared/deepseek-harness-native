@@ -68,11 +68,13 @@ while the reference ships zh/en dictionaries. Cross-session
 pending status is still unavailable from the present wires. Live model runs, OAuth and desktop-open
 side effects remain unverified.
 
-**Four things need the user:** `reference.png` in the workspace root (expected 1980×1319, sha256
-`b8e164f5…`; the native side is already captured at that size — see
-[the comparison plan](NATIVE-CHAT-GEOMETRY.md#reference-comparison-at-19801319-blocked-on-the-file));
-a real window-edge drag for the 520×600 floor; one live close-timing run for the shell's 10/5/5 s
-budgets; the image fetch policy. **One is Iced-blocked:** inline-code chips.
+**Three things need the user:** a real window-edge drag for the 520×600 floor; one live close-timing
+run for the shell's 10/5/5 s budgets; the image fetch policy. `reference.png` is **resolved**: the
+user's own 1980×1319 capture was already on disk (`~/Pictures/Screenshots/2026-10-07-111406_hyprshot.png`),
+hashes to the documented `b8e164f5…`, and now sits in the workspace root, so the geometry comparison
+is unblocked and its first deltas are recorded in
+[the chat geometry record](NATIVE-CHAT-GEOMETRY.md#the-bubble-draws-a-22px-line-round-502).
+**One is Iced-blocked:** inline-code chips.
 
 **The rules this document earned, all in force:** capture every gating exit status; back every path
 claim with an implementation line; insert by locating the line, never by matching text from memory;
@@ -6410,8 +6412,12 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Dockkit layout presets | difference: native fixed layout with its own preferences |
 | Locales (zh/en) | difference: English-only |
 
-**Verification limits.** Visual 1-to-1 remains unverified until `reference.png` is placed in the
-workspace. Live Host reads/writes were exercised against the desktop-composed alpha Host
+**Verification limits.** `reference.png` is present and hash-verified, but visual 1-to-1 is still
+**unverified**: the reference is a different UI state (collapsed sidebar rail, scrolled transcript,
+no header) from the 1980×1319 native fixture, so only rect-level comparisons exist today. The two
+deltas those rects proved are closed in
+[the chat geometry record](NATIVE-CHAT-GEOMETRY.md#the-bubble-draws-a-22px-line-round-502). Live Host
+reads/writes were exercised against the desktop-composed alpha Host
 ([record](NATIVE-LIVE-VERIFICATION.md)): session create/rename/page/projections, `@` file and
 session references, feedback list/delete and the put request shape, schedule catalog/history/
 delete/update request shapes, workspace create, directory listings, the picker capability, the queue,
@@ -13469,3 +13475,54 @@ row. That is a real element native has never had and is named here for a later r
 | DP-2 capture | — | `shots/295-header-order.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 502 — the user bubble draws its own 22px line
+
+`reference.png` is in the workspace root at last: the user's own 1980x1319 capture was already on
+disk in `~/Pictures/Screenshots/`, hashes to the expected `b8e164f5...`, and is now copied to the
+documented path — so the comparison that had been blocked since round 1 ran.
+
+**What it proved.** The reference's `.bubble` sets `line-height: calc(22px + var(--dsh-content-font-delta, 0px))`
+(`ui-chat/src/client/chat/MessageItem.module.css:38`), and the sheet's own comment states the
+contract: "42px single-line bubble at the default size: 22 line + 10 vertical padding each side".
+Measured in the reference: four bubble lines at y 357/379/401/423 — **22px** apart — while the
+assistant lines under them are 24px apart (572 -> 596). Native measured *and* drew both rows at the
+shared 24px body box, 2px per line too tall.
+
+**The fix, in both halves.** `design::BUBBLE_LINE` (22) and `bubble_line(delta)` beside
+`LINE_BODY`/`body_line`; `chat_geometry`'s human path measures at that line and floors/caps the body
+at it; the human body's `plain_view` draws the same line, so a wrapped bubble cannot clip.
+
+**Measured after** (`shots/296-bubble-line.png`, DP-2 alongside, `status: passed`, mode
+`tool-activity`, 1980x1319): bubble lines 135 -> 157 = **22**, and the bubble fill is 121..184 =
+**64px** = 2 x 22 + 10/10. The reference's four-line bubble is 108 = 4 x 22 + 20, so the two agree
+line for line. Assistant rows stay at 24.
+
+Tests: `a_single_line_bubble_draws_the_bubbles_own_twenty_two_pixel_line` — one line reserves the
+bubble's 22, four lines cap at 4 x 22, a +3 content delta moves the bubble's line to 25 while the
+assistant's goes to 27, and 22 + the 10/10 `USER_BUBBLE_PAD` is the sheet's 42. The three existing
+expectations that had encoded 24 for a human row (`same_key_hits...`, `unicode_newlines...`,
+`measured_chat_heights...`) now name `BUBBLE_LINE` and say why.
+
+**Recorded, not silently fixed**, from the same comparison: the message rows still carry a 14px
+horizontal pad the reference does not (reference text at lane +1, native at lane +19), and the
+reference is a different state — collapsed sidebar rail, lane centred 33px right of the window
+centre, scrolled transcript with no header — so a pixel-level diff needs a matching-state preset
+before any 1-to-1 claim.
+
+**Battery (round 502).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1484 passed**, 1 ignored; 2 failed on a missing `ws` node module (below) |
+| app, default | **0** | **1445 passed**, 1 ignored; the same 2 |
+| format debt | **0** | 0 files, 0 hunks (`cargo fmt --check`) |
+| transport / core / JS | — | **not run**: no crate outside `app` changed |
+| clippy | — | **not run** in the isolated worktree |
+| DP-2 capture | — | `shots/296-bubble-line.png`, `status: passed` |
+
+The two failures are `worker::decision_worker::tests::actual_carrier_*`: each spawns
+`transport/tests/node_host_fixture.mjs`, which imports `ws`, and no `ws` install exists in this
+checkout — the child dies with `Cannot find module 'ws'` before the app is involved. They are
+environment, not regression: the same fixture fails when run by hand, and neither test path touches
+`chat_geometry`, `design` or the message rows.

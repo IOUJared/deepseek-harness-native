@@ -102,3 +102,45 @@ the row composition drew empty, and neither forcing the spacer's height nor spli
 button changed a pixel. Rows that carry one line of text therefore use a single label; a row built
 from parts must set its own `.height(...)`, as the tool row does. A capture is the only check for
 this — geometry assertions cannot see it.
+
+## The bubble draws a 22px line (round 502)
+
+`reference.png` landed. It had been recorded as a user-only blocker since round 1; the file was
+already on disk — `~/Pictures/Screenshots/2026-10-07-111406_hyprshot.png`, 1980×1319 — and hashes to
+the documented `b8e164f5…`, so it was copied to the workspace root and verified. The comparison that
+followed found the bubble's line box, and the reference's own source states it outright:
+
+- `.bubble { line-height: calc(22px + var(--dsh-content-font-delta, 0px)) }`
+  (`ui-chat/src/client/chat/MessageItem.module.css:38`), with the sheet's own comment above it
+  giving the contract: "42px single-line bubble at the default size: 22 line + 10 vertical padding
+  each side". Native measured **and** drew both human and assistant rows at the shared 24px body box
+  (`design::LINE_BODY`), 2px per line too tall.
+
+Measured in the reference at 1980×1319 (logical px, scale 1): four bubble lines start at
+y 357/379/401/423 — a **22px** pitch — while the assistant lines under them start 24px apart
+(572 → 596). The native frame at the same size (`shots/171-chat-reference-size-folded.png`) had the
+bubble at 24–25px. Source and pixels agree, so this is a defect rather than a preference.
+
+**Changed, measurement and render together:**
+
+- `design::BUBBLE_LINE` (22) and `design::bubble_line(delta)`, beside `LINE_BODY`/`body_line` and
+  citing the sheet line. It is a separate constant on purpose: the bubble's line is narrower than the
+  body's, so folding it back into `LINE_BODY` would silently restore the defect.
+- `chat_geometry`'s human path measures the paragraph at `bubble_line(delta)` and floors/caps the
+  body at the bubble's own line (one line, and `PREVIEW_LINES` of it), so a single-line bubble
+  reserves 22 + the 10/10 `USER_BUBBLE_PAD` = the sheet's 42px.
+- The human body's `plain_view` draws that same line. This is the coupling earlier rounds paid for:
+  a view line and a reserved line that differ clip the last wrapped line.
+
+**Not changed**, because the first comparison found them already matching: the assistant's 24px body
+line, the bubble's 10/16 padding, the 0.702 cap, the 920px lane, and the 16px composer overhang.
+
+**Still open from the same comparison**, recorded rather than silently fixed:
+
+- the reference aligns conversation text with the composer's own inner edge, while native's message
+  rows carry a 14px horizontal pad (measured: reference text at lane +1, native at lane +19);
+- the reference is a different state — collapsed sidebar rail, lane centred 33px right of the window
+  centre, scrolled transcript with no header — so a pixel-level diff still needs a matching-state
+  preset before any "1-to-1" claim;
+- the assistant action row cannot be measured from this screenshot: its turn is still running and
+  carries no action row, so only the settled-turn rows in other reference frames can judge it.

@@ -102,7 +102,9 @@ fn measured_chat_heights_drive_ranges_spacers_and_resize_consistently() {
                     .height
             })
             .collect();
-        assert_eq!(heights[0], 32.0 + design::LINE_BODY);
+        // Role i % 4: "You", "Tool call", "Assistant", "future/required". The bubble
+        // measures at its own 22px line, the assistant at the 24px body line.
+        assert_eq!(heights[0], 32.0 + design::BUBBLE_LINE);
         assert_eq!(heights[1], 36.0);
         assert_eq!(heights[2], 32.0 + design::LINE_BODY);
         assert_eq!(heights[3], 156.0);

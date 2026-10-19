@@ -152,7 +152,7 @@ python3 -c "import json;d=json.load(open('/tmp/dsh-shots/NAME.json'));print(d.ge
 - Modes are presets: `chat-transcript`, `settings-*`, `sidebar-*`, `plan-mode*`, `queued-idle`,
   `mcp`, `schedules`, `workflow-run`, … see `layout_fixture.rs`'s preset list.
 - Archive to `~/.local/share/dsh-macos-shell-reference/shots/<n>-name.png` (+ `-dp2.png`, `.json`)
-  and mirror the buffer into `app/evidence/`. Next number is **296** (shot 295 is the newest).
+  and mirror the buffer into `app/evidence/`. Next number is **297** (shot 296 is the newest).
   **Check this line after every capture**: rounds 94–119 incremented a reworded sentence and left it
   at 266 while the archive moved to 280 (milestone round, `docs/NATIVE-UI-PARITY.md`).
 - When the fixture's check disagrees with a correct picture, read the check's inputs before touching
@@ -160,8 +160,11 @@ python3 -c "import json;d=json.load(open('/tmp/dsh-shots/NAME.json'));print(d.ge
 
 ## User-only blockers (record; never wait)
 
-- `reference.png` at `/home/jared/Documents/deepseek-harness/default-workspace/reference.png`
-  (expected 1980×1319, sha256 `b8e164f5…`). Without it no pixel-level 1-to-1 claim may be made.
+- ~~`reference.png` at `/home/jared/Documents/deepseek-harness/default-workspace/reference.png`~~ —
+  **resolved**: the user's own 1980×1319 capture was on disk (`~/Pictures/Screenshots/2026-10-07-111406_hyprshot.png`),
+  hashes to `b8e164f5…`, and is now in the workspace root. Visual 1-to-1 is still unverified because
+  the reference is a different UI state; see
+  [the comparison record](NATIVE-CHAT-GEOMETRY.md#the-bubble-draws-a-22px-line-round-502).
 - One authorized **charged** DeepSeek turn for the live model/feedback/schedule pass.
 - A real window-edge drag below 520×600, and one close-timing run against the 10/5/5 s budgets.
 - The remote-image fetch policy.
