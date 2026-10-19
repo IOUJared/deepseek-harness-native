@@ -146,6 +146,7 @@ pub const PRESETS: &[&str] = &[
     "tool-activity-applied",
     "model-retry",
     "turn-total",
+    "stats-dialog",
     "context-injects",
     "assistant-tool-call",
     "assistant-tool-call-expanded",
@@ -226,6 +227,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         }
         "model-retry" => Some((Size::new(1040.0, 760.0), 1.0)),
         "turn-total" => Some((Size::new(1040.0, 760.0), 1.0)),
+        "stats-dialog" => Some((Size::new(1040.0, 760.0), 1.0)),
         "chat-density" => Some((Size::new(1040.0, 1000.0), 1.0)),
         "tool-activity-narrow" => Some((Size::new(760.0, 840.0), 1.0)),
         "tool-activity-tiny" => Some((Size::new(608.0, 448.0), 1.25)),
@@ -1535,7 +1537,19 @@ pub fn build(
             "objective":"PUBLIC goal objective · finish the recorded clone task",
             "phase":"active","maxGoalRounds":64
         },"roundsStarted":1,"createdAt":1000,"updatedAt":2000}}),
-        "token-usage" => json!({"tokenUsage":{
+        // The Host's own statistics, which the pill's dialog renders verbatim
+        // (`session-stats/src/projection.ts:72-80`).
+        "token-usage" | "stats-dialog" => json!({
+            "tokenUsage":{
+                "uncachedInputTokens":6000,"outputTokens":345,
+                "cacheReadTokens":6000,"cacheWriteTokens":0
+            },
+            "sessionStats":{
+                "turns":2,"steps":3,"llmMs":1500,"toolMs":4500,
+                "ttftMs":900,"ttftSteps":3,"decodeMs":2000,"decodeTokens":84
+            }
+        }),
+        "token-usage-old" => json!({"tokenUsage":{
             "uncachedInputTokens":6000,"outputTokens":345,
             "cacheReadTokens":6000,"cacheWriteTokens":0
         }}),
@@ -2168,6 +2182,29 @@ pub fn build(
                     .as_deref(),
                 Some("Retry delay: 4s\nFailure reason: PUBLIC upstream unavailable · synthetic")
             );
+        }
+        "stats-dialog" => {
+            // The pill carries the counts and opens the Host's figures.
+            let stats = app.stats().expect("the seeded projection");
+            assert_eq!(stats.counts(), "2 turns 3 steps");
+            assert!(stats.has_dialog(), "timed figures make the pill a button");
+            assert!(!app.stats_open);
+            drop(app.update(Message::ToggleStats));
+            assert!(app.stats_open, "the press opens the dialog");
+            assert_eq!(
+                stats.rows(),
+                vec![
+                    ("LLM time", "1.5s".to_owned()),
+                    ("Tool time", "4.5s".to_owned()),
+                    ("Avg time to first token (TTFT)", "0.3s".to_owned()),
+                    ("Tokens per second (TPS)", "42 tok/s".to_owned()),
+                ]
+            );
+            drop(app.update(Message::ToggleStats));
+            assert!(!app.stats_open, "the same press closes it");
+            // Left open, because this preset's whole point is the dialog's own frame.
+            drop(app.update(Message::ToggleStats));
+            assert!(app.stats_open);
         }
         "turn-total" => {
             // 143 seconds between the turn's start and end: `Completed in 2m 23s`.

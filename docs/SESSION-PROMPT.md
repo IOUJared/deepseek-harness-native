@@ -35,8 +35,8 @@ until the definition of done below is true.
 ## Current state (verify, do not trust)
 
 HEAD `8fa3a79`, tree clean, ~420 local commits ahead of origin, nothing pushed. Captures archived
-through `shots/171-chat-reference-size-folded.png`. Working gates at that commit: app fixture **1353
-passed / 1 ignored**, app default **1342 / 1**, transport **56 + 17 + 89 + 7**, core `--lib` **115**,
+through `shots/171-chat-reference-size-folded.png`. Working gates at that commit: app fixture **1356
+passed / 1 ignored**, app default **1345 / 1**, transport **56 + 17 + 89 + 7**, core `--lib` **115**,
 JS **419 pass / 0 fail**, format debt **0 files / 0 hunks**, `--suite clippy` and `--suite examples`
 passed. The app **bin** carries 19 pre-existing dead-code warnings (20 until round 369 removed two
 dead items; round 373 added one): record the count, never claim it warning-free.
@@ -152,7 +152,7 @@ python3 -c "import json;d=json.load(open('/tmp/dsh-shots/NAME.json'));print(d.ge
 - Modes are presets: `chat-transcript`, `settings-*`, `sidebar-*`, `plan-mode*`, `queued-idle`,
   `mcp`, `schedules`, `workflow-run`, … see `layout_fixture.rs`'s preset list.
 - Archive to `~/.local/share/dsh-macos-shell-reference/shots/<n>-name.png` (+ `-dp2.png`, `.json`)
-  and mirror the buffer into `app/evidence/`. Next number is **184** (shot 183 is the newest).
+  and mirror the buffer into `app/evidence/`. Next number is **185** (shot 184 is the newest).
 - When the fixture's check disagrees with a correct picture, read the check's inputs before touching
   the picture — twice the fix was one line in the *expectation*.
 

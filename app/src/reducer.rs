@@ -24,6 +24,9 @@ pub mod retry_ui;
 /// The reference's search card for a `grep`/`glob` call.
 #[path = "search_card.rs"]
 pub mod search_card;
+/// The session-statistics dialog's figures.
+#[path = "session_stats.rs"]
+pub mod session_stats;
 /// The reference's terminal card for a `bash`/`pwsh` call, declared beside the other cards for the
 /// same reason.
 #[path = "terminal_card.rs"]

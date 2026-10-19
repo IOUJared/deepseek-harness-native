@@ -527,6 +527,8 @@ pub enum Message {
     CardCopyExpired(u64),
     /// One second while a model-retry attempt is scheduled, so its countdown falls.
     RetryTick,
+    /// Open or close the usage pill's session-statistics dialog.
+    ToggleStats,
     /// Clipboard text ready to insert into the focused tagged field.
     ClipboardPasteText(Option<String>),
     /// The focused tagged field and the text to insert into it.
@@ -1161,6 +1163,8 @@ pub struct App {
     /// The tool card whose copy button currently reads `Copied` (`use-copy-feedback.ts`: one
     /// second, then back to `Copy`).
     card_copied: Option<u64>,
+    /// Whether the usage pill's session-statistics dialog is open.
+    stats_open: bool,
     /// When each model-retry row was first seen, in this machine's milliseconds. The reference
     /// anchors a retry's countdown to its first render rather than to the Host's event clock
     /// (`MessageItem.tsx:66-69`), and native keeps the same anchor so a replayed record counts
@@ -1505,6 +1509,7 @@ impl App {
                 diff_expanded: std::collections::BTreeSet::new(),
                 card_copied: None,
                 retry_anchored: std::collections::BTreeMap::new(),
+                stats_open: false,
                 goal_activation: std::collections::BTreeMap::new(),
                 goal_activation_serial: 0,
                 goal_activation_read: None,
@@ -5034,6 +5039,13 @@ impl App {
             // The countdown is derived from the clock at render time, so a tick changes no state;
             // its only job is to make iced draw the next second.
             Message::RetryTick => {}
+            Message::ToggleStats => {
+                // The dialog belongs to the composer's own reading; a session that states no
+                // figure at all keeps the pill a plain label (`StatsPills.tsx:246-248`).
+                if self.stats().is_some_and(|stats| stats.has_dialog()) {
+                    self.stats_open = !self.stats_open;
+                }
+            }
             Message::EditReply { generation, key }
                 if self.edit_message_allowed(generation, key) =>
             {
@@ -11398,7 +11410,19 @@ impl App {
             if let Some(speed) = self.transcript.decode_speed() {
                 text.push_str(&format!(" · {speed}"));
             }
-            metadata = metadata.push(label(text, MUTED).size(10));
+            // The reference's activity reading (`stats.counts`) rides the same pill; a pill with
+            // timed figures behind it is the button that opens the statistics dialog.
+            let stats = self.stats();
+            if let Some(stats) = &stats {
+                text.push_str(&format!(" · {}", stats.counts()));
+            }
+            let pill = label(text, MUTED).size(10);
+            metadata = metadata.push(self.anchored_with(
+                stats.as_ref().is_some_and(|stats| stats.has_dialog()),
+                pill,
+                Message::ToggleStats,
+                self.stats_open.then(|| self.stats_dialog_view()),
+            ));
         }
         if token_reading.is_none() || context.line != chat_usage::UNAVAILABLE {
             metadata = metadata.push(label(context.line.clone(), severity_color).size(10));
@@ -12597,6 +12621,97 @@ impl App {
             self.reply_content
                 .prepare(self.generation, key, parts.reasoning, parts.answer),
         )
+    }
+    /// An element that opens a popover of its own: `anchor` is drawn as-is, and `popup` appears
+    /// anchored beneath it while `open`. A caller that passes `false` gets the plain element, so a
+    /// control with nothing behind it never looks pressable.
+    fn anchored_with<'a>(
+        &'a self,
+        interactive: bool,
+        anchor: iced::widget::text::Text<'a>,
+        toggle: Message,
+        popup: Option<Element<'a, Message>>,
+    ) -> Element<'a, Message> {
+        if !interactive {
+            return anchor.into();
+        }
+        anchored_popup::anchored(
+            button(anchor)
+                .style(design::ghost)
+                .padding([2, 4])
+                .on_press(toggle)
+                .into(),
+            popup,
+            Message::ToggleStats,
+        )
+    }
+    /// The Host's own session statistics, when it states them.
+    pub(crate) fn stats(&self) -> Option<crate::reducer::session_stats::Stats> {
+        crate::reducer::session_stats::Stats::from_projection(self.transcript.projections())
+    }
+    /// The reference's `Session statistics` dialog (`StatsPills.tsx:244-270`): the timed figures,
+    /// then the token-usage section the compact pill already summarizes.
+    fn stats_dialog_view(&self) -> Element<'_, Message> {
+        let Some(stats) = self.stats() else {
+            return container(Space::new()).into();
+        };
+        let mut body = column![
+            row![
+                label("Session statistics", TEXT).size(12),
+                Space::new().width(Length::Fill),
+                label(stats.counts(), MUTED).size(10),
+            ]
+            .align_y(iced::Alignment::Center),
+        ]
+        .spacing(6)
+        .width(240);
+        for (label_text, value) in stats.rows() {
+            body = body.push(
+                row![
+                    label(label_text, MUTED).size(10),
+                    Space::new().width(Length::Fill),
+                    label(value, TEXT).size(10),
+                ]
+                .align_y(iced::Alignment::Center),
+            );
+        }
+        if let Some(reading) = chat_usage::token_reading(self.transcript.projections()) {
+            body =
+                body.push(container(Space::new()).height(1).style(|_| {
+                    iced::widget::container::Style {
+                        background: Some(design::SURFACE.into()),
+                        ..Default::default()
+                    }
+                }))
+                .push(label("Token usage", MUTED).size(10))
+                .push(
+                    row![
+                        label("Total", MUTED).size(10),
+                        Space::new().width(Length::Fill),
+                        label(
+                            format!("{} tok", subagent_catalog::format_tokens(reading.total)),
+                            TEXT
+                        )
+                        .size(10),
+                    ]
+                    .align_y(iced::Alignment::Center),
+                );
+            if let Some(percent) = &reading.cache_hit {
+                body = body.push(
+                    row![
+                        label("Cache hit", MUTED).size(10),
+                        Space::new().width(Length::Fill),
+                        label(format!("{percent}%"), TEXT).size(10),
+                    ]
+                    .align_y(iced::Alignment::Center),
+                );
+            }
+        }
+        container(body)
+            .padding([10, 12])
+            .width(Length::Shrink)
+            .style(|_| panel(design::OVERLAY))
+            .into()
     }
     /// The retry row's anchor, for a test that must not wait a second.
     #[cfg(all(test, feature = "public-layout-fixture"))]

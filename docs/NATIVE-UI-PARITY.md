@@ -9052,3 +9052,46 @@ the boundary lives in its own conversation instead.
 | DP-2 capture | — | `shots/183-turn-total.png`, `status: passed` |
 | app bin | — | **20** dead-code warnings (unchanged) |
 | tree | — | clean before the commit |
+
+### Round 384 — the session-statistics dialog
+
+The reference's usage pill is a button: pressing it portals a `Session statistics` panel with the
+turn's timed figures above the token section (`StatsPills.tsx:225-270`, `stat-dialog.ts`). Native's
+pill was a plain label — the tokens and cache hit it already read were the *compact* half.
+
+**The figures** (`reducer/session_stats.rs`) come from the Host's durable `sessionStats` projection,
+read strictly (`session-stats/src/projection.ts:72-80`): `turns`, `steps`, `llmMs`, `toolMs`,
+`ttftMs`, `ttftSteps`, `decodeMs`, `decodeTokens`, every one a non-negative integer, and a projection
+that fails any field drops the whole reading rather than showing a partial one. The dialog's rows
+follow the reference's order and skip a figure nobody recorded — `LLM time`, `Tool time`, `Avg time
+to first token (TTFT)` (the average over the steps that reported one), `Tokens per second (TPS)` (one
+decimal below ten, whole numbers from there, from `formatTokensPerSecond`) — using the reference's
+`formatDuration` (`45.2s`, `2m42s`). The pill's own label gains the `2 turns 3 steps` counts, and it
+becomes a button only when there is at least one timed figure, so a window with nothing timed keeps
+a plain reading.
+
+The dialog rides the same `anchored_popup` control as the permission menu: right-aligned above the
+anchor, viewport-clamped, dismissed by Escape or an outside press.
+
+Evidence: `shots/184-stats-dialog.png` (DP-2 alongside, `status: passed`) in the new `stats-dialog`
+preset — the pill reading `12.3K tok · Cache hit 50% · 2 turns 3 steps` and the panel showing
+`LLM time 1.5s`, `Tool time 4.5s`, `TTFT 0.3s`, `TPS 42 tok/s`, `Total 12.3K tok`, `Cache hit 50%`.
+
+Tests: three in `session_stats` (the strict projection with three failure shapes, the row set with
+the quiet-window case, and the duration/speed ladder) plus the preset's open/close/rows assertions.
+
+**Battery (round 384).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1356 passed**, 1 ignored |
+| app, default | **0** | **1345 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/184-stats-dialog.png`, `status: passed` |
+| app bin | — | **20** dead-code warnings (unchanged) |
+| tree | — | clean before the commit |
