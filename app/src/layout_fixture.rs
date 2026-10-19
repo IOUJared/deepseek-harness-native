@@ -46,6 +46,7 @@ pub const PRESETS: &[&str] = &[
     "warnings",
     "conversation",
     "terminal-panel",
+    "terminal-panel-readonly",
     "jobs-panel",
     "jobs-panel-error",
     "jobs-panel-many",
@@ -245,7 +246,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" => {
             Some((Size::new(1200.0, 820.0), 1.0))
         }
-        "terminal-panel" => Some((Size::new(1200.0, 900.0), 1.0)),
+        "terminal-panel" | "terminal-panel-readonly" => Some((Size::new(1200.0, 900.0), 1.0)),
         "assistant-details-source"
         | "assistant-details-formatted"
         | "assistant-details-fallback" => Some((Size::new(1040.0, 900.0), 1.0)),
@@ -286,6 +287,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "wide-welcome"
         | "conversation"
         | "terminal-panel"
+        | "terminal-panel-readonly"
         | "collapsed-wide"
         | "title-controls"
         | "title-controls-expanded"
@@ -3561,7 +3563,7 @@ pub fn build(
             app.jobs_error = Some("connection reset".into());
         }
     }
-    if preset == "terminal-panel" {
+    if preset == "terminal-panel" || preset == "terminal-panel-readonly" {
         // The terminal panel with one selected Host terminal and its recorded output. Every frame the
         // panel sees here is one a Host could send; nothing is created or written.
         use crate::terminal::{Action, Loaded, ReadTicket};
@@ -3598,7 +3600,12 @@ pub fn build(
                     state: TerminalState::Running,
                     exit_code: None,
                     error: None,
-                    controller_id: None,
+                    controller_id: (preset == "terminal-panel-readonly").then(|| {
+                        dsh_native_transport::terminal::TerminalAttachmentId::new(
+                            "PUBLIC-other-client",
+                        )
+                        .unwrap()
+                    }),
                 }],
                 shells: vec![shell],
                 environment: None,
@@ -3626,6 +3633,38 @@ pub fn build(
                     data: data.into(),
                 },
             })));
+        }
+        if preset == "terminal-panel-readonly" {
+            // The Host's own frame naming another attachment as controller is what makes this view
+            // read-only; the sentence and its control are the reference's answer to it.
+            drop(
+                app.update(Message::Worker(Event::TerminalFrame {
+                    ticket: follow.clone(),
+                    frame: TerminalFrame::State {
+                        info: WebTerminalInfo {
+                            id: WebTerminalId::new("PUBLIC-terminal-1").unwrap(),
+                            title: "PUBLIC build shell".into(),
+                            shell: TerminalShell {
+                                path: "/bin/PUBLIC-shell".into(),
+                                args: Vec::new(),
+                                name: "PUBLIC shell".into(),
+                            },
+                            cwd: "/PUBLIC/workspace".into(),
+                            cols: 80,
+                            rows: 24,
+                            state: TerminalState::Running,
+                            exit_code: None,
+                            error: None,
+                            controller_id: Some(
+                                dsh_native_transport::terminal::TerminalAttachmentId::new(
+                                    "PUBLIC-other-client",
+                                )
+                                .unwrap(),
+                            ),
+                        },
+                    },
+                })),
+            );
         }
         // The fixture captures render state; the reads and follows this preset asked for are
         // discarded so no command leaves the frame.

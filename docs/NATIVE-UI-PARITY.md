@@ -11856,3 +11856,40 @@ asserts the frame stays at zero commands — the property that makes the preset 
 | DP-2 capture | — | `shots/264-terminal-panel.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 459 — the read-only terminal and its limit copy, both now evidenced
+
+Two terminal items from the audit close together.
+
+**The limit copy states the fact that explains a repeated refusal.** The reference says exited terminals
+also count toward the limit (`ui-sidebar-terminal/src/client/locales.ts:43`); native's sentence stopped at
+"close an existing terminal", so an operator who freed a running one and was refused again had no
+explanation on screen. The sentence now carries that clause.
+
+**The read-only state has a frame.** Round 457 added the reference's **Take control** button but could
+not photograph it. A `terminal-panel-readonly` preset seeds a `controller_id` naming another attachment
+in the loaded reply and then feeds the Host's own `State` frame, which is exactly how the real notice
+arises — no state is poked directly.
+
+Evidence: `shots/265-terminal-readonly.png` (DP-2 alongside, `status: passed`) — the output pane,
+the input line, and beneath them "Another client holds input control for this terminal; input here is
+read-only." with **Take control** beside it.
+
+Tests: the same zero-command and metadata assertions cover this preset; the notice itself is produced by
+`terminal`'s tested `control_notice` path rather than by the fixture.
+
+**Battery (round 459).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1443 passed**, 1 ignored |
+| app, default | **0** | 1418 passed, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/265-terminal-readonly.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
