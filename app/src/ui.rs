@@ -16132,19 +16132,30 @@ impl App {
             if busy {
                 row = row.push(label("Working…", MUTED).size(10));
             } else if armed {
-                row = row.push(label("Delete this task?", TEXT).size(11)).push(
-                    row![
-                        button(label("Delete", DANGER).size(10))
-                            .on_press(Message::ScheduleDeleteConfirm)
-                            .style(design::danger)
-                            .padding([2, 6]),
-                        button(label("Cancel", MUTED).size(10))
-                            .on_press(Message::ScheduleDeleteCancel)
-                            .style(design::ghost)
-                            .padding([2, 6]),
-                    ]
-                    .spacing(4),
-                );
+                // The reference names what deletion destroys before the button that does it
+                // (`TaskDetail.tsx:908-909`, `task-manager-locales.ts:131-132`). The record list is
+                // the only thing lost besides the task; the session and its messages stay.
+                row = row.push(label("Delete this task?", TEXT).size(11))
+                    .push(
+                        label(
+                            "This stops the task from triggering and deletes it together with its saved delivery records. The original session and its messages remain; queued messages are not withdrawn.",
+                            MUTED,
+                        )
+                        .size(10),
+                    )
+                    .push(
+                        row![
+                            button(label("Delete task", DANGER).size(10))
+                                .on_press(Message::ScheduleDeleteConfirm)
+                                .style(design::danger)
+                                .padding([2, 6]),
+                            button(label("Cancel", MUTED).size(10))
+                                .on_press(Message::ScheduleDeleteCancel)
+                                .style(design::ghost)
+                                .padding([2, 6]),
+                        ]
+                        .spacing(4),
+                    );
             } else {
                 let mut actions = row![].spacing(4);
                 if schedule_editable(&item.status) {

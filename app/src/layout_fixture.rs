@@ -116,6 +116,7 @@ pub const PRESETS: &[&str] = &[
     "information-expanded",
     "work-panel",
     "schedules",
+    "schedules-delete",
     "mcp",
     "changes-card",
     "feedback",
@@ -321,6 +322,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "information-expanded"
         | "work-panel"
         | "schedules"
+        | "schedules-delete"
         | "mcp"
         | "changes-card"
         | "feedback"
@@ -1650,6 +1652,7 @@ pub fn build(
             | "chat-search-narrow"
             | "work-panel"
             | "schedules"
+            | "schedules-delete"
             | "subagent-catalog"
             | "subagent-readonly"
             | "subagent-sibling"
@@ -1914,7 +1917,7 @@ pub fn build(
             },
         );
     }
-    if preset == "schedules" {
+    if preset == "schedules" || preset == "schedules-delete" {
         app.schedules_open = true;
         app.schedules_loading = false;
         app.schedules = vec![
@@ -1950,6 +1953,15 @@ pub fn build(
                 .clone(),
             },
         ];
+        if preset == "schedules-delete" {
+            // The armed confirmation states what deletion destroys before the button that does it.
+            let item = app
+                .schedules
+                .first()
+                .map(|item| (item.session_id.clone(), item.id.clone()))
+                .expect("a schedule row");
+            app.schedule_delete = Some(item);
+        }
     }
     if preset == "chat-thoughts" {
         let ticket = app.reply_parts(1).unwrap().ticket.unwrap();
@@ -3285,7 +3297,7 @@ pub fn metadata(app: &App, preset: &str) -> Value {
     let settings_expected = preset.starts_with("settings-");
     let info_expected = matches!(preset, "information" | "information-expanded");
     let work_expected = preset == "work-panel";
-    let schedules_expected = preset == "schedules";
+    let schedules_expected = preset.starts_with("schedules");
     // The MCP panel is a full-pane page like Schedules: it owns the body and hides the composer.
     let mcp_expected = preset == "mcp";
     let context_expected = preset.starts_with("context-management");
