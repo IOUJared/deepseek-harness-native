@@ -35,8 +35,11 @@ sha256sum /home/jared/Documents/deepseek-harness/default-workspace/reference.png
 ```
 
 **The native side is captured at exactly that size already**, so the comparison is a diff and not a
-re-capture: `shots/157-chat-reference-size.png` (DP-2 alongside, fixture report `status: passed`) is
-the chat fixture at `--width 1980 --height 1319`. The product frame is `y=32, 1980×1319`; the 32px
+re-capture: `shots/171-chat-reference-size-folded.png` (DP-2 alongside, fixture report
+`status: passed`) is the chat fixture at `--width 1980 --height 1319`, re-taken after round 371
+folded each tool result onto its call. `shots/157-chat-reference-size.png` is the same frame before
+the fold (six activity rows instead of three) and stays as history. The rects below were measured
+from the 157 frame; none of them is a tool row, so the fold did not move them. The product frame is `y=32, 1980×1319`; the 32px
 band above it is the fixture's own PUBLIC banner, not product chrome. Measured native rects from
 that run:
 
