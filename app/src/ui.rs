@@ -116,6 +116,9 @@ mod draft_recovery_ui;
 mod draft_store;
 #[path = "editor_menu.rs"]
 mod editor_menu;
+/// The jobs panel's ordering and row text.
+#[path = "job_list.rs"]
+pub mod job_list;
 #[cfg(test)]
 #[path = "mcp_ui_tests.rs"]
 mod mcp_ui_tests;
@@ -8325,12 +8328,22 @@ impl App {
             "… earlier output dropped …\nrunning 4 tests\ntest widget::layout ... ok\ntest widget::paint ... ok"
                 .to_owned(),
         );
-        self.jobs = vec![
-            row("shell-1", "shell", "Run the test suite", "running"),
-            row("build-2", "build", "Build the release binary", "stopping"),
-            row("grep-3", "search", "Search for parity notes", "completed"),
-            row("lint-4", "shell", "Lint the app crate", "failed"),
-        ];
+        // The producer's own facts, as a real `jobs/list` frame carries them: progress on the live
+        // row, a terminal detail on the failed one, and the instants the order is taken from.
+        let mut shell = row("shell-1", "shell", "Run the test suite", "running");
+        shell.progress = Some("3/10".into());
+        shell.started_at = Some(1_792_227_600_000);
+        let mut build = row("build-2", "build", "Build the release binary", "stopping");
+        build.started_at = Some(1_792_227_540_000);
+        let mut search = row("grep-3", "search", "Search for parity notes", "completed");
+        search.started_at = Some(1_792_227_000_000);
+        search.finished_at = Some(1_792_227_300_000);
+        search.detail = Some("exit code: 0".into());
+        let mut lint = row("lint-4", "shell", "Lint the app crate", "failed");
+        lint.started_at = Some(1_792_227_400_000);
+        lint.finished_at = Some(1_792_227_900_000);
+        lint.detail = Some("exit code: 2".into());
+        self.jobs = vec![shell, build, search, lint];
     }
     /// Fixture-only: open the hero preset seat's list, so its rows are capturable.
     #[cfg(feature = "public-layout-fixture")]
@@ -10111,12 +10124,10 @@ impl App {
     /// action are both deliberately absent — the dot's form and Clear's semantics are unread, and
     /// omitting them is the alternative to inventing them.
     fn jobs_panel_view(&self) -> Element<'_, Message> {
-        let live: Vec<&dsh_native_transport::dto::JobView> = self
-            .jobs
-            .iter()
-            .filter(|job| job.status == "running" || job.status == "stopping")
-            .collect();
-        let settled = self.jobs.len() - live.len();
+        // The reference's own order: live work by start, finished work newest first
+        // (`JobListAction.tsx:158-166`).
+        let (live, settled_rows) = job_list::ordered(&self.jobs);
+        let settled = settled_rows.len();
         let settled_open = self.jobs_settled_open.unwrap_or(live.is_empty());
         // The rows scroll inside the card while the notices stay fixed beneath them: the
         // reference caps the panel at 480px with `overflow: auto`
@@ -10162,11 +10173,7 @@ impl App {
             );
         }
         if settled > 0 && settled_open {
-            for job in self
-                .jobs
-                .iter()
-                .filter(|job| job.status != "running" && job.status != "stopping")
-            {
+            for job in settled_rows {
                 rows = rows.push(job_row(
                     job,
                     self.jobs_expanded.as_deref(),
@@ -18543,7 +18550,15 @@ fn job_row(
             .align_x(iced::Alignment::Center),
         column![
             label(job.label.clone(), ink).size(13),
-            label(format!("{} · {}", job.kind, job.status), MUTED).size(11),
+            label(
+                if job_list::live(job) {
+                    job_list::live_meta(job)
+                } else {
+                    job_list::settled_meta(job)
+                },
+                MUTED,
+            )
+            .size(11),
         ]
         .spacing(1)
         .width(Length::Fill),

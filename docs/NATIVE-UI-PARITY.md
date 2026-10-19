@@ -11597,3 +11597,37 @@ expand-when-observable behaviours are the next rounds, each with its own capture
 | capture | — | none: wire change, proved by tests |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 452 — the jobs panel orders like the reference and states the producer's progress
+
+With round 451's fields in the transport, two panel behaviours become possible: the reference's order
+(live by start, finished newest first, `JobListAction.tsx:158-166`) and a live row that states the
+producer's progress instead of repeating "running" (`:203-238`).
+
+`job_list` owns both rules — `ordered` splits and sorts with a missing instant sorting last, and
+`live_meta`/`settled_meta` build a row's second line from progress, or terminal detail when the
+producer recorded one (`exit code: 2`). The panel now draws what those return.
+
+Evidence: `shots/261-jobs-order-progress.png` (DP-2 alongside, `status: passed`) — `Running` listing
+the earlier-started build above the shell job, whose second line reads `shell · 3/10` rather than
+`shell · running`.
+
+Tests: four in `job_list` — live start order with settled newest-first, a missing instant sorting last,
+progress replacing the status word (an empty progress is not progress), and a settled row's terminal
+detail. The fixture's seeded jobs now carry the same facts a real `jobs/list` frame does.
+
+**Battery (round 452).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1440 passed**, 1 ignored |
+| app, default | **0** | 1411 passed, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/261-jobs-order-progress.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
