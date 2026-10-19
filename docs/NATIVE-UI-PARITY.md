@@ -14431,3 +14431,61 @@ contains `offset`.
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 capture | — | `shots/312-turn-rail.png`, `status: passed`, 1400x820 |
 | app bin | — | **21** warnings |
+
+### Round 518 — the turn rail marks every Turn the outline names
+
+**The gap.** Round 517 built the ladder over the loaded window and named the missing half: the
+reference merges that window with the `turnOutline` projection, so a Turn the window does not hold
+keeps its mark — dimmed — and pressing it pages history to that Turn (`turn-rail-items.ts:72-89`).
+Native had every projection in hand already: the snapshot's projection map is generic, and the
+`turnOutline` wire view is the entries array (`session/session-turn-outline/src/projection.ts:61-137`:
+`{turn, seq, prompt, response}`, strictly ascending, `turn/start` as the load-through seq).
+
+**The change.** `turn_outline::turns` decodes that view, dropping an entry whose Turn or seq is
+missing and an entry that would break the ascending order — the wire schema's own rules — so a damaged
+projection states no marks rather than misplaced ones. `RailTurn` now carries a `RailAnchor`:
+`Loaded(row)` scrolls to the Turn's first row, `Unloaded { seq }` pages history first. `rail_turns`
+merges: every outline Turn gets a mark, loaded Turns keep their row anchor, and a loaded Turn the
+(stale or absent) projection does not name still keeps its mark. `rail_press` states the decision in
+one place — `Jump(row)`, `Page(turn)` while the window still has history, `Ignore` when it cannot
+reach the Turn — and the update handler honours it: a jump clears any pending target, a page records
+`rail_page_target` and asks for the page. `Event::Page` resumes a pending rail jump after every page:
+jump when the Turn has arrived, ask for the next page while history remains, forget the target when
+neither holds (`TurnNavigator.tsx:98-108`). The ladder draws an unloaded mark at 40% length, the
+reference's `markUnloaded` (`TurnNavigator.module.css:85-88`).
+
+The paging request itself was factored into `App::load_older`, now shared by the `Load earlier` control
+and the rail, so there is one page request path.
+
+**Fixture.** `turn-rail` now states the rail's real shape: the window holds the newest four Turns
+(5–8) and the seeded outline names all eight, so turns 1–4 are the unloaded marks. Two fixture
+invariants had to move with it: the snapshot's `cursor` is now read from the last record's `seq`
+instead of `len - 1` (a window that starts mid-session must state its own newest seq), and `hasMore`
+is true for this preset so the paging path is reachable.
+
+**Frame.** `shots/313-rail-outline.png` (1400x820): eight ticks — four short dim ones for the outline's
+older Turns, the active fifth Turn full length in primary ink, and three more loaded marks below.
+
+**Tests.** `turn_outline`'s three decoder tests (ascending decode; a dropped seq-less entry and a
+descending Turn with the good entry after them kept; absent/malformed → none), plus
+`the_turn_rail_marks_each_loaded_turn_once_at_its_first_row` (eight marks, 1–4 unloaded at seqs 0/3/6/9,
+5–8 loaded at rows 0/2/4/6), `a_press_on_an_unloaded_rail_mark_pages_history_towards_its_turn`
+(`Page` for an unloaded mark, `Jump` for a loaded one, `Ignore` for an unknown Turn), the active-Turn
+test now expecting the first *loaded* Turn at the top, and the press test targeting the sixth Turn.
+
+**Still open.** The hover preview card (prompt and response lines), the paging **busy** pulse, the
+frame's internal scroller with faded ends, and the live Host actually pushing `turnOutline` to native —
+the fixture seeds the projection, and the push is unverified until a real session is read.
+
+**Battery (round 518).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1514 passed**, 1 ignored |
+| app, default | **0** | **1461 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-h2reg2gq`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-tmo198xf`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 capture | — | `shots/313-rail-outline.png`, `status: passed`, 1400x820 |
+| app bin | — | **21** warnings |

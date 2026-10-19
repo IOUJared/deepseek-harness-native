@@ -1811,9 +1811,11 @@ pub fn build(
     } else if preset == "turn-rail" {
         // Four clean Turns, each a prompt and an answer, so the rail has a mark per Turn and a
         // viewport that starts inside a later one once it is scrolled.
+        // The window holds the newest four Turns; the outline below also names the four before it,
+        // which are the rail's unloaded marks (`turn-rail-items.ts:72-89`).
         let mut records = Vec::new();
-        for turn in 1..=4u64 {
-            let seq = (turn - 1) * 3;
+        for turn in 5..=8u64 {
+            let seq = (turn - 5) * 3 + 12;
             records.push(
                 json!({"type":"event","event":{"type":"user/message","seq":seq,
                 "time":1000+seq,"surfaceOp":"append","data":{"role":"user",
@@ -1935,7 +1937,12 @@ pub fn build(
     } else {
         vec![]
     };
-    let cursor = records.len() as i64 - 1;
+    // The newest seq the window holds, read from the records themselves so a preset whose window
+    // starts mid-session (the rail's, with history before it) states the right cursor.
+    let cursor = records
+        .last()
+        .and_then(|record| record["event"]["seq"].as_i64())
+        .unwrap_or(-1);
     // The context presets carry a real window and occupancy, because the
     // composer's tier reads only Host-reported projections.
     let projection_values = match preset {
@@ -1952,6 +1959,14 @@ pub fn build(
         "context-pressure-risk" => json!({"contextPressure":{"pressureTokens":131072,
             "projectedTokens":131072,"contextWindow":128000}}),
         "agent-preset" => json!({"agentPreset":{"id":"implementer","name":"Implementer"}}),
+        // Every Turn of the session, with the load-through seq of each; the panel's window holds
+        // only the newest four (`session-turn-outline/src/projection.ts:84-140`).
+        "turn-rail" => json!({"turnOutline": (1..=8).map(|turn| json!({
+            "turn": turn,
+            "seq": if turn >= 5 { (turn - 5) * 3 + 12 } else { (turn - 1) * 3 },
+            "prompt": format!("PUBLIC rail question {turn}."),
+            "response": format!("PUBLIC rail answer {turn}."),
+        })).collect::<Vec<_>>()}),
         "subagent-catalog" => json!({"subagentCatalog":[
             {"id":"PUBLIC-child-reviewer","createdAt":1000,"mode":"continuable","label":"PUBLIC reviewer"},
             {"id":"PUBLIC-child-scout","createdAt":1001,"mode":"one-shot","label":"PUBLIC scout"}
@@ -2026,7 +2041,7 @@ pub fn build(
         .collect();
     let snapshot: SessionFollowFrame = serde_json::from_value(json!({
         "type":"snapshot", "records":records, "cursor":cursor,
-        "hasMore":preset == "history-more",
+        "hasMore":preset == "history-more" || preset == "turn-rail",
         "header":{"version":4, "id":"PUBLIC-layout-conversation", "createdAt":1000, "isSeeded":false},
         "projections":{"asOfSeq":cursor, "values":projection_values}, "assistantStream":{"revision":0}
     })).expect("fixed PUBLIC valid follow snapshot");

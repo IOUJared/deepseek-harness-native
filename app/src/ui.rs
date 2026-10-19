@@ -168,6 +168,8 @@ mod terminal_ui_tests;
 /// Local wall-clock text for recorded instants.
 #[path = "time_text.rs"]
 pub mod time_text;
+#[path = "turn_outline.rs"]
+pub mod turn_outline;
 /// The reference's work-details modes and the presentation policy each enables.
 #[path = "work_details.rs"]
 pub mod work_details;
@@ -1231,11 +1233,32 @@ struct Seat {
     open: bool,
 }
 
-/// One mark on the transcript's turn rail: a loaded Turn and the row it starts at.
+/// One mark on the transcript's turn rail and how its press reaches the Turn
+/// (`turn-rail-items.ts:14-21`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RailAnchor {
+    /// The loaded window holds it: scroll to the row the Turn starts at.
+    Loaded(usize),
+    /// Only the outline names it: page history through its seq first.
+    Unloaded { seq: u64 },
+}
+
+/// One mark on the transcript's turn rail.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct RailTurn {
     turn: u64,
-    first: usize,
+    anchor: RailAnchor,
+}
+
+/// What a press on a rail mark does (`TurnNavigator.tsx:98-108`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RailPress {
+    /// Scroll to the row the Turn starts at.
+    Jump(usize),
+    /// Page the history before the window towards the Turn.
+    Page(u64),
+    /// Nothing to do: the window cannot reach the Turn.
+    Ignore,
 }
 
 /// One settled turn's process fold: the control line the reference states above a closed turn's
@@ -1648,6 +1671,9 @@ pub struct App {
     /// The turn-rail mark the pointer rests on, whose tick grows as the reference's preview state
     /// does (`TurnNavigator.module.css:88-100`).
     turn_rail_hover: Option<u64>,
+    /// A Turn the rail has been asked to reach through history: pages keep loading until the
+    /// window holds it, then the jump lands (`TurnNavigator.tsx:98-108`).
+    rail_page_target: Option<u64>,
     /// Settled turns whose whole process the reader has opened, by turn number. A settled turn
     /// with no entry is folded behind its control line, as the reference's completed-turn fold
     /// is (`ChatGroupSeat.tsx:152-153`, `TurnProcessNodeView.tsx:20-33`).
@@ -1984,6 +2010,7 @@ impl App {
                 process_group_open: Default::default(),
                 seat_hover: None,
                 turn_rail_hover: None,
+                rail_page_target: None,
                 turn_process_open: Default::default(),
                 edit_review: None,
                 search_open: false,
@@ -3107,6 +3134,7 @@ impl App {
         // A seat's hover belongs to the pointer and the row it was over.
         self.seat_hover = None;
         self.turn_rail_hover = None;
+        self.rail_page_target = None;
         // The usage disclosure is keyed by record seq, which is not unique across sessions, so a
         // seq that was open here would open the new session's same-numbered row.
         self.usage_expanded.clear();
@@ -5608,20 +5636,7 @@ impl App {
                     && self.transcript.has_more()
                     && !self.page_pending =>
             {
-                if let Some(id) = self.selected.clone() {
-                    self.page_pending = true;
-                    self.follow_bottom = false;
-                    self.command(Command::Page {
-                        generation: self.generation,
-                        request: SessionPageRequest {
-                            address: self.address(&id),
-                            through_seq: self.transcript.opening_cursor(),
-                            before_seq: self.transcript.before(),
-                            max_messages: Some(50),
-                            turn_window: None,
-                        },
-                    });
-                }
+                return self.load_older();
             }
             Message::Reload if self.ready => {
                 if let Some(id) = self.selected.clone() {
@@ -5749,25 +5764,27 @@ impl App {
             // The reference's rail mark scrolls to its Turn, or pages history to it first when the
             // window does not hold it (`TurnNavigator.tsx:98-108`); every mark here is loaded.
             Message::TurnRailJump(turn) if self.composer_visible() => {
-                let rows: Vec<&DisplayRow> = self
-                    .transcript
-                    .display_rows(self.records_expanded)
-                    .collect();
-                let first = self
-                    .rail_turns(&rows)
-                    .into_iter()
-                    .find(|rail| rail.turn == turn)
-                    .map(|rail| rail.first);
-                if let Some(first) = first {
-                    let heights: Vec<f32> = self
-                        .row_geometries(&rows)
-                        .iter()
-                        .map(|geometry| geometry.height)
+                let target = {
+                    let rows: Vec<&DisplayRow> = self
+                        .transcript
+                        .display_rows(self.records_expanded)
                         .collect();
-                    self.offset = heights[..first].iter().sum();
-                    self.follow_bottom = false;
-                    self.invalidate_scroll();
-                    return self.position_transcript();
+                    match self.rail_press(&rows, turn) {
+                        RailPress::Jump(first) => Some((true, self.row_offset(&rows, first))),
+                        RailPress::Page(_) => Some((false, 0.0)),
+                        RailPress::Ignore => None,
+                    }
+                };
+                match target {
+                    Some((true, offset)) => {
+                        self.rail_page_target = None;
+                        return self.jump_to_offset(offset);
+                    }
+                    Some((false, _)) => {
+                        self.rail_page_target = Some(turn);
+                        return self.load_older();
+                    }
+                    None => {}
                 }
             }
             Message::ToggleActivity { generation, key }
@@ -7353,6 +7370,9 @@ impl App {
                         // Errors can still change the actual projection; restore from it below.
                     }
                     Err(error) => self.status = error,
+                }
+                if self.rail_page_target.is_some() {
+                    return self.resume_rail_page();
                 }
             }
             Event::FollowError { generation, error } if generation == self.generation => {
@@ -15125,7 +15145,7 @@ impl App {
     /// not hold still gets a dimmer mark (`turn-rail-items.ts:1-89`); native's marks are the
     /// loaded window's, which is the difference round 517 names.
     fn rail_turns(&self, rows: &[&DisplayRow]) -> Vec<RailTurn> {
-        let mut turns: Vec<RailTurn> = Vec::new();
+        let mut loaded: Vec<RailTurn> = Vec::new();
         // A prompt row carries no Turn of its own (`DisplayRow::turn` comes from the event's
         // `turn`), so a Turn's first row is the one right after the previous Turn's last row: the
         // prompt that opens it, which is where its mark should land.
@@ -15134,16 +15154,101 @@ impl App {
             let Some(turn) = row.turn else {
                 continue;
             };
-            match turns.last_mut() {
+            match loaded.last_mut() {
                 Some(last) if last.turn == turn => {}
-                _ => turns.push(RailTurn {
+                _ => loaded.push(RailTurn {
                     turn,
-                    first: next.min(index),
+                    anchor: RailAnchor::Loaded(next.min(index)),
                 }),
             }
             next = index + 1;
         }
+        // The reference merges the loaded window with the `turnOutline` projection, so a Turn the
+        // window does not hold keeps its mark and pages history when pressed
+        // (`turn-rail-items.ts:72-89`).
+        let outline = turn_outline::turns(self.transcript.projections());
+        let mut turns: Vec<RailTurn> = outline
+            .iter()
+            .map(
+                |entry| match loaded.iter().find(|rail| rail.turn == entry.turn) {
+                    Some(rail) => *rail,
+                    None => RailTurn {
+                        turn: entry.turn,
+                        anchor: RailAnchor::Unloaded { seq: entry.seq },
+                    },
+                },
+            )
+            .collect();
+        // An absent or stale projection must not hide a loaded Turn's mark.
+        for rail in loaded {
+            if !turns.iter().any(|held| held.turn == rail.turn) {
+                turns.push(rail);
+            }
+        }
+        turns.sort_by_key(|rail| rail.turn);
         turns
+    }
+    /// What a press on one rail mark does: scroll to a loaded Turn, page towards an unloaded one
+    /// while the window still has history, and nothing once it does not.
+    fn rail_press(&self, rows: &[&DisplayRow], turn: u64) -> RailPress {
+        match self
+            .rail_turns(rows)
+            .into_iter()
+            .find(|rail| rail.turn == turn)
+        {
+            Some(RailTurn {
+                anchor: RailAnchor::Loaded(first),
+                ..
+            }) => RailPress::Jump(first),
+            Some(RailTurn {
+                anchor: RailAnchor::Unloaded { .. },
+                ..
+            }) if self.transcript.has_more() => RailPress::Page(turn),
+            _ => RailPress::Ignore,
+        }
+    }
+    /// The scroll offset a row starts at: the rail's jump target.
+    fn row_offset(&self, rows: &[&DisplayRow], first: usize) -> f32 {
+        self.row_geometries(rows)
+            .iter()
+            .take(first)
+            .map(|geometry| geometry.height)
+            .sum()
+    }
+    /// Scroll to one offset and leave the live tail: the rail's jump and its resumed page use it.
+    fn jump_to_offset(&mut self, offset: f32) -> Task<Message> {
+        self.offset = offset.max(0.0);
+        self.follow_bottom = false;
+        self.invalidate_scroll();
+        self.position_transcript()
+    }
+    /// Continue a rail jump that needed history: jump once the Turn is loaded, ask for the next
+    /// page while the window still has one, and forget the target when neither is true
+    /// (`TurnNavigator.tsx:98-108`).
+    fn resume_rail_page(&mut self) -> Task<Message> {
+        let Some(target) = self.rail_page_target else {
+            return Task::none();
+        };
+        let (jump, page) = {
+            let rows: Vec<&DisplayRow> = self
+                .transcript
+                .display_rows(self.records_expanded)
+                .collect();
+            match self.rail_press(&rows, target) {
+                RailPress::Jump(first) => (Some(self.row_offset(&rows, first)), false),
+                RailPress::Page(_) => (None, true),
+                RailPress::Ignore => (None, false),
+            }
+        };
+        if let Some(offset) = jump {
+            self.rail_page_target = None;
+            return self.jump_to_offset(offset);
+        }
+        if page {
+            return self.load_older();
+        }
+        self.rail_page_target = None;
+        Task::none()
     }
     /// The Turn the viewport is in: the one whose row starts the first visible line
     /// (`TurnNavigator.tsx:117-124` follows the same row-derived active Turn).
@@ -15190,12 +15295,16 @@ impl App {
         for rail in &turns {
             let here = active == Some(rail.turn);
             let hovered = self.turn_rail_hover == Some(rail.turn);
+            // An unloaded Turn's mark is the reference's `markUnloaded`: 40% at 60% opacity
+            // (`TurnNavigator.module.css:85-88`); native states it as a shorter tick.
             let width = if here {
                 design::TURN_RAIL_MARK_WIDTH
-            } else if hovered {
-                design::TURN_RAIL_MARK_WIDTH * 0.9
             } else {
-                design::TURN_RAIL_MARK_WIDTH * 0.6
+                match rail.anchor {
+                    RailAnchor::Unloaded { .. } => design::TURN_RAIL_MARK_WIDTH * 0.4,
+                    RailAnchor::Loaded(_) if hovered => design::TURN_RAIL_MARK_WIDTH * 0.9,
+                    RailAnchor::Loaded(_) => design::TURN_RAIL_MARK_WIDTH * 0.6,
+                }
             };
             let ink = if here {
                 TEXT
@@ -15722,6 +15831,27 @@ impl App {
                     .display_rows(self.records_expanded)
                     .next()
                     .is_some())
+    }
+    /// Ask the Host for the page before the loaded window: the `Load earlier` control and the turn
+    /// rail's jump into an unloaded Turn both come through here (`TurnNavigator.tsx:98-108` pages
+    /// history to a mark the window does not hold).
+    fn load_older(&mut self) -> Task<Message> {
+        let Some(id) = self.selected.clone() else {
+            return Task::none();
+        };
+        self.page_pending = true;
+        self.follow_bottom = false;
+        self.command(Command::Page {
+            generation: self.generation,
+            request: SessionPageRequest {
+                address: self.address(&id),
+                through_seq: self.transcript.opening_cursor(),
+                before_seq: self.transcript.before(),
+                max_messages: Some(50),
+                turn_window: None,
+            },
+        });
+        Task::none()
     }
     fn position_transcript(&mut self) -> Task<Message> {
         if !self.transcript_active()
@@ -23364,12 +23494,20 @@ mod tests {
         let rows: Vec<&DisplayRow> = app.transcript.display_rows(false).collect();
         let rails = app.rail_turns(&rows);
         // Four Turns, each a prompt and its answer, so every other row starts a Turn.
+        // The window holds the newest four Turns; the outline also names the four before it, which
+        // are the reference's dimmed unloaded marks (`turn-rail-items.ts:72-89`).
         assert_eq!(
             rails,
-            (1..=4)
+            (1..=8)
                 .map(|turn| RailTurn {
                     turn,
-                    first: (turn as usize - 1) * 2
+                    anchor: if turn >= 5 {
+                        RailAnchor::Loaded((turn as usize - 5) * 2)
+                    } else {
+                        RailAnchor::Unloaded {
+                            seq: (turn - 1) * 3,
+                        }
+                    },
                 })
                 .collect::<Vec<_>>()
         );
@@ -23409,15 +23547,21 @@ mod tests {
             .iter()
             .map(|geometry| geometry.height)
             .collect();
-        let third = rails[2];
-        app.offset = heights[..third.first].iter().sum::<f32>() + 4.0;
+        let third = rails[5];
+        let RailAnchor::Loaded(first) = third.anchor else {
+            panic!("the preset's sixth Turn is loaded");
+        };
+        app.offset = heights[..first].iter().sum::<f32>() + 4.0;
         app.viewport = 300.0;
         assert_eq!(app.active_rail_turn(&rows), Some(third.turn));
         app.offset = 0.0;
-        assert_eq!(
-            app.active_rail_turn(&rows),
-            rails.first().map(|rail| rail.turn)
-        );
+        // The top of the window is the newest four Turns' first one; the older marks are the
+        // outline's, which the viewport cannot be in.
+        let first_loaded = rails
+            .iter()
+            .find(|rail| matches!(rail.anchor, RailAnchor::Loaded(_)))
+            .map(|rail| rail.turn);
+        assert_eq!(app.active_rail_turn(&rows), first_loaded);
     }
 
     #[cfg(feature = "public-layout-fixture")]
@@ -23428,13 +23572,16 @@ mod tests {
         let (mut app, _receiver) =
             layout_fixture::build(layout_fixture::test_options(), "turn-rail", size, None);
         let rows: Vec<_> = app.transcript.display_rows(false).collect();
-        let target = app.rail_turns(&rows)[2];
+        let target = app.rail_turns(&rows)[5];
         let heights: Vec<f32> = app
             .row_geometries(&rows)
             .iter()
             .map(|geometry| geometry.height)
             .collect();
-        let expected: f32 = heights[..target.first].iter().sum();
+        let RailAnchor::Loaded(first) = target.anchor else {
+            panic!("the preset's sixth Turn is loaded");
+        };
+        let expected: f32 = heights[..first].iter().sum();
         assert!(app.follow_bottom);
         drop(app.update(Message::TurnRailJump(target.turn)));
         assert_eq!(
@@ -23442,6 +23589,37 @@ mod tests {
             "the mark scrolls to its Turn's first row"
         );
         assert!(!app.follow_bottom, "a jump leaves the live tail");
+    }
+
+    #[cfg(feature = "public-layout-fixture")]
+    #[test]
+    fn a_press_on_an_unloaded_rail_mark_pages_history_towards_its_turn() {
+        use layout_fixture;
+        let size = iced::Size::new(1400.0, 820.0);
+        let (app, _receiver) =
+            layout_fixture::build(layout_fixture::test_options(), "turn-rail", size, None);
+        let rows: Vec<_> = app.transcript.display_rows(false).collect();
+        let rails = app.rail_turns(&rows);
+        // The outline names turns 1..4 that the window does not hold, and the preset still has
+        // history before it, so their marks page; a window that could not reach the Turn would be
+        // ignored instead (`TurnNavigator.tsx:98-108`).
+        let unloaded = rails
+            .iter()
+            .find(|rail| matches!(rail.anchor, RailAnchor::Unloaded { .. }))
+            .expect("an unloaded mark");
+        assert_eq!(
+            app.rail_press(&rows, unloaded.turn),
+            RailPress::Page(unloaded.turn)
+        );
+        let loaded = rails
+            .iter()
+            .find(|rail| matches!(rail.anchor, RailAnchor::Loaded(_)))
+            .expect("a loaded mark");
+        assert!(matches!(
+            app.rail_press(&rows, loaded.turn),
+            RailPress::Jump(_)
+        ));
+        assert_eq!(app.rail_press(&rows, 99), RailPress::Ignore);
     }
 
     #[cfg(feature = "public-layout-fixture")]
