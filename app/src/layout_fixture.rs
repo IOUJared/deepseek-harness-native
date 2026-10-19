@@ -1457,11 +1457,18 @@ pub fn build(
         }))
         .expect("fixed PUBLIC parent metadata");
         app.sessions.insert(parent.session_id.clone(), parent);
+        // The catalog's dropdown draws only while its menu flag is set: this preset shows the
+        // state a user reaches with one press, so the three activity states are visible.
+        app.subagent_menu = true;
         for (id, title, running) in [
             ("PUBLIC-child-reviewer", "PUBLIC reviewer", true),
             ("PUBLIC-child-scout", "PUBLIC scout", false),
         ] {
             let mut values = json!({"title": title});
+            if id == "PUBLIC-child-scout" {
+                // Not running, and its last turn finished: the reference's `completed` state.
+                values["subagentTiming"] = json!({"settledMs":30000, "lastTurnCompleted": true});
+            }
             if id == "PUBLIC-child-reviewer" {
                 values["subagentCatalog"] = json!([
                     {"id":"PUBLIC-grandchild-helper","createdAt":1002,"mode":"one-shot","label":"PUBLIC helper"}

@@ -137,6 +137,46 @@ pub fn metrics(projections: &BTreeMap<String, Value>, running: bool, now_ms: u64
     }
 }
 
+/// The three activity states the reference distinguishes: a child that is running, one whose last
+/// turn finished, and one that has never run and is not running
+/// (`SubagentHeaderLineage.tsx:243-249`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Activity {
+    Running,
+    Completed,
+    Idle,
+}
+
+impl Activity {
+    /// The word the row's secondary line carries.
+    pub fn label(self) -> &'static str {
+        match self {
+            Activity::Running => "running",
+            Activity::Completed => "completed",
+            Activity::Idle => "inactive",
+        }
+    }
+}
+
+/// Decide a child's activity from its own run state and the `subagentTiming` projection the reference
+/// reads for the same purpose (`SubagentHeaderLineage.tsx:243-249`): `completed` is "not running, and
+/// its last turn finished", which is not the same as "has not run".
+pub fn activity(projections: &BTreeMap<String, Value>, running: bool) -> Activity {
+    if running {
+        return Activity::Running;
+    }
+    let completed = projections
+        .get("subagentTiming")
+        .and_then(|timing| timing.get("lastTurnCompleted"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if completed {
+        Activity::Completed
+    } else {
+        Activity::Idle
+    }
+}
+
 /// The reference's compact token form: whole below 1000, one decimal under 100K, then whole
 /// thousands, then millions (`SubagentHeaderLineage.tsx:57-65`).
 pub fn format_tokens(value: u64) -> String {
@@ -486,6 +526,33 @@ mod tests {
         );
         assert_eq!(cycle.len(), 2);
         assert!(!cycle[1].has_children);
+    }
+
+    #[test]
+    fn a_childs_activity_distinguishes_completed_from_never_run() {
+        use serde_json::json;
+        let mut projections = BTreeMap::new();
+        // Running wins over everything the projections say.
+        assert_eq!(activity(&projections, true), Activity::Running);
+        // Not running, no timing: it has never run.
+        assert_eq!(activity(&projections, false), Activity::Idle);
+        // Not running with a finished last turn: completed, not idle.
+        projections.insert(
+            "subagentTiming".to_owned(),
+            json!({"settledMs": 1200, "lastTurnCompleted": true}),
+        );
+        assert_eq!(activity(&projections, false), Activity::Completed);
+        assert_eq!(activity(&projections, true), Activity::Running);
+        // A recorded timing whose last turn is still open is idle, not completed.
+        projections.insert(
+            "subagentTiming".to_owned(),
+            json!({"lastTurnCompleted": false}),
+        );
+        assert_eq!(activity(&projections, false), Activity::Idle);
+        // The row's word for each state.
+        assert_eq!(Activity::Running.label(), "running");
+        assert_eq!(Activity::Completed.label(), "completed");
+        assert_eq!(Activity::Idle.label(), "inactive");
     }
 
     #[test]

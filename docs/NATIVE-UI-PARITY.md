@@ -12064,3 +12064,40 @@ The coverage paragraph that claimed all four forms were drawn is corrected in pl
    projection refresh anywhere.
 8. (c) No **loading** copy for the child switcher (`:191-193,216-218`).
 9. (c) No **child's own descendant count** action (`:796-803`).
+
+### Round 464 — a subagent's row tells finished from never-run
+
+The subagent audit's third difference: the reference distinguishes three activity states — running, a
+child whose last turn finished, and one that has never run — from the `subagentTiming.lastTurnCompleted`
+projection (`SubagentHeaderLineage.tsx:243-249,334`). Native had two, so a child that had finished its
+work read "inactive", the same word as one that never started.
+
+`subagent_catalog::activity` decides the state from the run flag plus that projection, `Activity::label`
+supplies the word, and the row's dot now speaks in three colours: foam while running, gold once a last
+turn finished, the hairline colour when it never ran.
+
+Tests: `a_childs_activity_distinguishes_completed_from_never_run` — running wins over the projections, no
+timing means idle, `lastTurnCompleted: true` means completed, an open last turn stays idle, and the three
+labels.
+
+**The dropdown frame remains out of reach, and this round records why**: the `subagent-catalog` preset now
+seeds a completed child and sets the menu flag, yet two captures came back byte-identical to the previous
+frame, so the flag alone does not open the popup — it is built inside the header action and something
+closes it before the render. That is the next thing to read, and it is recorded instead of being
+photographed as if it worked.
+
+**Battery (round 464).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1449 passed**, 1 ignored |
+| app, default | **0** | **1424 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: the dropdown does not open under the preset's flag |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

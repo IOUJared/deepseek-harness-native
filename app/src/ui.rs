@@ -9480,11 +9480,30 @@ impl App {
             .and_then(|id| self.sessions.get(&id))
             .is_some_and(|session| session.running)
     }
-    /// The reference's activity dot: foam while running, the hairline colour otherwise.
-    fn subagent_dot(running: bool) -> Element<'static, Message> {
+    /// A child's activity, from its own run state and the `subagentTiming` projection the reference
+    /// reads for the same purpose (`SubagentHeaderLineage.tsx:243-249`).
+    fn subagent_activity(&self, id: &str) -> subagent_catalog::Activity {
+        let running = self.subagent_running(id);
+        let projections = SessionId::new(id)
+            .ok()
+            .and_then(|id| self.sessions.get(&id))
+            .and_then(|session| session.projections.as_ref())
+            .map(|projections| projections.values.clone())
+            .unwrap_or_default();
+        subagent_catalog::activity(&projections, running)
+    }
+    /// The reference's activity dot, in its three states: foam while running, gold once a child's
+    /// last turn finished, the hairline colour when it has never run
+    /// (`SubagentHeaderLineage.tsx:334`: `state={completed ? 'done' : 'idle'}`).
+    fn subagent_dot(activity: subagent_catalog::Activity) -> Element<'static, Message> {
+        let ink = match activity {
+            subagent_catalog::Activity::Running => design::FOAM,
+            subagent_catalog::Activity::Completed => design::GOLD,
+            subagent_catalog::Activity::Idle => design::LINE,
+        };
         container(Space::new().width(6).height(6))
             .style(move |_| container::Style {
-                background: Some(if running { design::FOAM } else { design::LINE }.into()),
+                background: Some(ink.into()),
                 border: iced::Border {
                     radius: 3.0.into(),
                     ..Default::default()
@@ -9500,7 +9519,6 @@ impl App {
         let mut list = column![label("Subagent sessions", MUTED).size(11)].spacing(4);
         for row in rows {
             let entry = &row.entry;
-            let running = self.subagent_running(&entry.id);
             // A branch toggle keeps its column even when absent, so sibling labels align.
             let toggle: Element<'_, Message> = if row.has_children {
                 button(label(if row.expanded { "▾" } else { "▸" }, MUTED).size(11))
@@ -9522,7 +9540,7 @@ impl App {
             };
             // The reference's secondary line: the child's title (when it differs from the
             // catalog label), its mode and its activity.
-            let activity = if running { "running" } else { "inactive" };
+            let activity = self.subagent_activity(&entry.id);
             let mut secondary = Vec::new();
             if let Some(title) = self.subagent_title(&entry.id)
                 && title != entry.label
@@ -9530,7 +9548,7 @@ impl App {
                 secondary.push(title);
             }
             secondary.push(subagent_catalog::mode_label(entry.mode).to_owned());
-            secondary.push(activity.to_owned());
+            secondary.push(activity.label().to_owned());
             let content = column![
                 label(entry.label.clone(), label_ink).size(12),
                 label(secondary.join(" · "), MUTED).size(11),
@@ -9553,9 +9571,13 @@ impl App {
                     right.push(label(subagent_catalog::format_duration(duration), MUTED).size(11));
             }
             let body = button(
-                row![Self::subagent_dot(running), content, right,]
-                    .spacing(8)
-                    .align_y(iced::Alignment::Center),
+                row![
+                    Self::subagent_dot(self.subagent_activity(&entry.id)),
+                    content,
+                    right,
+                ]
+                .spacing(8)
+                .align_y(iced::Alignment::Center),
             )
             .on_press(Message::SubagentOpen(entry.id.clone()))
             .style(design::ghost)
@@ -9588,7 +9610,7 @@ impl App {
             .count();
         let mut content = row![].spacing(5).align_y(iced::Alignment::Center);
         if running > 0 {
-            content = content.push(Self::subagent_dot(true));
+            content = content.push(Self::subagent_dot(subagent_catalog::Activity::Running));
         }
         content = content
             .push(label(subagent_catalog::count_label(entries.len(), running), MUTED).size(12));
