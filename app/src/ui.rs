@@ -17312,8 +17312,10 @@ impl App {
                 DANGER,
             )
             .size(11),
+            // The reference states the fact an operator needs to free capacity: exited terminals
+            // count toward the limit too (`ui-sidebar-terminal/src/client/locales.ts:43`).
             Notice::CreateLimit => label(
-                "The Session's Host terminal limit was reached. Close an existing terminal explicitly before creating another.",
+                "The Session's Host terminal limit was reached. Close an unused terminal and try again; exited terminals also count toward the limit.",
                 DANGER,
             )
             .size(11),
