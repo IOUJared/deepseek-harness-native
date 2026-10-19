@@ -442,6 +442,8 @@ pub enum Message {
     ScheduleRetention(bool),
     /// Unfold or fold one delivery record's saved prompt.
     ScheduleHistoryPrompt(String),
+    /// The guide's `Copied` confirmation has been shown for its second.
+    GuideCopyExpired,
     /// Steer every queued message, one at a time, as the reference's empty-draft chord does.
     QueueSteerAll,
     /// Open or close the composer's attach menu.
@@ -2993,6 +2995,13 @@ impl App {
             }
             Message::ClipboardFocusedField(id) => return self.copy_field_text(id),
             Message::ClipboardCopied => return Task::none(),
+            Message::GuideCopyExpired => {
+                let _ = self.settings.handle(
+                    crate::settings::Action::ClearGuideCopied,
+                    self.transport_epoch,
+                    true,
+                );
+            }
             Message::Accessibility(request) => return self.accessibility_request(request),
             Message::AccessibilityMeasured(measured) => {
                 return self.accessibility_measured(measured);
@@ -3623,8 +3632,26 @@ impl App {
                         }
                     }
                     crate::settings::Action::CopyGuideText(text) => {
-                        return self.write_clipboard(text.clone());
+                        // The reference flips the control to `Copied` for a second
+                        // (`guide-locales.ts:7`), the way a tool card's copy does.
+                        // The confirmation is local to Settings, so it needs no Host write.
+                        let _ = self.settings.handle(
+                            crate::settings::Action::NoteGuideCopied,
+                            self.transport_epoch,
+                            false,
+                        );
+                        return Task::batch([
+                            self.write_clipboard(text.clone()),
+                            Task::perform(
+                                async move {
+                                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                                },
+                                |()| Message::GuideCopyExpired,
+                            ),
+                        ]);
                     }
+                    crate::settings::Action::NoteGuideCopied
+                    | crate::settings::Action::ClearGuideCopied => {}
                     crate::settings::Action::PermissionDefaultConfirmed(name) => {
                         // The acknowledged press is the write; the handler below has already
                         // refused any unacknowledged one.

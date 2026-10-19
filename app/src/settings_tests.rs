@@ -597,3 +597,35 @@ fn a_preset_card_names_its_id() {
     assert_eq!(preset_id_line(&shipped), "id · ptc");
     assert_ne!(preset_display(&shipped).0, "ptc", "the title is not the id");
 }
+
+/// The guide's copy control confirms for a second and returns, as the reference's does
+/// (`guide-locales.ts:6-7`).
+#[test]
+fn the_guide_copy_confirms_and_returns() {
+    let mut settings = opened();
+    settings.page = Page::AgentPresets;
+    settings.handle(
+        Action::PresetGuide("standard".into(), GuideSection::Usage),
+        1,
+        true,
+    );
+    assert!(settings.preset_guide_open.is_some());
+    assert!(!settings.preset_guide_copied);
+    settings.handle(Action::NoteGuideCopied, 1, true);
+    assert!(settings.preset_guide_copied, "the control reads Copied");
+    // The App's one-second timer clears it.
+    settings.handle(Action::ClearGuideCopied, 1, true);
+    assert!(!settings.preset_guide_copied);
+    // Choosing another section also clears any stale confirmation.
+    settings.handle(Action::NoteGuideCopied, 1, true);
+    settings.handle(
+        Action::PresetGuide("ptc".into(), GuideSection::Explanation),
+        1,
+        true,
+    );
+    assert!(!settings.preset_guide_copied);
+    assert_eq!(
+        settings.preset_guide_open,
+        Some(("ptc".into(), GuideSection::Explanation))
+    );
+}

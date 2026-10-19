@@ -11015,10 +11015,9 @@ Evidence: `shots/250-preset-guide-copy.png` (DP-2 alongside, `status: passed`) i
 Tests: `copying_an_example_returns_its_text_as_an_action` — the action carries the guide's own usage
 text and changes no disclosure state.
 
-Two honest notes. The reference's "Copied" acknowledgement is **not built**: the clipboard write
-reports through `Message::ClipboardCopied`, and a per-card acknowledgement needs its own transient
-state — recorded instead of half-done. And a first cut declared a `COPIED` constant that nothing read,
-which the app bin reported as a 22nd dead-code warning; it is gone and the count is back to 21.
+A note on the first cut: it declared a `COPIED` constant that nothing read, which the app bin reported
+as a 22nd dead-code warning. The confirmation itself landed in the next round, so the constant now
+earns its place and the count is back to 21.
 
 **Battery (round 435).**
 
@@ -11033,5 +11032,43 @@ which the app bin reported as a 22nd dead-code warning; it is gone and the count
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/250-preset-guide-copy.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 436 — the guide's copy confirms for a second
+
+Round 435 left the reference's `Copied` acknowledgement unbuilt; it is the one-second flip the
+reference shows on the copy control (`guide-locales.ts:6-7`), the same shape a tool card's copy already
+uses in this app.
+
+The state lives in the settings model (`preset_guide_copied`), the App flips it when the copy action
+runs and clears it after one second through `Message::GuideCopyExpired`, and choosing a different guide
+section clears any stale confirmation so a folded section cannot keep claiming it copied something.
+
+Evidence: `shots/251-guide-copied.png` (DP-2 alongside, `status: passed`) in the new
+`settings-presets-copied` preset — Standard's card reading `Example task  Copied`.
+
+Tests: `the_guide_copy_confirms_and_returns` — the flag is off before, on after the note, off after the
+timer's clear, and a section change clears a stale one while switching the open section.
+
+The route here was messier than the item deserved: a scripted edit asserted on text that `cargo fmt`
+had already reflowed, so two attempts half-applied and one left `enabled` referenced outside its scope.
+The tree was reverted to the last commit and the change re-landed in small verified steps; the fixture
+preset then needed the same five registrations as its siblings, which the "Reading the agent presets…"
+frame caught before it could be archived as evidence.
+
+**Battery (round 436).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1430 passed**, 1 ignored |
+| app, default | **0** | **1410 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/251-guide-copied.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |

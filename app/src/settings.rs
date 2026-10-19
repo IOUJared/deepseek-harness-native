@@ -351,6 +351,10 @@ pub enum Action {
     PresetGuide(String, GuideSection),
     /// Put a guide's example text on the clipboard; the App owns the clipboard, not this crate.
     CopyGuideText(String),
+    /// Show `Copied` on the guide's copy control for its second.
+    NoteGuideCopied,
+    /// The second elapsed; the control returns to `Copy`.
+    ClearGuideCopied,
     /// Untick or tick the risk acknowledgement.
     FullAccessAcknowledge(bool),
     /// Close the risk confirmation without writing.
@@ -448,6 +452,9 @@ pub struct Settings {
     /// The preset whose guide is unfolded, and which of its two sections shows
     /// (`AgentPresetSection.tsx:142-147`).
     pub(crate) preset_guide_open: Option<(String, GuideSection)>,
+    /// Set while the guide's `Copy` shows its confirmation, cleared by the App's one-second timer
+    /// (`guide-locales.ts:7`).
+    pub(crate) preset_guide_copied: bool,
     /// The permission-default choice awaiting the reference's risk confirmation; full access never
     /// commits on a single press (`PermissionRow.tsx:81-87,105-125`).
     pub full_access_confirm: Option<String>,
@@ -489,6 +496,7 @@ impl Default for Settings {
             permission_open: false,
             full_access_confirm: None,
             preset_guide_open: None,
+            preset_guide_copied: false,
             full_access_acknowledged: false,
             api_help_open: false,
             context_policy_open: false,
@@ -979,10 +987,19 @@ impl Settings {
             }
         }
         if let Action::PresetGuide(ref id, section) = action {
+            self.preset_guide_copied = false;
             self.preset_guide_open = match &self.preset_guide_open {
                 Some((open, shown)) if open == id && *shown == section => None,
                 _ => Some((id.clone(), section)),
             };
+            return None;
+        }
+        if matches!(action, Action::NoteGuideCopied) {
+            self.preset_guide_copied = true;
+            return None;
+        }
+        if matches!(action, Action::ClearGuideCopied) {
+            self.preset_guide_copied = false;
             return None;
         }
         if let Action::FullAccessAcknowledge(ticked) = action {
@@ -1586,10 +1603,20 @@ impl Settings {
                                     label(crate::ui::preset_guide::EXAMPLE_TASK, MUTED).size(10),
                                     // The reference offers Copy beside each example
                                     // (`guide-locales.ts:6-7`); the App performs the write.
-                                    button(label(crate::ui::preset_guide::COPY, MUTED).size(10))
-                                        .style(design::ghost)
-                                        .padding([0, 4])
-                                        .on_press(Action::CopyGuideText(guide.usage.to_owned())),
+                                    button(
+                                        label(
+                                            if self.preset_guide_copied {
+                                                crate::ui::preset_guide::COPIED
+                                            } else {
+                                                crate::ui::preset_guide::COPY
+                                            },
+                                            MUTED,
+                                        )
+                                        .size(10)
+                                    )
+                                    .style(design::ghost)
+                                    .padding([0, 4])
+                                    .on_press(Action::CopyGuideText(guide.usage.to_owned())),
                                 ]
                                 .spacing(6),
                             );
