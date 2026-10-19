@@ -48,7 +48,15 @@ enum State {
     Reading(Ticket),
     Ready(Ticket, Metadata),
     Sending(Ticket, Metadata),
-    Rejected(Ticket),
+    /// A rejection the user can retry: a transport that did not send, or an outcome the Host did not
+    /// confirm. The path is kept so a retry is the same file, and an intake rejection (too large, not
+    /// regular, unavailable) is *not* retryable because the same file would fail the same way
+    /// (`FileCard.tsx:38-71` keeps a retry control only for the upload state).
+    Rejected {
+        ticket: Ticket,
+        retryable: bool,
+        path: String,
+    },
     Unknown(Ticket, Option<Metadata>),
 }
 impl State {
@@ -58,7 +66,7 @@ impl State {
             Self::Reading(t)
             | Self::Ready(t, _)
             | Self::Sending(t, _)
-            | Self::Rejected(t)
+            | Self::Rejected { ticket: t, .. }
             | Self::Unknown(t, _) => Some(t),
         }
     }
@@ -66,6 +74,9 @@ impl State {
 #[derive(Default)]
 pub struct Draft {
     state: State,
+    /// The path this slot last staged, kept so a failed upload can be retried without asking the user
+    /// to find the file again (`FileCard.tsx:38-71`).
+    last_path: Option<String>,
     editor: Option<Editor>,
     read_owner: Option<Ticket>,
     prompt_owner: Option<(Ticket, SessionRequestId)>,
@@ -118,7 +129,7 @@ impl Draft {
             || self.editor.is_some()
             || self.pending()
             || self.prompt_pending()
-            || !matches!(self.state, State::Empty | State::Rejected(_))
+            || !matches!(self.state, State::Empty | State::Rejected { .. })
             || self.state.ticket().is_some_and(|t| !c.matches(t))
         {
             return false;
@@ -169,7 +180,7 @@ impl Draft {
             return None;
         }
         let text = std::mem::take(&mut self.editor.as_mut()?.text);
-        let source = match file_intake::SelectedFile::new(PathBuf::from(text)) {
+        let source = match file_intake::SelectedFile::new(PathBuf::from(&text)) {
             Ok(source) => source,
             Err(_) => {
                 self.notice = Some(INVALID_PATH);
@@ -189,6 +200,7 @@ impl Draft {
             target: c.target.clone()?,
         };
         self.editor = None;
+        self.last_path = Some(text);
         self.read_owner = Some(ticket.clone());
         self.state = State::Reading(ticket.clone());
         self.notice = None;
@@ -214,8 +226,12 @@ impl Draft {
                 State::Unknown(ticket.clone(), None)
             }
             Outcome::NotSent => {
-                self.notice = Some("Upload was not sent. Remove or choose the file again.");
-                State::Rejected(ticket.clone())
+                self.notice = Some("Upload failed; retry or choose the file again.");
+                State::Rejected {
+                    ticket: ticket.clone(),
+                    retryable: true,
+                    path: self.last_path.clone().unwrap_or_default(),
+                }
             }
             Outcome::ReadRejected(failure) => {
                 self.notice = Some(match failure {
@@ -233,9 +249,49 @@ impl Draft {
                         "File intake canceled. Remove or choose the file again."
                     }
                 });
-                State::Rejected(ticket.clone())
+                State::Rejected {
+                    ticket: ticket.clone(),
+                    retryable: false,
+                    path: self.last_path.clone().unwrap_or_default(),
+                }
             }
         };
+    }
+    /// Retry the upload this slot last failed, with no editor step for the user: the path is the one
+    /// the slot staged, and a fresh ticket is minted exactly as a first press would mint one
+    /// (`FileCard.tsx:60-71` keeps a retry control for the upload state).
+    pub fn retry(&mut self, ticket: &Ticket, c: &Context) -> Option<Submission> {
+        let State::Rejected {
+            ticket: rejected,
+            retryable: true,
+            path,
+        } = &self.state
+        else {
+            return None;
+        };
+        if rejected != ticket || self.pending() || self.prompt_pending() || !c.allowed {
+            return None;
+        }
+        let path = path.clone();
+        if path.is_empty() {
+            return None;
+        }
+        self.state = State::Empty;
+        self.open(c);
+        let stamp = self.editor()?.0;
+        self.edit(stamp, path, c);
+        let stamp = self.editor()?.0;
+        self.stage(stamp, c)
+    }
+    /// Whether this slot failed in a way a retry can honestly answer.
+    pub fn retryable(&self) -> bool {
+        matches!(
+            self.state,
+            State::Rejected {
+                retryable: true,
+                ..
+            }
+        )
     }
     pub fn ticket(&self) -> Option<&Ticket> {
         self.state.ticket()
@@ -490,6 +546,20 @@ impl Attachments {
     /// Every ready attachment in slot order; the UI list and the prompt set use it.
     pub fn attachments(&self) -> Vec<(&Ticket, &Metadata)> {
         self.slots.iter().filter_map(Draft::ready).collect()
+    }
+    /// Whether one slot failed in a way a retry can honestly answer.
+    pub fn retryable(&self, ticket: &Ticket) -> bool {
+        self.slots
+            .iter()
+            .any(|slot| slot.ticket() == Some(ticket) && slot.retryable())
+    }
+    /// Retry the slot that failed, if its failure is one a retry can answer.
+    pub fn retry(&mut self, ticket: &Ticket, c: &Context) -> Option<Submission> {
+        self.slots.iter_mut().find_map(|slot| {
+            (slot.ticket() == Some(ticket))
+                .then(|| slot.retry(ticket, c))
+                .flatten()
+        })
     }
     /// Occupied slots that are not ready, as `(ticket, metadata, reading)` for display only.
     pub fn active(&self) -> Vec<(&Ticket, Option<&Metadata>, bool)> {
@@ -1331,6 +1401,33 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_upload_retries_the_same_file_and_an_intake_rejection_does_not() {
+        let c = context();
+        let mut files = Attachments::default();
+        assert!(files.open(&c));
+        let stamp = files.editor().unwrap().0;
+        files.edit(stamp, "/PUBLIC/PUBLIC-retry.bin".into(), &c);
+        let stamp = files.editor().unwrap().0;
+        // A transport failure: retryable, and the retry stages the same path again.
+        let ticket = files.stage(stamp, &c).unwrap().ticket;
+        files.complete(&ticket, Outcome::NotSent, &c);
+        assert!(files.retryable(&ticket));
+        let retried = files
+            .retry(&ticket, &c)
+            .expect("a retry mints a submission");
+        assert_ne!(retried.ticket, ticket, "a retry is a new attempt");
+        assert_eq!(files.active().len(), 1, "one slot, reading again");
+        // An intake rejection is not retryable: the same file would fail the same way.
+        files.complete(
+            &retried.ticket,
+            Outcome::ReadRejected(file_intake::Failure::TooLarge),
+            &c,
+        );
+        assert!(!files.retryable(&retried.ticket));
+        assert!(files.retry(&retried.ticket, &c).is_none());
+    }
+
+    #[test]
     fn notice_surfaces_a_rejected_slot_and_removal_restores_send() {
         let c = context();
         let mut files = Attachments::default();
@@ -1345,7 +1442,7 @@ mod tests {
         assert!(
             files
                 .notice()
-                .is_some_and(|notice| notice.contains("not sent"))
+                .is_some_and(|notice| notice.contains("Upload failed; retry"))
         );
         assert!(!files.can_send(&c));
         assert!(!files.at_capacity());

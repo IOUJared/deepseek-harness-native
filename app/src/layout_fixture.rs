@@ -200,6 +200,7 @@ pub const PRESETS: &[&str] = &[
     "file-path-tiny",
     "file-ready",
     "file-ready-two",
+    "file-failed",
     "file-ready-many",
     "file-unknown",
     "inbox-canceled",
@@ -396,6 +397,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "file-path-review"
         | "file-ready"
         | "file-ready-two"
+        | "file-failed"
         | "file-ready-many"
         | "file-unknown"
         | "inbox-canceled" => Some((Size::new(760.0, 560.0), 1.0)),
@@ -2396,7 +2398,7 @@ pub fn build(
             app.public_attachment_fixture(preset == "file-picker")
         }
         "file-path-review" | "file-path-tiny" | "file-ready" | "file-ready-two"
-        | "file-ready-many" | "file-unknown" => {
+        | "file-ready-many" | "file-unknown" | "file-failed" => {
             // Pure local render metadata only: never execute StageFile/PromptFile or read the path.
             let context = app.file_context();
             assert!(app.files.open(&context));
@@ -2408,20 +2410,27 @@ pub fn build(
             ));
             if matches!(
                 preset,
-                "file-ready" | "file-ready-two" | "file-ready-many" | "file-unknown"
+                "file-ready"
+                    | "file-ready-two"
+                    | "file-ready-many"
+                    | "file-unknown"
+                    | "file-failed"
             ) {
                 let stamp = app.files.editor().unwrap().0;
                 let submission = app.files.stage(stamp, &context).unwrap();
                 let ticket = submission.ticket.clone();
                 drop(submission);
-                app.files.complete(
-                    &ticket,
+                // The failed preset answers as not sent, which is the state that offers a retry
+                // (`FileCard.tsx:38-71`).
+                let outcome = if preset == "file-failed" {
+                    worker::attachments::Outcome::NotSent
+                } else {
                     worker::attachments::Outcome::Staged(worker::attachments::Metadata {
                         name: "PUBLIC review file.bin".into(),
                         bytes: 5003,
-                    }),
-                    &context,
-                );
+                    })
+                };
+                app.files.complete(&ticket, outcome, &context);
                 if preset == "file-ready-two" {
                     // Second attachment proves the bounded set renders and stages independently.
                     let context = app.file_context();

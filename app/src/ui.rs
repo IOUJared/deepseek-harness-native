@@ -202,6 +202,7 @@ pub enum Message {
     FileUpload(attachment_draft::EditorStamp),
     FileCancel(attachment_draft::EditorStamp),
     FileRemove(worker::attachments::Ticket),
+    FileRetry(worker::attachments::Ticket),
     ToggleSidebar,
     ToggleConversationMenu,
     ToggleInfoDetails(InfoSection),
@@ -746,14 +747,16 @@ fn flow_gap_before(rows: &[&DisplayRow], index: usize) -> f32 {
 /// round remove control sits 6px from its top-right corner
 /// (`FileCard.module.css:1-40, 77-96`). The control is always visible here: Iced
 /// would need per-card hover state to reveal it the way the reference does.
-fn composer_rail(items: Vec<(FileCard, Message)>) -> Option<Element<'static, Message>> {
+fn composer_rail(
+    items: Vec<(FileCard, Message, Option<Message>)>,
+) -> Option<Element<'static, Message>> {
     if items.is_empty() {
         return None;
     }
     let mut cards = Row::new()
         .spacing(design::ATTACH_RAIL_GAP)
         .align_y(iced::Alignment::Center);
-    for (file, remove) in items {
+    for (file, remove, retry) in items {
         let icon = container(label(ATTACHMENT_GLYPH, TEXT).size(18))
             .width(28)
             .height(28)
@@ -798,6 +801,23 @@ fn composer_rail(items: Vec<(FileCard, Message)>) -> Option<Element<'static, Mes
         .padding(design::ATTACH_RAIL_REMOVE_INSET);
         let mut card = iced::widget::Stack::new().push(body);
         card = card.push(remove);
+        // A failed upload offers its own retry, the reference's control beside the card
+        // (`FileCard.tsx:60-71`); a card that did not fail carries none.
+        if let Some(retry) = retry {
+            card = card.push(
+                container(
+                    button(label("Retry", TEXT).size(10))
+                        .on_press(retry)
+                        .style(design::ghost)
+                        .padding([0.0, 4.0]),
+                )
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(iced::Alignment::Start)
+                .align_y(iced::Alignment::End)
+                .padding([4.0, 10.0]),
+            );
+        }
         cards = cards.push(card);
     }
     // The reference's rail is `overflow-x: auto` with two arrows that page a viewport at a time
@@ -3331,6 +3351,20 @@ impl App {
                             "Removal not delivered; attachment remains owned. Try Remove again."
                                 .into();
                     }
+                }
+            }
+            Message::FileRetry(ticket) => {
+                let context = self.file_local_context();
+                let Some(submission) = self.files.retry(&ticket, &context) else {
+                    return Task::none();
+                };
+                let retried = submission.ticket.clone();
+                if self.handle.send(Command::StageFile(submission)).is_err() {
+                    // The slot went back to reading when the retry was minted; an undeliverable
+                    // command must not leave it waiting forever.
+                    self.files
+                        .complete(&retried, worker::attachments::Outcome::NotSent, &context);
+                    self.status = "Upload retry not delivered; the file is still staged".into();
                 }
             }
             Message::ToggleConversationMenu
@@ -10070,8 +10104,8 @@ impl App {
     /// The rail's items: every staged or in-flight attachment, with the ticket
     /// its remove control must carry. The reference's rail shows the same set —
     /// uploading, ready and failed cards alike.
-    fn composer_rail_items(&self) -> Vec<(FileCard, Message)> {
-        let mut items: Vec<(FileCard, Message)> = Vec::new();
+    fn composer_rail_items(&self) -> Vec<(FileCard, Message, Option<Message>)> {
+        let mut items: Vec<(FileCard, Message, Option<Message>)> = Vec::new();
         for (ticket, metadata) in self.files.attachments() {
             items.push((
                 FileCard {
@@ -10079,6 +10113,7 @@ impl App {
                     meta: crate::reducer::attachment_meta(&metadata.name, metadata.bytes),
                 },
                 Message::FileRemove(ticket.clone()),
+                None,
             ));
         }
         for (ticket, metadata, reading) in self.files.active() {
@@ -10088,9 +10123,19 @@ impl App {
                     metadata.name.clone(),
                     crate::reducer::attachment_meta(&metadata.name, metadata.bytes),
                 ),
-                (false, None) => ("Not staged".to_owned(), "no Host metadata".to_owned()),
+                // The reference's own words for a failed card, and its retry control
+                // (`locales.ts:73-74`, `FileCard.tsx:38-71`).
+                (false, None) => ("Upload failed".to_owned(), "retry or remove".to_owned()),
             };
-            items.push((FileCard { name, meta }, Message::FileRemove(ticket.clone())));
+            let retry = self
+                .files
+                .retryable(ticket)
+                .then(|| Message::FileRetry(ticket.clone()));
+            items.push((
+                FileCard { name, meta },
+                Message::FileRemove(ticket.clone()),
+                retry,
+            ));
         }
         items
     }

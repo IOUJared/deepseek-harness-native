@@ -12890,3 +12890,46 @@ in the preview, which is why the placeholder rule changed before this capture.
 | DP-2 capture | — | `shots/274-queued-files.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 488 — a failed upload offers its own retry
+
+The composer audit's third finding: the reference states `Upload failed; click to retry` on the card and
+carries a retry control (`locales.ts:73-74`, `FileCard.tsx:38-71`), while native said `Not staged · no
+Host metadata` and offered only Remove — so a transient failure cost a full re-pick through the path
+field or the picker.
+
+`Draft` now keeps the path it staged, a rejection records whether a retry is honest, and `Draft::retry`
+re-stages the same file with a fresh ticket without asking for the path again. The card states
+`Upload failed · retry or remove` and the notice says `Upload failed; retry or choose the file again.`
+
+**Not every rejection is retryable, and the code says which**: a transport that did not send is; an intake
+rejection (too large, not a regular file, unavailable, invalid path) is not, because the same file would
+fail the same way — the reference's retry control exists only for the upload state, and the test pins the
+distinction.
+
+**Recorded**: the reference also draws a byte progress bar from `progress` (`FileCard.tsx:74-79`). Native's
+stage command is one request with no progress reporting, so there is nothing honest to draw; the card says
+`Uploading…` and the bar is named here rather than faked.
+
+Tests: `a_failed_upload_retries_the_same_file_and_an_intake_rejection_does_not` — a not-sent upload is
+retryable and its retry mints a new ticket for the same slot, while a too-large rejection is not
+retryable and refuses.
+
+Evidence: `shots/275-file-failed.png` (DP-2 alongside, `status: passed`) — `Upload failed / retry or
+remove` with its Retry control and the notice line.
+
+**Battery (round 488).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1472 passed**, 1 ignored |
+| app, default | **0** | **1434 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/275-file-failed.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
