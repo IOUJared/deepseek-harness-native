@@ -513,6 +513,16 @@ impl Terminal {
             None => Control::Unconfirmed,
         }
     }
+    /// The shell the user last chose, for the layout preference that remembers it across launches.
+    pub fn preferred_shell(&self) -> Option<&str> {
+        self.preferred_shell.as_deref()
+    }
+    /// Adopt the shell a previous launch stored, before any Host list arrives.
+    pub fn adopt_preferred_shell(&mut self, path: Option<String>) {
+        if self.preferred_shell.is_none() {
+            self.preferred_shell = path;
+        }
+    }
     pub fn selected(&self) -> Option<&WebTerminalId> {
         self.selected.as_ref()
     }

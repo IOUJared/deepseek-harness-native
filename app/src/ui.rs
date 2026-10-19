@@ -1487,6 +1487,10 @@ impl App {
         let busy_enter = stored(draft_store::LAYOUT_BUSY_ENTER)
             .and_then(crate::settings::BusyEnter::parse)
             .unwrap_or_default();
+        // The shell the panel last created with, so a reload does not fall back to the first one the
+        // Host lists (`shell-preference.ts:2`).
+        let terminal_shell =
+            stored(draft_store::LAYOUT_TERMINAL_SHELL).and_then(draft_store::parse_terminal_shell);
         // Shortcut overrides are the reference's own local preference document
         // (`dsh.keybindings.v1`, `shortcuts/src/client/storage.ts:9`), read once at boot like
         // the layout preferences. An absent, unreadable or unrecognised entry leaves the shipped
@@ -1706,7 +1710,13 @@ impl App {
                 commands_pending: false,
                 command_selected: 0,
                 run_watch: run_watch::Watch::default(),
-                terminal: crate::terminal::Terminal::default(),
+                terminal: {
+                    let mut terminal = crate::terminal::Terminal::default();
+                    // The stored shell is adopted before the panel ever opens, so the first Host
+                    // list already selects it.
+                    terminal.adopt_preferred_shell(terminal_shell.clone());
+                    terminal
+                },
                 mcp: crate::mcp::Mcp::default(),
                 info_expanded: 0,
                 settings,
@@ -2253,6 +2263,10 @@ impl App {
             (
                 draft_store::LAYOUT_CODING_VIEW,
                 (!self.coding_view).then(|| "false".to_owned()),
+            ),
+            (
+                draft_store::LAYOUT_TERMINAL_SHELL,
+                self.terminal.preferred_shell().map(str::to_owned),
             ),
             (
                 draft_store::LAYOUT_WORK_DETAILS,
@@ -3371,9 +3385,15 @@ impl App {
                     // would show the schedule list under a terminal panel the user just opened.
                     self.schedules_open = false;
                 }
+                let choosing_shell = matches!(action, crate::terminal::Action::ChooseShell { .. });
                 let context = self.terminal_context();
                 if let Some(effect) = self.terminal.apply(action, &context) {
                     self.dispatch_terminal(effect);
+                }
+                // The choice is a preference, not a session fact: the reference stores it in its own
+                // key so the next launch opens the same shell (`shell-preference.ts:2`).
+                if choosing_shell {
+                    self.persist_preference();
                 }
             }
             Message::Mcp(action) => {

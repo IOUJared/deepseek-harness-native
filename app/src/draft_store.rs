@@ -604,6 +604,20 @@ pub const LAYOUT_BUSY_ENTER: &str = "layout.busyEnter";
 pub const LAYOUT_WORK_DETAILS: &str = "layout.workDetails";
 /// The General page's "Show coding view" preference; absent means on.
 pub const LAYOUT_CODING_VIEW: &str = "layout.codingView";
+/// The shell the terminal panel last created with, by path: the reference keeps the same fact in its
+/// own preference key (`api/terminal-controller/src/client/shell-preference.ts:2`), so a reload does
+/// not send the user back to the first discovered shell.
+pub const LAYOUT_TERMINAL_SHELL: &str = "layout.terminalShell";
+/// A stored shell path is accepted only when it looks like one: absolute, bounded, and free of
+/// control characters. Anything else is ignored, leaving the panel on the Host's first shell.
+pub fn parse_terminal_shell(raw: &str) -> Option<String> {
+    let path = raw.trim();
+    (!path.is_empty()
+        && path.len() <= 4096
+        && path.starts_with('/')
+        && !path.chars().any(char::is_control))
+    .then(|| path.to_owned())
+}
 /// Parse a stored content size. The offered range belongs to `design::content_size`,
 /// which maps anything it does not offer back to the default, so this rejects only
 /// what is not a usable number at all.
@@ -1277,5 +1291,29 @@ mod tests {
         for width in [f32::NAN, f32::INFINITY, 0.0, -1.0, 4097.0] {
             assert_eq!(format_layout_width(width), None, "width {width}");
         }
+    }
+}
+
+#[cfg(test)]
+mod terminal_shell_preference_tests {
+    //! The stored shell path: accepted only when it is one.
+    use super::*;
+
+    #[test]
+    fn only_an_absolute_bounded_path_is_stored() {
+        assert_eq!(
+            parse_terminal_shell("/bin/zsh").as_deref(),
+            Some("/bin/zsh")
+        );
+        assert_eq!(
+            parse_terminal_shell("  /usr/bin/fish  ").as_deref(),
+            Some("/usr/bin/fish")
+        );
+        for rejected in ["", "   ", "bin/zsh", "./zsh", "/bin/z\x07sh"] {
+            assert!(parse_terminal_shell(rejected).is_none(), "{rejected:?}");
+        }
+        // The bound matches the layout namespace's own text limit.
+        let long = format!("/{}", "a".repeat(4_096));
+        assert!(parse_terminal_shell(&long).is_none());
     }
 }

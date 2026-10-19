@@ -11976,3 +11976,35 @@ is the follow-up, and it is recorded here rather than implied.
 | capture | — | none: selection state, proved by its test |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 462 — the chosen shell survives a restart
+
+Round 461 remembered the shell for the life of the process and recorded the difference: the reference
+stores it in a preference key, so a reload keeps it. That difference is closed.
+
+The layout document gains `layout.terminalShell`, holding the path — not an index, which would silently
+point at a different shell when the Host reorders its list. `parse_terminal_shell` accepts only what
+looks like a path: absolute, non-empty, bounded to the namespace's own 4096 bytes, and free of control
+characters, so a corrupted entry leaves the panel on the Host's first shell instead of building a
+create review around nonsense. The stored value is adopted before the panel ever opens, and choosing a
+shell writes it through the same layout store the other General preferences use.
+
+Tests: `only_an_absolute_bounded_path_is_stored` — accepted paths, a trimmed one, and rejections for the
+empty string, a relative path, a control character and an over-long value; the panel's own
+`the_chosen_shell_is_remembered_across_opens` still covers selecting by path after a reorder.
+
+**Battery (round 462).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1448 passed**, 1 ignored |
+| app, default | **0** | **1423 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: a stored preference, proved by its parser test |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
