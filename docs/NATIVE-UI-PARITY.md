@@ -12694,9 +12694,9 @@ for a readable comparison and `Source` for a binary one).
 Evidence: `shots/271-changes-diff.png` (DP-2 alongside, `status: passed`) — a hunk header, context rows
 in muted monospace, one deletion and two additions with their bars and fills.
 
-**Still unbuilt, and now the only part of this gap left**: the two numbered gutters, the split view and
-the wrap control. They are named here rather than implied, and `NATIVE-FORMATTED-DETAILS.md`'s "rich
-diffs remain incomplete" is now corrected to say what does and does not exist.
+**~~Still unbuilt, and now the only part of this gap left~~ — superseded**: the two numbered gutters,
+the split view and the wrap control were named here rather than implied. All three are built now — the
+gutters in the changes cards, the wrap toggle (round 499) and the side-by-side layout (round 505).
 
 **Battery (round 482).**
 
@@ -12731,7 +12731,8 @@ Evidence: `shots/272-changes-gutter.png` (DP-2 alongside, `status: passed`). The
 was wrong in a way only a picture shows: 34px gutters ran the two numbers together as `1125211252`, so the
 capture was retaken at 44px rather than committed with a measurement that did not fit five-digit numbers.
 
-**Still unbuilt**: the split view and the wrap control.
+**~~Still unbuilt~~ — superseded**: the wrap control landed in round 499 and the split view in round
+505; each has its own toggle in the comparison's toolbar.
 
 **Battery (round 483).**
 
@@ -13013,7 +13014,8 @@ same commit that fixes it, so the next miss fails loudly instead of quietly.
 models, Codex, details, Cloudflare, plugins, schedules, search, settings, jobs, terminal, subagents) plus
 deliverables/changes and the composer landed in rounds 475–489. What remains is small and named:
 
-1. Split view and wrap control on a comparison — presentation choices, not missing information.
+1. ~~Split view and wrap control on a comparison — presentation choices, not missing information.~~
+   **Both built**: the wrap toggle in round 499, the side-by-side layout and its toggle in round 505.
 2. Upload byte progress — the transport reports no progress, so nothing honest can be drawn.
 3. The context panel's 14px ring trigger and segmented bar — the information exists, the shape does not.
 4. Image thumbnails anywhere — native renders attachment chips instead, recorded in three places.
@@ -13080,9 +13082,8 @@ fit, 82 take two lines), the same count for a multi-byte row, and a zero width s
 Evidence: `shots/282-changes-wrap.png` (DP-2 alongside, `status: passed`) — a 94-character addition drawn
 on two lines inside one green row whose bar spans both.
 
-**The reference's wrap *control* is not built**: native wraps always and has no split view. Both are
-recorded as differences rather than implied — a toggle would need its own persistence and a split view its
-own layout, and neither changes what information is reachable now that rows wrap.
+**~~The reference's wrap control is not built~~ — superseded**: the wrap toggle landed in round 499 and
+the split view with its own toggle in round 505, so both are controls now, not differences.
 
 **Battery (round 491).**
 
@@ -13382,8 +13383,8 @@ Tests: `a_comparison_wraps_by_default_and_the_toggle_flips_it` and `a_text_panel
 Evidence: `shots/293-detail-wrap.png` (DP-2 alongside, `status: passed`) — `No wrap`, `Copy source` and
 `Back` in the toolbar above the diff rows.
 
-**Still recorded**: the split (side-by-side) view. It is a second layout of the same rows, not a missing
-capability, and it is named here rather than implied.
+**~~Still recorded~~ — built in round 505**: the split (side-by-side) view is a second layout of the same
+rows, with the reference's pairing and its `Split`/`Unified` control beside the wrap toggle.
 
 **Battery (round 499).**
 
@@ -13505,7 +13506,8 @@ expectations that had encoded 24 for a human row (`same_key_hits...`, `unicode_n
 `measured_chat_heights...`) now name `BUBBLE_LINE` and say why.
 
 **Recorded, not silently fixed**, from the same comparison: the message rows still carry a 14px
-horizontal pad the reference does not (reference text at lane +1, native at lane +19), and the
+horizontal pad the reference does not (reference text at lane +1, native at lane +19) — **closed in
+round 504**, where both insets were removed and every row measured at lane +0/+1 — and the
 reference is a different state — collapsed sidebar rail, lane centred 33px right of the window
 centre, scrolled transcript with no header — so a pixel-level diff needs a matching-state preset
 before any 1-to-1 claim.
@@ -13726,19 +13728,28 @@ wrapped) text per side, the reference's hairline between them — and `diff_spli
 the reference's action wording; like its Wrap neighbour it is a word rather than the web's icon, which
 is the recorded icon/accessibility difference.
 
-**Deliberate difference.** The reference seeds a review tab **split and unwrapped**; native keeps its
-wrapped, unified default (the user's stated preference) and offers the same toggle. `changes-split`
-exists to capture the reference's first layout, not to change native's default.
+**Deliberate differences.**
+
+1. The reference seeds a review tab **split and unwrapped**; native keeps its wrapped, unified default
+   (the user's stated preference) and offers the same toggle. `changes-split` exists to capture the
+   reference's first layout, not to change native's default.
+2. Each reference column is its own horizontally scrolling pane, mirrored to its peer so both sides
+   move together (`FileDiff.tsx:183-200`). Native's unwrapped split cells clip at their own half and
+   have no horizontal scroll, so a long line is read by turning the wrap toggle on. Iced's scrollable
+   owns one axis pair per box, not the two mirrored panes the reference composes; a shared horizontal
+   scroll for a row pair would be a second layout model, so this is recorded rather than guessed at.
 
 **Evidence and what it does not prove.** `shots/300-changes-split.png` (DP-2 alongside,
 `status: passed`) shows the split layout: the hunk header across the row at the panel's inset, both
 number gutters, the divider, red/green fills on their own sides and the clipped long line.
-**Open for a later round**: in that frame the split rows sit 23px apart where `CODE_LINE` is 19, an
-extra 4px per row I have not explained; and I did not verify the row-by-row alignment against the
-reference pixel for pixel. The pairing itself is pinned by
-`a_split_pairs_a_two_addition_run_with_one_deletion_one_row_at_a_time`, which reproduces this fixture's
-hunk and asserts all six rows, so a drawing defect rather than a pairing defect is what a follow-up
-should look for.
+**Correction, round 506.** This section first claimed the split rows sat 23px apart where `CODE_LINE`
+is 19, with an unexplained 4px per row, and that the row-by-row alignment was unverified. Measuring
+the archived buffer line by line (`shots/300-changes-split.png`, ink bands at y 232/251/270/289) shows
+rows exactly 19px apart, and the cropped frame reads line for line as the reference pairs them:
+`11252|11252`, `11253-|11253+`, `empty|11254+`, `11254|11255`, `empty|11256+`. There was no 4px
+defect; the claim came from eyeballing preview coordinates instead of measuring the buffer. The lesson
+is the one this repository already states — measure the frame, do not read it off a scaled view. The
+pairing test still pins the six rows, so neither the layout nor the pairing needs a follow-up.
 
 **Mistakes inside this round.** The first capture drew the hunk header through the unified row view, so
 it landed after both empty number gutters and its text began mid-panel; the frame caught it and
@@ -13763,3 +13774,44 @@ text panel).
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke and scroll_app_smoke passed, re-run after the last edit |
 | DP-2 capture | — | `shots/300-changes-split.png`, `status: passed` |
+
+### Round 506 — replaying rounds 503–505 against the code and the docs
+
+Not a change round. Every claim the last three rounds wrote was re-read against the code, the frames
+and the reference, and four of them were wrong.
+
+**A false claim of my own.** Round 505 recorded "the split rows sit 23px apart where `CODE_LINE` is
+19, an extra 4px per row" and left it open. Measuring the archived buffer line by line —
+`shots/300-changes-split.png`, ink bands at y 232/251/270/289 — shows rows **exactly 19px apart**, and
+the cropped frame reads line for line as the reference pairs them (`11252|11252`, `11253-|11253+`,
+`empty|11254+`, `11254|11255`, `empty|11256+`). The 4px never existed: I read row positions off the
+scaled preview instead of measuring the buffer. Corrected in round 505's section, with the cause named.
+
+**Four stale journal claims about the split view**, all written before it existed and all false now:
+the "still unbuilt: the two numbered gutters, the split view and the wrap control" entry, the
+"still unbuilt: the split view and the wrap control" entry, the "the reference's wrap control is not
+built: native wraps always and has no split view" entry, and the "still recorded: the split view"
+entry. Each now says what superseded it and in which round, which is what this document's own
+numbering note asks for.
+
+**One stale claim in another document.** `NATIVE-FORMATTED-DETAILS.md` still said "a split view and a
+wrap control do not exist"; it now says where they are.
+
+**One missing difference, recorded now.** The reference's split columns each scroll horizontally and
+mirror their scroll to the peer (`FileDiff.tsx:183-200`); native's unwrapped cells clip at their own
+half with no horizontal scroll, so a long line is read with the wrap toggle. That is a real
+behavioural difference that round 505 shipped without naming.
+
+**What the sweep confirmed as correct.** The reminder chip's projection, popover rows and armed
+delete (503); the lane arithmetic and every row's first-ink position (504); the split pairing, the
+one-sided fallback, the divider and the full-width hunk row (505). No code changed in this round.
+
+**Battery (round 506).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1497 passed**, 1 ignored (no code changed) |
+| app, default | **0** | **1456 passed**, 1 ignored (no code changed) |
+| format debt | **0** | 0 files, 0 hunks |
+| transport / core / JS / clippy / examples | — | **not re-run**: no source file changed, so their evidence from rounds 504–505 still describes this tree |
+| shot counter | — | unchanged at **301**: this round captured nothing |
