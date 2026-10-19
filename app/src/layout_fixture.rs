@@ -142,6 +142,7 @@ pub const PRESETS: &[&str] = &[
     "changes-single",
     "changes-fold",
     "feedback",
+    "feedback-failed",
     "workflow-run",
     "context-pressure",
     "context-breakdown",
@@ -378,6 +379,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "changes-single"
         | "changes-fold"
         | "feedback"
+        | "feedback-failed"
         | "workflow-run"
         | "context-pressure"
         | "context-breakdown"
@@ -1777,7 +1779,7 @@ pub fn build(
             json!({"type":"event","event":{"type":"tool-workflow/run-end","seq":5,"time":1005,
                 "data":{"runId":"PUBLIC-run","stopReason":"completed"}}}),
         ]
-    } else if preset == "feedback" {
+    } else if preset == "feedback" || preset == "feedback-failed" {
         vec![
             json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
                 "surfaceOp":"append","data":{"role":"user","id":"PUBLIC-feedback-prompt",
@@ -1956,6 +1958,9 @@ pub fn build(
     }
     if preset == "feedback" {
         app.seed_feedback();
+    }
+    if preset == "feedback-failed" {
+        app.seed_feedback_failed();
     }
     if preset == "changes-card" {
         app.seed_changes_summary();

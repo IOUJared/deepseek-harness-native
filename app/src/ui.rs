@@ -899,11 +899,18 @@ struct WidthDrag {
     moved: bool,
 }
 /// The feedback dialog for one message: the chosen rating, an optional category and note.
+#[derive(Clone)]
 struct FeedbackDraft {
     message_id: String,
     rating: String,
     category: Option<String>,
     note: String,
+    /// The write is in flight: the dialog stays open, its Submit states that, and a second press is
+    /// not a second request (`FeedbackDialog.tsx:93-100`).
+    submitting: bool,
+    /// Why the last write failed, shown beside the note so the draft can be corrected rather than lost
+    /// (`dialog.ts:99-107`).
+    error: Option<String>,
 }
 
 /// The open one-shot picker: a month calendar or a clock.
@@ -4496,10 +4503,18 @@ impl App {
             }
             Message::FeedbackCancel => self.feedback_dialog = None,
             Message::FeedbackSubmit => {
+                // The dialog is not consumed: a refusal or a transport failure must leave the typed note
+                // and category in place so the user can correct and resubmit (`dialog.ts:99-107`).
                 let Some(draft) = self.feedback_dialog.take() else {
                     return Task::none();
                 };
+                if draft.submitting {
+                    // A second press while the first is in flight is not a second request.
+                    self.feedback_dialog = Some(draft);
+                    return Task::none();
+                }
                 let Some(session) = self.selected.clone() else {
+                    self.feedback_dialog = Some(draft);
                     return Task::none();
                 };
                 let note = draft.note.trim().to_owned();
@@ -4507,6 +4522,11 @@ impl App {
                     .feedback
                     .get(&draft.message_id)
                     .map(|item| item.version.clone());
+                self.feedback_dialog = Some(FeedbackDraft {
+                    error: None,
+                    submitting: true,
+                    ..draft.clone()
+                });
                 self.command(worker::Command::FeedbackPut {
                     session,
                     message_id: draft.message_id,
@@ -6231,9 +6251,21 @@ impl App {
                 if self.selected.as_ref() != Some(&session) {
                     return Task::none();
                 }
+                // Whatever the outcome, the dialog and its draft live or die here: a saved rating
+                // closes it and says so, a failure keeps the typed note with the reason beside it.
+                let mut close = false;
+                let mut failure: Option<String> = None;
+                // The dialog is matched against this id after the outcome, and the outcome itself
+                // consumes it.
+                let feedback_id = message_id.clone();
                 match result {
                     Ok(dsh_native_transport::dto::MessageFeedbackPutOutcome::Saved(item)) => {
                         self.feedback.insert(message_id, item);
+                        close = true;
+                        // The reference acknowledges the write with a toast (`FeedbackDialog.tsx:67-74`,
+                        // `locales.ts:54`). Native has no toast layer, so the same words go to the
+                        // status line — recorded as a shape difference, not a missing confirmation.
+                        self.status = "Thanks for your feedback".into();
                     }
                     Ok(dsh_native_transport::dto::MessageFeedbackPutOutcome::Conflict(current)) => {
                         match current {
@@ -6245,14 +6277,37 @@ impl App {
                             }
                         }
                         self.status = "Feedback changed on the Host; showing its value.".into();
+                        close = true;
                     }
                     Ok(dsh_native_transport::dto::MessageFeedbackPutOutcome::TargetMissing) => {
-                        self.status = "That message is no longer available for feedback.".into();
+                        failure = Some("That message is no longer available for feedback.".into());
                     }
                     Ok(dsh_native_transport::dto::MessageFeedbackPutOutcome::Refused(code)) => {
-                        self.status = format!("Feedback refused: {code}");
+                        failure = Some(format!("Feedback refused: {code}"));
                     }
-                    Err(error) => self.status = error,
+                    Err(error) => failure = Some(error),
+                }
+                match failure {
+                    Some(reason) => {
+                        if let Some(draft) = &mut self.feedback_dialog
+                            && draft.message_id == feedback_id
+                        {
+                            draft.submitting = false;
+                            draft.error = Some(reason.clone());
+                        }
+                        self.status = reason;
+                    }
+                    None => {
+                        if close {
+                            if self
+                                .feedback_dialog
+                                .as_ref()
+                                .is_some_and(|draft| draft.message_id == feedback_id)
+                            {
+                                self.feedback_dialog = None;
+                            }
+                        }
+                    }
                 }
             }
             Event::FeedbackDeleted {
@@ -8185,6 +8240,20 @@ impl App {
         };
         let diff = diff.clone();
         self.open_changed_detail(seq, index, diff);
+    }
+    /// The feedback dialog open on a refused write: the note survives and the reason sits beside it
+    /// (`dialog.ts:99-107`).
+    #[cfg(feature = "public-layout-fixture")]
+    pub(crate) fn seed_feedback_failed(&mut self) {
+        self.seed_feedback();
+        self.feedback_dialog = Some(FeedbackDraft {
+            message_id: "PUBLIC-feedback-message".into(),
+            rating: "negative".into(),
+            category: Some("task-result".into()),
+            note: "PUBLIC typed note that must survive the refusal".into(),
+            submitting: false,
+            error: Some("Feedback refused: note-too-large".into()),
+        });
     }
     /// A turn that edited exactly one file, which the card draws as its own row
     /// (`ChangedFiles.tsx:54-77`).
@@ -10951,13 +11020,16 @@ impl App {
                 });
             }
             current => {
+                // A fresh rating starts from an empty note and category: the reference's `open()`
+                // resets to `CLOSED` (`dialog.ts:62-65`), so Like→Dislike never resubmits the old text.
+                let _ = current;
                 self.feedback_dialog = Some(FeedbackDraft {
                     message_id,
                     rating: rating.to_owned(),
-                    category: current.and_then(|item| item.category.clone()),
-                    note: current
-                        .and_then(|item| item.note.clone())
-                        .unwrap_or_default(),
+                    category: None,
+                    note: String::new(),
+                    submitting: false,
+                    error: None,
                 });
             }
         }
@@ -11082,14 +11154,35 @@ impl App {
                     .size(12)
                     .padding(4)
                     .width(Length::Fill),
+                // The reference states what travels with a note (`locales.ts:46`), so the same
+                // sentence sits under the field rather than in a placeholder a long note hides.
+                label(
+                    "Your submission will include the current conversation log.",
+                    MUTED
+                )
+                .size(9),
+                // A refusal keeps the draft and states the reason beside it (`dialog.ts:99-107`).
+                label(draft.error.clone().unwrap_or_default(), DANGER).size(10),
                 row![
                     Space::new().width(Length::Fill),
                     button(label("Cancel", TEXT).size(12))
                         .on_press(Message::FeedbackCancel)
                         .style(design::ghost),
-                    button(label("Submit", TEXT).size(12))
-                        .on_press(Message::FeedbackSubmit)
-                        .style(design::primary),
+                    // While the write is in flight the control states that and cannot be pressed
+                    // again (`FeedbackDialog.tsx:93-100`).
+                    button(
+                        label(
+                            if draft.submitting {
+                                "Submitting…"
+                            } else {
+                                "Submit"
+                            },
+                            TEXT
+                        )
+                        .size(12)
+                    )
+                    .on_press_maybe((!draft.submitting).then_some(Message::FeedbackSubmit))
+                    .style(design::primary),
                 ]
                 .spacing(6),
             ]
@@ -21870,6 +21963,33 @@ mod tests {
         assert!(!app.todo_dock_open);
     }
     #[test]
+    fn a_failed_feedback_write_keeps_its_draft_and_says_why() {
+        use dsh_native_transport::dto::MessageFeedbackPutOutcome;
+        let (mut app, _receiver) = managed_app();
+        let _ = app.update(Message::FeedbackDislike("PUBLIC-message".into()));
+        let _ = app.update(Message::FeedbackNote("PUBLIC typed note".into()));
+        let _ = app.update(Message::FeedbackSubmit);
+        assert!(app.feedback_dialog.as_ref().is_some_and(|d| d.submitting));
+        let session = app.selected.clone().expect("a selected session");
+        // A refusal reaches the dialog, which keeps the note and states the reason.
+        let _ = app.update(Message::Worker(Event::FeedbackWritten {
+            session,
+            message_id: "PUBLIC-message".into(),
+            result: Ok(MessageFeedbackPutOutcome::Refused("note-too-large".into())),
+        }));
+        let draft = app.feedback_dialog.as_ref().expect("the draft survives");
+        assert!(!draft.submitting, "the write finished");
+        assert_eq!(draft.note, "PUBLIC typed note");
+        assert!(
+            draft
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("note-too-large")),
+            "the reason is stated: {:?}",
+            draft.error
+        );
+    }
+    #[test]
     fn feedback_puts_toggles_and_adopts_the_host_value() {
         use dsh_native_transport::dto::{MessageFeedbackItem, MessageFeedbackPutOutcome};
         let (mut app, mut receiver) = managed_app();
@@ -21879,7 +21999,14 @@ mod tests {
         let _ = app.update(Message::FeedbackCategory("task-result".into()));
         let _ = app.update(Message::FeedbackNote("PUBLIC note".into()));
         let _ = app.update(Message::FeedbackSubmit);
-        assert!(app.feedback_dialog.is_none());
+        // The draft is not consumed by the press: it waits for the Host's answer, with the note intact
+        // (`FeedbackDialog.tsx:93-100`, `dialog.ts:99-107`).
+        let draft = app.feedback_dialog.as_ref().expect("the draft stays open");
+        assert!(draft.submitting);
+        assert_eq!(draft.note, "PUBLIC note");
+        assert_eq!(draft.category.as_deref(), Some("task-result"));
+        // A second press while the first is in flight sends nothing more.
+        let _ = app.update(Message::FeedbackSubmit);
         let mut puts = 0;
         while let Ok(command) = receiver.try_recv() {
             if let Command::FeedbackPut {

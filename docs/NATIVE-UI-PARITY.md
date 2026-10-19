@@ -13093,3 +13093,49 @@ own layout, and neither changes what information is reachable now that rows wrap
 | DP-2 capture | — | `shots/282-changes-wrap.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 492 — a feedback refusal keeps its draft
+
+A feedback audit (22 reference elements, 13 traced in depth) found the dialog discarding work. The
+reference keeps the draft open while the write runs, states `Submitting…`, and on failure leaves the
+note and category in place so they can be corrected (`FeedbackDialog.tsx:93-100`, `dialog.ts:99-107`);
+native took the dialog on the press and, on any refusal, closed it — the typed note was gone.
+
+The draft now carries `submitting` and `error`. Submit does not consume it, a second press while the
+first is in flight sends nothing, a saved rating closes it with the reference's `Thanks for your
+feedback`, and a refusal or transport failure leaves it open with the reason in danger ink beneath the
+note. The dialog also states the reference's disclosure that the conversation log travels with the note
+(`locales.ts:46`), and a new rating starts from an empty note instead of the previous one
+(`dialog.ts:62-65`).
+
+Tests: `a_failed_feedback_write_keeps_its_draft_and_says_why` (a refusal leaves the note, clears
+`submitting` and carries the reason) and the existing toggle test updated to the new contract — the draft
+stays with `submitting` set and a second press sends nothing more.
+
+Evidence: `shots/283-feedback-failed.png` (DP-2 alongside, `status: passed`) — the preserved note, the
+log disclosure, and `Feedback refused: note-too-large` beside Cancel and Submit.
+
+**Recorded differences from the same audit, none silent**: the rating controls are the words `Like` /
+`Dislike` rather than thumb icons whose accessible names say `Good response` / `Remove rating`; the note
+is a single-line input rather than a textarea (and the 4096-byte cap still truncates silently rather than
+stating the Host's `note-too-large` copy); the action row orders Branch before Copy; failure copy is in the
+dialog's own line rather than beside the buttons in the row; and the session-level entry points (composer
+menu, header actions, bare `/feedback`) do not exist. The turn-trigger audit's two findings — a trigger
+older than today losing its date, and an expanded notification truncated at 600 characters — are recorded
+here for the next round rather than fixed in this one.
+
+**Battery (round 492).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1478 passed**, 1 ignored |
+| app, default | **0** | **1440 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/283-feedback-failed.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
