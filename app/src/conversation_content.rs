@@ -876,6 +876,21 @@ fn table_row(
 pub(crate) fn quote_bar_height(spans: &[formatted::Span]) -> f32 {
     inline_height(spans, 400.0, 15.0, design::body_line(0.0))
 }
+/// The reference's blockquote rule as `(rule, padding)` at one height
+/// (`MarkdownText.module.css:151-156`): a 2px caption-coloured border and the ladder's inset.
+fn quote_rule(height: f32, ladder: Ladder) -> (Element<'static, Message>, iced::widget::Space) {
+    (
+        container(Space::new().width(design::QUOTE_BAR))
+            .height(height)
+            .style(|_| container::Style {
+                background: Some(design::MUTED.into()),
+                ..Default::default()
+            })
+            .into(),
+        Space::new().width(ladder.quote_inset() - design::QUOTE_BAR),
+    )
+}
+
 pub(crate) fn inline_height(
     parts: &[formatted::Span],
     width: f32,
@@ -1207,7 +1222,13 @@ fn block_height(
         ),
         // A compact heading keeps the body's size and weight
         // (`MarkdownText.module.css:336-341`).
-        formatted::Block::Heading { level, spans } => {
+        formatted::Block::Heading {
+            level,
+            spans,
+            indent,
+            quote,
+            ..
+        } => {
             let bold;
             let spans = if ladder == Ladder::Compact {
                 bold = compact_heading_spans(spans);
@@ -1215,9 +1236,10 @@ fn block_height(
             } else {
                 spans.as_slice()
             };
+            // A heading inside a container measures at the width that container leaves.
             inline_height(
                 spans,
-                width,
+                width - *indent as f32 * 18.0 - if *quote { ladder.quote_inset() } else { 0.0 },
                 if ladder == Ladder::Compact {
                     ladder.size(delta, delta_secondary)
                 } else {
@@ -1293,7 +1315,13 @@ pub(crate) fn document_first_offset(
                 FONT,
                 false,
             ),
-            formatted::Block::Heading { level, spans } => {
+            formatted::Block::Heading {
+                level,
+                spans,
+                indent,
+                quote,
+                ..
+            } => {
                 let bold;
                 let spans = if ladder == Ladder::Compact {
                     bold = compact_heading_spans(spans);
@@ -1304,7 +1332,7 @@ pub(crate) fn document_first_offset(
                 first_offset(
                     inline_runs(spans),
                     query,
-                    width,
+                    width - *indent as f32 * 18.0 - if *quote { ladder.quote_inset() } else { 0.0 },
                     if ladder == Ladder::Compact {
                         size
                     } else {
@@ -1518,8 +1546,14 @@ fn document_view(
                 )))
                 .into()
             }
-            formatted::Block::Heading { level, spans } => {
-                if ladder == Ladder::Compact {
+            formatted::Block::Heading {
+                level,
+                spans,
+                indent,
+                quote,
+                quote_first,
+            } => {
+                let text: Element<'static, Message> = if ladder == Ladder::Compact {
                     // `font: inherit; font-weight: 600` — the body's size, bold.
                     let bold = compact_heading_spans(spans);
                     inline_view(&bold, text_size.round() as u32, text_line, query)
@@ -1530,7 +1564,24 @@ fn document_view(
                         design::body_line(delta),
                         query,
                     )
+                };
+                // A heading keeps its containers' rule and indent, exactly like a paragraph
+                // (`render.tsx:279-289`).
+                let mut line = row![].spacing(0);
+                if *quote && *quote_first {
+                    let height =
+                        block_height(block, index, width, delta, delta_secondary, ladder, wrap);
+                    let (rule, pad) = quote_rule(height, ladder);
+                    line = line.push(rule).push(pad);
                 }
+                line = line.push(iced::widget::Space::new().width(*indent as f32 * 18.0));
+                if *quote && !*quote_first {
+                    let height =
+                        block_height(block, index, width, delta, delta_secondary, ladder, wrap);
+                    let (rule, pad) = quote_rule(height, ladder);
+                    line = line.push(rule).push(pad);
+                }
+                line.push(text).into()
             }
             formatted::Block::Code {
                 language,
@@ -1925,7 +1976,7 @@ mod tests {
         assert!(p.matches("supplied reasoning"));
         assert!(!p.matches("absent"));
         // A heading inside a quote is inert markup: the whole source stays searchable text.
-        let raw = cache.prepare(1, 3, String::new(), "> # PUBLIC inert".into());
+        let raw = cache.prepare(1, 3, String::new(), "> ---\n> PUBLIC inert".into());
         assert!(raw.document.is_none());
         assert!(raw.matches("PUBLIC inert"));
     }
@@ -2089,6 +2140,9 @@ mod tests {
         let heading = |level| formatted::Block::Heading {
             level,
             spans: Vec::new(),
+            indent: 0,
+            quote: false,
+            quote_first: false,
         };
         let code = || formatted::Block::Code {
             language: None,
@@ -2366,7 +2420,7 @@ mod tests {
     #[test]
     fn unsupported_markup_is_inert_full_source_not_partial_formatting() {
         let cache = Cache::default();
-        let source = "> # PUBLIC inert";
+        let source = "> ---\n> PUBLIC inert";
         let p = cache.prepare(1, 0, String::new(), source.into());
         assert!(p.document.is_none());
         assert_eq!(p.answer, source);

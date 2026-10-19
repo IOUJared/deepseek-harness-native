@@ -280,7 +280,7 @@ fn view(document: &formatted::Document) -> Element<'_, Message> {
     let mut body = Column::new().width(Length::Fill);
     for (index, block) in document.blocks.iter().enumerate() {
         let rendered: Element<'_, Message> = match block {
-            formatted::Block::Heading { level, spans } => {
+            formatted::Block::Heading { level, spans, .. } => {
                 inline(spans, design::heading_size(*level).round() as u32)
             }
             formatted::Block::Paragraph {

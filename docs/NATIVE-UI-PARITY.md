@@ -15169,3 +15169,41 @@ same actions as text controls, its standing substitution where the web's icons h
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 capture | — | `shots/327-code-wrapped.png`, `status: passed`, 1040x560 |
 | app bin | — | **21** warnings |
+
+### Round 534 — a heading inside a container keeps its rule and indent
+
+**The gap.** `Block::Heading` carried only a level and its spans, so `Tag::Heading` refused whenever any
+container was open — a heading inside a blockquote (`> ## Title`) or inside a list item failed the
+whole document, even though the reference nests a heading in the same containers as a paragraph
+(`ui-primitives/src/markdown/render.tsx:279-289`).
+
+**The change.** A heading now carries `indent`, `quote` and `quote_first`, filled from the same inline
+state a paragraph uses: the builder records the container stack on both block kinds, and the heading's
+own decorated forms (`id`, `classes`, `attrs`) are still refused because they have nowhere to live.
+`block_height` and the search offset measure the heading at the width its containers leave;
+`document_view` draws the rule (via a shared `quote_rule`) and the list indent around the heading text,
+so a quoted heading and the quoted body under it share one continuous rule.
+
+**Frame.** `shots/328-heading-quote.png` (1040x620, new `markdown-heading-quote` preset): a quoted `##
+PUBLIC quoted heading` above its quoted body inside one rule, then a listed `### PUBLIC listed heading`
+indented under its item, with the next item's bullet beneath — the two nestings that used to fall back
+to plain text.
+
+**Tests.** `a_heading_inside_a_container_keeps_its_rule_and_indent` (a quoted heading keeps level,
+quote and quote-first; a listed heading keeps its indent and is not a quote; a plain heading carries
+zero provenance). The "unsupported" exemplars moved again — this time to **a thematic rule inside a
+container** (`> ---`), which stays refused because `Event::Rule` has no field for its container.
+`- # heading` came out of the refusal list too: a heading inside a list item composes now.
+
+**Battery (round 534).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1536 passed**, 1 ignored |
+| app, default | **0** | **1481 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-js7hdnki`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-8or0ou_2`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 capture | — | `shots/328-heading-quote.png`, `status: passed`, 1040x620 |
+| app bin | — | **21** warnings |

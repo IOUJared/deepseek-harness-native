@@ -44,6 +44,11 @@ pub enum Block {
     Heading {
         level: u8,
         spans: Vec<Span>,
+        /// A heading inside a list or a quote keeps that container's indent and rule, like a
+        /// paragraph does (`render.tsx:279-281`).
+        indent: u8,
+        quote: bool,
+        quote_first: bool,
     },
     Code {
         language: Option<String>,
@@ -357,6 +362,9 @@ impl Builder {
                 Block::Heading {
                     level,
                     spans: inline.spans,
+                    indent: inline.indent,
+                    quote: inline.quote,
+                    quote_first: inline.quote_first,
                 }
             } else {
                 Block::Paragraph {
@@ -406,12 +414,9 @@ impl Builder {
                 classes,
                 attrs,
             } => {
-                // Heading cannot represent quote/list provenance or attributes.
-                if !self.frames.is_empty()
-                    || id.is_some()
-                    || !classes.is_empty()
-                    || !attrs.is_empty()
-                {
+                // A heading keeps attributes nowhere, so a decorated one still fails closed; its
+                // containers are carried by the inline like a paragraph's (`render.tsx:279-281`).
+                if id.is_some() || !classes.is_empty() || !attrs.is_empty() {
                     return Err(Failure::Unsupported);
                 }
                 self.begin_inline(Some(level as u8), true)?;
@@ -733,7 +738,7 @@ mod tests {
         let doc = document("# Héllo &amp; 世界\n\nplain\nsoft  \nhard\n\n---\n\nlast");
         assert_eq!(doc.blocks.len(), 4);
         match &doc.blocks[0] {
-            Block::Heading { level, spans } => {
+            Block::Heading { level, spans, .. } => {
                 assert_eq!(*level, 1);
                 assert_eq!(joined(spans), "Héllo & 世界");
             }
@@ -771,6 +776,48 @@ mod tests {
                 .any(|s| s.text == "x < y" && s.code && !s.bold && !s.italic)
         );
         assert!(spans.iter().any(|s| s.text == "all" && s.bold && s.italic));
+    }
+
+    #[test]
+    fn a_heading_inside_a_container_keeps_its_rule_and_indent() {
+        // The reference nests a heading in the same blockquote/list containers as a paragraph
+        // (`render.tsx:279-289`), so native records the same provenance on it.
+        let quoted = document("> ## PUBLIC headed quote\n");
+        match &quoted.blocks[0] {
+            Block::Heading {
+                level,
+                quote,
+                quote_first,
+                indent,
+                ..
+            } => {
+                assert_eq!(*level, 2, "the heading level survives");
+                assert!(*quote, "the quote is recorded");
+                assert!(*quote_first);
+                assert_eq!(*indent, 0);
+            }
+            _ => panic!("a heading"),
+        }
+        let listed = document("- ## PUBLIC headed item\n");
+        match &listed.blocks[0] {
+            Block::Heading { indent, quote, .. } => {
+                assert!(!*quote, "a list item is not a quote");
+                assert_eq!(*indent, 0, "the item's own marker carries its level");
+            }
+            _ => panic!("a heading"),
+        }
+        // Plain headings keep zero provenance.
+        match &document("## PUBLIC plain\n").blocks[0] {
+            Block::Heading {
+                indent,
+                quote,
+                quote_first,
+                ..
+            } => {
+                assert_eq!((*indent, *quote, *quote_first), (0, false, false));
+            }
+            _ => panic!("a heading"),
+        }
     }
 
     #[test]
@@ -1144,11 +1191,8 @@ mod tests {
     #[test]
     fn unsupported_content_anywhere_fails_whole_source() {
         for source in [
-            // A heading inside a container is still refused: headings keep their own block and
-            // cannot carry list/quote provenance.
-            "> # PUBLIC heading",
-            "> # heading",
-            "- # heading",
+            // A thematic rule inside a container is still refused: `Event::Rule` has no field for
+            // its container's provenance.
             "> ---",
             "- ***",
             "> ```\n> code\n> ```",
@@ -1357,7 +1401,7 @@ mod tests {
     fn diagnostics_only_expose_content_free_failure_variants() {
         // A heading inside a quote is refused, so it can stand in for content that must never
         // reach a diagnostic.
-        let private_source = "PRIVATE_TOKEN\n\n> # PRIVATE_HEADING";
+        let private_source = "PRIVATE_TOKEN\n\n> ---\n> PRIVATE_RULE";
         let error = match parse(private_source) {
             Err(error) => error,
             Ok(_) => panic!("expected unsupported HTML"),
@@ -1423,7 +1467,7 @@ mod extension_tests {
         let doc = parse("Plain **bold** text.\n").unwrap();
         assert_eq!(texts(&doc.blocks), vec!["Plain bold text.".to_owned()]);
         // An unsupported construct still fails closed; raw HTML is drawn literally.
-        assert!(parse("> # nested").is_err());
+        assert!(parse("> ---\n> nested").is_err());
         assert!(parse("<div>html</div>\n").is_ok());
     }
 }
