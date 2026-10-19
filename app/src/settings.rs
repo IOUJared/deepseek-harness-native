@@ -260,6 +260,10 @@ pub fn pasted_key_input(raw: String) -> Input {
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Page {
+    /// The reference registers this section first (`ui-settings-account/src/client/index.ts:288-295`);
+    /// it exists only while the deployment holds a credential, so a build with no account shows no
+    /// page rather than an empty one.
+    Account,
     General,
     #[default]
     ApiLogin,
@@ -269,7 +273,8 @@ pub enum Page {
     Cloudflare,
 }
 impl Page {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 7] = [
+        Self::Account,
         Self::General,
         Self::ApiLogin,
         Self::Plugins,
@@ -279,6 +284,7 @@ impl Page {
     ];
     fn title(self) -> &'static str {
         match self {
+            Self::Account => "Account",
             Self::General => "General",
             Self::ApiLogin => "Models",
             Self::Codex => "Codex",
@@ -289,6 +295,7 @@ impl Page {
     }
     fn glyph(self) -> &'static str {
         match self {
+            Self::Account => "◎",
             Self::General => "⚙",
             Self::ApiLogin => "◇",
             Self::Plugins => "☷",
@@ -1296,6 +1303,7 @@ impl Settings {
                 )
             });
         let body: Element<'_, Action> = match self.page {
+            Page::Account => self.account_view(enabled),
             Page::ApiLogin => self.api_view(self.api_read_only(enabled), route),
             Page::Cloudflare => self
                 .cloudflare
@@ -2065,15 +2073,30 @@ impl Settings {
         }
         None
     }
+    /// The Account page: the deployment's sign-in state, on its own page as the reference keeps it
+    /// (`ui-settings-account/src/client/index.ts:288-295`). Its balance, bonus balance, usage and
+    /// top-up rows need Host values this build serves no read for, so they are not drawn empty.
+    fn account_view(&self, enabled: bool) -> Element<'_, Action> {
+        let can_save = self.can_save(enabled);
+        column![
+            label("Account", TEXT).size(17),
+            self.account.view(can_save).map(Action::Account),
+            label(
+                "Balance, bonus balance, usage and top-up are not shown: this build reads no account figures from the Host.",
+                MUTED,
+            )
+            .size(11),
+        ]
+        .spacing(14)
+        .into()
+    }
     fn api_view(&self, read_only: Option<&'static str>, route: &RouteFacts) -> Element<'_, Action> {
         let enabled = read_only.is_none();
         let ticket = self.ticket();
         let input_ticket = self.input_ticket();
         let can_save = self.can_save(enabled);
         let editable = self.paste_allowed(input_ticket, self.epoch, enabled);
-        let account = self.account.view(can_save).map(Action::Account);
         let mut body = column![
-            account,
             label("DeepSeek", TEXT).size(17),
             label("API key", ACCENT).size(16),
             label(

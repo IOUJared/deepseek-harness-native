@@ -629,3 +629,26 @@ fn the_guide_copy_confirms_and_returns() {
         Some(("ptc".into(), GuideSection::Explanation))
     );
 }
+
+/// The Account page comes first and holds the sign-in state on its own, as the reference keeps it
+/// (`ui-settings-account/src/client/index.ts:288-295`).
+#[test]
+fn the_account_page_leads_the_navigation() {
+    assert_eq!(Page::ALL[0], Page::Account);
+    assert_eq!(Page::Account.title(), "Account");
+    assert_ne!(
+        Page::Account.title(),
+        Page::ApiLogin.title(),
+        "Models is not Account"
+    );
+    // Every page keeps a distinct title and glyph, so the nav cannot draw two identical rows.
+    let mut titles: Vec<&str> = Page::ALL.iter().map(|page| page.title()).collect();
+    let count = titles.len();
+    titles.sort_unstable();
+    titles.dedup();
+    assert_eq!(titles.len(), count);
+    let mut glyphs: Vec<&str> = Page::ALL.iter().map(|page| page.glyph()).collect();
+    glyphs.sort_unstable();
+    glyphs.dedup();
+    assert_eq!(glyphs.len(), count);
+}

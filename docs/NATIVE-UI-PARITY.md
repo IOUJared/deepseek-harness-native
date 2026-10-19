@@ -10844,9 +10844,9 @@ Recorded here so the next rounds have their list, with the same taxonomy: (b) di
    key for an unbound command~~ — closed in round 432.
 4. (c) "Open configuration file" header action (`ui-settings-general/src/client/index.ts:221-227`,
    Host RPC `settings/openSettingsDocument`); nothing equivalent exists.
-5. (c) Permanent Account page with balance, bonus balance, Usage and Top up
-   (`ui-settings-account/src/client/index.ts:288-295`, `AccountSection.tsx:145-220`); native inlines
-   the status block on Models with sign-in/out only.
+5. (c) ~~Permanent Account page~~ — the page landed in round 437; its balance, bonus balance, Usage
+   and Top up rows still need Host figures this build serves no read for
+   (`AccountSection.tsx:145-220`).
 6. (c) Models provider directory — rows, Edit/Delete, "Add model provider", catalog fields, delete
    confirmation (`ModelsSection.tsx:387-388,435-505,648-700`); recorded in `FEATURE-PARITY.md:13`, not
    in this index until now.
@@ -11070,5 +11070,41 @@ frame caught before it could be archived as evidence.
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/251-guide-copied.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 437 — Account is its own page, first in the navigation
+
+The settings audit found the reference keeps an Account section that it registers *first* — `order: -10`
+— and only while a credential is stored (`ui-settings-account/src/client/index.ts:288-295`). Native
+inlined that same sign-in block at the top of Models, so the page that exists to say who you are was
+buried above an API-key form.
+
+`Page::Account` is now the first page: a glyph of its own, the deployment's sign-in state, and — where
+the reference shows balance, bonus balance, Usage and Top up — a sentence saying this build reads no
+account figures from the Host, rather than four empty rows pretending to be pending values. Models
+keeps the DeepSeek key and the catalog.
+
+Evidence: `shots/252-settings-account.png` (DP-2 alongside, `status: passed`) in the new
+`settings-account` preset — Account first in the nav and its sign-in state on the page, with the
+missing-figures note beneath.
+
+Tests: `the_account_page_leads_the_navigation` — Account is `Page::ALL[0]`, its title differs from
+Models', and every page keeps a distinct title and glyph so the navigation cannot draw two identical
+rows.
+
+**Battery (round 437).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1431 passed**, 1 ignored |
+| app, default | **0** | **1411 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/252-settings-account.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |

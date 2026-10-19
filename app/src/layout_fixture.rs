@@ -115,6 +115,7 @@ pub const PRESETS: &[&str] = &[
     "settings-presets-coding-off",
     "settings-presets-guide",
     "settings-presets-copied",
+    "settings-account",
     "information",
     "information-expanded",
     "work-panel",
@@ -235,7 +236,8 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "settings-presets"
         | "settings-presets-coding-off"
         | "settings-presets-guide"
-        | "settings-presets-copied" => Some((Size::new(1024.0, 900.0), 1.0)),
+        | "settings-presets-copied"
+        | "settings-account" => Some((Size::new(1024.0, 900.0), 1.0)),
         "assistant-details-source"
         | "assistant-details-formatted"
         | "assistant-details-fallback" => Some((Size::new(1040.0, 900.0), 1.0)),
@@ -2405,7 +2407,8 @@ pub fn build(
         | "settings-presets"
         | "settings-presets-coding-off"
         | "settings-presets-guide"
-        | "settings-presets-copied" => {
+        | "settings-presets-copied"
+        | "settings-account" => {
             use crate::settings::{Action, Page};
             // Default ApiLogin would read metadata. Seed General locally with disabled effects,
             // then exercise actual App Open/navigation. No production defaults/guards change.
@@ -2440,6 +2443,8 @@ pub fn build(
                 || preset.starts_with("settings-general-usage")
             {
                 Page::Codex
+            } else if preset == "settings-account" {
+                Page::Account
             } else if preset == "settings-presets"
                 || preset == "settings-presets-coding-off"
                 || preset == "settings-presets-guide"
@@ -2538,6 +2543,12 @@ pub fn build(
                 // remain rather than all of them.
                 if preset == "settings-presets-coding-off" {
                     app.coding_view = false;
+                }
+                if preset == "settings-account" {
+                    // The reference's first page (`ui-settings-account/src/client/index.ts:288-295`),
+                    // hosting the deployment's sign-in state on its own instead of above Models.
+                    app.settings.layout_open(crate::settings::Page::Account);
+                    assert!(app.settings.is_open());
                 }
                 if preset == "settings-presets-copied" {
                     // The one-second `Copied` confirmation on a guide's copy control
