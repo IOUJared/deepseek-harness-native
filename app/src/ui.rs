@@ -362,6 +362,7 @@ pub enum Message {
     /// Chooses a feedback category in the open dialog.
     FeedbackCategory(String),
     /// Edits the feedback note.
+    #[cfg(any(test, feature = "public-layout-fixture"))]
     FeedbackNote(String),
     /// Submits the open feedback dialog.
     FeedbackSubmit,
@@ -457,6 +458,8 @@ pub enum Message {
     ScheduleHistoryPrompt(String),
     /// Open an ancestor crumb's sibling catalog, keyed by that crumb's session.
     SubagentCrumbMenu(SessionId),
+    /// One edit to the feedback dialog's note field.
+    FeedbackNoteEdit(iced::widget::text_editor::Action),
     /// The pointer entered or left one changed-file row.
     ChangesHover(Option<(u64, usize)>),
     /// The hover delay elapsed while the pointer was still on that row.
@@ -1267,6 +1270,9 @@ pub struct App {
     feedback: std::collections::BTreeMap<String, dsh_native_transport::dto::MessageFeedbackItem>,
     /// The open feedback dialog.
     feedback_dialog: Option<FeedbackDraft>,
+    /// The dialog's note field, a multi-line editor as the reference's textarea is
+    /// (`FeedbackDialog.tsx:117-118`). Created with the dialog and dropped with it.
+    feedback_note: Option<iced::widget::text_editor::Content>,
     /// `@` file-reference candidates for the active token.
     file_references: Vec<dsh_native_transport::dto::FileReferenceCandidate>,
     /// `@` session-reference candidates for the active token.
@@ -1700,6 +1706,7 @@ impl App {
                 directory_picker_browse: None,
                 feedback: Default::default(),
                 feedback_dialog: None,
+                feedback_note: None,
                 file_references: Vec::new(),
                 session_references: Vec::new(),
                 reference_token: None,
@@ -4513,19 +4520,44 @@ impl App {
                     };
                 }
             }
+            // A programmatic note, which the fixtures and tests set: the field itself edits through
+            // `FeedbackNoteEdit`, so the two cannot disagree about the bound.
+            #[cfg(any(test, feature = "public-layout-fixture"))]
             Message::FeedbackNote(note) => {
                 if let Some(draft) = &mut self.feedback_dialog {
                     if note.len() <= 4096 {
-                        draft.note = note;
+                        draft.note = note.clone();
                         draft.capped = false;
+                        self.feedback_note =
+                            Some(iced::widget::text_editor::Content::with_text(&note));
                     } else {
-                        // Refused, and said so: the field keeps what it had and the dialog states why
-                        // the last character did not arrive.
                         draft.capped = true;
                     }
                 }
             }
-            Message::FeedbackCancel => self.feedback_dialog = None,
+            Message::FeedbackNoteEdit(action) => {
+                let Some(content) = self.feedback_note.as_mut() else {
+                    return Task::none();
+                };
+                let before = content.text();
+                content.perform(action);
+                let after = content.text();
+                if let Some(draft) = &mut self.feedback_dialog {
+                    if after.len() <= 4096 {
+                        draft.note = after;
+                        draft.capped = false;
+                    } else {
+                        // Refused, and said so: the field keeps what it had and the dialog states why
+                        // the last character did not arrive.
+                        *content = iced::widget::text_editor::Content::with_text(&before);
+                        draft.capped = true;
+                    }
+                }
+            }
+            Message::FeedbackCancel => {
+                self.feedback_dialog = None;
+                self.feedback_note = None;
+            }
             Message::FeedbackSubmit => {
                 // The dialog is not consumed: a refusal or a transport failure must leave the typed note
                 // and category in place so the user can correct and resubmit (`dialog.ts:99-107`).
@@ -8279,6 +8311,12 @@ impl App {
             error: None,
             capped: true,
         });
+        self.feedback_note = Some(iced::widget::text_editor::Content::with_text(
+            self.feedback_dialog
+                .as_ref()
+                .map(|draft| draft.note.as_str())
+                .unwrap_or_default(),
+        ));
     }
     /// The feedback dialog open on a refused write: the note survives and the reason sits beside it
     /// (`dialog.ts:99-107`).
@@ -8294,6 +8332,12 @@ impl App {
             error: Some("Feedback refused: note-too-large".into()),
             capped: false,
         });
+        self.feedback_note = Some(iced::widget::text_editor::Content::with_text(
+            self.feedback_dialog
+                .as_ref()
+                .map(|draft| draft.note.as_str())
+                .unwrap_or_default(),
+        ));
     }
     /// A turn that edited exactly one file, which the card draws as its own row
     /// (`ChangedFiles.tsx:54-77`).
@@ -11072,6 +11116,7 @@ impl App {
                     error: None,
                     capped: false,
                 });
+                self.feedback_note = Some(iced::widget::text_editor::Content::new());
             }
         }
         Task::none()
@@ -11190,11 +11235,22 @@ impl App {
                 .size(11),
                 label("Category (optional)", MUTED).size(10),
                 categories,
-                text_input("Note (optional)", &draft.note)
-                    .on_input(Message::FeedbackNote)
-                    .size(12)
-                    .padding(4)
-                    .width(Length::Fill),
+                // The field is labelled above it, never by a placeholder: what it holds is the note
+                // the Host records, and the reference's own textarea carries the same label
+                // (`FeedbackDialog.tsx:117-118`).
+                label("Note (optional)", MUTED).size(10),
+                // The reference's note is a textarea (`FeedbackDialog.tsx:117-118`); this is the
+                // multi-line editor, bounded so a long note scrolls instead of growing the dialog.
+                match &self.feedback_note {
+                    Some(note) => Element::from(
+                        iced::widget::text_editor(note)
+                            .on_action(Message::FeedbackNoteEdit)
+                            .size(12)
+                            .padding(4)
+                            .height(Length::Fixed(110.0)),
+                    ),
+                    None => Space::new().height(0).into(),
+                },
                 // The reference states what travels with a note (`locales.ts:46`), so the same
                 // sentence sits under the field rather than in a placeholder a long note hides.
                 label(
@@ -25242,6 +25298,30 @@ mod feedback_label_tests {
 mod feedback_note_cap_tests {
     //! The note's own bound states itself instead of dropping a character silently.
     use super::*;
+
+    #[test]
+    fn the_note_field_carries_newlines_and_the_bound() {
+        let (mut app, _receiver) = crate::ui::tests::managed_app();
+        let _ = app.update(Message::FeedbackDislike("PUBLIC-message".into()));
+        assert!(
+            app.feedback_note.is_some(),
+            "the field exists with the dialog"
+        );
+        // Two lines typed into the editor reach the draft as two lines.
+        for ch in "first\nsecond".chars() {
+            let _ = app.update(Message::FeedbackNoteEdit(
+                iced::widget::text_editor::Action::Edit(iced::widget::text_editor::Edit::Insert(
+                    ch,
+                )),
+            ));
+        }
+        let draft = app.feedback_dialog.as_ref().expect("the dialog");
+        assert_eq!(draft.note, "first\nsecond");
+        assert!(!draft.capped);
+        // The field is dropped with the dialog.
+        let _ = app.update(Message::FeedbackCancel);
+        assert!(app.feedback_note.is_none());
+    }
 
     #[test]
     fn a_note_past_the_limit_keeps_what_it_had_and_says_so() {

@@ -13256,3 +13256,36 @@ dialog too (round 492).
 | DP-2 capture | — | `shots/286-feedback-capped.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 496 — the feedback note is a multi-line field
+
+The last recorded difference on the feedback dialog: the reference's note is a textarea
+(`FeedbackDialog.tsx:117-118`); native had a single-line input, so a note could not hold a paragraph.
+
+The dialog now carries an `iced` multi-line editor created with it and dropped with it, bounded at 110px so
+a long note scrolls inside the dialog rather than growing it. The field is labelled *above* it — never by a
+placeholder — and its edit route (`FeedbackNoteEdit`) applies the same 4096-byte bound round 495 made
+visible: an edit that would exceed it is reverted in the field itself and the limit line states why. The
+programmatic note route stays for fixtures and tests and is compiled only where those exist.
+
+Tests: `the_note_field_carries_newlines_and_the_bound` — two lines typed through the editor reach the draft
+as two lines, and the field is dropped with its dialog.
+
+Evidence: `shots/287-feedback-textarea.png` (DP-2 alongside, `status: passed`) — the labelled multi-line
+field, the log disclosure and the limit line above Cancel and Submit.
+
+**Battery (round 496).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1482 passed**, 1 ignored |
+| app, default | **0** | **1444 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/287-feedback-textarea.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
