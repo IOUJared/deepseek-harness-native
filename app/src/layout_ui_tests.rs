@@ -904,3 +904,28 @@ fn closing_the_subagent_catalog_forgets_its_open_branches() {
         app.subagent_menu = true;
     }
 }
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
+fn hovering_the_subagent_trigger_opens_it_only_after_the_delay() {
+    let (size, _scale) = super::layout_fixture::preset_size("subagent-trail").unwrap();
+    let (mut app, _queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "subagent-trail",
+        size,
+        None,
+    );
+    app.subagent_menu = false;
+    // Entering arms a delay: nothing is open yet.
+    drop(app.update(Message::SubagentHover(true)));
+    assert!(app.subagent_hovered);
+    assert!(!app.subagent_menu, "a crossing cursor does not open it");
+    // The delay elapsing while the pointer is still there opens it.
+    drop(app.update(Message::SubagentHoverExpired));
+    assert!(app.subagent_menu);
+    // Leaving and coming back re-arms; a delay that fires after the pointer left does nothing.
+    drop(app.update(Message::SubagentHover(false)));
+    assert!(!app.subagent_hovered);
+    drop(app.update(Message::SubagentHoverExpired));
+    assert!(app.subagent_menu, "an expired delay does not close it");
+}

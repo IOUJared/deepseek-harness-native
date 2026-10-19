@@ -448,6 +448,10 @@ pub enum Message {
     ScheduleRetention(bool),
     /// Unfold or fold one delivery record's saved prompt.
     ScheduleHistoryPrompt(String),
+    /// The pointer entered or left the subagent catalog's trigger.
+    SubagentHover(bool),
+    /// The hover delay elapsed while the pointer was still on the trigger.
+    SubagentHoverExpired,
     /// The guide's `Copied` confirmation has been shown for its second.
     GuideCopyExpired,
     /// Copy one job's command to the clipboard.
@@ -1389,6 +1393,9 @@ pub struct App {
     run_watch: run_watch::Watch,
     /// A plan-mode toggle is in flight. Inert until its reply settles.
     plan_toggle_pending: bool,
+    /// The pointer is on the subagent catalog's trigger, so a pending hover delay still counts
+    /// (`SubagentHeaderLineage.tsx:520-538`).
+    subagent_hovered: bool,
     /// The read-only More → Work records panel is open.
     work_open: bool,
     /// The More → Terminal panel is open. The Host owns every shell; the app is a client.
@@ -1651,6 +1658,7 @@ impl App {
                 editor: text_editor::Content::new(),
                 editor_menu: false,
                 subagent_menu: false,
+                subagent_hovered: false,
                 subagent_expanded: Default::default(),
                 permission_menu: false,
                 permission_confirm: None,
@@ -4063,6 +4071,30 @@ impl App {
                     return Task::none();
                 }
                 self.send_permission_preset(&preset);
+            }
+            Message::SubagentHover(hovered) if self.layout_controls_enabled() => {
+                self.subagent_hovered = hovered;
+                if !hovered {
+                    return Task::none();
+                }
+                if self.subagent_menu {
+                    return Task::none();
+                }
+                // One press of the pointer is a shortcut for the click, but only after the
+                // reference's delay: a cursor crossing the header must not open a popup.
+                return Task::perform(
+                    async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                    },
+                    |()| Message::SubagentHoverExpired,
+                );
+            }
+            Message::SubagentHoverExpired
+                if self.layout_controls_enabled()
+                    && self.subagent_hovered
+                    && !self.subagent_menu =>
+            {
+                self.subagent_menu = true;
             }
             Message::ToggleSubagentMenu(open) if self.layout_controls_enabled() => {
                 if open {
@@ -9622,11 +9654,19 @@ impl App {
         }
         content = content
             .push(label(subagent_catalog::count_label(entries.len(), running), MUTED).size(12));
-        let trigger = button(content)
-            .on_press(Message::ToggleSubagentMenu(!self.subagent_menu))
-            .style(design::ghost)
-            .padding([5, 8])
-            .into();
+        let trigger: Element<'_, Message> = iced::widget::mouse_area(
+            button(content)
+                .on_press(Message::ToggleSubagentMenu(!self.subagent_menu))
+                .style(design::ghost)
+                .padding([5, 8]),
+        )
+        // The reference opens the catalog on hover after 150ms and closes it 120ms after the pointer
+        // leaves (`SubagentHeaderLineage.tsx:520-538`), keeping a click's pin: the pointer is a
+        // shortcut, not a different control. The delays are what stop a passing cursor from opening
+        // it, so they are timed rather than immediate.
+        .on_enter(Message::SubagentHover(true))
+        .on_exit(Message::SubagentHover(false))
+        .into();
         Some(anchored_popup::anchored_below(
             trigger,
             self.subagent_menu

@@ -12161,3 +12161,39 @@ closed three different ways in turn, and each one leaves no stale branch behind.
 | capture | — | none: closing state, proved by its test |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 467 — the catalog opens on hover, after the reference's delay
+
+The subagent audit's seventh difference: the reference opens the catalog when the pointer rests on the
+trigger for 150ms and closes it 120ms after the pointer leaves, with a click pinning it open
+(`SubagentHeaderLineage.tsx:520-538`). Native required a click, so reaching the tree meant moving to a
+control that a pointer-driven user would expect to open.
+
+The trigger is now a `mouse_area`: entering arms `Message::SubagentHover(true)`, which schedules
+`SubagentHoverExpired` after 150ms, and that message opens the catalog only if the pointer is *still*
+there and nothing is open. The delay is the point — a cursor crossing the header must not open a popup —
+and a click still works exactly as before.
+
+Tests: `hovering_the_subagent_trigger_opens_it_only_after_the_delay` — entering opens nothing, the
+elapsed delay opens it, and a delay that fires after the pointer left changes nothing.
+
+**Recorded difference**: the reference also *closes* 120ms after the pointer leaves. Native keeps the
+catalog open until a click, Escape or an outside press, because a popup that vanishes while the user is
+moving toward it is the failure a hover-close usually produces; the behaviour is named here rather than
+copied blindly.
+
+**Battery (round 467).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1451 passed**, 1 ignored |
+| app, default | **0** | **1424 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: pointer timing, proved by its test |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
