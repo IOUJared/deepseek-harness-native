@@ -12870,13 +12870,21 @@ impl App {
                         .and_then(|activity| activity.web)
                 })
                 .flatten();
-            let body = match (&read, &terminal, &search, &web, &diff) {
-                (Some(card), _, _, _, _) => self.read_card_height(card, row.key),
-                (None, Some(card), _, _, _) => self.terminal_card_height(card, row.key),
-                (None, None, Some(card), _, _) => self.search_card_height(card, row.key),
-                (None, None, None, Some(card), _) => self.web_card_height(card, row.key),
-                (None, None, None, None, Some(diff)) => self.diff_card_height(diff, row.key),
-                (None, None, None, None, None) => conversation_content::tool_body_height(
+            let ask = (row.role == "Tool call")
+                .then(|| {
+                    self.transcript
+                        .activity(row.key, self.path_roots())
+                        .and_then(|activity| activity.ask)
+                })
+                .flatten();
+            let body = match (&read, &terminal, &search, &web, &ask, &diff) {
+                (Some(card), _, _, _, _, _) => self.read_card_height(card, row.key),
+                (None, Some(card), _, _, _, _) => self.terminal_card_height(card, row.key),
+                (None, None, Some(card), _, _, _) => self.search_card_height(card, row.key),
+                (None, None, None, Some(card), _, _) => self.web_card_height(card, row.key),
+                (None, None, None, None, Some(card), _) => self.ask_card_height(card, row.key),
+                (None, None, None, None, None, Some(diff)) => self.diff_card_height(diff, row.key),
+                (None, None, None, None, None, None) => conversation_content::tool_body_height(
                     activity_body_source(row),
                     geometry.width - chat_geometry::BODY_INSET,
                     self.content_delta_secondary(),
@@ -13401,6 +13409,107 @@ impl App {
             })
             .into()
     }
+    /// The ask-user card's drawn height: its retained rows and one fold row.
+    fn ask_card_height(&self, card: &crate::reducer::ask_card::Card, key: u64) -> f32 {
+        let rows = card.drawn_rows(self.diff_expanded.contains(&key)) as f32;
+        let line = design::CODE_LINE + self.content_delta_secondary();
+        design::DIFF_PAD_TOP + design::DIFF_PAD_BOTTOM + line * (rows + 1.0)
+    }
+    /// The reference's ask-user transcript (`AskQuestionCard.tsx:11-39`): each question with the
+    /// answers it took (`Not answered` when it took none), or the verdict and question list of a
+    /// set that never settled with answers.
+    fn ask_card(
+        &self,
+        card: &crate::reducer::ask_card::Card,
+        key: u64,
+    ) -> Element<'static, Message> {
+        use crate::reducer::ask_card::Row;
+        let expanded = self.diff_expanded.contains(&key);
+        let shown = card.shown(expanded);
+        let line = design::CODE_LINE + self.content_delta_secondary();
+        let row_of = |row: &Row| -> Element<'static, Message> {
+            match row {
+                Row::Verdict(verdict) => label(*verdict, MUTED).size(design::CODE_FONT).into(),
+                Row::Question(text) => label(short(text, 160), TEXT).size(design::CODE_FONT).into(),
+                Row::Answer(text) => label(short(text, 160), MUTED)
+                    .size(design::CODE_FONT)
+                    .into(),
+                Row::Skipped => label("Not answered", MUTED).size(design::CODE_FONT).into(),
+            }
+        };
+        // The reference's row summary — `1/2 answered`, or the verdict — is the card's banner,
+        // the same place the search and web cards state theirs.
+        let mut body = Column::new().push(
+            container(label(card.summary(), MUTED).size(design::CODE_FONT))
+                .height(line)
+                .width(Length::Fill)
+                .align_y(iced::Alignment::Center),
+        );
+        for item in &shown.head {
+            body = body.push(
+                container(row_of(item))
+                    .width(Length::Fill)
+                    .padding(iced::Padding {
+                        top: 0.0,
+                        right: 0.0,
+                        bottom: 0.0,
+                        left: design::DIFF_STAT_LEFT,
+                    }),
+            );
+        }
+        if shown.hidden > 0 {
+            let copy = if expanded {
+                "Collapse".to_owned()
+            } else {
+                format!("… {} more rows", shown.hidden)
+            };
+            body = body.push(
+                button(label(copy, MUTED).size(design::CODE_FONT))
+                    .on_press(Message::ToggleDiff(key))
+                    .style(design::ghost)
+                    .padding(iced::Padding {
+                        top: 0.0,
+                        right: 0.0,
+                        bottom: 0.0,
+                        left: design::DIFF_LINE_PAD,
+                    })
+                    .height(line)
+                    .width(Length::Fill),
+            );
+        }
+        for item in &shown.tail {
+            body = body.push(
+                container(row_of(item))
+                    .width(Length::Fill)
+                    .padding(iced::Padding {
+                        top: 0.0,
+                        right: 0.0,
+                        bottom: 0.0,
+                        left: design::DIFF_STAT_LEFT,
+                    }),
+            );
+        }
+        container(body)
+            .id("native-tool-ask")
+            .width(Length::Fill)
+            .height(self.ask_card_height(card, key))
+            .padding(iced::Padding {
+                top: design::DIFF_PAD_TOP,
+                right: 0.0,
+                bottom: design::DIFF_PAD_BOTTOM,
+                left: 0.0,
+            })
+            .clip(true)
+            .style(|_| iced::widget::container::Style {
+                background: Some(design::OVERLAY.into()),
+                border: iced::Border {
+                    radius: design::RADIUS_LG.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .into()
+    }
     /// The web card's drawn height: the retained rows, one fold row, and the truncation note.
     fn web_card_height(&self, card: &crate::reducer::web_card::Card, key: u64) -> f32 {
         let rows = card.drawn_rows(self.diff_expanded.contains(&key)) as f32;
@@ -13875,27 +13984,40 @@ impl App {
                                 .and_then(|activity| activity.web)
                         })
                         .flatten();
-                    activity_column =
-                        activity_column.push(match (&read, &terminal, &search, &web, &diff) {
-                            (Some(card), _, _, _, _) => self.read_card(card, record.key),
-                            (None, Some(card), _, _, _) => self.terminal_card(card, record.key),
-                            (None, None, Some(card), _, _) => self.search_card(card, record.key),
-                            (None, None, None, Some(card), _) => self.web_card(card, record.key),
-                            (None, None, None, None, Some(diff)) => {
+                    let ask = (record.role == "Tool call")
+                        .then(|| {
+                            self.transcript
+                                .activity(record.key, self.path_roots())
+                                .and_then(|activity| activity.ask)
+                        })
+                        .flatten();
+                    activity_column = activity_column.push(
+                        match (&read, &terminal, &search, &web, &ask, &diff) {
+                            (Some(card), _, _, _, _, _) => self.read_card(card, record.key),
+                            (None, Some(card), _, _, _, _) => self.terminal_card(card, record.key),
+                            (None, None, Some(card), _, _, _) => self.search_card(card, record.key),
+                            (None, None, None, Some(card), _, _) => self.web_card(card, record.key),
+                            (None, None, None, None, Some(card), _) => {
+                                self.ask_card(card, record.key)
+                            }
+                            (None, None, None, None, None, Some(diff)) => {
                                 self.diff_card(diff, record.key)
                             }
-                            (None, None, None, None, None) => conversation_content::tool_body_view(
-                                activity_body,
-                                conversation_content::tool_body_height(
+                            (None, None, None, None, None, None) => {
+                                conversation_content::tool_body_view(
                                     activity_body,
-                                    body_width,
+                                    conversation_content::tool_body_height(
+                                        activity_body,
+                                        body_width,
+                                        self.content_delta_secondary(),
+                                        design::body_line(self.content_delta()),
+                                    ),
                                     self.content_delta_secondary(),
                                     design::body_line(self.content_delta()),
-                                ),
-                                self.content_delta_secondary(),
-                                design::body_line(self.content_delta()),
-                            ),
-                        });
+                                )
+                            }
+                        },
+                    );
                 }
                 activity_column.into()
             } else if let Some(trigger) = record.trigger {

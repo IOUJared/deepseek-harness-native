@@ -142,6 +142,7 @@ pub const PRESETS: &[&str] = &[
     "tool-activity-terminal",
     "tool-activity-search",
     "tool-activity-web",
+    "tool-activity-ask",
     "context-injects",
     "assistant-tool-call",
     "assistant-tool-call-expanded",
@@ -213,7 +214,8 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "tool-activity-read"
         | "tool-activity-terminal"
         | "tool-activity-search"
-        | "tool-activity-web" => Some((Size::new(1040.0, 1040.0), 1.0)),
+        | "tool-activity-web"
+        | "tool-activity-ask" => Some((Size::new(1040.0, 1040.0), 1.0)),
         "context-injects" | "context-injects-trajectory" => Some((Size::new(1040.0, 900.0), 1.0)),
         "assistant-tool-call" | "assistant-tool-call-expanded" => {
             Some((Size::new(1040.0, 760.0), 1.0))
@@ -653,6 +655,59 @@ fn public_tool_terminal_records() -> Vec<Value> {
         }
     }
     records
+}
+
+/// A conversation whose only tool call is an `ask_user_question`, recorded with the question and
+/// answer JSON the reference pairs into its transcript card (`ask-question-row.tsx:130-170`). Every
+/// question and answer is synthetic PUBLIC metadata; nothing was asked of the user.
+fn public_ask_records() -> Vec<Value> {
+    let event = |seq: u64, kind: &str, data: Value| {
+        json!({"type":"event", "event":{
+            "type":kind, "seq":seq, "time":1000+seq, "data":data, "surfaceOp":"append"
+        }})
+    };
+    let questions = json!([
+        {"id":"PUBLIC-q1", "question":"PUBLIC which surface should the fixture draw?",
+         "options":[{"label":"Chat"},{"label":"Trajectory"}]},
+        {"id":"PUBLIC-q2", "question":"PUBLIC anything else to record?", "multi_select":true},
+    ]);
+    let answers = json!({"answers":[
+        {"id":"PUBLIC-q1", "selected":["Chat"], "custom":"PUBLIC typed note"},
+        {"id":"PUBLIC-q2", "selected":[]},
+    ]});
+    vec![
+        event(
+            0,
+            "user/message",
+            json!({"role":"user", "id":"PUBLIC-ask-user", "source":{"kind":"user"},
+                "content":[{"type":"text","text":"PUBLIC ask fixture · nothing was asked."}]}),
+        ),
+        event(
+            1,
+            "tool/call",
+            json!({"callId":"PUBLIC-ask-call", "turn":1, "step":2,
+                "name":"ask_user_question",
+                "arguments":json!({"questions": questions}).to_string()}),
+        ),
+        event(
+            2,
+            "tool/result",
+            json!({"turn":1, "step":2, "message":{
+                "role":"tool", "toolCallId":"PUBLIC-ask-call",
+                "source":{"kind":"tool", "callId":"PUBLIC-ask-call"},
+                "isError":false,
+                "content":[{"type":"text", "text":answers.to_string()}]
+            }}),
+        ),
+        event(
+            3,
+            "assistant/message",
+            json!({"turn":1, "step":2,
+                "stream":[{"type":"text-chunks", "time0":1003, "index":0, "dt":[],
+                    "texts":["PUBLIC synthetic assistant text · the question card is drawn from recorded metadata, not from an answer."]}]
+            }),
+        ),
+    ]
 }
 
 /// A conversation whose only tool call is a `web_search`, recorded with the metadata the reference
@@ -1151,6 +1206,8 @@ pub fn build(
         public_search_records()
     } else if preset == "tool-activity-web" {
         public_web_records()
+    } else if preset == "tool-activity-ask" {
+        public_ask_records()
     } else if preset == "tool-activity-diff-long" {
         // The same transcript with a longer edit, so the card's 9-row cap and its fold control
         // are drawn. Every line is synthetic PUBLIC metadata.
@@ -2208,6 +2265,36 @@ pub fn build(
             }));
             assert!(app.activity_expanded.contains(&1));
         }
+        "tool-activity-ask" => {
+            assert_eq!(app.transcript.display_rows(false).count(), 3);
+            // The question call expands into the reference's transcript: each question with what
+            // was chosen, and `Not answered` where nothing was.
+            let card = app
+                .transcript
+                .activity(1, app.path_roots())
+                .and_then(|activity| activity.ask)
+                .expect("the question call's card");
+            assert_eq!(card.summary(), "1/2 answered");
+            assert_eq!(
+                card.rows(),
+                vec![
+                    crate::reducer::ask_card::Row::Question(
+                        "PUBLIC which surface should the fixture draw?".into()
+                    ),
+                    crate::reducer::ask_card::Row::Answer("Chat".into()),
+                    crate::reducer::ask_card::Row::Answer("PUBLIC typed note".into()),
+                    crate::reducer::ask_card::Row::Question(
+                        "PUBLIC anything else to record?".into()
+                    ),
+                    crate::reducer::ask_card::Row::Skipped,
+                ]
+            );
+            drop(app.update(Message::ToggleActivity {
+                generation: app.generation,
+                key: 1,
+            }));
+            assert!(app.activity_expanded.contains(&1));
+        }
         "tool-activity-expanded" => {
             // The recorded Bash call expands inside the conversation; the detail
             // panel stays closed and no tool is executed.
@@ -2763,6 +2850,7 @@ mod tests {
             if preset.starts_with("tool-activity")
                 && preset != "tool-activity-search"
                 && preset != "tool-activity-web"
+                && preset != "tool-activity-ask"
             {
                 assert_eq!(app.transcript.rows().len(), 8);
                 assert_eq!(app.transcript.opening_cursor(), 7);

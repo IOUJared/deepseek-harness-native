@@ -5,6 +5,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 #[path = "activity.rs"]
 pub mod activity;
+/// The reference's ask-user transcript card.
+#[path = "ask_card.rs"]
+pub mod ask_card;
 #[path = "assistant_parts.rs"]
 mod assistant_parts;
 /// The reference's inline diff card for a file-mutation tool row. Declared here, beside

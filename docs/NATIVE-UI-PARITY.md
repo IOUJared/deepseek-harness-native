@@ -372,7 +372,7 @@ the authoritative short form.
    its `tool/call` and draws one row per call, as the reference does; the result record remains a
    Trajectory-only row, so nothing is lost. See that round for the pairing rules and the rows that
    changed.
-8. **The expanded tool body's card family — five of the cards are now built.** The reference
+8. **The expanded tool body's card family — six of the cards are now built.** The reference
    picks a structured card per tool before any text card (`ToolRow.tsx:169-170`: ask-user,
    terminal, diff, read, image, search, web, details, then the IN/OUT text card) and draws it with
    the shared primitive (`:258-341`). Native draws the **diff** card (round 362, arguments only),
@@ -382,9 +382,11 @@ the authoritative short form.
    `[exit code: N]`/`[killed by signal: X]` marker, the output rows and the 16-row fold) and the
    **search** card (round 375: `grep` matches grouped by file or `glob`'s flat path list, with the
    retained/pre-cap banner) and the **web** card (round 376: `web_search`'s answer over its numbered
-   sources or `web_fetch`'s URL and HTTP status, with the provider's truncation note). What remains
-   of this family is the `str_replace_editor` shape and the ask-user/image cards, so the difference
-   is **text where the reference picks a structured card**, for those two families only.
+   sources or `web_fetch`'s URL and HTTP status, with the provider's truncation note) and the
+   **ask-user** transcript (round 377: each question with the answers it took, `Not answered` where
+   it took none, and the cancelled/interrupted verdicts). What remains of this family is the
+   `str_replace_editor` shape and the image card — the latter blocked on the image fetch policy —
+   so the difference is **text where the reference picks a structured card**, for those two only.
 9. **Permission default row in Settings — landed.** The reference has *two* permission pickers;
    both are drawn here now (`settings.rs:1550-1580`, settings-general permission row,
    `shots/70-…`–`73-…`), and the record below is kept because it names the second surface and its
@@ -8754,5 +8756,50 @@ search and fetch notes, the 8-row cap, seven metadata failures, seven call failu
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/175-tool-web-card.png`, `status: passed` |
+| app bin | — | **19** dead-code warnings (unchanged) |
+| tree | — | clean before the commit |
+
+### Round 377 — the ask-user transcript: questions paired with what was chosen
+
+The fifth structured tool card, and the one whose data is the user's own words. An
+`ask_user_question` call records its questions in the arguments; the result records the answers,
+both as JSON keyed by stable ids. The reference pairs them and draws each question with what was
+chosen — or names the verdict when the set never took answers — and native drew the raw record.
+
+**The model** (`reducer/ask_card.rs`) follows `ask-question-row.tsx:95-170`: the call must be
+`ask_user_question` with a non-empty `questions` array of unique string ids, string `question`,
+optional string `header`/`detail`, an array `options` and a boolean `multi_select`. The result text
+must parse as `{answers: [{id, selected: [string], custom?}]}`, and the pairing is exact — a
+different count, a repeated id, or an id that was never asked yields **no card**, because a partial
+pairing would show answers under the wrong questions. An empty `custom` string is not an answer.
+A failed call with `error.code` `ASK_CANCELLED` or `ASK_ABORTED` draws the verdict (`cancelled`,
+`interrupted`) and the question list instead; any other failure stays a tool error.
+
+**The card** states the reference's summary — `1/2 answered`, or the verdict — as its banner, then
+each question with its chosen options and typed note (or `Not answered`), capped at 8 rows with the
+usual fold. The row itself now reads `Question · <first question>` rather than the generic
+`Tool · … · Tool arguments available`.
+
+Evidence: `shots/176-tool-ask-card.png` (DP-2 alongside, `status: passed`) in the new
+`tool-activity-ask` preset: two questions, one answered with an option plus a typed note, one
+`Not answered`.
+
+Tests: seven in `ask_card` — the answered pairing, an empty `custom` not counting, both verdicts and
+an unrelated failure, three ambiguous batches, five call-shape failures plus an unparsable result,
+the 8-row cap, and the quiet `Debug` — plus the preset's row-for-row assertion.
+
+**Battery (round 377).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1327 passed**, 1 ignored |
+| app, default | **0** | **1320 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/176-tool-ask-card.png`, `status: passed` |
 | app bin | — | **19** dead-code warnings (unchanged) |
 | tree | — | clean before the commit |

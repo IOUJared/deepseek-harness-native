@@ -45,6 +45,8 @@ pub struct Summary {
     pub search: Option<crate::reducer::search_card::Card>,
     /// The web card for a settled `web_search`/`web_fetch` call (`web-card-model.ts:60-99`).
     pub web: Option<crate::reducer::web_card::Card>,
+    /// The ask-user transcript card for a settled `ask_user_question` call.
+    pub ask: Option<crate::reducer::ask_card::Card>,
 }
 
 /// The diff card's rows are file content, so the debug form names the card and its row count
@@ -94,6 +96,7 @@ impl std::fmt::Debug for Summary {
                     .as_ref()
                     .map(|card| format!("{} rows", card.rows().len())),
             )
+            .field("ask", &self.ask)
             .finish()
     }
 }
@@ -133,6 +136,7 @@ pub(super) fn summarize_paired<'a>(
                     crate::reducer::terminal_card::derive(&event.data, &result.data, roots);
                 summary.search = crate::reducer::search_card::derive(&event.data, &result.data);
                 summary.web = crate::reducer::web_card::derive(&event.data, &result.data);
+                summary.ask = crate::reducer::ask_card::derive(&event.data, &result.data);
             }
             Some(summary)
         }
@@ -175,6 +179,7 @@ pub(super) fn summarize_paired<'a>(
                     terminal: None,
                     search: None,
                     web: None,
+                    ask: None,
                 },
                 |call| text_summary_label(&call.data, true, failed, roots),
             ))
@@ -196,6 +201,7 @@ pub(super) fn summarize_paired<'a>(
             terminal: None,
             search: None,
             web: None,
+            ask: None,
         }),
         "compaction/summary" => {
             let range = &event.data["shadowedRange"];
@@ -213,6 +219,7 @@ pub(super) fn summarize_paired<'a>(
                 terminal: None,
                 search: None,
                 web: None,
+                ask: None,
             })
         }
         "compaction/end" => event.data["error"].as_str().map_or_else(
@@ -228,6 +235,7 @@ pub(super) fn summarize_paired<'a>(
                     terminal: None,
                     search: None,
                     web: None,
+                    ask: None,
                 })
             },
         ),
@@ -291,6 +299,7 @@ fn loop_guard_summary(data: &Value) -> Summary {
             terminal: None,
             search: None,
             web: None,
+            ask: None,
         },
         _ => Summary {
             title: "Loop guard · repeated identical call".into(),
@@ -302,6 +311,7 @@ fn loop_guard_summary(data: &Value) -> Summary {
             terminal: None,
             search: None,
             web: None,
+            ask: None,
         },
     }
 }
@@ -320,6 +330,7 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
             terminal: None,
             search: None,
             web: None,
+            ask: None,
         };
     }
     let verb = match name {
@@ -328,6 +339,7 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
         "edit" | "functions.edit" | "tool-fs/edit" => "Edit",
         "write" | "functions.write" | "tool-fs/write" => "Write",
         "bash" | "functions.bash" | "tool-shell/bash" => "Bash",
+        "ask_user_question" | "functions.ask_user_question" => "Question",
         "web_search" | "functions.web_search" | "tool-web/web_search" => "Web search",
         "web_fetch" | "functions.web_fetch" | "tool-web/web_fetch" => "Web fetch",
         "grep" | "functions.grep" | "tool-search/grep" => "Grep",
@@ -352,6 +364,11 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
                 // A search row names what was searched for, the way a read row names its path; a
                 // web row names the query it sent or the URL it read.
                 "Grep" | "Glob" => pick(&args, &["pattern"]),
+                // A question row names the question it asked first.
+                "Question" => args["questions"]
+                    .as_array()
+                    .and_then(|questions| questions.first())
+                    .and_then(|question| question["question"].as_str()),
                 "Web search" => args["queries"]
                     .as_array()
                     .and_then(|queries| queries.first())
@@ -399,6 +416,7 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
         terminal: None,
         search: None,
         web: None,
+        ask: None,
     }
 }
 
@@ -1399,6 +1417,17 @@ mod card_debug_tests {
                 },
                 truncated: false,
             }),
+            ask: Some(crate::reducer::ask_card::Card {
+                kind: crate::reducer::ask_card::Kind::Answered(vec![
+                    crate::reducer::ask_card::Answered {
+                        id: "q1".into(),
+                        question: "PRIVATE-QUESTION".into(),
+                        answers: vec!["PRIVATE-CHOICE".into()],
+                    },
+                ]),
+                answered: 1,
+                total: 1,
+            }),
         };
         let debug = format!("{summary:?}");
         assert!(!debug.contains("PRIVATE-"), "{debug}");
@@ -1412,6 +1441,7 @@ mod card_debug_tests {
         summary.terminal = None;
         summary.search = None;
         summary.web = None;
+        summary.ask = None;
         assert!(format!("{summary:?}").contains("terminal: None"));
     }
 }
