@@ -6400,8 +6400,8 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Reasoning disclosure wording | difference: native says `Thoughts` where the reference says `Thought for a while` (`message.turnProcess.thoughtForAWhile`), by the user's stated preference for the shorter label; a settled row still previews its first line under the `settledReasoningPreview` policy |
 | Model-retry row, command row (a manual `/compact` folded into one marker), turn duration, failure and output-limit rows, card Copy control, created-task (`schedule_create`) card, skill row | cloned (the skill row has no `Inspect` action: native has no right Sidebar to open it in) |
 | Composer usage pill: tokens, cache hit, speed, turn/step counts, and the Host's session-statistics dialog | cloned |
-| Deliverables: summary, file list, diffs, desktop open | cloned (no right-Sidebar review tab) |
-| Message feedback: ratings, categories, note | cloned (session `/feedback` remains a Host command) |
+| Deliverables: summary, file list, per-file diff rows with both gutters and wrapping, desktop open | cloned (rounds 475–491; no right-Sidebar review tab, no split view or wrap toggle) |
+| Message feedback: ratings, categories, note, refusal/limit states | cloned (rounds 492–497); the rating controls are words rather than thumb icons, and a session-level dialog needs a Host route native lacks |
 | Chat images: a user message's image attachment and markdown images | difference: alt text and a text placeholder — no decode/texture path, and the fetch policy is the user's decision (open item 1) |
 | Right Sidebar: document preview and resource tabs | difference: full-page details panel, no PDF/Office renderers |
 | Workspace browser: grouped/animated rows, drag order, per-row menus | difference: workspace filter + navigation sheet |
@@ -13330,3 +13330,33 @@ composer keeps the Host command path the reference also keeps for `/feedback <te
 | DP-2 capture | — | `shots/288-feedback-chip.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 498 — sweep of the rounds since the last verification
+
+Another replay check rather than a change: the four surfaces that changed most since round 480 —
+the reply action row with its rating, the dated turn-trigger notice with its long body, the context panel
+with its bar, and the failed-upload card — captured and inspected. Nothing regressed; every time reads
+with its date and no row falls back to the epoch.
+
+`shots/289`–`292`, DP-2 alongside each, all `status: passed`.
+
+**Two coverage rows corrected in the same commit**, both of which had gone stale in the index rather than
+in the code: message feedback is described with the refusal and limit states rounds 492–497 added and with
+its remaining differences (words rather than thumb icons, no session-level dialog), and deliverables now
+name the per-file diff rows with both gutters and wrapping that rounds 475–491 built instead of the old
+"diffs" that read as though the comparison were plain text.
+
+**Battery, all re-run.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1482 passed**, 1 ignored |
+| app, default | **0** | **1444 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 |
+| core (`--lib`) | **0** | **115 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 captures | — | `shots/289`–`292`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
