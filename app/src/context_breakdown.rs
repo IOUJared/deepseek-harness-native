@@ -22,6 +22,22 @@ impl Breakdown {
             .saturating_add(self.tools)
             .saturating_add(self.messages)
     }
+    /// The bar's segments: one width per row, proportional to that row's share of the heuristic total
+    /// and scaled to the overall occupancy, in the reference's order
+    /// (`ContextMeter.tsx:97-106`). A zero part is dropped rather than drawn as a hairline; a zero
+    /// total leaves one neutral segment filling the percent.
+    pub fn segments(&self, percent: u64) -> [Option<f32>; 3] {
+        let total = self.total();
+        if total == 0 {
+            return [Some(percent as f32), None, None];
+        }
+        let width = |tokens: u64| -> Option<f32> {
+            let share = tokens as f64 / total as f64;
+            let width = percent as f64 * share;
+            (width > 0.0).then_some(width as f32)
+        };
+        [width(self.system), width(self.tools), width(self.messages)]
+    }
     /// The rows the panel lists, labelled as the reference labels them.
     pub fn rows(&self) -> [(&'static str, u64); 3] {
         [
@@ -126,6 +142,34 @@ mod tests {
             )]))
             .is_none()
         );
+    }
+
+    #[test]
+    fn the_bar_segments_share_the_occupancy_in_the_references_order() {
+        let breakdown = Breakdown {
+            system: 12_400,
+            tools: 3_600,
+            messages: 28_000,
+        };
+        let segments = breakdown.segments(84);
+        // 12400/44000, 3600/44000 and 28000/44000 of 84%.
+        assert!((segments[0].unwrap() - 23.67).abs() < 0.1);
+        assert!((segments[1].unwrap() - 6.87).abs() < 0.1);
+        assert!((segments[2].unwrap() - 53.45).abs() < 0.1);
+        // A zero part is dropped, not drawn as a hairline.
+        let system_only = Breakdown {
+            system: 1_000,
+            tools: 0,
+            messages: 0,
+        };
+        assert_eq!(system_only.segments(84), [Some(84.0), None, None]);
+        // No breakdown at all: one neutral segment states the occupancy.
+        let empty = Breakdown {
+            system: 0,
+            tools: 0,
+            messages: 0,
+        };
+        assert_eq!(empty.segments(42), [Some(42.0), None, None]);
     }
 
     #[test]

@@ -11546,6 +11546,24 @@ impl App {
         used: u64,
         capacity: u64,
     ) -> Element<'_, Message> {
+        // The bar above the rows: three segments proportional to the shares, one pixel apart, in the
+        // reference's order and tinted from this palette (`ContextMeter.module.css:92-133`).
+        let inner = 260.0 - 20.0;
+        let segments = breakdown.segments(percent);
+        let tints = [design::MUTED, ACCENT, design::FOAM];
+        let mut bar = row![].spacing(1);
+        for (index, width) in segments.iter().enumerate() {
+            let Some(width) = width else { continue };
+            bar = bar.push(
+                container(Space::new())
+                    .width(Length::Fixed(inner * width / 100.0))
+                    .height(design::CONTEXT_BAR)
+                    .style(move |_| container::Style {
+                        background: Some(tints[index].into()),
+                        ..Default::default()
+                    }),
+            );
+        }
         let mut rows = column![].spacing(3);
         for (label_text, tokens) in breakdown.rows() {
             rows = rows.push(
@@ -11576,6 +11594,9 @@ impl App {
                     .size(10),
                 ]
                 .spacing(8),
+                container(bar)
+                    .height(design::CONTEXT_BAR)
+                    .width(Length::Fill),
                 rows,
             ]
             .spacing(6),

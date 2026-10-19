@@ -361,6 +361,8 @@ pub const DIFF_PAD_TOP: f32 = 6.0;
 pub const DIFF_PAD_BOTTOM: f32 = 20.0;
 pub const DIFF_LINE_PAD: f32 = 22.0;
 pub const DIFF_BAR: f32 = 3.0;
+/// The context panel's segmented bar height (`ContextMeter.module.css:92-101`).
+pub const CONTEXT_BAR: f32 = 4.0;
 /// The height the composer rail's horizontal scrollbar needs under its cards, so the rail keeps the
 /// reference's card height and still shows that it can move.
 pub const ATTACH_RAIL_SCROLLBAR: f32 = 10.0;

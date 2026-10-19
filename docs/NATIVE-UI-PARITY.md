@@ -13018,3 +13018,41 @@ deliverables/changes and the composer landed in rounds 475–489. What remains i
 Everything in that list is either a recorded deliberate difference or blocked on a Host capability. The
 user-only items remain unchanged: the image fetch policy decision, `reference.png`, a window-edge drag
 below 520×600 with a close-timing run, and the control-stream worker hop.
+
+### Round 490 — the context panel's bar proportions the shares
+
+The part of the context meter the last round recorded as missing: the reference's panel draws a 4px
+segmented bar whose three parts are proportional to the rows below it
+(`ContextMeter.tsx:97-106`, `ContextMeter.module.css:92-133`). The information was all there after round
+489; what was missing was the shape that makes the proportions legible at a glance.
+
+`Breakdown::segments` returns one width per row — the row's share of the heuristic total, scaled to the
+overall occupancy — with a zero part dropped rather than drawn as a hairline, and a single neutral
+segment when there is no breakdown at all. The panel draws them one pixel apart in the reference's order,
+tinted from this palette: muted for the system prompt, accent for tool definitions, foam for messages.
+
+Tests: `the_bar_segments_share_the_occupancy_in_the_references_order` — the three widths of one breakdown
+(23.7, 6.9 and 53.5 of 84%), a single non-zero part, and the no-breakdown case.
+
+Evidence: `shots/281-context-bar.png` (DP-2 alongside, `status: passed`) — `84% of context used`,
+`~108K / 128K`, the three-part bar, and the three rows.
+
+**Still recorded, and now only this**: the reference's trigger is a 14px ring with the percent inside;
+native's is the occupancy text it already drew. That is a shape for the *closed* state, and the panel it
+opens now matches.
+
+**Battery (round 490).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1476 passed**, 1 ignored |
+| app, default | **0** | **1438 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/281-context-bar.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |
