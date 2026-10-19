@@ -93,6 +93,9 @@ mod chat_flow_ui_tests;
 pub(crate) mod chat_usage;
 #[path = "command_menu.rs"]
 mod command_menu;
+/// Where the context window went.
+#[path = "context_breakdown.rs"]
+pub mod context_breakdown;
 #[cfg(test)]
 #[path = "conversation_actions_ui_tests.rs"]
 mod conversation_actions_ui_tests;
@@ -458,6 +461,8 @@ pub enum Message {
     ChangesHover(Option<(u64, usize)>),
     /// The hover delay elapsed while the pointer was still on that row.
     ChangesHoverExpired,
+    /// Open or close the context breakdown panels.
+    ToggleContextBreakdown,
     /// Re-read the roster, whose projections the subagent catalog is built from.
     RefreshRoster,
     /// The pointer entered or left the subagent catalog's trigger.
@@ -1443,6 +1448,9 @@ pub struct App {
     /// reference's 500ms delay (`ChangedFiles.tsx:71-76`).
     changes_hover: Option<(u64, usize)>,
     changes_preview: Option<(u64, usize)>,
+    /// The context breakdown panel is open: the reference's ring opens the same reading
+    /// (`ContextMeter.tsx:108-176`).
+    context_breakdown_open: bool,
     /// The subagent crumb whose siblings an open catalog lists; `None` means the current session's,
     /// which is what the header action opens (`ConversationSession.tsx:95-121`).
     subagent_menu_target: Option<SessionId>,
@@ -1713,6 +1721,7 @@ impl App {
                 subagent_menu: false,
                 subagent_hovered: false,
                 changes_hover: None,
+                context_breakdown_open: false,
                 changes_preview: None,
                 roster_refreshing: false,
                 roster_error: None,
@@ -4210,6 +4219,9 @@ impl App {
                     // recorded difference rather than a missing one.
                     self.changes_preview = Some(pair);
                 }
+            }
+            Message::ToggleContextBreakdown => {
+                self.context_breakdown_open = !self.context_breakdown_open;
             }
             Message::RefreshRoster => {
                 if self.ready && !self.roster_refreshing {
@@ -11524,6 +11536,63 @@ impl App {
         }
         Some(card.into())
     }
+    /// The context breakdown panel: the reading's headline and its three rows, each with the
+    /// reference's `~` because the split is a heuristic on top of the provider-anchored sample
+    /// (`ContextMeter.tsx:133-176`).
+    fn context_breakdown_view(
+        &self,
+        breakdown: context_breakdown::Breakdown,
+        percent: u64,
+        used: u64,
+        capacity: u64,
+    ) -> Element<'_, Message> {
+        let mut rows = column![].spacing(3);
+        for (label_text, tokens) in breakdown.rows() {
+            rows = rows.push(
+                row![
+                    label(label_text, MUTED).size(10).width(Length::Fill),
+                    label(
+                        format!("~{}", context_breakdown::format_tokens(tokens)),
+                        TEXT
+                    )
+                    .size(10),
+                ]
+                .spacing(8),
+            );
+        }
+        container(
+            column![
+                row![
+                    label(format!("{percent}% of context used"), TEXT).size(11),
+                    Space::new().width(Length::Fill),
+                    label(
+                        format!(
+                            "~{} / {}",
+                            context_breakdown::format_tokens(used),
+                            context_breakdown::format_tokens(capacity)
+                        ),
+                        MUTED
+                    )
+                    .size(10),
+                ]
+                .spacing(8),
+                rows,
+            ]
+            .spacing(6),
+        )
+        .padding(10)
+        .width(260)
+        .style(|_| container::Style {
+            background: Some(OVERLAY.into()),
+            border: iced::Border {
+                color: design::LINE,
+                width: 1.0,
+                radius: 8.0.into(),
+            },
+            ..Default::default()
+        })
+        .into()
+    }
     /// The preview a rested pointer shows: the first lines of a comparison already read, never a read
     /// of its own.
     fn changes_preview_panel(&self, seq: u64, index: usize) -> Option<Element<'_, Message>> {
@@ -12438,7 +12507,29 @@ impl App {
             ));
         }
         if token_reading.is_none() || context.line != chat_usage::UNAVAILABLE {
-            metadata = metadata.push(label(context.line.clone(), severity_color).size(10));
+            // The reference's occupancy reading opens a panel naming what the window holds
+            // (`ContextMeter.tsx:133-176`). Native draws the reading as text rather than a 14px ring
+            // — recorded, not hidden — but the panel behind it is the same reading.
+            let pill = label(context.line.clone(), severity_color).size(10);
+            let breakdown = context_breakdown::read(self.transcript.projections());
+            let popup = (self.context_breakdown_open && breakdown.is_some()).then(|| {
+                // The headline's numbers come from the pressure projection itself: the state in
+                // scope here is the plain label, whose counts are not carried into it.
+                let (used, capacity) =
+                    context_breakdown::reading(self.transcript.projections()).unwrap_or((0, 0));
+                self.context_breakdown_view(
+                    breakdown.expect("checked above"),
+                    context_breakdown::reading_percent(used, capacity),
+                    used,
+                    capacity,
+                )
+            });
+            metadata = metadata.push(self.anchored_with(
+                breakdown.is_some(),
+                pill,
+                Message::ToggleContextBreakdown,
+                popup,
+            ));
         }
         if !context.detail.is_empty() {
             metadata = metadata.push(

@@ -144,6 +144,7 @@ pub const PRESETS: &[&str] = &[
     "feedback",
     "workflow-run",
     "context-pressure",
+    "context-breakdown",
     "context-pressure-risk",
     "context-management",
     "context-management-chat",
@@ -379,6 +380,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "feedback"
         | "workflow-run"
         | "context-pressure"
+        | "context-breakdown"
         | "context-pressure-risk"
         | "context-management"
         | "context-management-chat"
@@ -1869,6 +1871,14 @@ pub fn build(
     let projection_values = match preset {
         "context-pressure" => json!({"contextPressure":{"pressureTokens":108000,
             "projectedTokens":108000,"contextWindow":128000}}),
+        // The breakdown the reference's panel lists beside the same reading
+        // (`ContextMeter.tsx:29-33`).
+        "context-breakdown" => json!({
+            "contextPressure":{"pressureTokens":108000,"projectedTokens":108000,
+                "contextWindow":128000},
+            "contextBreakdown":{"systemTokens":12400,"toolsTokens":3600,
+                "messageTokens":28000}
+        }),
         "context-pressure-risk" => json!({"contextPressure":{"pressureTokens":131072,
             "projectedTokens":131072,"contextWindow":128000}}),
         "agent-preset" => json!({"agentPreset":{"id":"implementer","name":"Implementer"}}),
@@ -2790,6 +2800,10 @@ pub fn build(
         }
         "context-management-chat" => {
             app.records_expanded = false;
+        }
+        "context-breakdown" => {
+            // The panel open, so the frame shows the rows the reading names.
+            app.context_breakdown_open = true;
         }
         "context-pressure" => {
             assert_eq!(app.transcript.work().plan(), None);

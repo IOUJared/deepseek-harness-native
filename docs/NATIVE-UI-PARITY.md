@@ -12933,3 +12933,42 @@ remove` with its Retry control and the notice line.
 | DP-2 capture | — | `shots/275-file-failed.png`, `status: passed` |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 489 — the context panel names what fills the window
+
+The composer audit's first absent element: the reference reads `contextBreakdown` beside
+`contextPressure` and its panel lists the system prompt, tool definitions and messages with their
+counts (`ContextMeter.tsx:29-33,57-58,133-176`, `locales.ts:445-448`). Native read only
+`contextPressure` — the string `contextBreakdown` did not appear in `app/`, `core/` or `transport/` — so
+the window could be seen filling with no way to see what filled it.
+
+`context_breakdown` reads the projection into the reference's three rows, numbers them with its compact
+form (`12.4K`, `1.2M`), and states the headline's own reading from the pressure projection. The context
+line in the composer's metadata is now the panel's anchor: pressing it opens `84% of context used`,
+`~108K / 128K` and the three `~`-prefixed rows, in the reference's order.
+
+Tests: `the_breakdown_reads_three_shares_and_refuses_nothing_to_show` (rows, order, and absent/malformed/
+all-zero read as nothing) and `the_headline_reading_matches_the_occupancy_line` (projected over pressure,
+and no window means no reading), plus the compact-number rounding at 999/1K/12.4K/123K/1.2M.
+
+**Recorded**: the reference's trigger is a 14px ring with the percent inside, and its bar is three
+coloured segments. Native's trigger is the occupancy text it already drew and the panel lists the rows
+without a bar; both differences are named here rather than implied.
+
+Evidence: `shots/276-context-breakdown.png` (DP-2 alongside, `status: passed`).
+
+**Battery (round 489).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1475 passed**, 1 ignored |
+| app, default | **0** | **1437 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/276-context-breakdown.png`, `status: passed` |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

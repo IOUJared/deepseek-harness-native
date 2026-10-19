@@ -185,6 +185,10 @@ pub struct ContextState {
     pub line: String,
     pub severity: Severity,
     pub detail: Vec<String>,
+    /// The reading's own numbers, which the breakdown panel states beside its rows
+    /// (`ContextMeter.tsx:168-176`). Zero when there is no reading.
+    pub used: u64,
+    pub capacity: u64,
 }
 
 const PRUNE_NOTE: &str = "Context management replaces tool output over 8k characters with a stub \
@@ -203,6 +207,8 @@ impl ContextState {
             line,
             severity: Severity::Normal,
             detail: Vec::new(),
+            used: 0,
+            capacity: 0,
         }
     }
 }
@@ -547,6 +553,8 @@ pub fn state<'a>(
         ),
         severity,
         detail,
+        used,
+        capacity,
     }
 }
 
