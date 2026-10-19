@@ -9500,6 +9500,15 @@ impl App {
     /// One subagent's siblings, from *its* parent's catalog. The reference gives every subagent crumb
     /// a lineage slot, not just the current one (`ConversationSession.tsx:95-121`), so an ancestor
     /// crumb needs the catalog of the ancestor's own parent.
+    /// The label a subagent's parent's catalog gives it. The reference's switcher trigger shows
+    /// `currentEntry.label ?? currentEntry.id` (`SubagentHeaderLineage.tsx:474-479`), so a crumb and
+    /// the menu row that names it cannot disagree.
+    fn catalog_label(&self, child: &SessionId) -> Option<String> {
+        self.catalog_of_parent_of(child)?
+            .into_iter()
+            .find(|entry| entry.id == child.as_str())
+            .map(|entry| entry.label)
+    }
     fn catalog_of_parent_of(&self, child: &SessionId) -> Option<Vec<subagent_catalog::Entry>> {
         let summary = self.sessions.get(child)?;
         if summary.origin.is_none() {
@@ -12520,8 +12529,12 @@ impl App {
                 break;
             };
             let subagent = summary.origin.is_some();
+            // A subagent crumb is titled by the label its parent's catalog gives it, exactly as the
+            // menu row beneath it is; a session the catalog does not name falls back to its own title.
             let title = if Some(&id) == self.selected.as_ref() {
                 heading.to_owned()
+            } else if let Some(label) = subagent.then(|| self.catalog_label(&id)).flatten() {
+                short(&label, title_limit)
             } else {
                 short(&self.session_title(summary), title_limit)
             };

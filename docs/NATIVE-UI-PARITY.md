@@ -12232,3 +12232,40 @@ three sessions it needs, which is both smaller and honest about what it exercise
 | capture | — | none: a trail state, proved by its test |
 | app bin | — | **21** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 469 — a crumb is named the way its menu names it
+
+The subagent audit's third difference: the reference titles its switcher trigger from the child's
+catalog entry — `currentEntry.label ?? currentEntry.id` (`SubagentHeaderLineage.tsx:474-479`) — while
+native used the session's own projection title, so the trigger and the menu row beneath it could show
+two different names for the same child.
+
+`catalog_label` looks the session up in its parent's catalog, and a subagent crumb now takes that label
+first, falling back to the session title only when the catalog does not name it. The crumb and its row
+are therefore one source by construction.
+
+Tests: `a_subagent_crumb_is_titled_by_its_catalogs_label` — a parent whose catalog labels its child
+`PUBLIC catalog label` while the child's own projection title is `PUBLIC session title`; the lookup
+returns the catalog's label, and the test asserts the two strings differ so it cannot pass by
+coincidence.
+
+**Recorded**: no frame proves this one, and the reason is structural — every fixture where a catalog
+names a child also gives that child the same projection title, so the two paths agree in the images. The
+test is the evidence, and a fixture whose label and title differ is the next thing to seed if the
+behaviour ever needs a picture.
+
+**Battery (round 469).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1453 passed**, 1 ignored |
+| app, default | **0** | **1424 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| capture | — | none: the fixtures agree on both sources |
+| app bin | — | **21** dead-code warnings |
+| tree | — | clean before the commit |

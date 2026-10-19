@@ -989,3 +989,60 @@ fn an_ancestor_crumb_opens_its_own_siblings() {
     assert!(!app.subagent_menu);
     assert!(app.subagent_menu_target.is_none());
 }
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
+fn a_subagent_crumb_is_titled_by_its_catalogs_label() {
+    let (size, _scale) = super::layout_fixture::preset_size("conversation").unwrap();
+    let (mut app, _queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "conversation",
+        size,
+        None,
+    );
+    // A parent whose catalog labels its child differently from the child's own session title: the
+    // reference titles the crumb from the catalog, so the crumb and its menu row agree.
+    let session =
+        |id: &str, parent: Option<&str>, title: &str, catalog: Option<serde_json::Value>| {
+            let mut values = serde_json::json!({"title": title});
+            if let Some(catalog) = catalog {
+                values["subagentCatalog"] = catalog;
+            }
+            serde_json::from_value::<dsh_native_transport::dto::SessionSummary>(serde_json::json!({
+                "agentAvailable": true, "sessionId": id, "updatedAt": 1000,
+                "running": false, "blank": false, "cwd": "/PUBLIC-layout-fixture/workspace",
+                "parentSessionId": parent, "origin": parent.map(|_| "subagent"),
+                "projections": {"kind": "cached", "asOfSeq": -1, "values": values}
+            }))
+            .expect("synthetic session metadata")
+        };
+    let root = session(
+        "PUBLIC-root",
+        None,
+        "PUBLIC root",
+        Some(serde_json::json!([
+            {"id": "PUBLIC-child", "createdAt": 1, "mode": "continuable",
+             "label": "PUBLIC catalog label"}
+        ])),
+    );
+    let child = session(
+        "PUBLIC-child",
+        Some("PUBLIC-root"),
+        "PUBLIC session title",
+        None,
+    );
+    for summary in [root, child] {
+        app.sessions.insert(summary.session_id.clone(), summary);
+    }
+    let child_id = SessionId::new("PUBLIC-child").unwrap();
+    assert_eq!(
+        app.catalog_label(&child_id).as_deref(),
+        Some("PUBLIC catalog label"),
+        "the catalog names the child"
+    );
+    assert_ne!(
+        app.session_title(&app.sessions[&child_id]),
+        "PUBLIC catalog label",
+        "the session's own title differs, so the two really are different sources"
+    );
+}
