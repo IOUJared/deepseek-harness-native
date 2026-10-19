@@ -138,6 +138,8 @@ pub const PRESETS: &[&str] = &[
     "schedules-deleted",
     "settings-full-access",
     "schedules-linked",
+    "reminders",
+    "reminders-delete",
     "mcp",
     "changes-card",
     "changes-diff",
@@ -378,6 +380,8 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "schedules-deleted"
         | "settings-full-access"
         | "schedules-linked"
+        | "reminders"
+        | "reminders-delete"
         | "mcp"
         | "changes-card"
         | "changes-diff"
@@ -1417,7 +1421,7 @@ pub fn build(
         "running":preset.starts_with("working-") || matches!(preset, "menu" | "navigation" | "navigation-tiny"),
         // A preset that carries a transcript is not a blank session; the reference's own row
         // list and the chat fixtures both depend on this flag.
-        "blank": !matches!(preset, "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" | "conversation" | "chat-density" | "chat-markdown" | "chat-thoughts" | "thoughts-preview" | "chat-thoughts-markdown" | "chat-table")
+        "blank": !matches!(preset, "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" | "conversation" | "chat-density" | "chat-markdown" | "chat-thoughts" | "thoughts-preview" | "chat-thoughts-markdown" | "chat-table" | "reminders" | "reminders-delete")
             && !preset.starts_with("tool-activity"),
 
         "cwd":"/PUBLIC-layout-fixture/workspace",
@@ -1742,6 +1746,8 @@ pub fn build(
             | "schedules-deleted"
             | "settings-full-access"
             | "schedules-linked"
+            | "reminders"
+            | "reminders-delete"
             | "subagent-catalog"
             | "subagent-catalog-error"
             | "subagent-readonly"
@@ -2159,6 +2165,86 @@ pub fn build(
                 .map(|item| (item.session_id.clone(), item.id.clone()))
                 .expect("a schedule row");
             app.schedule_delete = Some(item);
+        }
+    }
+
+    if preset.starts_with("reminders") {
+        // The header's reminder chip and its popover over the conversation it belongs to: the open
+        // Session's own live tasks, ordered overdue first (`ScheduleCatalogAction.tsx:141-192`,
+        // `schedule-format.ts:442-458`). One inactive task and one other Session's live task sit in
+        // the same catalog, so the projection is visible in the frame as two absences. The page is
+        // closed: this is the conversation's own entry.
+        app.schedules_open = false;
+        app.schedules_loading = false;
+        app.schedules_error = None;
+        let session = app.selected.clone().expect("selected fixture session");
+        let other = dsh_native_transport::dto::SessionId::new("PUBLIC-layout-notes")
+            .expect("the fixture's other session");
+        let item = |id: &str,
+                    title: &str,
+                    kind: &str,
+                    session: &dsh_native_transport::dto::SessionId,
+                    status: &str,
+                    at: Option<&str>,
+                    record: serde_json::Value| {
+            dsh_native_transport::dto::ScheduleCatalogItem {
+                id: id.into(),
+                title: title.into(),
+                kind: kind.into(),
+                session_id: session.clone(),
+                status: status.into(),
+                scheduled_at: at.map(str::to_owned),
+                last_delivery: None,
+                record: record.as_object().cloned().expect("a record object"),
+            }
+        };
+        app.schedules = vec![
+            item(
+                "PUBLIC-reminder-overdue",
+                "PUBLIC overdue reminder",
+                "daily",
+                &session,
+                "active",
+                Some("2026-10-16T09:00:00Z"),
+                serde_json::json!({"prompt":"PUBLIC overdue instruction","time":"09:00:00","timeZone":"UTC"}),
+            ),
+            item(
+                "PUBLIC-reminder-soon",
+                "PUBLIC weekly reminder",
+                "weekly",
+                &session,
+                "active",
+                Some("2026-12-01T17:30:00Z"),
+                serde_json::json!({"prompt":"PUBLIC weekly instruction","time":"17:30:00","timeZone":"UTC","weekdays":[1,3,5]}),
+            ),
+            item(
+                "PUBLIC-reminder-inactive",
+                "PUBLIC inactive reminder",
+                "daily",
+                &session,
+                "inactive",
+                None,
+                serde_json::json!({"prompt":"PUBLIC inactive instruction","time":"08:00:00","timeZone":"UTC"}),
+            ),
+            item(
+                "PUBLIC-reminder-elsewhere",
+                "PUBLIC other session reminder",
+                "daily",
+                &other,
+                "active",
+                Some("2026-12-02T08:00:00Z"),
+                serde_json::json!({"prompt":"PUBLIC other instruction","time":"08:00:00","timeZone":"UTC"}),
+            ),
+        ];
+        assert_eq!(
+            app.reminder_items().len(),
+            2,
+            "two live reminders belong to this header"
+        );
+        app.reminders_open = true;
+        if preset == "reminders-delete" {
+            // A delete armed from the popover states what it takes before the button that does it.
+            app.schedule_delete = Some((session.clone(), "PUBLIC-reminder-overdue".into()));
         }
     }
 

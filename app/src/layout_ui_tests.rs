@@ -202,6 +202,83 @@ fn a_failed_history_read_offers_a_retry_that_asks_again() {
 
 #[cfg(feature = "public-layout-fixture")]
 #[test]
+fn the_header_chip_counts_only_the_open_sessions_live_reminders() {
+    let (size, _scale) = super::layout_fixture::preset_size("reminders").unwrap();
+    let (mut app, _queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "reminders",
+        size,
+        None,
+    );
+    // Two live reminders belong to the open session. The inactive one and the other session's live
+    // one sit in the same catalog, so a filter that ignored either rule would count three.
+    let items = app.reminder_items();
+    let ids: Vec<&str> = items.iter().map(|item| item.id.as_str()).collect();
+    assert_eq!(ids, ["PUBLIC-reminder-overdue", "PUBLIC-reminder-soon"]);
+    assert!(
+        app.reminders_action().is_some(),
+        "the chip is in the header"
+    );
+    // Nothing live and nothing failed: the reference mounts no entry at all
+    // (`ScheduleCatalogAction.tsx:72-76`), so an empty first read never flashes a chip.
+    let session = app.selected.clone().expect("a selected session");
+    app.schedules
+        .retain(|item| !crate::reducer::schedule_card::is_open_reminder(item, &session));
+    assert!(app.reminder_items().is_empty());
+    assert!(app.reminders_action().is_none());
+    // A failed read keeps the entry, because the popover is where its Retry lives.
+    app.schedules_error = Some("PUBLIC reminder read failure".into());
+    assert!(app.reminders_action().is_some());
+}
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
+fn a_reminder_deleted_from_the_header_asks_before_it_sends() {
+    use crate::worker::Command;
+    let (size, _scale) = super::layout_fixture::preset_size("reminders").unwrap();
+    let (mut app, mut queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "reminders",
+        size,
+        None,
+    );
+    while queue.try_recv().is_ok() {}
+    let session = app.selected.clone().expect("a selected session");
+    // The first press arms the row; nothing is sent yet.
+    drop(app.update(Message::ScheduleDelete(
+        session.clone(),
+        "PUBLIC-reminder-overdue".into(),
+    )));
+    assert!(app.schedule_delete.is_some(), "the row asks first");
+    assert!(
+        queue.try_recv().is_err(),
+        "arming a reminder is not deleting it"
+    );
+    // The confirm sends exactly the reminder that was armed.
+    drop(app.update(Message::ScheduleDeleteConfirm));
+    let Command::ScheduleDelete {
+        session: sent,
+        id: sent_id,
+    } = queue.try_recv().expect("the confirm sends the delete")
+    else {
+        panic!("a confirmed delete is a schedule delete");
+    };
+    assert_eq!(sent, session);
+    assert_eq!(sent_id, "PUBLIC-reminder-overdue");
+    assert!(app.schedule_busy.as_deref() == Some("PUBLIC-reminder-overdue"));
+    // Closing the popover spends an armed row, so a later press cannot confirm a reminder the
+    // reader can no longer see.
+    drop(app.update(Message::ScheduleDelete(
+        session.clone(),
+        "PUBLIC-reminder-soon".into(),
+    )));
+    assert!(app.schedule_delete.is_some());
+    drop(app.update(Message::ToggleReminders(false)));
+    assert!(app.schedule_delete.is_none());
+}
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
 fn steer_all_walks_the_queue_one_item_at_a_time() {
     use dsh_native_transport::dto::QueueAction;
     // The fixture's running session with two queued messages: a real queue, no Host.

@@ -280,6 +280,8 @@ pub enum Message {
     CloseSchedules,
     /// Re-reads the scheduled-tasks catalog.
     RefreshSchedules,
+    /// Opens or closes the header's reminder popover.
+    ToggleReminders(bool),
     /// Arms one task's delete confirmation.
     ScheduleDelete(SessionId, String),
     /// Confirms the armed task delete.
@@ -1257,6 +1259,8 @@ pub struct App {
     schedules: Vec<dsh_native_transport::dto::ScheduleCatalogItem>,
     schedules_loading: bool,
     schedules_error: Option<String>,
+    /// The header's reminder popover is open (`ScheduleCatalogAction.tsx:42`).
+    reminders_open: bool,
     /// The task whose delete waits for a second press: (session binding, id).
     schedule_delete: Option<(SessionId, String)>,
     /// The task with a delete in flight.
@@ -1701,6 +1705,7 @@ impl App {
                 schedules: Vec::new(),
                 schedules_loading: false,
                 schedules_error: None,
+                reminders_open: false,
                 schedule_delete: None,
                 schedule_busy: None,
                 todo_dock_open: false,
@@ -2996,6 +3001,7 @@ impl App {
         self.model_pending = false;
         self.detail = None;
         self.conversation_menu = false;
+        self.reminders_open = false;
         self.sidebar_sheet = false;
         self.records_expanded = false;
         self.offset = 0.0;
@@ -4295,6 +4301,8 @@ impl App {
                 self.dismiss_terminal();
                 self.mcp.dismiss();
                 self.schedules_open = true;
+                // The page is the reminder list's detail view, so the popover has said its piece.
+                self.reminders_open = false;
                 self.schedules_loading = true;
                 self.schedules_error = None;
                 self.schedule_delete = None;
@@ -4306,13 +4314,21 @@ impl App {
                 self.schedule_delete = None;
                 self.schedule_busy = None;
             }
-            Message::RefreshSchedules if self.schedules_open => {
+            Message::RefreshSchedules if self.schedules_open || self.reminders_open => {
                 self.schedules_notice = None;
                 self.schedules_loading = true;
                 self.schedules_error = None;
                 self.command(worker::Command::ScheduleCatalog);
             }
-            Message::ScheduleDelete(session, id) if self.schedules_open => {
+            Message::ToggleReminders(open) if self.layout_controls_enabled() => {
+                self.reminders_open = open;
+                // A delete armed in the popover is spent when the popover closes: another press
+                // would otherwise confirm a reminder the reader can no longer see.
+                if !open {
+                    self.schedule_delete = None;
+                }
+            }
+            Message::ScheduleDelete(session, id) if self.schedules_open || self.reminders_open => {
                 self.schedule_delete = Some((session, id));
                 self.schedules_error = None;
             }
@@ -4805,14 +4821,14 @@ impl App {
                 self.schedule_history_error = None;
                 self.schedule_history_before = None;
             }
-            Message::ScheduleDeleteConfirm if self.schedules_open => {
+            Message::ScheduleDeleteConfirm if self.schedules_open || self.reminders_open => {
                 let Some((session, id)) = self.schedule_delete.take() else {
                     return Task::none();
                 };
                 self.schedule_busy = Some(id.clone());
                 self.command(worker::Command::ScheduleDelete { session, id });
             }
-            Message::ScheduleDeleteCancel if self.schedules_open => {
+            Message::ScheduleDeleteCancel if self.schedules_open || self.reminders_open => {
                 self.schedule_delete = None;
             }
             Message::GoalEdit if self.layout_controls_enabled() => {
@@ -6016,6 +6032,7 @@ impl App {
                 }
                 self.status = format!("Owned Core {version}; authenticated native transport ready");
                 self.request_catalog();
+                self.request_reminders();
                 if !self.stopped && matches!(self.close, Close::None) {
                     return Task::batch([self.load_drafts(false), self.load_sidebar(false)]);
                 }
@@ -6544,8 +6561,16 @@ impl App {
                         self.schedules.retain(|item| item.id != id);
                         self.schedules_error = None;
                         // The reference confirms with a shell toast (`DeleteToast.tsx:80-87`);
-                        // native has no toast overlay, so the page states the outcome in place.
-                        self.schedules_notice = Some("Task deleted.".into());
+                        // native has no toast overlay, so each surface states the outcome in place,
+                        // naming what it listed: the page's rows are tasks, the chip's are reminders.
+                        self.schedules_notice = Some(
+                            if self.reminders_open && !self.schedules_open {
+                                "Reminder deleted."
+                            } else {
+                                "Task deleted."
+                            }
+                            .into(),
+                        );
                     }
                     Ok(dsh_native_transport::dto::ScheduleDeleteOutcome::Missing) => {
                         self.schedules_error =
@@ -10120,6 +10145,203 @@ impl App {
             Message::ToggleSubagentMenu(false),
         ))
     }
+    /// The open Session's live reminders, in the reference's order: overdue targets first, then the
+    /// soonest next run (`schedule-format.ts:442-458`).
+    fn reminder_items(&self) -> Vec<&dsh_native_transport::dto::ScheduleCatalogItem> {
+        let Some(session) = self.selected.as_ref() else {
+            return Vec::new();
+        };
+        crate::reducer::schedule_card::order_reminders(
+            self.schedules
+                .iter()
+                .filter(|item| crate::reducer::schedule_card::is_open_reminder(item, session)),
+            now_millis() as i64,
+        )
+    }
+    /// The header's reminder entry and its popover: the reference's Session-header catalog action
+    /// (`ui-schedule/src/client/index.ts:208-230`, `ScheduleCatalogAction.tsx:107-200`). It states how
+    /// many reminders this conversation has and lists them with a delete control each.
+    fn reminders_action(&self) -> Option<Element<'_, Message>> {
+        if !self.layout_controls_enabled() {
+            return None;
+        }
+        let items = self.reminder_items();
+        // The reference mounts no entry for an empty first read, so the chip cannot flash and then
+        // vanish; a failed read keeps it visible as the retry (`ScheduleCatalogAction.tsx:72-76`).
+        if items.is_empty() && self.schedules_error.is_none() {
+            return None;
+        }
+        let copy = if items.is_empty() {
+            // Nothing is counted yet, so the entry names itself rather than claiming a count of zero.
+            "Reminders".to_owned()
+        } else {
+            // Icon-only in the web, where the accessible name carries the count
+            // (`ScheduleCatalogAction.module.css:8-23`). Native states it on the chip because its
+            // accessibility tree publishes only the composer's fixed vocabulary, so a bare glyph
+            // would be unreadable; `◷` is the schedule glyph the created-task card already draws.
+            format!(
+                "◷ {}",
+                crate::reducer::schedule_card::reminder_count(items.len())
+            )
+        };
+        let trigger: Element<'_, Message> =
+            button(label(copy, if self.reminders_open { TEXT } else { MUTED }).size(12))
+                .on_press(Message::ToggleReminders(!self.reminders_open))
+                .style(design::ghost)
+                .padding([5, 8])
+                .into();
+        let body = self
+            .reminders_open
+            .then(|| self.reminders_menu_view(&items));
+        Some(anchored_popup::anchored_below(
+            trigger,
+            body,
+            Message::ToggleReminders(false),
+        ))
+    }
+    /// The popover's rows: a loading line and a failure with Retry above each reminder's name, rule
+    /// and next run, and its own delete (`ScheduleCatalogAction.tsx:127-192`).
+    fn reminders_menu_view(
+        &self,
+        items: &[&dsh_native_transport::dto::ScheduleCatalogItem],
+    ) -> Element<'_, Message> {
+        let now = now_millis() as i64;
+        // `ScheduleCatalogAction.module.css:35-57`: a 336px panel with 3px padding and 1px between
+        // rows; the native radius scale's large step approximates the sheet's 16px.
+        let mut list = column![].spacing(1).width(336);
+        if self.schedules_loading {
+            list = list.push(
+                container(label("Loading reminders…", MUTED).size(10))
+                    .padding([8, 9])
+                    .width(Length::Fill),
+            );
+        }
+        if let Some(error) = &self.schedules_error {
+            list = list.push(
+                row![
+                    label(short(error, 140), DANGER)
+                        .size(10)
+                        .width(Length::Fill),
+                    button(label("Retry", TEXT).size(10))
+                        .on_press(Message::RefreshSchedules)
+                        .style(design::ghost)
+                        .padding([2, 6]),
+                ]
+                .spacing(4)
+                .align_y(iced::Alignment::Center)
+                .padding([8, 9]),
+            );
+        }
+        if let Some(notice) = &self.schedules_notice {
+            list = list.push(
+                container(label(short(notice, 80), MUTED).size(10))
+                    .padding([6, 9])
+                    .width(Length::Fill),
+            );
+        }
+        for item in items {
+            let overdue = item
+                .scheduled_at
+                .as_deref()
+                .and_then(time_text::parse_instant)
+                .is_some_and(|instant| instant <= now);
+            // An overdue target keeps the reference's warning surface and label ink
+            // (`ScheduleCatalogAction.module.css:82-88,147-149`, which pairs
+            // `--dsw-alias-state-warn-tertiary` with `--dsw-alias-state-warn-label`).
+            let ink = if overdue { design::GOLD } else { MUTED };
+            let armed = self
+                .schedule_delete
+                .as_ref()
+                .is_some_and(|(session, id)| session == &item.session_id && id == &item.id);
+            let busy = self.schedule_busy.as_deref() == Some(item.id.as_str());
+            let mut body = column![].spacing(3).width(Length::Fill);
+            // The name opens the reminder in the one place native has for a task's detail: the
+            // schedules page. The reference opens its right-Sidebar tab, which is a recorded
+            // deliberate difference.
+            body = body.push(
+                button(label(short(&item.title, 90), TEXT).size(13))
+                    .on_press(Message::OpenSchedules)
+                    .style(design::ghost)
+                    .padding(0),
+            );
+            if let Some(rule) =
+                crate::reducer::schedule_card::frequency_from(&item.record, &item.kind)
+            {
+                body = body.push(label(short(&rule, 90), ink).size(10));
+            }
+            if let Some(at) = item.scheduled_at.as_deref() {
+                let local = time_text::local_or_stored(at);
+                let line = time_text::parse_instant(at).map_or_else(
+                    || format!("Next run {local}"),
+                    |instant| format!("Next run {local} ({})", time_text::relative(instant, now)),
+                );
+                body = body.push(label(short(&line, 120), ink).size(10));
+            }
+            if armed {
+                // The reference's trash deletes at once and reports through a shell toast; native
+                // keeps every destructive action behind a visible confirmation, so the row states
+                // what the deletion takes and the button names it. The confirmation takes the row's
+                // own width rather than squeezing the name and its next run beside a control.
+                body = body.push(
+                    label("Delete this reminder and its saved delivery records?", TEXT).size(10),
+                );
+                body = body.push(
+                    row![
+                        button(label("Delete reminder", DANGER).size(10))
+                            .on_press(Message::ScheduleDeleteConfirm)
+                            .style(design::danger)
+                            .padding([2, 6]),
+                        button(label("Cancel", MUTED).size(10))
+                            .on_press(Message::ScheduleDeleteCancel)
+                            .style(design::ghost)
+                            .padding([2, 6]),
+                    ]
+                    .spacing(4),
+                );
+            }
+            let action: Element<'_, Message> = if busy {
+                label("Working…", MUTED).size(10).into()
+            } else if armed {
+                // The confirmation's own controls are in the body above.
+                Space::new().width(0).height(0).into()
+            } else {
+                button(label("Delete", MUTED).size(10))
+                    .on_press(Message::ScheduleDelete(
+                        item.session_id.clone(),
+                        item.id.clone(),
+                    ))
+                    .style(design::ghost)
+                    .padding([2, 6])
+                    .into()
+            };
+            list = list.push(
+                container(
+                    row![body, action]
+                        .spacing(6)
+                        .align_y(iced::Alignment::Start),
+                )
+                .width(Length::Fill)
+                .padding([8, 9])
+                .style(move |_| iced::widget::container::Style {
+                    background: Some(if overdue {
+                        design::WARN_SURFACE.into()
+                    } else {
+                        iced::Color::TRANSPARENT.into()
+                    }),
+                    border: iced::Border {
+                        radius: design::RADIUS_SM.into(),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+            );
+        }
+        container(list)
+            .id("native-reminders-menu")
+            .padding(3)
+            .style(|_| design::card(SURFACE, design::RADIUS_LG))
+            .into()
+    }
     /// The attach menu's two entries: choose files, or start a command.
     fn attach_menu_view(&self) -> Element<'_, Message> {
         let entry = |label_text: &'static str, message: Message| {
@@ -10187,6 +10409,11 @@ impl App {
             actions = actions.push(self.stop_button());
         }
         actions = actions.push(Space::new().width(Length::Fill));
+        // The utilities cluster sits right of the free space, in its own order: the reminder chip at
+        // -5, the overflow control at 0 (`ui-schedule/src/client/index.ts:213-215`).
+        if let Some(reminders) = self.reminders_action() {
+            actions = actions.push(reminders);
+        }
         actions = actions.push(
             button(
                 label(
@@ -11026,6 +11253,25 @@ impl App {
         }
         self.goal_activation_read = Some((session.clone(), self.goal_activation_serial));
         self.command(worker::Command::GoalActivationRead { session });
+    }
+    /// Read the Host's schedule catalog once the transport is ready, so the open Session's header
+    /// can count its reminders (`ScheduleCatalogAction.tsx:58-76`: the web's header source reads when
+    /// it mounts). Native's one schedule read returns the whole catalog, so a single read serves
+    /// every Session; opening the tasks page, its Refresh and native's own writes read it again.
+    fn request_reminders(&mut self) {
+        if self.options.smoke.is_some()
+            || self.background_reads_disabled
+            || !self.ready
+            || self.stopped
+            || self.observations_lost
+            || !matches!(self.close, Close::None)
+            || self.schedules_loading
+        {
+            return;
+        }
+        self.schedules_loading = true;
+        self.schedules_error = None;
+        self.command(worker::Command::ScheduleCatalog);
     }
     /// The `@` token at the end of the draft, as `(query, quoted)`.
     fn active_reference_token(text: &str) -> Option<(String, bool)> {
@@ -24820,6 +25066,9 @@ mod tests {
         assert_eq!(window.account, "Account metadata not loaded");
         let _ = window.receive(Event::Ready("0.2.1-alpha.1".into()));
         assert!(matches!(receiver.try_recv(), Ok(Command::Catalog(_))));
+        // The header's reminder count is the other automatic startup read
+        // (`ScheduleCatalogAction.tsx:58-76`): the Host's schedule catalog, not a write.
+        assert!(matches!(receiver.try_recv(), Ok(Command::ScheduleCatalog)));
         let _ = window.view();
         assert!(window.ready);
         assert_eq!(window.account, "Account metadata not loaded");
@@ -24865,6 +25114,9 @@ mod tests {
         let (mut window, mut receiver) = app();
         let _ = window.receive(Event::Ready("0.2.1-alpha.1".into()));
         assert!(matches!(receiver.try_recv(), Ok(Command::Catalog(_))));
+        // The header's reminder count is the other automatic startup read
+        // (`ScheduleCatalogAction.tsx:58-76`): the Host's schedule catalog, not a write.
+        assert!(matches!(receiver.try_recv(), Ok(Command::ScheduleCatalog)));
         assert!(receiver.try_recv().is_err());
         let account = PublicEvent::Account(dsh_native_core::AccountMetadata {
             status: dsh_native_core::AccountStatus::CredentialStored,
@@ -24905,6 +25157,9 @@ mod tests {
         );
         let _ = app.receive(Event::Ready("0.2.1-alpha.1".into()));
         assert!(matches!(receiver.try_recv(), Ok(Command::Catalog(_))));
+        // The header's reminder count is the other automatic startup read
+        // (`ScheduleCatalogAction.tsx:58-76`): the Host's schedule catalog, not a write.
+        assert!(matches!(receiver.try_recv(), Ok(Command::ScheduleCatalog)));
         let _ = app.update(Message::Settings(Action::Close));
         let _ = app.update(Message::Settings(Action::Open));
         let Command::PluginsRead(read) = receiver.try_recv().expect("General reads its namespace")
@@ -24927,6 +25182,9 @@ mod tests {
         assert!(receiver.try_recv().is_err());
         let _ = app.receive(Event::Ready("0.2.1-alpha.1".into()));
         assert!(matches!(receiver.try_recv(), Ok(Command::Catalog(_))));
+        // The header's reminder count is the other automatic startup read
+        // (`ScheduleCatalogAction.tsx:58-76`): the Host's schedule catalog, not a write.
+        assert!(matches!(receiver.try_recv(), Ok(Command::ScheduleCatalog)));
         assert!(receiver.try_recv().is_err());
         let ticket = app.settings.plugin_read_ticket();
         let _ = app.update(Message::Settings(Action::Plugins(
@@ -24967,6 +25225,9 @@ mod tests {
         let _ = app.update(Message::Settings(Action::SelectPage(Page::Plugins)));
         let _ = app.receive(Event::Ready("0.2.1-alpha.1".into()));
         assert!(matches!(receiver.try_recv(), Ok(Command::Catalog(_))));
+        // The header's reminder count is the other automatic startup read
+        // (`ScheduleCatalogAction.tsx:58-76`): the Host's schedule catalog, not a write.
+        assert!(matches!(receiver.try_recv(), Ok(Command::ScheduleCatalog)));
         assert!(receiver.try_recv().is_err());
         for _ in 0..32 {
             assert!(app.handle.send(Command::Inspect).is_ok());
@@ -24994,6 +25255,9 @@ mod tests {
         assert!(receiver.try_recv().is_err());
         let _ = app.receive(Event::Ready("0.2.1-alpha.1".into()));
         assert!(matches!(receiver.try_recv(), Ok(Command::Catalog(_))));
+        // The header's reminder count is the other automatic startup read
+        // (`ScheduleCatalogAction.tsx:58-76`): the Host's schedule catalog, not a write.
+        assert!(matches!(receiver.try_recv(), Ok(Command::ScheduleCatalog)));
         assert!(app.settings.is_open());
         assert_eq!(app.settings.input_ticket().epoch, worker::TRANSPORT_EPOCH);
         assert!(app.settings_enabled());

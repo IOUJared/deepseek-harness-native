@@ -214,9 +214,9 @@ preview, replaced by the details panel (deliberate); inline code chips and the C
 clipboard, both blocked on Iced rather than on native code; agent-preset selection — *landed*
 (item 11); and the live-only checks in `NATIVE-LIVE-VERIFICATION.md`.
 
-The **scheduled-task** surface is mostly on the native side: the page, the history/edit/delete flow
-and the `schedule` turn-trigger title are built (`schedules_view`, `turn_trigger`'s
-`"schedule" => "Automation task"`). A **form** that creates a schedule exists in neither client: both create through the
+The **scheduled-task** surface is mostly on the native side: the page, the history/edit/delete flow,
+the Session header's reminder chip with its popover (round 503) and the `schedule` turn-trigger title
+are built (`schedules_view`, `reminders_action`, `turn_trigger`'s `"schedule" => "Automation task"`). A **form** that creates a schedule exists in neither client: both create through the
 `schedule_create` tool, whose card draws natively. The reference's page does offer a **New** action,
 which only starts a session and leaves the instruction to the model
 (`TaskManagerPage.tsx:120`, `ui-schedule/src/client/index.ts:175`); native now offers the same control
@@ -6396,7 +6396,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the slash menu groups its two sources as the reference does (`Commands`, then `Skills`), states `Loading…` while the advertisement is in flight and shows a command's argument hint under the draft (the reference draws it inside the editor), but has no breadcrumbs or subagent source, files are chosen one at a time through a path field, no image thumbnails in the rail, and a send awaiting admission is stated by the composer's own banner (with Check, Review and Stop-original) rather than as a queue row;  steering the whole queue is a `Steer all` control on the strip (the reference triggers it from an empty draft); and these deliberate differences: the reference inverts its submission policy on Cmd/Ctrl+Enter (`view-binding.ts:120-130`), while native keeps Ctrl+Enter a plain send alias by the user's explicit confirmation (`docs/SESSION-PROMPT.md`); and native's goal bar states a running goal's controls where the reference adds `hint.goal`/`hint.goal.active` ghost copy beside the draft) |
 | Sidebar: sessions, search, pin/archive/trash, workspace filter, navigation sheet | cloned (time-grouped list, not the grouped browser) |
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
-| Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab). A read-only audit of this surface found work still open, recorded in round 417: rows now state their rule, `Enabled`/`Inactive`, and their next-run and delivery instants as local text with a relative next-run form; the page has status tabs (All/Enabled/Inactive), a search field, next-time ordering, the reference's empty-state variants and its retention disclosure, and its `New` action, and a deletion outcome stated on the page where the reference shows a shell toast, and a linked-session control that opens the creating session (with the reference's archived/unavailable sentences when it cannot); a `schedule/changed` live refresh is unverified — the Host's event contract for it has never been observed in a run, so native reads the catalog only on open, Refresh, and after its own writes; a failed history read retries in place |
+| Schedules: page, history, edits, pickers, and the Session header's reminder chip with its popover (count, rule, next run, per-row delete; round 503) | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab; the chip states its count as words where the web is icon-only, and its rows' names open the page where the web opens its right-Sidebar tab). A read-only audit of this surface found work still open, recorded in round 417: rows now state their rule, `Enabled`/`Inactive`, and their next-run and delivery instants as local text with a relative next-run form; the page has status tabs (All/Enabled/Inactive), a search field, next-time ordering, the reference's empty-state variants and its retention disclosure, and its `New` action, and a deletion outcome stated on the page where the reference shows a shell toast, and a linked-session control that opens the creating session (with the reference's archived/unavailable sentences when it cannot); a `schedule/changed` live refresh is unverified — the Host's event contract for it has never been observed in a run, so native reads the catalog only on open, Refresh, and after its own writes; a failed history read retries in place |
 | Goals, plan mode, permissions, approvals/questions, jobs, subagents, session log | cloned |
 | Tool rows: one row per call with the folded result, relative path, `+N −N`, and the structured cards — diff, read, terminal, search, web, ask-user | cloned (no per-tool glyphs — the reference's SVGs have no DejaVu equivalent); each run of step activity sits under a process-group seat whose live label, running detail, folding and grouping follow the **Work details** preference — Compact / Standard / Detailed / Verbose, chosen in Settings → General and persisted locally) |
 | Reasoning disclosure wording | difference: native says `Thoughts` where the reference says `Thought for a while` (`message.turnProcess.thoughtForAWhile`), by the user's stated preference for the shorter label; a settled row still previews its first line under the `settledReasoningPreview` policy |
@@ -13527,3 +13527,98 @@ module is not missing — it is an untracked `transport/tests/node_modules/ws` i
 checkout, which a worktree checkout does not carry; the merged tree passes all 1486. The first
 battery recorded above was therefore the worktree's, not the merge's, and both rows are now the
 merged numbers.
+
+### Round 503 — the header counts the open session's reminders
+
+**The gap.** The reference registers an icon-only clock chip in the Conversation header's utilities
+slot: `order: -5`, left of the overflow menu and right of the leading utilities
+(`ui-schedule/src/client/index.ts:208-230`). Its accessible name is the count —
+`{count} reminder` / `{count} reminders` / `Reminders` (`locales.ts:42-43` `trigger.one`,
+`trigger.other`, `trigger.label`) — and it opens a 336px popover of the Session's active tasks with
+each row's rule, next run and a per-row delete, plus a loading line and a failure with Retry
+(`ScheduleCatalogAction.tsx:35-200`, `ScheduleCatalogAction.module.css:1-189`). Native had no entry
+at all: the sidebar's Scheduled tasks row was the only way to reach the catalog. Rounds 501 and 502
+recorded it as still open.
+
+**What native does now.** `reminders_action` draws the chip in the same place — the utilities cluster
+right of the free space, immediately left of `More ▾` — and `reminders_menu_view` the popover under
+it. The count comes from the Host's whole `schedule/catalog`, filtered to the open Session's
+still-active rows (`schedule_card::is_open_reminder`), because that read is the one schedule route
+native owns; the reference's header instead issues a per-Session `schedule/list`
+(`session-schedule-state.ts:31-41`), and its Sidebar marks project the same filter onto the same
+whole catalog (`:73-82`). Rows are ordered overdue first, then by next run, keeping catalog order on
+ties (`schedule_card::order_reminders`, mirroring `schedule-format.ts:442-458`), and an overdue row
+takes the reference's warning surface and label ink (`ScheduleCatalogAction.module.css:82-88,147-149`).
+
+**Deliberate differences, each with its reason.**
+
+1. **The chip states its count** (`◷ 2 reminders`) where the web draws a bare 16px clock and puts the
+   count only in the accessible name. Native's accessibility tree publishes a fixed vocabulary of
+   composer controls (`app/src/accessibility.rs:295-335`), so an icon-only chip would reach assistive
+   technology as nothing; the subagent chip already states its count the same way. `◷` is the
+   schedule glyph the created-task card draws.
+2. **A row's name opens the schedules page**, where the reference opens the task in its right Sidebar
+   (`ScheduleCatalogAction.tsx:198`); native's right Sidebar is the recorded full-page-details
+   difference, and the page is the one place a task has a detail view.
+3. **Delete asks first, in the row** (`Delete this reminder and its saved delivery records?` then
+   `Delete reminder` / `Cancel`), where the reference's trash deletes at once and confirms through a
+   shell toast (`DeleteToast.tsx:80-87`). The repo's rule is that a destructive action keeps a visible
+   confirmation and its button names what it persists; native has no toast overlay, so the popover
+   states the outcome itself and calls the deleted thing a *reminder* where the page says *task*.
+4. **`design::WARN_SURFACE`** (`#2a251d`) is a new palette entry. The web's overdue surface is the
+   flat, warm `--dsw-alias-state-warn-tertiary` = `rgb(39, 36, 31)` (`design-platform.css:377`);
+   Rosé Pine's dark surfaces are cool, so no tint of `GOLD` reaches it. The first attempt used
+   `GOLD` at alpha `0.08`, and the frame showed a heavy brown — Iced composites in linear space, so
+   the alpha behaved like ~0.24 in sRGB. The frame caught it; the solid constant replaced it.
+
+**The read contract, and the tests it changed.** The catalog is now read once when the transport
+becomes ready, through `request_reminders` with the same gates as `request_catalog` (no smoke
+profile, no fixture background reads, ready, not stopped, no observations lost, not closing, no read
+in flight). Opening the tasks page, its Refresh, and native's own deletes and updates read it again,
+as before. The web re-reads per header mount and on `schedule/changed`; the missing live refresh is
+the already-recorded gap, so a task created or delivered while the app runs reaches the chip only on
+the next read.
+
+That makes **two** automatic startup reads, so the nine test sites that asserted "the startup catalog
+is the only automatic read" now name the second one. Their point is unchanged — no auth, settings or
+model-selection call joins them.
+
+**A mistake inside this round.** The read was first placed in `choose` (then at `Event::Selected`),
+the moment a Session opens, which reads closer to the reference's mount. Five tests that assert the
+command order after a selection failed, and after moving it to the selected-snapshot branch,
+**41** strict queue tests failed, including `presets_render_actual_app_without_queued_effects`. The
+snapshot branch fires in almost every unit test, so that placement turned a startup read into a
+per-test side effect. The ready-time read is the placement the repository already sanctions.
+
+**Tests.** `the_header_chip_counts_only_the_open_sessions_active_reminders` (a same-session inactive
+row and another session's live row are both excluded, and the status compare is the page's),
+`an_overdue_reminder_is_listed_before_a_later_one` (overdue leads despite a later target, an undated
+row sorts last, equal targets keep catalog order), `one_reminder_says_one_and_two_say_two` (singular
+and plural, and zero never borrows the singular), `the_header_chip_counts_only_the_open_sessions_live_reminders`
+(the fixture preset: two live rows, the absent chip for an empty session, the chip kept for a failed
+read) and `a_reminder_deleted_from_the_header_asks_before_it_sends` (arming sends nothing, the
+confirm sends that reminder, closing the popover spends the armed row).
+
+**Fixtures.** `reminders` (chip and popover over a conversation, with an inactive row and another
+session's live row present in the catalog so the frame shows the projection as two absences) and
+`reminders-delete` (the armed confirmation). Both are 760×560, the schedule presets' own box.
+
+**Evidence.** `shots/297-reminders-chip.png` and `shots/298-reminders-delete.png`, DP-2 alongside
+each, `status: passed`. Measured in the buffer: the panel is 343px wide at x 324..666 (336 + 6
+padding + the card's 1px stroke), both rows' titles start at x 338 and both `Delete` controls end at
+647, so the two rows share one grid; the overdue row is the only tinted one.
+
+**Battery (round 503).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1491 passed**, 1 ignored |
+| app, default | **0** | **1450 passed**, 1 ignored |
+| transport | **0** | 59 + 17 + 91 + 7 |
+| core (`--lib`) | **0** | **115 passed** |
+| JS runtime | **0** | **419 pass**, 0 fail |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/297-reminders-chip.png`, `shots/298-reminders-delete.png`, both `status: passed` |
+| app bin | — | **21** dead-code warnings |

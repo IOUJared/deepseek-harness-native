@@ -14,6 +14,11 @@ pub const DANGER: Color = Color::from_rgb8(0xeb, 0x6f, 0x92);
 pub const FOAM: Color = Color::from_rgb8(0x9c, 0xcf, 0xd8);
 pub const GOLD: Color = Color::from_rgb8(0xf6, 0xc1, 0x77);
 pub const LINE: Color = Color::from_rgb8(0x40, 0x3d, 0x52);
+/// The reference's warning surface: `--dsw-alias-state-warn-tertiary` is `rgb(39, 36, 31)` in its
+/// dark theme (`ui-theme/src/styles/design-platform.css:377`), a warm near-black. Rosé Pine's dark
+/// surfaces are cool (`SURFACE` #1f1d2e), so native derives a warm one for the same job — an
+/// overdue reminder's row and any other stand-in for that token. Gold is its label ink.
+pub const WARN_SURFACE: Color = Color::from_rgb8(0x2a, 0x25, 0x1d);
 pub const SIDEBAR: f32 = 260.0;
 /// The collapsed rail's width: the reference's rail spec is "36x36 control boxes
 /// centered in the 56px rail (10px side padding)" (`SidebarRoot.module.css:34-37`),

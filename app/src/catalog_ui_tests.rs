@@ -26,6 +26,11 @@ fn catalog_stale_success_error_and_duplicate_cannot_replace_newer_flight_or_cach
     let Command::Catalog(current) = queue.try_recv().unwrap() else {
         panic!("startup catalog missing");
     };
+    // The reminder count's own startup read follows it (`ScheduleCatalogAction.tsx:58-76`).
+    assert!(matches!(
+        queue.try_recv(),
+        Ok(Command::ScheduleCatalog)
+    ));
     assert_ne!(old, current); // Same fixed worker epoch after retirement, distinct serial.
     let status = app.status.clone();
     for result in [Ok(catalog_fixture()), Err("PUBLIC stale error".into())] {
@@ -209,6 +214,12 @@ fn catalog_exhaustion_shutdown_and_closing_never_admit_or_apply_metadata() {
     assert!(!app.catalog_read.pending());
     assert!(queue.try_recv().is_err());
     drop(app.receive(Event::Ready("0.2.1-alpha.1".into())));
+    // The exhausted model catalog admits no read of its own, but the header's reminder count has a
+    // separate route (`ScheduleCatalogAction.tsx:58-76`), so it still asks once.
+    assert!(matches!(
+        queue.try_recv(),
+        Ok(Command::ScheduleCatalog)
+    ));
     assert!(queue.try_recv().is_err());
     for closing in [Close::Inspecting, Close::Stopping] {
         let (mut app, mut queue) = managed_app();

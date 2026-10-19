@@ -242,6 +242,9 @@ fn app() -> (App, tokio::sync::mpsc::Receiver<Command>) {
     let (mut app, _) = App::boot(options, handle, feed);
     let _ = app.receive(Event::Ready("0.2.1-alpha.1".into()));
     assert!(matches!(receiver.try_recv(), Ok(Command::Catalog(_))));
+    // The header's reminder count reads the Host's schedule catalog
+    // (`ScheduleCatalogAction.tsx:58-76`); it is a read, not an auth or model-selection call.
+    assert!(matches!(receiver.try_recv(), Ok(Command::ScheduleCatalog)));
     assert!(receiver.try_recv().is_err()); // No unsolicited auth/settings/model-selection calls.
     app.settings.handle(SettingsAction::Open, 1, false);
     let _ = app.update(Message::Settings(SettingsAction::SelectPage(Page::Codex)));

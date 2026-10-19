@@ -286,6 +286,51 @@ pub fn derive(call: &Value, result: Option<&Value>) -> Option<Card> {
     })
 }
 
+/// Which catalog rows the open Session's header chip counts: its own session's still-active tasks.
+///
+/// The reference's header source reads `schedule/list({ sessionId })`, which the Host answers with
+/// the Session's active tasks only (`session-schedule-state.ts:22-41`); the Sidebar marks project the
+/// same filter onto the whole catalog (`session-schedule-state.ts:73-82`), which is the shape native
+/// owns because `schedule/catalog` is its only schedule read.
+pub fn is_open_reminder(
+    item: &dsh_native_transport::dto::ScheduleCatalogItem,
+    session: &dsh_native_transport::dto::SessionId,
+) -> bool {
+    &item.session_id == session && Filter::Enabled.admits(&item.status)
+}
+
+/// One Session's active reminders, ordered as the header popover lists them
+/// (`ScheduleCatalogAction.tsx:70`, `schedule-format.ts:442-458`): an overdue target first, then
+/// ascending next-run, keeping the catalog's own order where two targets are equal.
+pub fn order_reminders<'a>(
+    items: impl IntoIterator<Item = &'a dsh_native_transport::dto::ScheduleCatalogItem>,
+    now_millis: i64,
+) -> Vec<&'a dsh_native_transport::dto::ScheduleCatalogItem> {
+    let mut rows: Vec<(bool, i64, &dsh_native_transport::dto::ScheduleCatalogItem)> = items
+        .into_iter()
+        .map(|item| {
+            // A row the Host stamped with no readable target sorts after every dated one, as the
+            // page's own ordering puts an undated task last.
+            let at = item
+                .scheduled_at
+                .as_deref()
+                .and_then(crate::ui::time_text::parse_instant);
+            match at {
+                Some(instant) => (instant <= now_millis, instant, item),
+                None => (false, i64::MAX, item),
+            }
+        })
+        .collect();
+    rows.sort_by(|left, right| right.0.cmp(&left.0).then(left.1.cmp(&right.1)));
+    rows.into_iter().map(|(_, _, item)| item).collect()
+}
+
+/// The chip's count in the reference's two forms (`locales.ts:42-43` `trigger.one`/`trigger.other`):
+/// the phrase states the number, so one reminder never reads "1 reminders".
+pub fn reminder_count(count: usize) -> String {
+    format!("{count} reminder{}", if count == 1 { "" } else { "s" })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -506,5 +551,96 @@ mod filter_tests {
             Some("daily text")
         ));
         assert!(!Filter::matches("nightly", "PUBLIC", None));
+    }
+
+    fn reminder(
+        id: &str,
+        session: &str,
+        status: &str,
+        at: Option<&str>,
+    ) -> dsh_native_transport::dto::ScheduleCatalogItem {
+        dsh_native_transport::dto::ScheduleCatalogItem {
+            id: id.to_owned(),
+            title: format!("PUBLIC {id}"),
+            kind: "daily".to_owned(),
+            session_id: dsh_native_transport::dto::SessionId::new(session).expect("a session id"),
+            status: status.to_owned(),
+            scheduled_at: at.map(str::to_owned),
+            last_delivery: None,
+            record: serde_json::Map::new(),
+        }
+    }
+
+    #[test]
+    fn the_header_chip_counts_only_the_open_sessions_active_reminders() {
+        let open = dsh_native_transport::dto::SessionId::new("PUBLIC-open").expect("a session id");
+        // Same session, still active: counted.
+        let active = reminder("a", "PUBLIC-open", "active", Some("2026-10-17T09:00:00Z"));
+        // Same session but inactive: the reference's list admits active tasks only.
+        let inactive = reminder("b", "PUBLIC-open", "inactive", None);
+        // Another session's live task: the page lists it, this Session's chip must not count it.
+        let elsewhere = reminder("c", "PUBLIC-elsewhere", "active", None);
+        assert!(is_open_reminder(&active, &open));
+        assert!(!is_open_reminder(&inactive, &open));
+        assert!(!is_open_reminder(&elsewhere, &open));
+        // The status comparison is the page's own: `ACTIVE` still runs.
+        let upper = reminder("d", "PUBLIC-open", "ACTIVE", None);
+        assert!(is_open_reminder(&upper, &open));
+    }
+
+    #[test]
+    fn an_overdue_reminder_is_listed_before_a_later_one() {
+        let now =
+            crate::ui::time_text::parse_instant("2026-10-17T12:00:00Z").expect("a readable now");
+        let overdue = reminder(
+            "overdue",
+            "PUBLIC-open",
+            "active",
+            Some("2026-10-17T09:00:00Z"),
+        );
+        let soon = reminder(
+            "soon",
+            "PUBLIC-open",
+            "active",
+            Some("2026-10-17T13:00:00Z"),
+        );
+        let later = reminder(
+            "later",
+            "PUBLIC-open",
+            "active",
+            Some("2026-10-17T14:00:00Z"),
+        );
+        let undated = reminder("undated", "PUBLIC-open", "active", None);
+        // The overdue target leads even though another row's target is later than it: the reference
+        // orders overdue first, then ascending (`schedule-format.ts:448-457`).
+        let ordered = order_reminders([&soon, &undated, &later, &overdue], now);
+        let ids: Vec<&str> = ordered.iter().map(|item| item.id.as_str()).collect();
+        assert_eq!(ids, ["overdue", "soon", "later", "undated"]);
+        // Two equal targets keep the catalog's own order rather than reversing or interleaving.
+        let left = reminder(
+            "left",
+            "PUBLIC-open",
+            "active",
+            Some("2026-10-17T13:00:00Z"),
+        );
+        let right = reminder(
+            "right",
+            "PUBLIC-open",
+            "active",
+            Some("2026-10-17T13:00:00Z"),
+        );
+        let tied = order_reminders([&left, &right], now);
+        assert_eq!(
+            tied.iter().map(|item| item.id.as_str()).collect::<Vec<_>>(),
+            ["left", "right"]
+        );
+    }
+
+    #[test]
+    fn one_reminder_says_one_and_two_say_two() {
+        assert_eq!(reminder_count(1), "1 reminder");
+        assert_eq!(reminder_count(2), "2 reminders");
+        // The label states its own number, so zero never borrows the singular form.
+        assert_eq!(reminder_count(0), "0 reminders");
     }
 }
