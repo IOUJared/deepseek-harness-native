@@ -36,7 +36,7 @@ until the definition of done below is true.
 
 HEAD `f72a4f5`, tree clean, ~430 local commits ahead of origin, nothing pushed. Captures archived
 through `shots/231-steer-all.png`. Working gates at that commit: app fixture **1409 passed / 1
-ignored**, app default **1392 / 1**, transport **56 + 17 + 91 + 7**, core `--lib` **115**, JS **419
+ignored**, app default **1394 / 1**, transport **56 + 17 + 91 + 7**, core `--lib` **115**, JS **419
 pass / 0 fail**, format debt **0 files / 0 hunks**, `--suite clippy` and `--suite examples` passed. The
 app **bin** carries 21 pre-existing dead-code warnings: record the count, never claim it
 warning-free.
@@ -152,7 +152,7 @@ python3 -c "import json;d=json.load(open('/tmp/dsh-shots/NAME.json'));print(d.ge
 - Modes are presets: `chat-transcript`, `settings-*`, `sidebar-*`, `plan-mode*`, `queued-idle`,
   `mcp`, `schedules`, `workflow-run`, … see `layout_fixture.rs`'s preset list.
 - Archive to `~/.local/share/dsh-macos-shell-reference/shots/<n>-name.png` (+ `-dp2.png`, `.json`)
-  and mirror the buffer into `app/evidence/`. Next number is **232** (shot 231 is the newest).
+  and mirror the buffer into `app/evidence/`. Next number is **233** (shot 232 is the newest).
 - When the fixture's check disagrees with a correct picture, read the check's inputs before touching
   the picture — twice the fix was one line in the *expectation*.
 
