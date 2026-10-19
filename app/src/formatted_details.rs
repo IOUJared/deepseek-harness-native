@@ -17,6 +17,8 @@ pub struct Span {
     pub text: String,
     pub bold: bool,
     pub italic: bool,
+    /// `~~struck~~`, which the reference renders as `<del>` (`render.tsx:298-301`).
+    pub struck: bool,
     pub code: bool,
     /// The reference's `imageAlt` run: an image whose source it cannot resolve renders
     /// its alt text as tertiary italic (`render.tsx:640,653`). Iced has no image
@@ -74,13 +76,18 @@ pub fn parse(source: &str) -> Result<Document, Failure> {
     if source.len() > INPUT_BYTES {
         return Err(Failure::Bytes);
     }
-    // Tables, footnotes and math are the three extensions the reference's markdown renderer turns
-    // on (`render.tsx:338,388`, `MarkdownText.tsx:29`). A footnote renders as its marked paragraph
-    // and the reference becomes `[n]` text; math has no native typesetter, so its source is drawn
-    // as code — the recorded deliberate difference (`NATIVE-UI-PARITY.md`, renderer row).
+    // Tables, footnotes, math, strikethrough and task lists are the extensions the reference's
+    // markdown renderer turns on: its pipeline renders `<del>` and disabled checkboxes
+    // (`render.tsx:298-301,437-450`), so both are enabled here. A footnote renders as its marked
+    // paragraph and the reference becomes `[n]` text; math has no native typesetter, so its source
+    // is drawn as code — the recorded deliberate difference (`NATIVE-UI-PARITY.md`, renderer row).
     build(Parser::new_ext(
         source,
-        Options::ENABLE_TABLES | Options::ENABLE_FOOTNOTES | Options::ENABLE_MATH,
+        Options::ENABLE_TABLES
+            | Options::ENABLE_FOOTNOTES
+            | Options::ENABLE_MATH
+            | Options::ENABLE_STRIKETHROUGH
+            | Options::ENABLE_TASKLISTS,
     ))
 }
 
@@ -140,6 +147,7 @@ struct Builder {
     quotes: usize,
     bold: usize,
     italic: usize,
+    struck: usize,
     inline: Option<Inline>,
     code: Option<Code>,
     table: Option<Table>,
@@ -179,6 +187,15 @@ fn build<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<Document, Fa
                 // The parser wraps display math in a paragraph, so the source is drawn inside it
                 // as code — the same "no typesetter, show the source" rule as inline math.
                 builder.text(&text, true)?;
+            }
+            Event::TaskListMarker(checked) => {
+                // The reference keeps the list's own marker and prepends a disabled checkbox to
+                // the item's first paragraph (`render.tsx:437-450`); native states both in the
+                // paragraph's marker, which is where a list item's bullet is drawn.
+                let item = builder.items.last_mut().ok_or(Failure::Unsupported)?;
+                let marker = item.marker.as_mut().ok_or(Failure::Unsupported)?;
+                let box_ = if checked { "\u{2611}" } else { "\u{2610}" };
+                *marker = format!("{marker} {box_}");
             }
             Event::FootnoteReference(name) => {
                 builder.text(&format!("[{}]", crate::reducer::bounded(&name, 64)), false)?;
@@ -282,9 +299,11 @@ impl Builder {
         let inline = self.inline.as_mut().ok_or(Failure::Unsupported)?;
         let bold = self.bold != 0;
         let italic = self.italic != 0;
+        let struck = self.struck != 0;
         if let Some(last) = inline.spans.last_mut()
             && last.bold == bold
             && last.italic == italic
+            && last.struck == struck
             && last.code == code
         {
             last.text.push_str(text);
@@ -298,6 +317,7 @@ impl Builder {
             text: text.into(),
             bold,
             italic,
+            struck,
             code,
             alt: false,
         });
@@ -427,6 +447,10 @@ impl Builder {
                 self.ensure_inline()?;
                 self.italic += 1;
             }
+            Tag::Strikethrough => {
+                self.ensure_inline()?;
+                self.struck += 1;
+            }
             Tag::Link {
                 dest_url, title, ..
             } => {
@@ -539,6 +563,9 @@ impl Builder {
             TagEnd::Emphasis => {
                 self.italic = self.italic.checked_sub(1).ok_or(Failure::Unsupported)?
             }
+            TagEnd::Strikethrough => {
+                self.struck = self.struck.checked_sub(1).ok_or(Failure::Unsupported)?
+            }
             TagEnd::Link => {
                 let destination = frame.destination.ok_or(Failure::Unsupported)?;
                 self.text(" (", false)?;
@@ -588,6 +615,7 @@ impl Builder {
                     text: rendered,
                     bold: false,
                     italic: true,
+                    struck: false,
                     code: false,
                     alt: true,
                 });
@@ -709,6 +737,51 @@ mod tests {
                 .any(|s| s.text == "x < y" && s.code && !s.bold && !s.italic)
         );
         assert!(spans.iter().any(|s| s.text == "all" && s.bold && s.italic));
+    }
+
+    #[test]
+    fn a_struck_run_is_its_own_span_and_never_merges_with_the_plain_text() {
+        // The reference renders `~~…~~` as `<del>` (`render.tsx:298-301`), so the run keeps its
+        // own style instead of collapsing into the neighbouring text.
+        let doc = parse("PUBLIC ~~gone~~ stays").unwrap_or_else(|_| panic!("valid markdown"));
+        let spans = paragraph(&doc.blocks[0]).0;
+        assert_eq!(spans.len(), 3);
+        assert_eq!(spans[1].text, "gone");
+        assert!(spans[1].struck);
+        assert!(!spans[0].struck && !spans[2].struck);
+        // Balance: an unbalanced end is refused rather than silently drawn struck.
+        let events = vec![
+            Event::Start(Tag::Paragraph),
+            Event::End(TagEnd::Strikethrough),
+        ];
+        assert!(matches!(build(events), Err(Failure::Unsupported)));
+    }
+
+    #[test]
+    fn a_task_item_states_the_box_beside_its_own_bullet() {
+        // The reference keeps the item's list marker and prepends a disabled checkbox
+        // (`render.tsx:437-450`); native draws both in the item's marker.
+        let doc =
+            parse("- [x] done\n- [ ] waiting\n").unwrap_or_else(|_| panic!("valid task list"));
+        let markers: Vec<String> = doc
+            .blocks
+            .iter()
+            .filter_map(|block| match block {
+                Block::Paragraph { marker, .. } => marker.clone(),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            markers,
+            vec!["• \u{2611}".to_string(), "• \u{2610}".to_string()]
+        );
+        // A task marker outside an item is the source's contradiction.
+        let events = vec![
+            Event::Start(Tag::Paragraph),
+            Event::TaskListMarker(true),
+            Event::End(TagEnd::Paragraph),
+        ];
+        assert!(matches!(build(events), Err(Failure::Unsupported)));
     }
 
     #[test]
@@ -1104,7 +1177,6 @@ mod tests {
             Event::InlineMath("x".into()),
             Event::DisplayMath("x".into()),
             Event::FootnoteReference("secret".into()),
-            Event::TaskListMarker(true),
         ] {
             let mut events = prefix();
             events.push(event);
@@ -1118,7 +1190,6 @@ mod tests {
                 id: "".into(),
             },
             Tag::Table(vec![]),
-            Tag::Strikethrough,
             Tag::FootnoteDefinition("secret".into()),
             Tag::DefinitionList,
             Tag::BlockQuote(Some(pulldown_cmark::BlockQuoteKind::Note)),

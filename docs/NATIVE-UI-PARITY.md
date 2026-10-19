@@ -6401,7 +6401,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 
 | Reference surface | Native status |
 | --- | --- |
-| Chat: renderer, thoughts, turn triggers, copy/branch/edit/fork | cloned (search is a native addition: the reference has no conversation Find bar and leaves text search to the browser's own find, exposing collapsed subtrees to it through `hidden="until-found"`) (markdown: tables, footnotes and math; math draws its source, since no native typesetter exists — see the renderer note below) |
+| Chat: renderer, thoughts, turn triggers, copy/branch/edit/fork | cloned (search is a native addition: the reference has no conversation Find bar and leaves text search to the browser's own find, exposing collapsed subtrees to it through `hidden="until-found"`) (markdown: tables, footnotes, math, strikethrough and task items; math draws its source, since no native typesetter exists, and a task item draws a box glyph where the reference draws a disabled input — see the renderer note below) |
 | Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the slash menu groups its two sources as the reference does (`Commands`, then `Skills`), states `Loading…` while the advertisement is in flight and shows a command's argument hint under the draft (the reference draws it inside the editor), but has no breadcrumbs or subagent source, files are chosen one at a time through a path field, no image thumbnails in the rail, and a send awaiting admission is stated by the composer's own banner (with Check, Review and Stop-original) rather than as a queue row;  steering the whole queue is a `Steer all` control on the strip (the reference triggers it from an empty draft); and these deliberate differences: the reference inverts its submission policy on Cmd/Ctrl+Enter (`view-binding.ts:120-130`), while native keeps Ctrl+Enter a plain send alias by the user's explicit confirmation (`docs/SESSION-PROMPT.md`); and native's goal bar states a running goal's controls where the reference adds `hint.goal`/`hint.goal.active` ghost copy beside the draft) |
 | Sidebar: sessions, search, pin/archive/trash, workspace filter, navigation sheet | cloned (time-grouped list, not the grouped browser) |
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
@@ -14880,4 +14880,46 @@ projection — it is derived from the same retained records in both clients.
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-kwm8v2or`) |
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 capture | — | `shots/320-turn-usage-retry.png`, `status: passed`, 1040x760 |
+| app bin | — | **21** warnings |
+
+### Round 527 — struck runs and task items render instead of falling back to plain text
+
+**The gap.** Native's markdown parser enabled tables, footnotes and math, and refused everything else.
+Two constructs the reference renders were therefore not merely unstyled — they failed the whole
+document, dropping the reply to plain text: `~~struck~~` (the reference renders `<del>`,
+`ui-primitives/src/markdown/render.tsx:298-301`) and a task item (the reference keeps the item's own
+list marker and prepends a disabled checkbox, `render.tsx:437-450`). `ENABLE_STRIKETHROUGH` and
+`ENABLE_TASKLISTS` were simply not turned on.
+
+**The change.** `Options::ENABLE_STRIKETHROUGH | ENABLE_TASKLISTS` join the parser's extension set;
+`Span` gains `struck`, tracked like bold and italic (counter, coalescing, balance check) and drawn with
+Iced's own `.strikethrough(true)`, so measurement and render share the same runs. A
+`TaskListMarker` states its box beside the item's bullet in the paragraph's marker — `☑` checked,
+`☐` open — which is where native already draws a list item's glyph; a marker outside an item stays
+`Unsupported`.
+
+**Frame.** `shots/321-markdown-gfm.png` (1040x760, new `markdown-gfm` preset): a reply reading
+`PUBLIC checklist with a ~~removed~~ line and **bold** beside it.` — "removed" drawn struck and "bold"
+drawn bold — then `• ☑ shipped the striking` and `• ☐ waiting on the checkbox`.
+
+**Tests.** `a_struck_run_is_its_own_span_and_never_merges_with_the_plain_text` (three spans, only the
+middle struck, an unbalanced end refused) and `a_task_item_states_the_box_beside_its_own_bullet`
+(`• ☑` / `• ☐` in item order, a marker outside an item refused); the old unsupported-event list no
+longer names either construct.
+
+**Recorded difference.** The reference draws a real `<input type="checkbox" disabled>`; native draws
+the glyph, the same substitution its list bullets and other iconography already make where Iced has no
+widget-level equivalent.
+
+**Battery (round 527).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1531 passed**, 1 ignored |
+| app, default | **0** | **1475 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-6lw40mvr`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-c__x8mxe`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 capture | — | `shots/321-markdown-gfm.png`, `status: passed`, 1040x760 |
 | app bin | — | **21** warnings |

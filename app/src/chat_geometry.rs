@@ -182,6 +182,7 @@ pub(crate) fn reference_summary_height(labels: &[String], lane: f32, delta_secon
         text,
         bold: false,
         italic: false,
+        struck: false,
         code: false,
         alt: false,
     };

@@ -713,6 +713,9 @@ fn inline_runs(parts: &[formatted::Span]) -> Vec<native::Span<'static, (), Font>
                     },
                     ..if part.code { MONO } else { FONT }
                 })
+                // The reference renders `~~…~~` as `<del>`, a struck run in the body ink
+                // (`render.tsx:298-301`).
+                .strikethrough(part.struck)
                 .color(if part.code {
                     design::FOAM
                 } else if part.alt {
@@ -941,6 +944,7 @@ pub(crate) fn compact_heading_spans(spans: &[formatted::Span]) -> Vec<formatted:
             text: part.text.clone(),
             bold: true,
             italic: part.italic,
+            struck: part.struck,
             code: part.code,
             alt: part.alt,
         })
@@ -1601,6 +1605,7 @@ mod tests {
                 text: "PUBLIC fo".into(),
                 bold: false,
                 italic: false,
+                struck: false,
                 code: false,
                 alt: false,
             },
@@ -1608,6 +1613,7 @@ mod tests {
                 text: "İ世".into(),
                 bold: true,
                 italic: true,
+                struck: false,
                 code: false,
                 alt: false,
             },
@@ -1615,6 +1621,7 @@ mod tests {
                 text: "界z".into(),
                 bold: false,
                 italic: false,
+                struck: false,
                 code: true,
                 alt: false,
             },
@@ -1622,6 +1629,7 @@ mod tests {
                 text: " tail".into(),
                 bold: false,
                 italic: false,
+                struck: false,
                 code: false,
                 alt: false,
             },
@@ -1795,6 +1803,7 @@ mod tests {
             text: "PUBLIC cell".into(),
             bold: false,
             italic: false,
+            struck: false,
             code: false,
             alt: false,
         }]];
@@ -1972,6 +1981,7 @@ mod tests {
                 text: "PUBLIC normal ".repeat(10),
                 bold: false,
                 italic: false,
+                struck: false,
                 code: false,
                 alt: false,
             },
@@ -1979,6 +1989,7 @@ mod tests {
                 text: "bold PUBLIC ".repeat(10),
                 bold: true,
                 italic: false,
+                struck: false,
                 code: false,
                 alt: false,
             },
@@ -1986,6 +1997,7 @@ mod tests {
                 text: "italic PUBLIC ".repeat(10),
                 bold: false,
                 italic: true,
+                struck: false,
                 code: false,
                 alt: false,
             },
@@ -1993,6 +2005,7 @@ mod tests {
                 text: "code PUBLIC ".repeat(10),
                 bold: false,
                 italic: false,
+                struck: false,
                 code: true,
                 alt: false,
             },
