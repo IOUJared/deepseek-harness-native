@@ -16337,7 +16337,22 @@ impl App {
             if history_open {
                 row = row.push(Space::new().height(2));
                 if let Some(error) = &self.schedule_history_error {
-                    row = row.push(label(short(error, 140), DANGER).size(10));
+                    // The reference retries a failed history read in place
+                    // (`DeliveryHistory.tsx:132-145`); native re-runs the same read.
+                    let retry = self.schedule_history.clone();
+                    row = row.push(
+                        row![
+                            label(short(error, 140), DANGER).size(10),
+                            button(label("Retry", MUTED).size(10))
+                                .on_press_maybe(
+                                    retry
+                                        .map(|(session, id)| Message::ScheduleHistory(session, id))
+                                )
+                                .style(design::ghost)
+                                .padding([2, 6]),
+                        ]
+                        .spacing(6),
+                    );
                 }
                 if let Some(page) = &self.schedule_history_page {
                     if page.records.is_empty() {

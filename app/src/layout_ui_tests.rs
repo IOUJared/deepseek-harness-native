@@ -105,6 +105,36 @@ fn closing_state_rejects_local_menu_and_info_changes() {
 }
 #[cfg(feature = "public-layout-fixture")]
 #[test]
+fn a_failed_history_read_offers_a_retry_that_asks_again() {
+    use crate::worker::Command;
+    let (size, _scale) = super::layout_fixture::preset_size("schedules-history-error").unwrap();
+    let (mut app, mut queue) = super::layout_fixture::build(
+        super::layout_fixture::test_options(),
+        "schedules-history-error",
+        size,
+        None,
+    );
+    let (session, id) = app.schedule_history.clone().expect("the history is open");
+    assert!(app.schedule_history_error.is_some());
+    assert!(app.schedule_history_page.is_none());
+    while queue.try_recv().is_ok() {}
+    // The row's Retry re-runs the read that failed.
+    drop(app.update(Message::ScheduleHistory(session.clone(), id.clone())));
+    let Command::ScheduleHistory {
+        session: asked,
+        id: asked_id,
+        ..
+    } = queue.try_recv().expect("the retry asks the Host again")
+    else {
+        panic!("a retry is a history read");
+    };
+    assert_eq!(asked, session);
+    assert_eq!(asked_id, id);
+    assert!(app.schedule_history_loading, "the retry is in flight");
+}
+
+#[cfg(feature = "public-layout-fixture")]
+#[test]
 fn steer_all_walks_the_queue_one_item_at_a_time() {
     use dsh_native_transport::dto::QueueAction;
     // The fixture's running session with two queued messages: a real queue, no Host.

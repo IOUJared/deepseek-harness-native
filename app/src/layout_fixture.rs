@@ -121,6 +121,7 @@ pub const PRESETS: &[&str] = &[
     "schedules-history",
     "schedules-search",
     "schedules-retention",
+    "schedules-history-error",
     "mcp",
     "changes-card",
     "feedback",
@@ -331,6 +332,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "schedules-history"
         | "schedules-search"
         | "schedules-retention"
+        | "schedules-history-error"
         | "mcp"
         | "changes-card"
         | "feedback"
@@ -1665,6 +1667,7 @@ pub fn build(
             | "schedules-history"
             | "schedules-search"
             | "schedules-retention"
+            | "schedules-history-error"
             | "subagent-catalog"
             | "subagent-readonly"
             | "subagent-sibling"
@@ -2057,6 +2060,20 @@ pub fn build(
         // does not do.
         app.schedule_retention_open = true;
         assert!(app.schedule_retention_open);
+    }
+
+    if preset == "schedules-history-error" {
+        // A failed history read with its retry control in place of the records.
+        let item = app
+            .schedules
+            .first()
+            .map(|item| (item.session_id.clone(), item.id.clone()))
+            .expect("a schedule row");
+        app.schedule_history = Some(item);
+        app.schedule_history_page = None;
+        app.schedule_history_loading = false;
+        app.schedule_history_error =
+            Some("Could not read the delivery history. Try again.".to_string());
     }
     if preset == "chat-thoughts" {
         let ticket = app.reply_parts(1).unwrap().ticket.unwrap();
