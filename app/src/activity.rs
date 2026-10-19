@@ -36,6 +36,9 @@ pub struct Summary {
     /// `Edit` and `Write` only; the view draws it instead of the input/output body, as the
     /// reference does (`ToolRow.tsx:169-170, 268`).
     pub diff: Option<crate::reducer::inline_diff::Diff>,
+    /// The line-numbered `read` card for a settled read call whose result carries the metadata
+    /// the reference validates (`read-card-model.ts:104-137`). `None` keeps the text body.
+    pub read: Option<crate::reducer::read_card::Card>,
 }
 
 /// The diff card's rows are file content, so the debug form names the card and its row count
@@ -64,8 +67,35 @@ pub(super) fn summarize<'a>(
     previous: impl Iterator<Item = &'a SessionWireEvent>,
     roots: PathRoots<'_>,
 ) -> Option<Summary> {
+    summarize_paired(event, previous, None, roots)
+}
+
+/// [`summarize`], with the call's own paired result when the caller has it. The read card is the
+/// one label that needs both records: the call carries the arguments the card is drawn for, and
+/// the result carries the metadata it is drawn from (`read-card-model.ts:104-137`).
+pub(super) fn summarize_paired<'a>(
+    event: &SessionWireEvent,
+    previous: impl Iterator<Item = &'a SessionWireEvent>,
+    paired_result: Option<&SessionWireEvent>,
+    roots: PathRoots<'_>,
+) -> Option<Summary> {
     match event.event_type.as_str() {
-        "tool/call" => Some(text_summary_label(&event.data, false, false, roots)),
+        "tool/call" => {
+            let mut summary = text_summary_label(&event.data, false, false, roots);
+            if let Some(result) = paired_result.filter(|result| {
+                result.event_type == "tool/result"
+                    && result.data["message"]["isError"].as_bool() != Some(true)
+            }) {
+                let output = super::content(&result.data["message"]["content"]);
+                summary.read = crate::reducer::read_card::derive(
+                    &event.data,
+                    &result.data["meta"],
+                    &output,
+                    roots,
+                );
+            }
+            Some(summary)
+        }
         "tool/result" => {
             let message = &event.data["message"];
             let failed = message["isError"].as_bool() == Some(true);
@@ -101,6 +131,7 @@ pub(super) fn summarize<'a>(
                     failed,
                     edits: None,
                     diff: None,
+                    read: None,
                 },
                 |call| text_summary_label(&call.data, true, failed, roots),
             ))
@@ -118,6 +149,7 @@ pub(super) fn summarize<'a>(
             failed: false,
             edits: None,
             diff: None,
+            read: None,
         }),
         "compaction/summary" => {
             let range = &event.data["shadowedRange"];
@@ -131,6 +163,7 @@ pub(super) fn summarize<'a>(
                 failed: false,
                 edits: None,
                 diff: None,
+                read: None,
             })
         }
         "compaction/end" => event.data["error"].as_str().map_or_else(
@@ -142,6 +175,7 @@ pub(super) fn summarize<'a>(
                     failed: true,
                     edits: None,
                     diff: None,
+                    read: None,
                 })
             },
         ),
@@ -201,6 +235,7 @@ fn loop_guard_summary(data: &Value) -> Summary {
             failed: false,
             edits: None,
             diff: None,
+            read: None,
         },
         _ => Summary {
             title: "Loop guard · repeated identical call".into(),
@@ -208,6 +243,7 @@ fn loop_guard_summary(data: &Value) -> Summary {
             failed: false,
             edits: None,
             diff: None,
+            read: None,
         },
     }
 }
@@ -222,6 +258,7 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
             failed,
             edits: None,
             diff: None,
+            read: None,
         };
     }
     let verb = match name {
@@ -285,6 +322,7 @@ fn text_summary_label(data: &Value, result: bool, failed: bool, roots: PathRoots
         failed,
         edits,
         diff,
+        read: None,
     }
 }
 
@@ -426,7 +464,7 @@ fn sensitive_text(value: &str) -> bool {
 /// `abbreviateHomePath` of the recorded argument (`tool-call-model.ts:261`,
 /// `workspace-path/src/index.ts:107,44`). The earlier native form invented
 /// `basename · parent/`, which the reference never draws.
-fn path_label(path: &str, roots: PathRoots<'_>) -> String {
+pub(super) fn path_label(path: &str, roots: PathRoots<'_>) -> String {
     let clean = compact(path, MAX_ARGUMENT_BYTES);
     let clean = clean.trim_end_matches(['/', '\\']);
     let relative = strip_root(clean, roots.cwd);

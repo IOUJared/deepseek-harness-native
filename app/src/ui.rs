@@ -12842,9 +12842,17 @@ impl App {
                         .and_then(|activity| activity.diff)
                 })
                 .flatten();
-            let body = match &diff {
-                Some(diff) => self.diff_card_height(diff, row.key),
-                None => conversation_content::tool_body_height(
+            let read = (row.role == "Tool call")
+                .then(|| {
+                    self.transcript
+                        .activity(row.key, self.path_roots())
+                        .and_then(|activity| activity.read)
+                })
+                .flatten();
+            let body = match (&read, &diff) {
+                (Some(card), _) => self.read_card_height(card, row.key),
+                (None, Some(diff)) => self.diff_card_height(diff, row.key),
+                (None, None) => conversation_content::tool_body_height(
                     activity_body_source(row),
                     geometry.width - chat_geometry::BODY_INSET,
                     self.content_delta_secondary(),
@@ -13111,6 +13119,95 @@ impl App {
             })
             .into()
     }
+    /// The read card's own drawn height: one toolbar row (the label and, for a windowed read,
+    /// the reference's "Showing N of M lines"), the numbered rows at the code line, and the
+    /// card's padding. The reservation and the render read this one function.
+    fn read_card_height(&self, card: &crate::reducer::read_card::Card, key: u64) -> f32 {
+        let expanded = self.diff_expanded.contains(&key);
+        let rows = card.drawn_rows(expanded) as f32;
+        let line = design::CODE_LINE + self.content_delta_secondary();
+        design::DIFF_PAD_TOP + design::DIFF_PAD_BOTTOM + line * (rows + 1.0)
+    }
+    /// The reference's `ReadBlock` in a chat row (`ReadBlock.tsx:112-150`): a toolbar with the
+    /// path label and the window status, numbered content lines, and the head/tail fold at
+    /// `read_card::MAX_ROWS`. Expansion shares the diff card's per-key state, because it is the
+    /// same question — whether this row's card is fully open.
+    fn read_card(
+        &self,
+        card: &crate::reducer::read_card::Card,
+        key: u64,
+    ) -> Element<'static, Message> {
+        let expanded = self.diff_expanded.contains(&key);
+        let shown = card.shown(expanded);
+        let line = design::CODE_LINE + self.content_delta_secondary();
+        let digits = card
+            .lines
+            .iter()
+            .map(|line| line.number.to_string().len())
+            .max()
+            .unwrap_or(1)
+            .max(3);
+        // The reference's `CodeToolbar`: the title at the left, the window status at the right
+        // end of the same row (`CodeToolbar.tsx`, `ReadBlock.tsx:127-129`).
+        let mut toolbar = row![label(short(&card.label, 96), MUTED).size(design::CODE_FONT)]
+            .spacing(8)
+            .push(Space::new().width(Length::Fill));
+        if let Some(status) = card.status() {
+            toolbar = toolbar.push(label(status, MUTED).size(design::CODE_FONT));
+        }
+        let mut body = Column::new().push(
+            container(toolbar)
+                .height(line)
+                .width(Length::Fill)
+                .align_y(iced::Alignment::Center),
+        );
+        for entry in shown.head {
+            body = body.push(read_line_view(entry.number, &entry.text, line, digits));
+        }
+        if shown.hidden > 0 {
+            let copy = if expanded {
+                "Collapse".to_owned()
+            } else {
+                format!("… {} more lines", shown.hidden)
+            };
+            body = body.push(
+                button(label(copy, MUTED).size(design::CODE_FONT))
+                    .on_press(Message::ToggleDiff(key))
+                    .style(design::ghost)
+                    .padding(iced::Padding {
+                        top: 0.0,
+                        right: 0.0,
+                        bottom: 0.0,
+                        left: design::DIFF_LINE_PAD,
+                    })
+                    .height(line)
+                    .width(Length::Fill),
+            );
+        }
+        for entry in shown.tail {
+            body = body.push(read_line_view(entry.number, &entry.text, line, digits));
+        }
+        container(body)
+            .id("native-tool-read")
+            .width(Length::Fill)
+            .height(self.read_card_height(card, key))
+            .padding(iced::Padding {
+                top: design::DIFF_PAD_TOP,
+                right: 0.0,
+                bottom: design::DIFF_PAD_BOTTOM,
+                left: 0.0,
+            })
+            .clip(true)
+            .style(|_| iced::widget::container::Style {
+                background: Some(design::OVERLAY.into()),
+                border: iced::Border {
+                    radius: design::RADIUS_LG.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .into()
+    }
     pub(crate) fn path_roots(&self) -> crate::reducer::activity::PathRoots<'_> {
         crate::reducer::activity::PathRoots {
             cwd: self
@@ -13331,9 +13428,19 @@ impl App {
                                 .and_then(|activity| activity.diff)
                         })
                         .flatten();
-                    activity_column = activity_column.push(match &diff {
-                        Some(diff) => self.diff_card(diff, record.key),
-                        None => conversation_content::tool_body_view(
+                    // A settled read draws the reference's line-numbered card; a file mutation
+                    // draws the diff card; everything else keeps the recorded body.
+                    let read = (record.role == "Tool call")
+                        .then(|| {
+                            self.transcript
+                                .activity(record.key, self.path_roots())
+                                .and_then(|activity| activity.read)
+                        })
+                        .flatten();
+                    activity_column = activity_column.push(match (&read, &diff) {
+                        (Some(card), _) => self.read_card(card, record.key),
+                        (None, Some(diff)) => self.diff_card(diff, record.key),
+                        (None, None) => conversation_content::tool_body_view(
                             activity_body,
                             conversation_content::tool_body_height(
                                 activity_body,
@@ -16899,6 +17006,35 @@ fn settings_paste_message(
 /// One diff row: the 3px colour bar, then the line on its own code line box over the row's
 /// tint. The reference puts the state colour in both the bar and the ink and fills the row
 /// (`DiffBlock.module.css:36-60`).
+/// One numbered read row: the right-aligned gutter at the reference's `ch` width, then the line.
+fn read_line_view(
+    number: u64,
+    text: &str,
+    height: f32,
+    gutter: usize,
+) -> Element<'static, Message> {
+    row![
+        container(
+            label(format!("{number:>gutter$}"), MUTED)
+                .size(design::CODE_FONT)
+                .font(MONO)
+        )
+        .width(Length::Fixed(gutter as f32 * 7.0))
+        .padding(iced::Padding {
+            top: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+            left: design::DIFF_STAT_LEFT,
+        })
+        .align_x(iced::Alignment::End),
+        label(text.to_owned(), MUTED)
+            .size(design::CODE_FONT)
+            .font(MONO),
+    ]
+    .height(height)
+    .align_y(iced::Alignment::Center)
+    .into()
+}
 fn diff_line_view(
     line: &crate::reducer::inline_diff::Line,
     height: f32,

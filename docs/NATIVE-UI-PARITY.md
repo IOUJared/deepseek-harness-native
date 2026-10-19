@@ -372,19 +372,16 @@ the authoritative short form.
    its `tool/call` and draws one row per call, as the reference does; the result record remains a
    Trajectory-only row, so nothing is lost. See that round for the pairing rules and the rows that
    changed.
-8. **The expanded tool body's card family.** The reference picks a structured card per tool before
-   any text card (`ToolRow.tsx:169-170`: ask-user, terminal, diff, read, image, search, web,
-   details, then the IN/OUT text card) and draws it with the shared primitive
-   (`:258-341`). Native draws the diff card (round 362) and recorded text for everything else
-   (the read body is the content without its `<path>`/`<content>` envelope, round 365), so a
-   `read` result is plain numbered-less text rather than the reference's line-numbered
-   `ReadBlock` with its "Showing N of M lines" label (`ReadBlock.tsx`, `read-card-model.ts`), and
-   `bash` output is text rather than the reference's `TerminalBlock` card. Two of the cards also need
-   data native keeps private: `readCardModel` reads the result's opaque `meta` (path, offset,
-   line numbers, totalLines) and a `str_replace_editor` call, neither of which the compact
-   summary exposes; exposing a typed read-only projection of that metadata is the first slice.
-   Until then this is a **deliberate difference — structured tool cards replaced by recorded
-   text** — and the diff, which needs only arguments, is the one card that does not need it.
+8. **The expanded tool body's card family — two of the cards are now built.** The reference
+   picks a structured card per tool before any text card (`ToolRow.tsx:169-170`: ask-user,
+   terminal, diff, read, image, search, web, details, then the IN/OUT text card) and draws it with
+   the shared primitive (`:258-341`). Native draws the **diff** card (round 362, arguments only) and
+   the **read** card (round 373: a typed, validated projection of the result's `meta` with the
+   reference's own rules, numbered rows, the head/tail fold at 8 rows and the "Showing N of M lines"
+   status). What remains of this family is `bash` output as recorded text rather than the
+   reference's `TerminalBlock`, the `str_replace_editor` shape, and the ask-user/image/search/web
+   cards. So the difference is now **text where the reference picks a structured card**, and it
+   covers the terminal, search and web families only.
 9. **Permission default row in Settings — landed.** The reference has *two* permission pickers;
    both are drawn here now (`settings.rs:1550-1580`, settings-general permission row,
    `shots/70-…`–`73-…`), and the record below is kept because it names the second surface and its
@@ -8560,3 +8557,55 @@ journal. A named index now sits above it and states that the numbers below are j
 **Battery (round 372).** Documentation only — no code, no fixture, no capture. The tree was clean at
 `1d541e0` when the round began; the app profiles were last run green at that commit (fixture
 **1289**, default **1282**) and are unchanged by a docs edit.
+
+### Round 373 — the read card: a typed `meta` projection and the reference's numbered block
+
+The first of the structured tool cards, and the one that needed data native was refusing to keep.
+`readCardModel` reads the result's opaque `meta` — path, 1-based offset, numbered lines,
+`totalLines`, optional `lang` — validates every field with its own rules and only then draws
+`ReadBlock`; native kept `meta` private and drew the read result as text.
+
+**The model** (`reducer/read_card.rs`) mirrors those rules rather than approximating them: the call
+must be a `read` (alpha's `functions.read`/`tool-fs/read` spellings included) with a non-empty
+`file_path` and only positive-integer `offset`/`limit`; the metadata's `offset` must be at least 1,
+`totalLines` a non-negative integer, and its lines a strictly increasing list that begins after
+`offset - 1`, never exceeds `totalLines`, with string text; the result text must be the model-facing
+`<path>…<type>file</type><content>…</content>` envelope. A field that fails a rule drops the card
+instead of being repaired, exactly as the reference does, and the recorded text body remains the
+fallback.
+
+**The card** draws the reference's `ReadBlock`: a toolbar row with the relativized path and, for a
+windowed read, `Showing N of M lines` at its right end; numbered rows in the code face with the
+gutter at the reference's `ch` width; and the same head/tail fold the primitive uses — 8 rows before
+the middle collapses, 4 kept at each end, a `… N more lines` control between them. Expansion shares
+the diff card's per-key state, because it is the same question.
+
+**The pairing** is what makes it possible: `Transcript` now keeps `call seq → result seq` from the
+fold round 371 added, so `activity()` reaches a call's own result in constant time instead of
+scanning the tail on every frame. `summarize` delegates to a paired variant, so a caller without the
+result — every existing test — keeps the old behaviour.
+
+Evidence: `shots/172-tool-read-card.png` (DP-2 alongside, `status: passed`) shows the card in the
+`tool-activity-read` preset: `src/PUBLIC-note.txt`, `Showing 2 of 42 lines`, and the two numbered
+lines the fixture's synthetic metadata records. The fixture now carries that metadata (it is the
+shape a real session stores), so the card is drawn from data, not hard-coded.
+
+Tests: seven in `read_card` — a complete read, a non-windowed whole file, the head/tail cap on 20
+lines, six metadata failures, four envelope failures, five call/argument failures, and the `Debug`
+form proving line text never leaves the model — plus the fixture's card assertions.
+
+**Battery (round 373).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1296 passed**, 1 ignored |
+| app, default | **0** | **1289 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/172-tool-read-card.png`, `status: passed` |
+| app bin | — | **19** dead-code warnings (18 before; one new dead `path_label` alias removed, one new) |
+| tree | — | clean before the commit |

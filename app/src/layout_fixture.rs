@@ -663,7 +663,20 @@ fn public_tool_records_with(attachment: Option<&str>) -> Vec<Value> {
         records.push(event(seq, "tool/call", json!({
             "callId":id, "turn":1, "step":2, "name":name, "arguments":arguments.to_string()
         })));
-        records.push(event(seq+1, "tool/result", json!({"turn":1, "step":2, "message":{
+        // The read result also carries the metadata the reference validates into its card
+        // (`read-card-model.ts:104-137`): path, 1-based offset, numbered lines and the file's
+        // total. Every value is synthetic PUBLIC metadata; the file does not exist.
+        let meta = (name == "functions.read").then(|| json!({
+            "path":"/PUBLIC-layout-fixture/workspace/src/PUBLIC-note.txt",
+            "offset":1,
+            "totalLines":42,
+            "lang":"text",
+            "lines":[
+                {"number":1, "text":"PUBLIC note line one"},
+                {"number":2, "text":"PUBLIC note line two"},
+            ],
+        }));
+        let mut result = json!({"turn":1, "step":2, "message":{
             "role":"tool", "toolCallId":id, "source":{"kind":"tool", "callId":id},
             "isError":failed, "content":[{"type":"text", "text":if failed {
                 "PUBLIC synthetic error-marker fixture. No bash process ran and no tool outcome is claimed."
@@ -672,7 +685,11 @@ fn public_tool_records_with(attachment: Option<&str>) -> Vec<Value> {
                 // reference parses into its read card (`read-card-model.ts:124-127`).
                 "<path>/PUBLIC-layout-fixture/workspace/src/PUBLIC-note.txt</path>\n<type>file</type>\n<content>\nPUBLIC note line one\nPUBLIC note line two\n</content>"
             } else { "PUBLIC synthetic result body for full Details. No tool execution or success is claimed." }}]
-        }})));
+        }});
+        if let Some(meta) = meta {
+            result["meta"] = meta;
+        }
+        records.push(event(seq+1, "tool/result", result));
     }
     records.push(event(7, "assistant/message", json!({"turn":1, "step":2,
         "stream":[{"type":"text-chunks", "time0":1007, "index":0, "dt":[],
@@ -1936,6 +1953,18 @@ pub fn build(
                 .find(|row| row.key == 1)
                 .cloned()
                 .expect("the read call row");
+            // The read call draws the reference's line-numbered card, not its recorded text:
+            // two numbered lines and the window status, from the result's own metadata.
+            let card = app
+                .transcript
+                .activity(1, app.path_roots())
+                .and_then(|activity| activity.read)
+                .expect("the read call's card");
+            assert_eq!(card.label, "src/PUBLIC-note.txt");
+            assert_eq!(card.lines.len(), 2);
+            assert_eq!(card.lines[1].number, 2);
+            assert_eq!(card.lines[1].text, "PUBLIC note line two");
+            assert_eq!(card.status().as_deref(), Some("Showing 2 of 42 lines"));
             let body = super::activity_body_source(&call);
             assert!(
                 !body.contains("<path>") && !body.contains("<content>"),

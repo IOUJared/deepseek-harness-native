@@ -12,6 +12,10 @@ mod assistant_parts;
 /// this module root; a crate-root declaration would have to be repeated in each of them.
 #[path = "inline_diff.rs"]
 pub mod inline_diff;
+/// The reference's line-numbered `read` card. Declared beside `inline_diff`, for the same reason:
+/// every example that embeds this module root then sees it.
+#[path = "read_card.rs"]
+pub mod read_card;
 pub use assistant_parts::AssistantParts;
 use assistant_parts::{Block, Kind};
 #[path = "chat_presentation.rs"]
@@ -140,6 +144,9 @@ pub struct Transcript {
     projection_seqs: BTreeMap<String, i64>,
     retained_bytes: usize,
     rows: Vec<DisplayRow>,
+    /// Call seq → its paired result seq, filled where the fold happens. `activity` reads it so a
+    /// call's labels can reach its own result without scanning the tail on every frame.
+    paired: BTreeMap<u64, u64>,
     attempt: Option<Attempt>,
     retained: Option<(String, u64, u64)>,
     error: Option<ReduceError>,
@@ -161,6 +168,7 @@ impl Transcript {
             projection_seqs: BTreeMap::new(),
             retained_bytes: 0,
             rows: vec![],
+            paired: BTreeMap::new(),
             attempt: None,
             retained: None,
             error: None,
@@ -463,9 +471,11 @@ impl Transcript {
     /// `roots` is the display shortening a file path gets, so the label is the
     /// one the view draws rather than an unshortened path the view would redo.
     pub fn activity(&self, key: u64, roots: activity::PathRoots<'_>) -> Option<activity::Summary> {
-        activity::summarize(
+        let paired = self.paired.get(&key).and_then(|seq| self.records.get(seq));
+        activity::summarize_paired(
             self.records.get(&key)?,
             self.records.range(..key).rev().map(|(_, event)| event),
+            paired,
             roots,
         )
     }
@@ -801,6 +811,7 @@ impl Transcript {
         // One row per call, as the reference draws it: a `tool/call` is indexed here so its
         // `tool/result` can fold onto it instead of adding a second activity line to Chat.
         let mut calls: std::collections::BTreeMap<(String, u64, u64), u64> = Default::default();
+        let mut paired_calls: BTreeMap<u64, u64> = BTreeMap::new();
         for event in self.records.values() {
             if self
                 .attempt
@@ -962,7 +973,8 @@ impl Transcript {
                     target.output = Some(row.text.clone());
                     target.failed = message["isError"].as_bool() == Some(true);
                 }
-                if paired.is_some() {
+                if let Some(call) = paired {
+                    paired_calls.insert(call, event.seq);
                     // The record stays in Trajectory, where every record is listed; Chat draws
                     // the call once, with this result folded into it.
                     row.chat = false;
@@ -1002,6 +1014,7 @@ impl Transcript {
             rows.push(row);
         }
         self.rows = rows;
+        self.paired = paired_calls;
         // The work store is a projection of the same retained records as rows; a
         // malformed payload contributes nothing and never changes Send authority.
         self.work = work;
@@ -1198,7 +1211,7 @@ fn user_content(value: &Value) -> (String, Vec<FileCard>) {
     }
     (text.join("\n"), files)
 }
-fn content(value: &Value) -> String {
+pub(super) fn content(value: &Value) -> String {
     if let Some(s) = value.as_str() {
         return bounded(s, MAX_DISPLAY_BYTES);
     }
