@@ -9764,3 +9764,41 @@ test's title assertion.
 | DP-2 capture | — | `shots/218-process-live-detail.png`, `status: passed` |
 | app bin | — | **20** dead-code warnings |
 | tree | — | clean before the commit |
+
+### Round 402 — a settled reasoning row previews its first line
+
+The last unused policy field was `settledReasoningPreview`: in Standard, Detailed and Verbose the
+reference's settled reasoning disclosure previews the first line beside its title, while a streaming
+one does not (`presentation-policy.ts:21,32-50`). Native's row was always a bare `▸ Thoughts`.
+
+The disclosure now carries `▸ Thoughts · <first line>` when the mode enables it and the row is
+settled, elided at 80 characters; a streaming row (the live partial) and Compact keep the bare title.
+`thoughts_preview` reads the line from the prepared reasoning, so no extra parsing runs per frame.
+
+A fixture lesson, again: a new preset needs four separate lists — `PRESETS`, the size table, the
+records branch, and the *chat* records branch — plus the session's `blank` flag, or it renders an
+empty conversation and its assertions panic on a missing row. Five edits, each verified after the
+previous script asserted mid-way and wrote nothing.
+
+Evidence: `shots/219-thoughts-preview.png` (DP-2 alongside, `status: passed`) in the new
+`thoughts-preview` preset — `▸ Thoughts · PUBLIC backend-supplied thoughts. This disclosure is
+separate from the final res…`.
+
+Tests: the preset asserts the preview text and that the row stays folded; the existing reply tests
+still pass with the extra view parameter.
+
+**Battery (round 402).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1398 passed**, 1 ignored |
+| app, default | **0** | **1383 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/219-thoughts-preview.png`, `status: passed` |
+| app bin | — | **20** dead-code warnings |
+| tree | — | clean before the commit |

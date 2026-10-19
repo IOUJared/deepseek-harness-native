@@ -12656,6 +12656,19 @@ impl App {
         .height(Length::Fill)
         .into()
     }
+    /// The settled reasoning preview one row's disclosure may carry (`settledReasoningPreview`).
+    fn thoughts_preview(&self, row: &DisplayRow) -> Option<String> {
+        if !self.work_details.policy().settled_reasoning_preview || row.key == u64::MAX {
+            return None;
+        }
+        let reply = self.reply_parts(row.key)?;
+        let line = reply
+            .reasoning
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())?;
+        Some(short(line, 80))
+    }
     fn reply_parts(&self, key: u64) -> Option<std::rc::Rc<conversation_content::Prepared>> {
         if let Some(prepared) = self.reply_content.get(self.generation, key) {
             return Some(prepared);
@@ -14715,6 +14728,9 @@ impl App {
             } else if human || assistant {
                 let geometry = geometries[index];
                 let reply = self.reply_parts(record.key);
+                // A settled reasoning row previews its first line beside the title when the mode
+                // enables it; a streaming row has no settled line to show.
+                let preview = self.thoughts_preview(record);
                 let answerless =
                     assistant && reply.as_ref().is_some_and(|reply| !reply.has_answer());
                 if let (true, Some(reply)) = (answerless, reply) {
@@ -14725,6 +14741,7 @@ impl App {
                         geometry.width - chat_geometry::BODY_INSET,
                         self.thoughts_expanded.contains(&record.key),
                         self.active_search(),
+                        preview.as_deref(),
                     ))
                     .padding([10, 14])
                     .width(geometry.width)
@@ -14737,6 +14754,7 @@ impl App {
                                 geometry.width - chat_geometry::BODY_INSET,
                                 self.thoughts_expanded.contains(&record.key),
                                 self.active_search(),
+                                preview.as_deref(),
                             )
                         } else {
                             let source = if self.search_expands_user(record) {

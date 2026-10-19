@@ -253,13 +253,16 @@ impl Prepared {
     /// one, so only this module's tests read it.
     #[cfg(test)]
     pub fn view(&self, width: f32, expanded: bool) -> Element<'static, Message> {
-        self.view_search(width, expanded, "")
+        self.view_search(width, expanded, "", None)
     }
+    /// `preview` is the first line of settled reasoning, shown beside the disclosure title when the
+    /// work-details mode enables it (`settledReasoningPreview`, `presentation-policy.ts:21`).
     pub fn view_search(
         &self,
         width: f32,
         expanded: bool,
         query: &str,
+        preview: Option<&str>,
     ) -> Element<'static, Message> {
         let width = bounded_width(width);
         let mut body = Column::new().width(Length::Fill);
@@ -267,10 +270,10 @@ impl Prepared {
             body = body.push(
                 button(
                     label(
-                        if expanded {
-                            "▾ Thoughts"
-                        } else {
-                            "▸ Thoughts"
+                        match (expanded, preview) {
+                            (true, _) => "▾ Thoughts".to_owned(),
+                            (false, Some(preview)) => format!("▸ Thoughts \u{b7} {preview}"),
+                            (false, None) => "▸ Thoughts".to_owned(),
                         },
                         MUTED,
                     )
@@ -1745,7 +1748,7 @@ mod tests {
         let code = p.code(1).unwrap().to_owned();
         let height = p.body_height(320.0, true);
         for query in ["PUBLIC", "42", "absent", ""] {
-            let _ = p.view_search(320.0, true, query);
+            let _ = p.view_search(320.0, true, query, None);
             assert!(p.answer == answer);
             assert!(p.code(1) == Some(code.as_str()));
             assert_eq!(p.ticket, ticket);

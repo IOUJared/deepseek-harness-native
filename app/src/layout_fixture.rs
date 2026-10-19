@@ -75,6 +75,7 @@ pub const PRESETS: &[&str] = &[
     "chat-image",
     "chat-references",
     "chat-thoughts",
+    "thoughts-preview",
     "chat-thoughts-markdown",
     "chat-search-thoughts",
     "chat-edit-review",
@@ -281,6 +282,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "chat-image"
         | "chat-references"
         | "chat-thoughts"
+        | "thoughts-preview"
         | "chat-thoughts-markdown"
         | "chat-search-thoughts"
         | "chat-edit-review"
@@ -545,6 +547,7 @@ fn public_chat_records(preset: &str) -> Vec<Value> {
         preset,
         "chat-markdown"
             | "chat-thoughts"
+            | "thoughts-preview"
             | "chat-edit-review"
             | "chat-search"
             | "chat-recovered"
@@ -1324,7 +1327,11 @@ pub fn build(
     let selected: SessionSummary = serde_json::from_value(json!({
         "agentAvailable":true, "sessionId":"PUBLIC-layout-conversation", "updatedAt":1000,
         "running":preset.starts_with("working-") || matches!(preset, "menu" | "navigation" | "navigation-tiny"),
-        "blank":preset != "conversation" && preset != "chat-density" && !preset.starts_with("tool-activity"),
+        // A preset that carries a transcript is not a blank session; the reference's own row
+        // list and the chat fixtures both depend on this flag.
+        "blank": !matches!(preset, "conversation" | "chat-density" | "chat-markdown" | "chat-thoughts" | "thoughts-preview" | "chat-thoughts-markdown" | "chat-table")
+            && !preset.starts_with("tool-activity"),
+
         "cwd":"/PUBLIC-layout-fixture/workspace",
         "projections":{"kind":"cached", "asOfSeq":-1,
             "values":{"title":"PUBLIC local conversation"}}
@@ -1613,6 +1620,7 @@ pub fn build(
             | "chat-references"
             | "chat-search-thoughts"
             | "chat-thoughts"
+            | "thoughts-preview"
             | "chat-thoughts-markdown"
             | "chat-edit-review"
             | "chat-search"
@@ -2420,6 +2428,26 @@ pub fn build(
                     .as_deref(),
                 Some("Retry delay: 4s\nFailure reason: PUBLIC upstream unavailable · synthetic")
             );
+        }
+        "thoughts-preview" => {
+            // A settled reasoning row previews its first line beside the title: the default
+            // Standard mode enables it and this preset leaves thoughts folded.
+            let rows: Vec<_> = app.transcript.display_rows(false).collect();
+            let roles: Vec<String> = rows
+                .iter()
+                .map(|row| format!("{}:{}", row.key, row.role))
+                .collect();
+            let row = rows
+                .iter()
+                .find(|row| row.role.starts_with("Assistant"))
+                .unwrap_or_else(|| panic!("DROLES {roles:?}"));
+            assert_eq!(
+                app.thoughts_preview(row).as_deref(),
+                Some(
+                    "PUBLIC backend-supplied thoughts. This disclosure is separate from the final res…"
+                )
+            );
+            assert!(!app.thoughts_expanded.contains(&row.key));
         }
         "process-group-closed" => {
             let rows: Vec<_> = app.transcript.display_rows(false).collect();
