@@ -372,7 +372,8 @@ the authoritative short form.
    its `tool/call` and draws one row per call, as the reference does; the result record remains a
    Trajectory-only row, so nothing is lost. See that round for the pairing rules and the rows that
    changed.
-8. **The expanded tool body's card family — six cards plus the applied-diff rule.** The reference
+8. **The expanded tool body's card family — six cards, the applied-diff rule and the copy
+   control.** The reference
    picks a structured card per tool before any text card (`ToolRow.tsx:169-170`: ask-user,
    terminal, diff, read, image, search, web, details, then the IN/OUT text card) and draws it with
    the shared primitive (`:258-341`). Native draws the **diff** card (round 362, arguments only),
@@ -387,9 +388,10 @@ the authoritative short form.
    it took none, and the cancelled/interrupted verdicts). Round 378 added the `str_replace_editor`
    shape — a running call draws its intended diff, a settled one has no card, exactly the
    reference's rule — and made a settled `edit`/`write` prefer the diff the Host recorded as
-   **applied** over the intended one. What remains of this family is the image card alone, which is
-   blocked on the image fetch policy, so the difference is **text where the reference picks a
-   structured card**, for that one family.
+   **applied** over the intended one, and round 379 gave the read, terminal and search cards the
+   reference's **Copy** control (which reads `Copied` for a second). What remains of this family is
+   the image card alone, which is blocked on the image fetch policy, so the difference is **text
+   where the reference picks a structured card**, for that one family.
 9. **Permission default row in Settings — landed.** The reference has *two* permission pickers;
    both are drawn here now (`settings.rs:1550-1580`, settings-general permission row,
    `shots/70-…`–`73-…`), and the record below is kept because it names the second surface and its
@@ -8848,5 +8850,43 @@ running/settled pair, and the multi-file fallback).
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/177-tool-applied-diff.png`, `status: passed` |
+| app bin | — | **19** dead-code warnings (unchanged) |
+| tree | — | clean before the commit |
+
+### Round 379 — the cards' Copy control
+
+Every reference card that carries a `CodeToolbar` has a **Copy** control that copies the raw recorded
+text — not the card's chrome, not the parsed rows — and reads `Copied` for a second. Native's cards
+had none, so a read, a terminal's output or a search's matches could be examined but not taken.
+
+`Message::CopyCard` copies the row's folded result body through the same `write_clipboard` path the
+settings fields use (the Wayland-safe worker write, or iced's own on a non-Wayland session), sets a
+one-second `Copied` state with a `Task::perform` timer that clears it, and is drawn in the three
+places the reference draws it: the read card's toolbar beside the window status, the terminal card's
+header beside the exit pill, and the search card's banner at the row's right end. The button is
+absent when the row recorded no text, because a copy control with nothing to copy is a lie.
+
+Evidence: `shots/178-tool-card-copy-read.png` and `179-tool-card-copy-terminal.png` (DP-2 alongside,
+`status: passed`) — the read toolbar reads `Showing 2 of 42 lines  Copy`, the terminal header
+`Copy  exit code 2`.
+
+Tests: `card_copy_tests` — the copy source is the folded result (envelope verbatim for a read,
+nothing for a row without one, nothing for an unknown key), and the `Copied` state belongs to the one
+card that copied (another card's expiry changes nothing). The module is gated to the fixture feature
+because its app builder is; the behaviour itself is feature-independent.
+
+**Battery (round 379).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1336 passed**, 1 ignored |
+| app, default | **0** | **1327 passed**, 1 ignored |
+| transport | **0** | 56 + 17 + 89 + 7 (unchanged) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
+| DP-2 capture | — | `shots/178-…`, `179-…`, `status: passed` |
 | app bin | — | **19** dead-code warnings (unchanged) |
 | tree | — | clean before the commit |

@@ -2760,26 +2760,33 @@ pub fn metadata(app: &App, preset: &str) -> Value {
     report
 }
 
+/// The options every fixture build uses: paths under `/PUBLIC-layout-fixture` that no worker ever
+/// starts, a unit scale, and no accessibility announcement.
+#[cfg(test)]
+pub(crate) fn test_options() -> Options {
+    Options {
+        backend: dsh_native_core::RustBackendOptions {
+            runtime: "/PUBLIC-layout-fixture/NEVER-START/runtime".into(),
+            expected_version: "0.2.1-alpha.1".into(),
+            native_home: "/PUBLIC-layout-fixture/NEVER-START/native-home".into(),
+            user_home: "/PUBLIC-layout-fixture/NEVER-START/user-home".into(),
+            working_directory: "/PUBLIC-layout-fixture/workspace".into(),
+            absolute_node_path: None,
+            startup_timeout: std::time::Duration::from_secs(1),
+            stop_policy: Default::default(),
+        },
+        scale: 1.0,
+        smoke: None,
+        // A fixture renders a public frame; it never announces itself.
+        accessibility: false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     fn options() -> Options {
-        Options {
-            backend: dsh_native_core::RustBackendOptions {
-                runtime: "/PUBLIC-layout-fixture/NEVER-START/runtime".into(),
-                expected_version: "0.2.1-alpha.1".into(),
-                native_home: "/PUBLIC-layout-fixture/NEVER-START/native-home".into(),
-                user_home: "/PUBLIC-layout-fixture/NEVER-START/user-home".into(),
-                working_directory: "/PUBLIC-layout-fixture/workspace".into(),
-                absolute_node_path: None,
-                startup_timeout: std::time::Duration::from_secs(1),
-                stop_policy: Default::default(),
-            },
-            scale: 1.0,
-            smoke: None,
-            // A fixture renders a public frame; it never announces itself.
-            accessibility: false,
-        }
+        test_options()
     }
     #[test]
     fn presets_render_actual_app_without_queued_effects() {

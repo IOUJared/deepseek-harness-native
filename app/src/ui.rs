@@ -517,6 +517,14 @@ pub enum Message {
     ClipboardFocusedField(Option<String>),
     /// A clipboard write finished; nothing to do, and deliberately so.
     ClipboardCopied,
+    /// Copy one tool card's recorded text, as the reference's `CodeToolbar` copy does
+    /// (`CodeToolbar.tsx`, `TerminalBlock.tsx:253-257`, `SearchBlock.tsx:247-251`).
+    CopyCard {
+        generation: u64,
+        key: u64,
+    },
+    /// One second after [`Message::CopyCard`], so the button's `Copied` label reverts.
+    CardCopyExpired(u64),
     /// Clipboard text ready to insert into the focused tagged field.
     ClipboardPasteText(Option<String>),
     /// The focused tagged field and the text to insert into it.
@@ -1148,6 +1156,9 @@ pub struct App {
     /// The row itself is already expanded; this is the card's own `FoldToggle`
     /// (`DiffBlock.tsx:193-206`).
     diff_expanded: std::collections::BTreeSet<u64>,
+    /// The tool card whose copy button currently reads `Copied` (`use-copy-feedback.ts`: one
+    /// second, then back to `Copy`).
+    card_copied: Option<u64>,
     /// The inline goal editor: the exact revision and the draft objective.
     goal_edit: Option<(dsh_native_transport::dto::GoalRef, String)>,
     /// The goal revision whose clear waits for a second press.
@@ -1485,6 +1496,7 @@ impl App {
                 schedule_edit: None,
                 at_picker: None,
                 diff_expanded: std::collections::BTreeSet::new(),
+                card_copied: None,
                 goal_activation: std::collections::BTreeMap::new(),
                 goal_activation_serial: 0,
                 goal_activation_read: None,
@@ -4980,6 +4992,28 @@ impl App {
                     self.status = "Message copy requested.".into();
                     return iced::clipboard::write(source);
                 }
+            }
+            Message::CopyCard { generation, key }
+                if generation == self.generation && self.composer_visible() =>
+            {
+                let Some(text) = self.card_copy_source(key) else {
+                    return Task::none();
+                };
+                self.card_copied = Some(key);
+                self.status = "Card copied.".into();
+                let task = self.write_clipboard(text);
+                return Task::batch([
+                    task,
+                    Task::perform(
+                        async move {
+                            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        },
+                        move |()| Message::CardCopyExpired(key),
+                    ),
+                ]);
+            }
+            Message::CardCopyExpired(key) if self.card_copied == Some(key) => {
+                self.card_copied = None;
             }
             Message::EditReply { generation, key }
                 if self.edit_message_allowed(generation, key) =>
@@ -12544,6 +12578,14 @@ impl App {
                 .prepare(self.generation, key, parts.reasoning, parts.answer),
         )
     }
+    /// The raw recorded text behind a tool card: the result body Chat folded onto the call, which
+    /// is what the reference's copy control copies ("the raw output when absent",
+    /// `TerminalBlock.tsx:196-202`). Never the card's chrome, and never the argument JSON.
+    fn card_copy_source(&self, key: u64) -> Option<String> {
+        let row = self.transcript.rows().iter().find(|row| row.key == key)?;
+        let text = row.output.as_ref()?;
+        (!text.trim().is_empty()).then(|| text.clone())
+    }
     fn row_copy_source(&self, key: u64) -> Option<String> {
         if key == u64::MAX {
             return None;
@@ -13187,6 +13229,9 @@ impl App {
                 );
         }
         header = header.push(Space::new().width(Length::Fill));
+        if let Some(copy) = self.card_copy_button(key) {
+            header = header.push(copy);
+        }
         if let Some(status) = &card.status {
             header = header.push(
                 container(label(status.clone(), DANGER).size(11))
@@ -13310,8 +13355,14 @@ impl App {
         } else {
             card.summary()
         };
+        let mut banner_row = row![label(banner, MUTED).size(design::CODE_FONT)]
+            .spacing(8)
+            .push(Space::new().width(Length::Fill));
+        if let Some(copy) = self.card_copy_button(key) {
+            banner_row = banner_row.push(copy);
+        }
         let mut body = Column::new().push(
-            container(label(banner, MUTED).size(design::CODE_FONT))
+            container(banner_row)
                 .height(line)
                 .width(Length::Fill)
                 .align_y(iced::Alignment::Center),
@@ -13510,6 +13561,28 @@ impl App {
             })
             .into()
     }
+    /// The reference's copy control for a tool card (`CodeToolbar.tsx`'s `Copy`, which flips to
+    /// `Copied` for a second). Absent when the row recorded no text to copy.
+    fn card_copy_button(&self, key: u64) -> Option<Element<'static, Message>> {
+        if self.card_copy_source(key).is_none() {
+            return None;
+        }
+        let label_text = if self.card_copied == Some(key) {
+            "Copied"
+        } else {
+            "Copy"
+        };
+        Some(
+            button(label(label_text, MUTED).size(design::CODE_FONT))
+                .on_press(Message::CopyCard {
+                    generation: self.generation,
+                    key,
+                })
+                .style(design::ghost)
+                .padding([2, 6])
+                .into(),
+        )
+    }
     /// The web card's drawn height: the retained rows, one fold row, and the truncation note.
     fn web_card_height(&self, card: &crate::reducer::web_card::Card, key: u64) -> f32 {
         let rows = card.drawn_rows(self.diff_expanded.contains(&key)) as f32;
@@ -13680,6 +13753,9 @@ impl App {
             .push(Space::new().width(Length::Fill));
         if let Some(status) = card.status() {
             toolbar = toolbar.push(label(status, MUTED).size(design::CODE_FONT));
+        }
+        if let Some(copy) = self.card_copy_button(key) {
+            toolbar = toolbar.push(copy);
         }
         let mut body = Column::new().push(
             container(toolbar)
@@ -22495,5 +22571,62 @@ mod tests {
         assert!(app.smoke_evidence.screenshot_started);
         let _ = app.update(Message::CaptureOwnWindow(id));
         assert!(app.smoke_evidence.screenshot_saved.is_none());
+    }
+}
+
+// The fixture app builder this reads is feature-gated, so the module is too; the behaviour itself
+// (`card_copy_source`, `card_copied`) is feature-independent.
+#[cfg(all(test, feature = "public-layout-fixture"))]
+mod card_copy_tests {
+    //! A tool card's copy control copies the recorded result text — never the card's chrome and
+    //! never the argument JSON — and says `Copied` for one second.
+    use super::*;
+
+    fn terminal_app() -> App {
+        let (app, commands) = super::layout_fixture::build(
+            super::layout_fixture::test_options(),
+            "tool-activity-terminal",
+            iced::Size::new(1040.0, 1040.0),
+            None,
+        );
+        drop(commands);
+        app
+    }
+
+    #[test]
+    fn a_card_copies_the_result_it_folded() {
+        let app = terminal_app();
+        // The bash call is key 5; its result body was folded onto it.
+        assert_eq!(
+            app.card_copy_source(5).as_deref(),
+            Some(
+                "PUBLIC terminal output line one\nPUBLIC terminal output line two\n[exit code: 2]"
+            )
+        );
+        // The read call folds the envelope, which the copy keeps verbatim: the reference copies
+        // the raw output, not the parsed card.
+        assert!(
+            app.card_copy_source(1)
+                .is_some_and(|text| text.contains("<content>"))
+        );
+        // A row with no result has nothing to copy, and an unknown key copies nothing.
+        assert!(app.card_copy_source(0).is_none());
+        assert!(app.card_copy_source(u64::MAX).is_none());
+    }
+
+    #[test]
+    fn the_button_reads_copied_only_for_the_card_it_copied() {
+        let mut app = terminal_app();
+        let _ = app.update(Message::CopyCard {
+            generation: app.generation,
+            key: 5,
+        });
+        assert_eq!(app.card_copied, Some(5));
+        assert!(app.card_copy_button(5).is_some());
+        // Another card's button is unaffected, and the expiry clears only its own key.
+        let _ = app.update(Message::CardCopyExpired(4));
+        assert_eq!(app.card_copied, Some(5));
+        let _ = app.update(Message::CardCopyExpired(5));
+        assert_eq!(app.card_copied, None);
     }
 }
