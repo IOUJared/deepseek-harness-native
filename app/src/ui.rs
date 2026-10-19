@@ -426,6 +426,8 @@ pub enum Message {
     CopyDetailSource(detail_panel::Stamp),
     ToggleThoughts(conversation_content::Ticket),
     /// Expand or collapse one tool row's recorded body inside the conversation.
+    /// Unfold or fold one delivery record's saved prompt.
+    ScheduleHistoryPrompt(String),
     /// Steer every queued message, one at a time, as the reference's empty-draft chord does.
     QueueSteerAll,
     /// Open or close the composer's attach menu.
@@ -1106,6 +1108,9 @@ pub struct App {
     drop_hover: bool,
     /// The Host's skill catalog for the selected session, as slash candidates.
     skills: Option<Vec<command_menu::Candidate>>,
+    /// Delivery records whose saved prompt is unfolded, by message id: the reference clamps a long
+    /// prompt and offers Expand/Collapse (`DeliveryHistory.tsx:55-60`).
+    schedule_history_expanded: std::collections::BTreeSet<String>,
     /// Queued items still to steer, in order: the reference's "steer all" walks the queue one
     /// `updateQueue` at a time and stops at the first refusal (`input/hub.ts:256-270`).
     queue_steer_all: std::collections::VecDeque<String>,
@@ -1527,6 +1532,7 @@ impl App {
                 attach_menu: false,
                 drop_hover: false,
                 skills: None,
+                schedule_history_expanded: Default::default(),
                 queue_steer_all: Default::default(),
                 skills_pending: false,
                 queue_expanded: false,
@@ -4333,6 +4339,11 @@ impl App {
                     limit: 20,
                     before: None,
                 });
+            }
+            Message::ScheduleHistoryPrompt(id) if self.schedules_open => {
+                if !self.schedule_history_expanded.remove(&id) {
+                    self.schedule_history_expanded.insert(id);
+                }
             }
             Message::ScheduleHistoryOlder if self.schedules_open => {
                 let Some((session, id)) = self.schedule_history.clone() else {
@@ -16234,7 +16245,29 @@ impl App {
                             .size(10),
                         );
                         if let Some(prompt) = &record.prompt {
-                            row = row.push(label(short(prompt, 110), MUTED).size(10));
+                            let expanded =
+                                self.schedule_history_expanded.contains(&record.message_id);
+                            // The reference clamps a long prompt and offers a disclosure
+                            // (`DeliveryHistory.tsx:55-60`); a short one needs no control.
+                            let clamped = short(prompt, 110);
+                            let long = clamped.len() < prompt.len();
+                            row = row.push(
+                                label(if expanded { prompt.clone() } else { clamped }, MUTED)
+                                    .size(10),
+                            );
+                            if long {
+                                row = row.push(
+                                    button(
+                                        label(if expanded { "Collapse" } else { "Expand" }, MUTED)
+                                            .size(10),
+                                    )
+                                    .on_press(Message::ScheduleHistoryPrompt(
+                                        record.message_id.clone(),
+                                    ))
+                                    .style(design::ghost)
+                                    .padding([2, 6]),
+                                );
+                            }
                         }
                     }
                     if page.earlier_records_unavailable {

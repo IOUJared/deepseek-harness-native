@@ -118,6 +118,7 @@ pub const PRESETS: &[&str] = &[
     "schedules",
     "schedules-delete",
     "schedules-conflict",
+    "schedules-history",
     "mcp",
     "changes-card",
     "feedback",
@@ -325,6 +326,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "schedules"
         | "schedules-delete"
         | "schedules-conflict"
+        | "schedules-history"
         | "mcp"
         | "changes-card"
         | "feedback"
@@ -1656,6 +1658,7 @@ pub fn build(
             | "schedules"
             | "schedules-delete"
             | "schedules-conflict"
+            | "schedules-history"
             | "subagent-catalog"
             | "subagent-readonly"
             | "subagent-sibling"
@@ -1981,6 +1984,32 @@ pub fn build(
                 .into(),
         );
         assert!(app.schedule_edit.is_some(), "the draft is retained");
+    }
+
+    if preset == "schedules-history" {
+        // The delivery history open on one record whose saved prompt is long enough to clamp, so
+        // the reference's Expand/Collapse (`DeliveryHistory.tsx:55-60`) has something to disclose.
+        let item = app
+            .schedules
+            .first()
+            .map(|item| (item.session_id.clone(), item.id.clone()))
+            .expect("a schedule row");
+        app.schedule_history = Some(item);
+        app.schedule_history_page = Some(dsh_native_transport::dto::ScheduleHistory {
+            id: "PUBLIC-schedule-daily".into(),
+            records: vec![dsh_native_transport::dto::ScheduleDeliveryRecord {
+                scheduled_at: "2026-10-16T09:00:00Z".into(),
+                delivered_at: "2026-10-16T09:00:01Z".into(),
+                message_id: "PUBLIC-delivery-1".into(),
+                prompt: Some("PUBLIC saved delivery prompt that runs well past the one hundred and ten character clamp so the disclosure has something to reveal when it is unfolded.".into()),
+            }],
+            earlier_records_unavailable: false,
+            earlier_records_pruned: false,
+            retention_days: 30,
+            retention_records: 100,
+            next_before: None,
+        });
+        app.schedule_history_loading = false;
     }
     if preset == "chat-thoughts" {
         let ticket = app.reply_parts(1).unwrap().ticket.unwrap();

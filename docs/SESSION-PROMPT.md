@@ -152,7 +152,7 @@ python3 -c "import json;d=json.load(open('/tmp/dsh-shots/NAME.json'));print(d.ge
 - Modes are presets: `chat-transcript`, `settings-*`, `sidebar-*`, `plan-mode*`, `queued-idle`,
   `mcp`, `schedules`, `workflow-run`, … see `layout_fixture.rs`'s preset list.
 - Archive to `~/.local/share/dsh-macos-shell-reference/shots/<n>-name.png` (+ `-dp2.png`, `.json`)
-  and mirror the buffer into `app/evidence/`. Next number is **235** (shot 234 is the newest).
+  and mirror the buffer into `app/evidence/`. Next number is **236** (shot 235 is the newest).
 - When the fixture's check disagrees with a correct picture, read the check's inputs before touching
   the picture — twice the fix was one line in the *expectation*.
 
