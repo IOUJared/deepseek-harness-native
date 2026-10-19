@@ -2296,3 +2296,32 @@ async fn a_gateway_context_refusal_keeps_its_code_and_no_message() {
         "the Host's message must never be retained or shown: {shown}"
     );
 }
+
+/// The skills catalog the composer's `/` menu reads: one object with the entries, the request the
+/// reference's remote sends, and the two refusals that cost a menu.
+#[tokio::test]
+async fn skills_list_reads_the_hosts_catalog_over_the_fixed_wire() {
+    let mut fixture = NodeHostFixture::start("normal").await;
+    let client = fixture.connect(Limits::default()).await.unwrap();
+    let session_id = SessionId::new("session / opaque:%").unwrap();
+    let listed = client.skills_list(&session_id).await.unwrap();
+    assert_eq!(listed.len(), 2);
+    assert_eq!(listed[0].name, "impeccable-rust");
+    assert_eq!(listed[0].description, "Risk-driven Rust review");
+    assert_eq!(listed[0].model_invocable, Some(true));
+    assert_eq!(listed[1].when_to_use.as_deref(), Some("before a commit"));
+    assert_eq!(listed[1].model_invocable, None);
+}
+
+#[tokio::test]
+async fn skills_list_refuses_only_an_entry_that_cannot_be_addressed() {
+    let mut fixture = NodeHostFixture::start("skills-blank-name").await;
+    let client = fixture.connect(Limits::default()).await.unwrap();
+    let result = client
+        .skills_list(&SessionId::new("session / opaque:%").unwrap())
+        .await;
+    assert!(matches!(
+        result,
+        Err(dsh_native_transport::Error::InvalidDto)
+    ));
+}

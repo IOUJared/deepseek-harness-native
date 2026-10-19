@@ -6382,7 +6382,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Reference surface | Native status |
 | --- | --- |
 | Chat: renderer, thoughts, turn triggers, copy/branch/edit/fork | cloned (markdown: tables, footnotes and math; math draws its source, since no native typesetter exists — see the renderer note below) |
-| Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the slash menu states one group title (`Commands`) instead of the reference's per-source groups, sections, breadcrumbs and loading skeleton, files are chosen one at a time through a path field, no image thumbnails in the rail, and a send awaiting admission is stated by the composer's own banner (with Check, Review and Stop-original) rather than as a queue row; absent: skills in the slash menu, empty-draft steer-all, and the command-argument ghost hint; and these deliberate differences: the reference inverts its submission policy on Cmd/Ctrl+Enter (`view-binding.ts:120-130`), while native keeps Ctrl+Enter a plain send alias by the user's explicit confirmation (`docs/SESSION-PROMPT.md`); and native's goal bar states a running goal's controls where the reference adds `hint.goal`/`hint.goal.active` ghost copy beside the draft) |
+| Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the slash menu states one group title (`Commands`) instead of the reference's per-source groups, sections, breadcrumbs and loading skeleton, files are chosen one at a time through a path field, no image thumbnails in the rail, and a send awaiting admission is stated by the composer's own banner (with Check, Review and Stop-original) rather than as a queue row; absent: empty-draft steer-all and the command-argument ghost hint (the skills catalog read is landed in transport — `skills/list`, round 412 — and its menu group is the next item); and these deliberate differences: the reference inverts its submission policy on Cmd/Ctrl+Enter (`view-binding.ts:120-130`), while native keeps Ctrl+Enter a plain send alias by the user's explicit confirmation (`docs/SESSION-PROMPT.md`); and native's goal bar states a running goal's controls where the reference adds `hint.goal`/`hint.goal.active` ghost copy beside the draft) |
 | Sidebar: sessions, search, pin/archive/trash, workspace filter, navigation sheet | cloned (time-grouped list, not the grouped browser) |
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
 | Schedules: page, history, edits, pickers | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab) |
@@ -10134,5 +10134,41 @@ clears, and another window's drag is ignored) plus the preset's assertion.
 | clippy suite | **0** | core, transport and app passed |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | DP-2 capture | — | `shots/227-drop-overlay.png`, `status: passed` |
+| app bin | — | **20** dead-code warnings |
+| tree | — | clean before the commit |
+
+### Round 412 — the skills catalog read, on the reference's own wire shape
+
+The composer audit's first absent item was the reference's second `/` source: skills. Its remote call
+is `skills/list` taking one `SkillListRequest` object — `{ sessionId }`
+(`session-controller/lib/typert.remote-client.d.ts:62`, `types.ts:263-284`) — returning
+`{ skills: SkillEntry[] }` with `name`, `description`, optional `whenToUse` and `modelInvocable`.
+
+The transport now carries it: `SkillDescriptor` and `SkillListValue` DTOs (extra fields ignored, as
+commands already do), `Endpoint::SkillsList`, and `NativeClient::skills_list`, which sends the
+reference's object shape and refuses only a catalog that cannot be addressed — more than 512 entries
+or an entry with a blank name. The payload difference from `commands/list` is deliberate and
+documented at the call site: commands take a flat `agentId`, skills take the request object, because
+those are the two shapes the reference's own typings declare.
+
+This is the reading half only; the menu group that shows these entries lands next, so the coverage
+table now says exactly that instead of listing "skills in the slash menu" as absent.
+
+Tests: two transport tests over the Node host fixture — the catalog's entries and optional fields
+read back through the fixed wire, and a blank name refused as `InvalidDto`; the fixture mode exists so
+the refusal is exercised rather than assumed.
+
+**Battery (round 412).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1404 passed**, 1 ignored |
+| app, default | **0** | 1388 passed, 1 ignored |
+| transport | **0** | **56 + 17 + 91 + 7** (the skills suite adds two) |
+| core (`--lib`) | **0** | **115 passed** (unchanged) |
+| JS runtime | **0** | **419 pass**, 0 fail (unchanged) |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed |
 | app bin | — | **20** dead-code warnings |
 | tree | — | clean before the commit |

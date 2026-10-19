@@ -136,6 +136,28 @@ pub struct CommandDescriptor {
     pub name: String,
     pub description: String,
 }
+/// One skill the Session's human-facing composer may invoke. The reference's `SkillEntry`
+/// (`session-controller/src/types.ts:268-279`): identity and routing copy, with optional guidance
+/// and model visibility. Unknown extra fields are ignored, as they are for commands.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillDescriptor {
+    pub name: String,
+    pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when_to_use: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_invocable: Option<bool>,
+}
+
+/// The Host's answer to `skills/list`: one object holding the catalog, as the reference's
+/// `SkillListValue` does (`session-controller/src/types.ts:282-284`).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillListValue {
+    pub skills: Vec<SkillDescriptor>,
+}
+
 /// One handler's normalized outcome. `success` may omit its text; `error` must
 /// carry one, because the app shows that text rather than inventing a reason.
 #[derive(Clone, Debug, Serialize, Deserialize)]

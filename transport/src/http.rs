@@ -193,6 +193,7 @@ enum Endpoint {
     TerminalResize,
     TerminalClose,
     CommandsList,
+    SkillsList,
     CommandsExecute,
     UpdateQueue,
     Search,
@@ -269,6 +270,7 @@ impl Endpoint {
             Self::TerminalResize => "terminal/resize",
             Self::TerminalClose => "terminal/close",
             Self::CommandsList => "commands/list",
+            Self::SkillsList => "skills/list",
             Self::CommandsExecute => "commands/execute",
         }
     }
@@ -628,6 +630,28 @@ impl NativeClient {
             return Err(Error::InvalidDto);
         }
         Ok(value)
+    }
+    /// Read the skills the Host advertises to this Session's composer. The reference's remote takes
+    /// one `SkillListRequest` object — `{ sessionId }` (`session-controller/lib/typert.remote-client.d.ts:62`,
+    /// `types.ts:263-265`) — so the payload is that object, not the flat `agentId` a command uses.
+    pub async fn skills_list(&self, session_id: &SessionId) -> Result<Vec<SkillDescriptor>> {
+        let value: SkillListValue = self
+            .invoke(
+                Endpoint::SkillsList,
+                serde_json::json!({ "sessionId": session_id }),
+            )
+            .await?;
+        // A bounded list of addressable skills. Only what cannot be invoked at all is refused; an
+        // entry with extra fields or without optional guidance stays usable.
+        if value.skills.len() > MAX_COMMANDS
+            || value
+                .skills
+                .iter()
+                .any(|skill| skill.name.trim().is_empty())
+        {
+            return Err(Error::InvalidDto);
+        }
+        Ok(value.skills)
     }
     /// Invoke one command without sending it to the model. The returned execution
     /// carries the handler's own outcome; a command the Host does not know settles

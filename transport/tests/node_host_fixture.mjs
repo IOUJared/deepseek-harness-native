@@ -55,6 +55,20 @@ const server = http.createServer(async (request, response) => {
     case 'session/prompt': case 'session/cancel':
       if (mode.startsWith('claim-') && envelope.method === 'session/cancel') endClaims(); // Fixture-only explicit end barrier, not claim behavior.
       value = { accepted: true }; break;
+    case 'skills/list': {
+      // The reference's remote takes one `SkillListRequest` object, `{ sessionId }`.
+      const expected = { sessionId: 'session / opaque:%' };
+      if (request.method !== 'POST'
+          || !isDeepStrictEqual(envelope, { type: 'client-request', rpcId: envelope.rpcId, method: 'skills/list', payload: { args: expected } })) {
+        response.writeHead(400); response.end(); return;
+      }
+      value = { skills: [
+        { name: 'impeccable-rust', description: 'Risk-driven Rust review', modelInvocable: true },
+        { name: 'code-review', description: 'Review changes', whenToUse: 'before a commit' },
+      ] };
+      if (mode === 'skills-blank-name') value.skills[0].name = '';
+      break;
+    }
     case 'commands/list': {
       // The Host takes one flat named argument (`agentId`), never a wrapped request.
       const expected = { agentId: 'session / opaque:%' };
