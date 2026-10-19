@@ -63,8 +63,8 @@ Codex, plugins, shortcuts) and workspace open (Host chooser and in-app folder li
 tabs) is replaced by the full-page details panel and the scheduled-tasks page; sessions are grouped
 by time rather than the animated workspace browser (workspace filtering and the navigation sheet
 remain); the developer-tools gate is a local **Show coding view** preference instead of the Host's
-`configForms`; the reference's dockkit layout presets are not cloned; the workflow-run surface is not
-mounted; and the UI is English-only while the reference ships zh/en dictionaries. Cross-session
+`configForms`; the reference's dockkit layout presets are not cloned; and the UI is English-only
+while the reference ships zh/en dictionaries. Cross-session
 pending status is still unavailable from the present wires. Live model runs, OAuth and desktop-open
 side effects remain unverified.
 
@@ -115,14 +115,15 @@ Native rounds to whole values and uses a tighter panel radius; see remaining dif
 
 | Web token | Size / line-height / weight | Native role |
 |---|---|---|
-| `markdown-base` | 14 / 24 / 400 | 15 px DejaVu Sans body |
+| `markdown-base` | 14 / 24 / 400 | 14 px DejaVu Sans body (13 px secondary) |
 | `xs-13` | 13 / 20 / 400 | 13 px rows/buttons |
 | `xxs-12` | 12 / 18 / 400 | 12 px meta/tool rows |
 | `xxxs-11` | 11 / 14 / 400 | 11 px hints/status |
-| `code` / `code-block` | 12 / 19 · 11 / 19 | 13 px DejaVu Sans Mono |
-| `l-20` / `xl-24` | 20/28 · 24/32 | 18/22/25 px headings |
+| `code` / `code-block` | 12 / 19 · 11 / 19 | 11 px DejaVu Sans Mono blocks; inline code inherits the body size |
+| `l-20` / `xl-24` | 20/28 · 24/32 | 22/20/19 px headings, h4+ at 15 |
 
-Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px base and system font stack are a documented difference.
+Native font stack (DejaVu Sans) and the 14 px body base are retained; the web 16 px base and system
+font stack are a documented difference.
 
 ## Main-screen dimensions
 
@@ -144,7 +145,7 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 | Blockquote | `border-left: 2px solid label-caption` · `padding-left: 14px` · `margin: 16px 0 0` | `QUOTE_BAR`/`QUOTE_PAD`/`QUOTE_INSET`; a filled rule whose height is the paragraph's own measured height |
 | Editable context menu | Undo · Redo · — · Cut · Copy · Paste · — · Select all, each enabled from the edit flags, no accelerator labels, 180px panel | `editor_menu::entries`/`view` + a 100-step editor history; `native-editor-menu` rect |
 | Search offset | measured with the drawn block heights, collapsed gaps and the ladder, for the answer and the reasoning alike | `document_first_offset` + `document_first_offset_walks_drawn_heights_and_gaps` |
-| Permission chip | control-row chip, `height: 28px`, `padding: 0 4px 0 8px`, `13px/20px` `label-secondary`, a 14px glyph, dimmed while locked | **landed** — `native-permission-control` 28.0 × 137.9 at x 380, and its menu `native-permission-menu` 200.0 × 90.7; the pick sends `/permission <preset>` |
+| Permission chip | control-row chip, `height: 28px`, `padding: 0 4px 0 8px`, `13px/20px` `label-secondary`, a 14px glyph, dimmed while locked | **landed** — `native-permission-control` 28.0 × 153.9 at x 380, and its menu `native-permission-menu` 200.0 × 117.6 (`shots/159-…`–`161-…`); the pick sends `/permission <preset>` |
 | Permission select | control-row trigger: `height: 28px`, `padding: 0 4px 0 8px`, transparent, `radius-sm`, `13px/20px` weight 500, `label-secondary`, `max-width: 220px` with an ellipsized label, a 14px trigger glyph and 16px row glyphs, a chevron that turns 180° while open, hover `interactive-bg-hover`, disabled `label-dimmed`; menu rows plus an Auto preset with its `EXP` badge (`8px/10px`) and a risk confirmation before full access | **implemented** — the chip, menu, Host catalog, badge and confirmation are in `ui.rs`; measured `native-permission-control` 28.0 × 153.9 at x 380 and `native-permission-menu` 200.0 × 117.6 (`shots/159-…`–`161-…`). Three deltas: the label has no px ellipsis (the built-in names are short and the Core bounds a preset name at 128 characters), and neither the trigger nor the rows draw the reference's per-preset glyphs, because all three are SVGs with no DejaVu equivalent — the trigger uses the `◈` stand-in at 12px |
 | Shutdown budgets | DMG shell: graceful 10 s → SIGTERM 5 s → SIGKILL 5 s (`apps/desktop/src/main.ts:3790-3807`) | native 3 s / 1 s / 1 s (`StopPolicy::default`), documented in `NATIVE-CLOSE.md#budgets-against-the-dmg-shell`; aligning needs a measured Host unwind, not the shell's figures |
 | Referenced-session summary | under a user bubble: `Referenced session · labels` at 13px/18px tertiary, labels from the following `session-reference` context record, joined with `, ` | `DisplayRow::references` + `REFERENCE_LINE`/`reference_line` and the row's geometry; `chat-references` preset |
@@ -180,16 +181,16 @@ Native font stack (DejaVu Sans) and 14/15 px base are retained; the web 16 px ba
 ## Intentional differences (first pass)
 
 - **Palette:** Rosé Pine retained; web blue/neutral scale not ported.
-- **Fonts:** DejaVu Sans (14/15 px) vs web system stack (16 px base); native code 13 px vs web 11 px code-block.
+- **Fonts:** DejaVu Sans at a 14 px body base (13 px secondary) vs the web's 16 px base and system stack; native code blocks draw at the web's own 11 px/19 px, and inline code inherits the body size.
 - **Radii:** native 9/12/18/20 rounded values; panel 20 instead of 28.
-- **Content width:** native follows the web clamp (`680…920`) and also honours a stored preference with the web's own precedence — `design::chat_width_with` clamps it to `[640, max(640, column − 176)]`, the web's `CONTENT_MIN` and `CONTENT_EDGE_BUDGET`, and the value persists in a `native-layout.v1.json` namespace beside the drafts and sidebar documents. The web's **drag handles** now exist too: two `10px` handles sit `24px` outside the lane, overlaid with `Stack` so the lane and the scroll model are untouched, and drawn only in the active phase and only when the pane can hold both — the web's own rule. Dragging moves the width by twice the pointer delta (`design::chat_width_drag`), a press that never moves stores nothing, Escape abandons the gesture, and only a commit writes the file. The gesture follows the **window cursor** through a gated `iced::event::listen()` stream, because a handle's own `on_move` is local to its 10px box. *Source-derived and unit-tested; the rendered handle placement has not been visually verified.*
+- **Content width:** native follows the web clamp (`680…920`) and also honours a stored preference with the web's own precedence — `design::chat_width_with` clamps it to `[640, max(640, column − 176)]`, the web's `CONTENT_MIN` and `CONTENT_EDGE_BUDGET`, and the value persists in a `native-layout.v1.json` namespace beside the drafts and sidebar documents. The web's **drag handles** now exist too: two `10px` handles sit `24px` outside the lane, overlaid with `Stack` so the lane and the scroll model are untouched, and drawn only in the active phase and only when the pane can hold both — the web's own rule. Dragging moves the width by twice the pointer delta (`design::chat_width_drag`), a press that never moves stores nothing, Escape abandons the gesture, and only a commit writes the file. The gesture follows the **window cursor** through a gated `iced::event::listen()` stream, because a handle's own `on_move` is local to its 10px box. The rendered placement and the hover glow *are* verified: the fixture's rects put both strips where the reference puts them and `shots/41-width-handle-glow-dp2.png` carries the 2px bar (see [the width-handle entry](#intentional-differences-first-pass) below).
 - **Expanded thinking body:** the web indents it under the disclosure *title* rather than its glyph — `ReasoningRow.module.css` `.thinkBody` uses `calc(22px + delta)`, documented there as the leading `16 + delta` plus a `6` gap. Native now applies the same indent through `design::CONTENT_INSET`, and — the part that mattered — measures the body, its `body_height`, and its first-match offset at the same narrower width. Previously the offset already assumed a 22 px indent the render did not draw, so the two disagreed by the indent; the fixture capture now shows the body indented and wrapping cleanly with nothing clipped.
 - **Content size preference:** the web's setting drives `--dsh-content-font-delta` and `--dsh-content-font-delta-secondary`, and native keeps **both** because they diverge above the default: at 15 px the body gains a pixel while the secondary tier stays at 13. `design::content_delta` / `content_delta_secondary` derive them, `design::content_size` maps anything outside `11..=20` back to the default rather than clamping, and the preference persists in the layout namespace beside the width (`layout.contentFontSize`). The delta scales the transcript body and markdown sizes, the reasoning and mono tiers, the tool line (`24 + delta`), the leading box (`16 + delta`) and the reasoning row. **Both geometry caches carry the deltas and clear themselves when either changes**, so no measurement or prepared reply can survive a size change; that invalidation is what the `chat_geometry` test asserts. Control: a `Content text size` stepper in the More panel.
   - One residual: the fixed non-message rows (`chat_geometry`'s opaque-row `75`/`156`) still do not scale. `design::CONTENT_INSET` now does — the web writes that inset `calc(22px + var(--dsh-content-font-delta))` (`ReasoningRow.module.css:75`), so it tracks the body size the way the row heights do.
   - The fixture can render any offered size (`--content-size`), and the captures show 14 and 18: at 18 the bubble grows to fit its wrapped lines and the tool rows scale, nothing clipped. **The first scaled capture caught a real bug** — `chat_geometry` measured the user body at a hard-coded `15.0` while the render used the scaled size, which cut off the last wrapped line; the measurement now reads the same delta. The default render is byte-identical before and after that fix, which is what makes "the delta is the identity at 14" a checked claim rather than an assumption.
 - **User action row:** the web keeps a user message's bubble and its action row as *siblings* in a right-aligned column — `MessageItem.module.css` `.userRow` wraps `.bubble`, and its own comment says the bubble and action row "align to the right". Native previously painted `Copy`/`Edit` **inside** the bubble's rounded box. Native now matches: the card style wraps the body only, and the actions sit below it, right-aligned to the bubble's edge. The gap is now the web's `6px` (`.userRow { gap: 6px }`; the `8px` belongs to the inner `.userStack`, which is a different box — an earlier note here said 8px and was wrong). `ACTION_GAP`, `ACTION_HEIGHT` and `ACTION_FOOTER` in `ui.rs` are read by both the geometry reservation and the view, so the reserved height cannot drift from what is drawn.
 - **Transcript line boxes:** the web sets them in pixels, not as a ratio — body text is `calc(24px + var(--dsh-content-font-delta))` (`AssistantMarkdown.module.css:13`, `ToolRow.module.css:42`) and compact/secondary text is `calc(20px + var(--dsh-content-font-delta-secondary))` (`MarkdownText.module.css:334`, `ReasoningRow.module.css:49`) — where native used Iced's relative `LineHeight::default()`, which is `1.3`. At native's body size that was 19.5px against the web's 24px, about 23% tighter. `design::body_line` / `design::compact_line` now carry the boxes, and every transcript measurement and render reads one of them: the answer and user text, the reasoning body, markdown paragraphs, headings, lists and code, and the tool rows with their recorded bodies. Two derived values followed: the four-line preview cap (`78` was four lines of the old box, now `PREVIEW_LINES × LINE_BODY` = 96, with the floor at one line box) and `chat_geometry`'s preview measurement, which still used `1.3` and **clipped the last line of a four-line user bubble** until it read the same box. The detail panel keeps its own relative box.
-- **User attachment spacing (structural, not a value):** the web's `.userStack { gap: 8px }` (`MessageItem.module.css:5-10`) separates an **attachment row** from the bubble — `MessageItem.tsx:194-221` puts `attachmentRow` (image or file cards) first and the bubble second inside that one stack. It is not a gap between text runs, so there is nothing to set while native renders an attachment as its own right-aligned row (the claimed-input/file bubble) instead of stacking it above the message text. Closing it means restructuring attachment placement to match, not changing a spacing constant. **Correction to the first version of this note**, which said an attachment is its own transcript row: `file_summary` (`reducer.rs:736`) feeds `content()`, and `content()` **joins every content part with `\n`** (`reducer.rs:769-770`), so an attachment and its message text are one row holding one joined string. The two lines visible in a capture are two lines of that string, not two rows. So native is already closer to the reference than the note claimed — the attachment *is* in the message's own bubble — and what actually differs is that the reference renders a distinct file card above the text with the `.userStack` 8px gap, where native has a plain `File · … · bytes [preview unavailable]` line joined by a newline. Closing that means keeping the parts distinct through the model (not joining in `content()`) and giving the attachment block an 8px gap, which is a reducer-plus-view change rather than a view merge.
+- **User attachment spacing (structural, not a value):** the web's `.userStack { gap: 8px }` (`MessageItem.module.css:5-10`) separates an **attachment row** from the bubble — `MessageItem.tsx:194-221` puts `attachmentRow` (image or file cards) first and the bubble second inside that one stack. It is not a gap between text runs, and native now matches it: `DisplayRow::files` keeps the file parts distinct through the reducer (`user_content` splits them out of the joined string), and the view stacks the attachment cards above the bubble in one right-aligned column with `ATTACHMENT_CARD_GAP` (8px), exactly the reference's `.userStack` gap. Two earlier versions of this note were wrong and are corrected here: the first called an attachment its own transcript row (it was part of the joined text), the second treated the card row as unbuilt. `shots/29-…` shows the stacked cards.
 
 Remaining unqualified native work is unchanged: physical input/IME, CJK, accessibility, compositor fractional scaling, live provider execution.
 
@@ -202,6 +203,20 @@ Native geometry/cache tests, `layout_smoke` PUBLIC fixtures, App reducer tests, 
 Everything below is proven against the reference and deliberately not landed yet, with
 the one step that would settle each. Nothing here is a measurement anyone can read off
 the CSS alone; each needs a decision, a live run, or a feature-sized build.
+
+**Current list, by name** (read this, not the numbers): markdown images and their fetch policy
+(user decision, item 1); the two-row tool model — *closed in round 371*; the structured tool-card
+family, of which the diff card is built (item 8); the turn-tail schedule row (item 3-family); the
+session-reference chip's right-Sidebar preview, replaced by the details panel (deliberate); inline
+code chips and the Cloudflare field clipboard, both blocked on Iced rather than on native code;
+agent-preset selection — *landed* (item 11); and the live-only checks in
+`NATIVE-LIVE-VERIFICATION.md`.
+
+**A note on the numbering below.** These entries are an append-only journal: numbers were reused as
+later rounds inserted items, so there are two entries numbered 3, two 8 and two 9, and some entries
+whose header says "not built" are followed by the round that built them. Headers are corrected where
+a later round made them false, and each such entry now says what superseded it; the list above is
+the authoritative short form.
 
 1. **Markdown images — the resolvable branch.** Native renders the alt fallback
    (`render.tsx:640,653`) and documents it; a picture the reference would show appears as
@@ -360,17 +375,20 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
 8. **The expanded tool body's card family.** The reference picks a structured card per tool before
    any text card (`ToolRow.tsx:169-170`: ask-user, terminal, diff, read, image, search, web,
    details, then the IN/OUT text card) and draws it with the shared primitive
-   (`:258-341`). Native draws the diff card (round 362) and recorded text for everything else, so
-   a `read` result is the envelope's text rather than the reference's line-numbered `ReadBlock`
-   with its "Showing N of M lines" label (`ReadBlock.tsx`, `read-card-model.ts`), and `bash`
-   output is text rather than the reference's `TerminalBlock` card. Two of the cards also need
+   (`:258-341`). Native draws the diff card (round 362) and recorded text for everything else
+   (the read body is the content without its `<path>`/`<content>` envelope, round 365), so a
+   `read` result is plain numbered-less text rather than the reference's line-numbered
+   `ReadBlock` with its "Showing N of M lines" label (`ReadBlock.tsx`, `read-card-model.ts`), and
+   `bash` output is text rather than the reference's `TerminalBlock` card. Two of the cards also need
    data native keeps private: `readCardModel` reads the result's opaque `meta` (path, offset,
    line numbers, totalLines) and a `str_replace_editor` call, neither of which the compact
    summary exposes; exposing a typed read-only projection of that metadata is the first slice.
    Until then this is a **deliberate difference — structured tool cards replaced by recorded
    text** — and the diff, which needs only arguments, is the one card that does not need it.
-9. **Permission default row in Settings — a second surface, not yet built.** The reference
-   has *two* permission pickers, and only the composer one is done here. `PermissionRow.tsx`
+9. **Permission default row in Settings — landed.** The reference has *two* permission pickers;
+   both are drawn here now (`settings.rs:1550-1580`, settings-general permission row,
+   `shots/70-…`–`73-…`), and the record below is kept because it names the second surface and its
+   guard. The reference's `PermissionRow.tsx`
    is "the default preset for subsequently created sessions", mounted in the
    `settings.general.item` slot, with its own `RiskConfirmation` and its own write path:
    `load()` fetches a descriptor and `select(preset)` persists through the host-backed
@@ -575,9 +593,10 @@ the CSS alone; each needs a decision, a live run, or a feature-sized build.
    id. A fourth registration comes from `ui-chat` itself.
    Against native: the plan preview is a **deliberate difference** in placement, since the
    user's own preference puts the plan in a standing composer chip and the native plan
-   projection already feeds it; the schedule row belongs to a **feature native does not
-   implement at all** (scheduled tasks), which is an absence of capability rather than a
-   missing control to draw; and the deliverables and `ui-chat` rows are **not yet read**, so
+   projection already feeds it; the schedule row's *page* exists (scheduled tasks are
+   implemented and captured, `shots/…-schedules`), so what is absent is only the turn-tail row
+   that names the next run inside a conversation, not the capability; and the deliverables and
+   `ui-chat` rows are **not yet read**, so
    neither is claimed either way. That is the shape of this audit: reading a slot produces
    named rows, and each becomes a deliberate difference, an unsupported feature, or the next
    thing to read.
@@ -1224,8 +1243,9 @@ cell, so new findings go at the end of the file as plain paragraphs.
   toggle in flight, and `shots/42-plan-chip-pending-dp2.png` shows the dimmed chip
   with the strip's `Plan mode` line.
   Remainders: the web's chip swaps a plan outline for a circled close while
-  hovered, which native does not (its hover is the fill mix), and the reference's
-  sibling *permission* select has no native counterpart at all.
+  hovered, which native does not (its hover is the fill mix). The sibling *permission* select
+  does have one — the composer chip, its Host-catalog menu and the risk confirmation
+  (`shots/159-…`–`161-…`).
 - **Jump-to-latest control — landed, rect- and capture-verified.** The reference
   renders a `.toBottomSlot` 16px above the composer, right-aligned with
   `padding-right: max(clearance + 16px, (100% − content)/2)`, holding a `.toBottom`
@@ -1786,9 +1806,10 @@ cell, so new findings go at the end of the file as plain paragraphs.
   candidates checked) plus the preset's display name, dimmed and inert, which is exactly
   the state the reference renders for `disabled={locked || leaving}`. Verified at the
   `chat-transcript` preset, whose fixture opens with `permission/preset: workspace-write`:
-  the observation records the chip at **28.0 × 137.9** (x 380, y 874), matching the sheet's
-  height, and the grab shows `◈ Workspace write` seated after `+ Attach` and before the
-  trailing model/send group. `shots/62-permission-chip-dp2.png` is the grab and
+  the observation records the chip at **28.0 × 137.9** (x 380, y 874) — the *pre-chevron*
+  width; the chip and its menu now measure 153.9 × 28.0 and 200.0 × 117.6
+  (`shots/159-…`–`161-…`) — matching the sheet's height, and the grab shows
+  `◈ Workspace write` seated after `+ Attach` and before the trailing model/send group. `shots/62-permission-chip-dp2.png` is the grab and
   `shots/62-permission-chip.png` that run's own frame.
   Deliberate remainders: the menu is not built yet, so the chip is the locked form rather
   than the interactive one — it will submit `/permission <preset>` as a command line, the
@@ -1796,6 +1817,8 @@ cell, so new findings go at the end of the file as plain paragraphs.
   the same one the plan chip uses; the display name falls back to the preset key when the
   Host's catalog is absent (its own `optionOf` rule), and the Auto badge and the
   risk-confirmation step still follow.
+  *Superseded in the next two entries: the menu is built, reads the Host catalog first, draws the
+  8px `EXP` badge and opens the full-access confirmation (`shots/160-…`, `161-…`).*
 
 - **Permission chip menu — landed, capture-verified; its command is wired but unverified
   against a live Host.** The chip is now the interactive control the reference renders
@@ -1815,6 +1838,9 @@ cell, so new findings go at the end of the file as plain paragraphs.
   document. The menu lists the three design presets rather than the Host's catalog (which
   still needs the remote read), the Auto-review badge and the risk-confirmation step are
   not built, and the display-name fallback to the preset key stands.
+  *Superseded by round 355: the menu now reads the Host catalog first, draws the Auto badge at
+  the reference's 8px `EXP` and opens the risk confirmation (`shots/160-…`, `161-…`). Only the
+  live-Host confirmation of the `/permission` line remains open.*
 
 - **Full-access risk confirmation — landed, capture-verified.** The reference does not let a
   pick commit full access directly: it passes through `RiskConfirmation`
@@ -2078,7 +2104,9 @@ cell, so new findings go at the end of the file as plain paragraphs.
    Standing rule, alongside the exit-status rule: **a path claim needs an implementation line,
    and a doc comment is not one.**
 
-11. **Agent-preset selection — specified, not built.** The reference has two entry points over
+11. **Agent-preset selection — landed and captured (see the handoff entry further down, which
+   records the bridge, Core and app slices as complete end to end).** The reference has two entry
+   points over
    one store: `select(id)` stages and then **immediately applies**
    (`select(id)` = `stage(id)` + `apply()`), and `stage(id, introduce)` stages *without*
    applying for a flow that starts the receiving session afterwards — the settings creator
@@ -2091,6 +2119,10 @@ cell, so new findings go at the end of the file as plain paragraphs.
    and a refusal path that is both shown and returnable. That is bridge, Core and app
    plumbing for one `select` command — the same three slices `list` needed — and the hero seat's
    menu is already built to call it, with its pick arm deliberately inert until it exists.
+   *Built since:* `Message::AgentPresetPick` posts `Command::AgentPresetSelect`
+   (`ui.rs:3692-3700`, `worker.rs:2605`), the bridge endpoint is `agentPresets/select`
+   (`transport/src/http.rs:1154`, locked-map entry `:511`), and the handoff entry below records
+   the end-to-end run and its capture.
    Settling step: add the `select` bridge command beside `agent-presets`, then the Core family,
    then replace the inert arm with the staged pick plus its refusal announcement.
 

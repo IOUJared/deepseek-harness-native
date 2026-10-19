@@ -1,7 +1,7 @@
 # Native content-aware chat geometry
 
-- Bounded plaintext previews use pinned Iced 0.14 native paragraphs: **DejaVu Sans 15px**, advanced shaping, Word wrap, **1.3 line height / 19.5px**.
-- Content-sized right user bubbles; unboxed left assistants. Fixed **24px** read-only Details header; raw slot **87–145px**, four complete lines/**78px** body cap, not earlier partial 75px cap. Stored records stay unchanged.
+- Bounded plaintext previews use pinned Iced 0.14 native paragraphs: **DejaVu Sans 14px** body (13px secondary), advanced shaping, Word wrap, and an **absolute 24px line** (`design::LINE_BODY`, measured by `design::body_line`). An earlier revision of this line said 15px/19.5px, which the code never drew.
+- Content-sized right user bubbles; unboxed left assistants. Fixed **24px** read-only Details header; raw slot **87–145px**, four complete lines/**96px** body cap (4 × `LINE_BODY`), not the earlier partial 75px or 78px caps. Stored records stay unchanged.
 - One measured height vector drives virtualization/spacers/rows/prepend. Tools **36px** (24px line + 12px row); opaque metadata **156px**.
 - An expanded tool row reserves what it renders. `TOOL_BODY_GAP` (4px) and `BODY_INSET` (28px) in [chat_geometry.rs](<../app/src/chat_geometry.rs>) are now the single owners: the view previously rendered the body at a 16px inset while the reservation measured at 28px, so when the body wrapped to the same line count the measured height came out 4px short of the rendered one and the row's bottom was clipped. Measure and render read the same two constants.
 - An **answerless** assistant reply (thinking or a recorded tool call, no answer) measures to its thoughts disclosure alone: the 20px empty-body minimum and the 22px action row are both omitted, because the view renders no body frame and no Copy/Details for it.
@@ -70,7 +70,8 @@ underlined file path and the `+N −N` edit pair, and both are now drawn: the pa
 `relativizeToCwd` then `abbreviateHomePath` of the recorded argument (round 354, `shots/158-…`),
 and the totals follow the reference's hover/expanded cue rules. Two things from that family remain:
 the reference's path link opens the right Sidebar's document preview, which this clone replaces with
-the details panel, so the native path is display-only, and an inline diff body is still unsupported.
+the details panel, so the native path is display-only, and the edit row's inline diff card is drawn
+but carries none of the reference's code toolbar (see "Remaining limits" below).
 Their *exact* rhythm stays unverified until `reference.png` lands.
 
 ## Remaining limits
