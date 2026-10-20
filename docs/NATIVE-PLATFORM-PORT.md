@@ -14,7 +14,7 @@ exact boundary, the mechanism each platform needs, and how the port must be veri
 | Clipboard paste | `app/src/ui.rs` | `wl-clipboard-rs` on its own Wayland connection, because Iced's bundled backend needs a focused-seat event | Windows/macOS: `arboard` or the native pasteboard API |
 | Wayland drops and windowing | `app/src/ui.rs`, `app/src/smoke.rs`, `app/vendor/winit` (pinned path patch) | Bounded single-local-file URI drops on the owned winit queue | Native winit drag-and-drop events; the patch and its tests are Linux-only owners |
 | Window/GPU backend | `app/src/main.rs` and Iced 0.14 | wgpu, forced `ICED_BACKEND=wgpu`, native Wayland | Shares wgpu code; needs per-platform window, theme and font handling, then separate qualification |
-| Launch and packaging | `scripts/development-launcher.py` (being replaced by `xtask launch`), `tools/xtask/src/release.rs`, `RELEASES/*` | External-runtime Python launcher, glibc 2.44 and Wayland prerequisites | Per-platform launcher or a native one, per-OS installers/updaters and code signing |
+| Launch and packaging | `xtask launch`, `tools/xtask/src/release.rs`, `RELEASES/*` | External-runtime Python launcher, glibc 2.44 and Wayland prerequisites | Per-platform launcher or a native one, per-OS installers/updaters and code signing |
 
 Test-only Unix use sits in the same private-store files plus `core/src/tests.rs` and
 `core/src/secret_tests.rs`; those need cfg gates or portable fixtures. The Node backend and its

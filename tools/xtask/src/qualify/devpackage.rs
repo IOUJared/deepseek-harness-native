@@ -118,7 +118,12 @@ fn median(samples: &[TreeSample], key: &str) -> Option<f64> {
     proc::median(&values)
 }
 
-fn node_identity_matches(pid: i32, node: &Path) -> bool {
+fn node_identity_matches(pid: i32, key: Key, node: &Path) -> bool {
+    super::explicit::node_image_matches(pid, key, node)
+}
+
+#[allow(dead_code)]
+fn unused_legacy_matcher(pid: i32, node: &Path) -> bool {
     use std::os::unix::fs::MetadataExt;
     let Ok(executable) = std::fs::read_link(format!("/proc/{pid}/exe")) else {
         return false;
@@ -262,7 +267,7 @@ pub fn run(
                 observe_descendants(&mut owned, pinned, &mut pidfds, &mut observed, owner);
             if node_value.is_some() {
                 for key in pidfds.keys() {
-                    if *key != identity(pinned) && node_identity_matches(key.0, &node) {
+                    if *key != identity(pinned) && node_identity_matches(key.0, *key, &node) {
                         node_identities += 1;
                     }
                 }

@@ -10,7 +10,7 @@ Optional `--node ABS_NODE_EXECUTABLE` selects the native app's interpreter. Omis
 
 ## Qualification
 
-- [Qualifier](<../scripts/qualify-explicit-node.py>) copies system Node into fresh private evidence, checks identical bytes/strict observed v26, then runs a spaces/Unicode path.
+- [Qualifier](<../tools/xtask/src/qualify/explicit.rs>) copies system Node into fresh private evidence, checks identical bytes/strict observed v26, then runs a spaces/Unicode path.
 - Retained pidfd-owned descendant path/device/inode and PID/start-time checks are point observations, not atomic binding/adversarial containment.
 - [Pure tests](<../scripts/test_qualify_explicit_node.py>) cover mismatch/reused identity/read errors without processes/live `/proc`.
 

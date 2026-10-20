@@ -21,7 +21,7 @@ Memory differences are within noise. CPU differs in this small sample: current s
 
 ## Why the older 0% median was insufficient
 
-[Package qualifier](<../scripts/qualify-development-package.py>) now retains at most **256 owned-process samples** and reports endpoint CPU over the entire warm span plus one-tick resolution (about **0.30 percentage points** here). Identity sets must remain equal throughout; nonpositive time, missing identities or decreasing counters produce **unknown**, not zero. Per-sample medians still exist for compatibility; zero median can conceal brief work.
+[Package qualifier](<../tools/xtask/src/qualify/devpackage.rs>) now retains at most **256 owned-process samples** and reports endpoint CPU over the entire warm span plus one-tick resolution (about **0.30 percentage points** here). Identity sets must remain equal throughout; nonpositive time, missing identities or decreasing counters produce **unknown**, not zero. Per-sample medians still exist for compatibility; zero median can conceal brief work.
 
 [13 verifier tests](<../app/evidence/native-package-idle-ab-wmmauno5/metric-guard-tests.log>) pass, including counter/time/identity-churn/bounds. This is sampled ownership and accounting, not adversarial confinement. No new profiler/dependency/commit was installed or created.
 

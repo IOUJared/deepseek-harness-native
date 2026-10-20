@@ -67,7 +67,7 @@ Reflow latency is issue→matching-widget receipt, not paint, wheel latency or f
 ## Reproduce
 
 ```sh
-python3 -B scripts/qualify-development-package.py --package /ABS/extracted-r2 --output /ABS/evidence/q1 --scale 1.0   # x3
+cargo run --quiet --manifest-path tools/xtask/Cargo.toml --locked -- qualify development-package --package /ABS/extracted-r2 --output /ABS/evidence/q1 --scale 1.0   # x3
 python3 -B scripts/measure-native-idle.py --seconds 60 --repeats 3 --output /ABS/evidence/idle
 python3 -B app/measure_native_history.py --label r2 --repeats 3 --cycles 4 --idle-ms 2000
 python3 -B -m unittest discover -s scripts -p 'test_measure_native_idle.py'

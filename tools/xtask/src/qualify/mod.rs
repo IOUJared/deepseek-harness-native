@@ -10,6 +10,7 @@ pub mod control;
 pub mod decisions;
 pub mod devpackage;
 pub mod drafts;
+pub mod explicit;
 pub mod export;
 pub mod interruption;
 pub mod layout;

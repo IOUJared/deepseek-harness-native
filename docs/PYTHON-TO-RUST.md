@@ -97,7 +97,7 @@ Deliberate differences, all measured against the Python originals:
   CRCs, one bounded zlib stream, exact row lengths and filter tags, reported-size
   agreement). The owned run is ported too: the pinned probe, the private app
   report, both captures and the artifact digest, with `class`/`xwayland` matched to
-  the fixture. `qualify-composed-export.py` and `qualify-development-package.py`
+  the fixture. `qualify-composed-export.py` and the package qualifier
   still import the Python module, so it is deleted with them.
 - The composed-export qualifier is fully ported and deleted (`export`): two exact
   save receipts, both private PNG captures, an independent ZIP inspector (central
@@ -128,19 +128,18 @@ Deliberate differences, all measured against the Python originals:
   session the port could not claim. The Python library stays until its last
   consumer is ported, so the two runners are a named, temporary duplication.
 
-| Development package | `scripts/build-development-package.py` (in progress) | Fully ported in `launcher` (snapshot copy, native selection and inventory, license inventory, the whole `build`); the Python file stays only because `qualify-development-package.py` imports it |
 
 | Release packaging | `.github/scripts/package_release.py`, `publish_release.py` + guards | Deleted: `xtask release package` assembles the assets and `xtask release publish` runs the draft→verify→publish flow; the CI workflow calls them and the packager link now points at `release.rs` |
 
-| Development package qualifier | `scripts/qualify-development-package.py` (in progress) | `devpackage` is fully ported (report contract, capture match, launcher orchestration, resource samples, warm CPU window, explicit-Node inode identity) and wired as `xtask qualify development-package`; the Python file stays only because `qualify-explicit-node.py` imports it |
+
+| Launcher and package | `development-launcher.py`, `build-development-package.py`, `qualify-development-package.py`, `qualify-explicit-node.py` + guards | Deleted: `xtask launch`, `xtask release package`, `xtask qualify development-package` and `xtask qualify explicit-node` replace them; the archive ships `launch` |
 
 ## Remaining
 
 | Family | Files | Lines | Target |
 |---|---|---|---|
-| `scripts/qualify-*` | 10 | 2,241 | `xtask qualify <name>`; the assertions are already Rust examples writing `result.json` |
-| `scripts/test_*` | 10 | 2,228 | Rust tests next to the qualifiers; rewrite each guard's subject, never copy it verbatim. `app/` has no Python left |
-| `development-launcher.py` | 1 | 356 | Ported as `xtask launch` (plan, state acquisition, entry point) and shipped in the archive as `launch`; the Python file stays only because `qualify-development-package.py` imports it as a library |
+| `scripts/qualify-*` | 7 | 1,885 | `xtask qualify <name>`; the assertions are already Rust examples writing `result.json` |
+| `scripts/test_*` | 6 | 1,294 | Rust tests next to the qualifiers; rewrite each guard's subject, never copy it verbatim. `app/` has no Python left |
 | `benchmarks/run.py` | 1 | 330 | Deleted with the qualification family, whose scripts import the library; `xtask bench run` is already the replacement and `test_runner.py` is already deleted |
 
 Also outstanding, outside `*.py`: `core/src/process_tests.rs` spawns `/usr/bin/python3`

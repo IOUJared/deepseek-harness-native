@@ -4,7 +4,7 @@ Development launcher/package checks, **not Core direct-launch policy or bundled 
 
 ## Accepted observations
 
-[Launcher](<../scripts/development-launcher.py>) / [qualifier](<../scripts/qualify-development-package.py>) share strict parser and **five-second** probe. Default `/usr/bin/node --version`; optional `--node` selects an absolute canonical executable, never PATH/fallback. **Even `--check` executes it: trust the selected program.** Credential/Node/loader overrides are scrubbed.
+[Launcher](<../tools/xtask/src/launcher.rs>) / [qualifier](<../tools/xtask/src/qualify/devpackage.rs>) share strict parser and **five-second** probe. Default `/usr/bin/node --version`; optional `--node` selects an absolute canonical executable, never PATH/fallback. **Even `--check` executes it: trust the selected program.** Credential/Node/loader overrides are scrubbed.
 
 | Accepted metadata | Bound |
 |---|---|
