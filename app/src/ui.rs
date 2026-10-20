@@ -19581,6 +19581,127 @@ impl App {
         body.into()
     }
 
+    /// The panel's footer: the input row, its Write control, the control-elsewhere prompt and the
+    /// block that guards them. Third of the three builders the round-572 split names; the slice is the
+    /// whole enclosing block, so the braces balance.
+    fn terminal_footer(&self) -> Element<'_, Message> {
+        use crate::terminal::{Action, Notice};
+        let ticket = self.terminal.ticket().expect("visible terminal panel");
+        let context = self.terminal_context();
+        let current = context.view.as_ref().is_some_and(|view| {
+            view.epoch == ticket.epoch
+                && view.generation == ticket.generation
+                && view.target == ticket.target
+        });
+        let enabled = context.allowed && current && !self.terminal.busy();
+        let mut body = column![];
+        if self.terminal.selected().is_none() {
+            body = body.push(
+                    label(
+                        "Select a listed terminal to attach an input controller and stream its bounded output.",
+                        MUTED,
+                    )
+                    .size(11),
+                );
+        } else {
+            if self.terminal.output().dropped() > 0 {
+                body = body.push(
+                    label(
+                        format!(
+                            "{} older output chunk(s) were discarded by the panel bound.",
+                            self.terminal.output().dropped()
+                        ),
+                        MUTED,
+                    )
+                    .size(10),
+                );
+            }
+            if self.terminal.output().truncated() > 0 {
+                body = body.push(
+                        label(
+                            format!(
+                                "{} byte(s) of an oversized output chunk were truncated at the {} KiB bound.",
+                                self.terminal.output().truncated(),
+                                crate::terminal::CHUNK_BYTES / 1024
+                            ),
+                            MUTED,
+                        )
+                        .size(10),
+                    );
+            }
+            body = body.push(self.terminal_output());
+            let write_enabled = enabled
+                    && self.terminal.environment().is_some()
+                    // A follow that ended leaves no attachment; offering Write there would refuse for
+                    // a reason the button itself could have prevented.
+                    && self.terminal.attached()
+                    && self.terminal.control() != crate::terminal::Control::Elsewhere
+                    && !self.terminal.write_pending()
+                    && !self.terminal.input().is_empty()
+                    && self.terminal.input().len() as u64 <= self.terminal.max_input_bytes();
+            let edit = ticket.clone();
+            body = body
+                .push(
+                    text_input("Type input, then Write", self.terminal.input())
+                        .id("native-terminal-input")
+                        .on_input_maybe(enabled.then_some(move |text| {
+                            Message::Terminal(Action::EditInput {
+                                ticket: edit.clone(),
+                                text,
+                            })
+                        }))
+                        .style(design::field)
+                        .padding(8)
+                        .size(12),
+                )
+                .push(
+                    row![
+                        button("Write").style(design::primary).on_press_maybe(
+                            write_enabled
+                                .then_some(Message::Terminal(Action::Write(ticket.clone())))
+                        ),
+                        label(
+                            format!(
+                                "{} / {} UTF-8 bytes",
+                                self.terminal.input().len(),
+                                self.terminal.max_input_bytes()
+                            ),
+                            MUTED,
+                        )
+                        .size(10)
+                        .width(Length::Fill),
+                    ]
+                    .spacing(8),
+                );
+        }
+        // The reference offers a control, not an instruction: "This view is read-only." beside a
+        // "Take control" button (`terminal.tsx:55-60`, `locales.ts:35`). Taking control is the same
+        // re-attach the row's own press performs, so it reuses the panel's ticket and selection.
+        if matches!(self.terminal.notice(), Notice::ControlElsewhere) {
+            let mut arm = row![
+                    label(
+                        "Another client holds input control for this terminal; input here is read-only.",
+                        DANGER,
+                    )
+                    .size(11),
+                ]
+                .spacing(8)
+                .align_y(iced::Alignment::Center);
+            if let (Some(id), Some(ticket)) =
+                (self.terminal.selected().cloned(), self.terminal.ticket())
+            {
+                arm = arm.push(
+                    button(label("Take control", TEXT).size(11))
+                        .on_press(Message::Terminal(Action::Select { ticket, id }))
+                        .style(design::ghost)
+                        .padding([2, 8]),
+                );
+            }
+            body = body.push(arm);
+        }
+        body.into()
+    }
+
     fn terminal_view(&self) -> Element<'_, Message> {
         use crate::terminal::{Action, CloseReview, Notice, Review};
         let ticket = self.terminal.ticket().expect("visible terminal panel");
@@ -19944,110 +20065,7 @@ impl App {
                 );
         }
         body = body.push(label("OUTPUT", MUTED).size(10));
-        if self.terminal.selected().is_none() {
-            body = body.push(
-                label(
-                    "Select a listed terminal to attach an input controller and stream its bounded output.",
-                    MUTED,
-                )
-                .size(11),
-            );
-        } else {
-            if self.terminal.output().dropped() > 0 {
-                body = body.push(
-                    label(
-                        format!(
-                            "{} older output chunk(s) were discarded by the panel bound.",
-                            self.terminal.output().dropped()
-                        ),
-                        MUTED,
-                    )
-                    .size(10),
-                );
-            }
-            if self.terminal.output().truncated() > 0 {
-                body = body.push(
-                    label(
-                        format!(
-                            "{} byte(s) of an oversized output chunk were truncated at the {} KiB bound.",
-                            self.terminal.output().truncated(),
-                            crate::terminal::CHUNK_BYTES / 1024
-                        ),
-                        MUTED,
-                    )
-                    .size(10),
-                );
-            }
-            body = body.push(self.terminal_output());
-            let write_enabled = enabled
-                && self.terminal.environment().is_some()
-                // A follow that ended leaves no attachment; offering Write there would refuse for
-                // a reason the button itself could have prevented.
-                && self.terminal.attached()
-                && self.terminal.control() != crate::terminal::Control::Elsewhere
-                && !self.terminal.write_pending()
-                && !self.terminal.input().is_empty()
-                && self.terminal.input().len() as u64 <= self.terminal.max_input_bytes();
-            let edit = ticket.clone();
-            body = body
-                .push(
-                    text_input("Type input, then Write", self.terminal.input())
-                        .id("native-terminal-input")
-                        .on_input_maybe(enabled.then_some(move |text| {
-                            Message::Terminal(Action::EditInput {
-                                ticket: edit.clone(),
-                                text,
-                            })
-                        }))
-                        .style(design::field)
-                        .padding(8)
-                        .size(12),
-                )
-                .push(
-                    row![
-                        button("Write").style(design::primary).on_press_maybe(
-                            write_enabled
-                                .then_some(Message::Terminal(Action::Write(ticket.clone())))
-                        ),
-                        label(
-                            format!(
-                                "{} / {} UTF-8 bytes",
-                                self.terminal.input().len(),
-                                self.terminal.max_input_bytes()
-                            ),
-                            MUTED,
-                        )
-                        .size(10)
-                        .width(Length::Fill),
-                    ]
-                    .spacing(8),
-                );
-        }
-        // The reference offers a control, not an instruction: "This view is read-only." beside a
-        // "Take control" button (`terminal.tsx:55-60`, `locales.ts:35`). Taking control is the same
-        // re-attach the row's own press performs, so it reuses the panel's ticket and selection.
-        if matches!(self.terminal.notice(), Notice::ControlElsewhere) {
-            let mut arm = row![
-                label(
-                    "Another client holds input control for this terminal; input here is read-only.",
-                    DANGER,
-                )
-                .size(11),
-            ]
-            .spacing(8)
-            .align_y(iced::Alignment::Center);
-            if let (Some(id), Some(ticket)) =
-                (self.terminal.selected().cloned(), self.terminal.ticket())
-            {
-                arm = arm.push(
-                    button(label("Take control", TEXT).size(11))
-                        .on_press(Message::Terminal(Action::Select { ticket, id }))
-                        .style(design::ghost)
-                        .padding([2, 8]),
-                );
-            }
-            body = body.push(arm);
-        }
+        body = body.push(self.terminal_footer());
         body = body.push(match self.terminal.notice() {
             Notice::None => label("", MUTED).size(1),
             Notice::Loading => label("Reading the Host terminal list, shells and limits…", MUTED).size(11),

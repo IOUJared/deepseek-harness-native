@@ -17428,3 +17428,28 @@ footer where it is and treat `terminal_header`/`terminal_output` as the delivere
 line-heuristic slice would fail for the same measured reason.
 
 No file changed; tree clean at `12dde96`, default suite **1525 passed**, `cargo check` **21** real warnings.
+
+### Round 636 — the three-builder split is done
+
+**The change.** `terminal_footer()` now owns the input row, its Write control, the control-elsewhere prompt
+and the block that guards them. The extraction works because the slice is the **whole enclosing block** —
+`if self.terminal.selected().is_none() { … }` through its matching `}`, 4,528 bytes with brace balance **0** —
+rather than the statements inside it, which is the −1 balance that defeated rounds 632, 634 and 635. The
+builder recomputes `ticket`, `context`, `current` and `enabled` for itself, because all four are view-local.
+
+**The panel is now three builders.** `terminal_view` reads as `terminal_header()`, the shell/terminals
+section, `terminal_output()`, `terminal_footer()`, then the notice line and the scrollable — which is the
+shape the round-572 note asked for.
+
+**Frame.** `shots/356-footer-split.png` — unchanged: same title and boundary lines, same SHELL / TERMINALS /
+OUTPUT sections, same cursor block. The footer itself sits below the fold in this state (`terminal-panel`
+with no Host agent), so its layout is covered by the suites rather than the frame, and the round says so
+instead of implying the frame verified it.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1581 passed**, 1 ignored |
+| app, default | **0** | **1525 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |
