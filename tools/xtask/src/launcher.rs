@@ -969,6 +969,203 @@ pub fn qualified_native(
     Ok(value)
 }
 
+pub const NATIVE_MODULES: [&str; 3] = ["app", "core", "transport"];
+pub const NATIVE_FOLDERS: [&str; 5] = ["src", "runtime", "tests", "examples", "fixtures"];
+pub const MAX_NATIVE_SOURCE_FILES: usize = 4096;
+pub const MAX_NATIVE_SOURCE_ENTRIES: usize = 8192;
+pub const MAX_NATIVE_SOURCE_BYTES: u64 = 128 * 1024 * 1024;
+
+/// The dedicated App vendor tree carries its own notices and provenance.
+pub fn native_folders(module: &str) -> Vec<&'static str> {
+    let mut folders = NATIVE_FOLDERS.to_vec();
+    if module == "app" {
+        folders.push("vendor");
+    }
+    folders
+}
+
+/// Require a canonical, owner, non-symlinked native input path.
+pub fn native_path(value: &Path, directory: bool) -> Result<PathBuf, String> {
+    use std::os::unix::fs::MetadataExt;
+    let raw = value.to_string_lossy();
+    if raw.len() > 4096 || raw.chars().any(|c| (c as u32) < 0x20 || c == '\u{7f}') {
+        return Err("Invalid native input path".into());
+    }
+    if !value.is_absolute()
+        || value
+            .components()
+            .any(|part| part == std::path::Component::ParentDir)
+    {
+        return Err("Native inputs require absolute paths without parents".into());
+    }
+    let mut current = Some(value);
+    while let Some(item) = current {
+        if item
+            .symlink_metadata()
+            .is_ok_and(|info| info.file_type().is_symlink())
+        {
+            return Err("Native input symlink refused".into());
+        }
+        current = item.parent();
+    }
+    let canonical = value.canonicalize().map_err(|_| {
+        "Native input must be canonical, own and the expected file type".to_string()
+    })?;
+    let info = canonical.symlink_metadata().map_err(|_| {
+        "Native input must be canonical, own and the expected file type".to_string()
+    })?;
+    if raw.as_ref() != canonical.to_string_lossy()
+        || info.uid() != unsafe { libc::geteuid() }
+        || info.is_dir() != directory
+    {
+        return Err("Native input must be canonical, own and the expected file type".into());
+    }
+    Ok(canonical)
+}
+
+/// The source root and native binary must be supplied together or both by default.
+pub fn native_inputs(
+    base: &Path,
+    binary: &Path,
+    source_root: Option<&Path>,
+    native_binary: Option<&Path>,
+) -> Result<(PathBuf, PathBuf), String> {
+    if source_root.is_some() != native_binary.is_some() {
+        return Err("Source root and native binary must be supplied together".into());
+    }
+    let base = native_path(source_root.unwrap_or(base), true)?;
+    let binary = native_path(native_binary.unwrap_or(binary), false)?;
+    for module in NATIVE_MODULES {
+        let root = native_path(&base.join(module), true)?;
+        for name in ["Cargo.toml", "Cargo.lock"] {
+            native_path(&root.join(name), false)?;
+        }
+        native_path(&root.join("src"), true)?;
+    }
+    Ok((base, binary))
+}
+
+fn walk(directory: &Path, paths: &mut Vec<PathBuf>, entries: &mut usize) -> Result<(), String> {
+    for entry in std::fs::read_dir(directory).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        *entries += 1;
+        if *entries > MAX_NATIVE_SOURCE_ENTRIES {
+            return Err("Native source entry count exceeded bound".into());
+        }
+        let path = entry.path();
+        let info = entry.metadata().map_err(|error| error.to_string())?;
+        if info.is_dir() {
+            walk(&path, paths, entries)?;
+        } else {
+            paths.push(path);
+        }
+    }
+    Ok(())
+}
+
+/// Single bounded source selection, deterministic by path.
+pub fn native_source_files(base: &Path) -> Result<Vec<(PathBuf, u64)>, String> {
+    let mut paths: Vec<PathBuf> = Vec::new();
+    let mut entries = 0usize;
+    for module in NATIVE_MODULES {
+        let root = base.join(module);
+        if root
+            .symlink_metadata()
+            .is_ok_and(|info| info.file_type().is_symlink())
+        {
+            return Err("Native module root symlink refused".into());
+        }
+        for name in ["Cargo.toml", "Cargo.lock", "LICENSE"] {
+            paths.push(root.join(name));
+        }
+        for folder in native_folders(module) {
+            let directory = root.join(folder);
+            if directory
+                .symlink_metadata()
+                .is_ok_and(|info| info.file_type().is_symlink())
+            {
+                return Err("Native source root symlink refused".into());
+            }
+            if directory.is_dir() {
+                walk(&directory, &mut paths, &mut entries)?;
+            }
+        }
+    }
+    paths.sort();
+    let mut chosen = Vec::new();
+    for source in paths {
+        if source
+            .symlink_metadata()
+            .is_ok_and(|info| info.file_type().is_symlink())
+        {
+            return Err("Native source symlink refused".into());
+        }
+        if !source.exists() || source.is_dir() {
+            continue;
+        }
+        use std::os::unix::fs::MetadataExt;
+        let info = source
+            .symlink_metadata()
+            .map_err(|error| error.to_string())?;
+        let name = source
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let relative = source
+            .strip_prefix(base)
+            .unwrap_or(&source)
+            .to_string_lossy()
+            .into_owned();
+        if !info.is_file()
+            || info.uid() != unsafe { libc::geteuid() }
+            || name.starts_with(".env")
+            || name == ".credentials.yaml"
+            || name == ".npmrc"
+            || relative.chars().any(|c| (c as u32) < 0x20 || c == '\u{7f}')
+        {
+            return Err("Private or unexpected native source file refused".into());
+        }
+        let limit =
+            if name.ends_with("Cargo.toml") || name.ends_with("Cargo.lock") || name == "LICENSE" {
+                64 * 1024 * 1024
+            } else {
+                8 * 1024 * 1024
+            };
+        chosen.push((source, limit));
+        if chosen.len() > MAX_NATIVE_SOURCE_FILES {
+            return Err("Native source file count exceeded bound".into());
+        }
+    }
+    Ok(chosen)
+}
+
+/// The packaged native source snapshot inventory.
+pub fn native_source_inventory(base: &Path) -> Result<serde_json::Value, String> {
+    let mut records = Vec::new();
+    let mut total = 0u64;
+    for (source, limit) in native_source_files(base)? {
+        let data = crate::launcher::private_read(&source, limit)?;
+        total += data.len() as u64;
+        if total > MAX_NATIVE_SOURCE_BYTES {
+            return Err("Native source bytes exceeded bound".into());
+        }
+        let relative = source
+            .strip_prefix(base)
+            .map_err(|_| "Native source outside its root")?;
+        records.push(serde_json::json!({
+            "path": format!("source/native/{}", relative.to_string_lossy()),
+            "bytes": data.len(),
+            "sha256": crate::sha256_file(&source).map_err(|error| error.to_string())?,
+        }));
+    }
+    records.sort_by(|a, b| a["path"].as_str().cmp(&b["path"].as_str()));
+    Ok(serde_json::json!({
+        "scope": "Packaged native source snapshot; not an exact reproducible-build or complete third-party source certificate",
+        "fileCount": records.len(),
+        "files": records,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1504,6 +1701,82 @@ mod packaging_tests {
         let mut failing = report();
         failing["publicCases"] = serde_json::json!([{"passed": false, "exitCode": 1}]);
         assert!(qualified(&base, &failing).is_err());
+        fs::remove_dir_all(base).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod native_tests {
+    use super::*;
+    use std::fs;
+
+    fn tree() -> PathBuf {
+        let base = crate::tempdir::make_temp_dir(&std::env::temp_dir(), "package-native-").unwrap();
+        for module in NATIVE_MODULES {
+            let root = base.join(module);
+            fs::create_dir_all(root.join("src")).unwrap();
+            fs::write(
+                root.join("Cargo.toml"),
+                format!("[package]\nname = \"{module}\"\n"),
+            )
+            .unwrap();
+            fs::write(root.join("Cargo.lock"), b"# PUBLIC lock\n").unwrap();
+            fs::write(root.join("src/lib.rs"), format!("// {module}\n")).unwrap();
+        }
+        fs::create_dir_all(base.join("app/vendor/crate")).unwrap();
+        fs::write(base.join("app/vendor/crate/Cargo.toml"), b"[package]\n").unwrap();
+        base
+    }
+
+    #[test]
+    fn native_sources_are_selected_deterministically_and_inventoried() {
+        let base = tree();
+        let canonical = base.canonicalize().unwrap();
+        let files = native_source_files(&canonical).unwrap();
+        assert!(
+            files
+                .iter()
+                .any(|(path, _)| path.ends_with("app/vendor/crate/Cargo.toml"))
+        );
+        let mut sorted = files.clone();
+        sorted.sort();
+        assert_eq!(files, sorted, "the selection is ordered by path");
+        let inventory = native_source_inventory(&canonical).unwrap();
+        assert_eq!(
+            inventory["fileCount"].as_u64().unwrap() as usize,
+            files.len()
+        );
+        assert!(
+            inventory["files"][0]["path"]
+                .as_str()
+                .unwrap()
+                .starts_with("source/native/")
+        );
+        // The vendor tree is only admitted for the app module.
+        assert_eq!(native_folders("app").len(), 6);
+        assert_eq!(native_folders("core").len(), 5);
+        // A private environment file and a symlink are refused.
+        fs::write(base.join("core/src/.env.local"), b"SECRET=1").unwrap();
+        assert_eq!(
+            native_source_files(&canonical).unwrap_err(),
+            "Private or unexpected native source file refused"
+        );
+        fs::remove_file(base.join("core/src/.env.local")).unwrap();
+        std::os::unix::fs::symlink(base.join("app/src/lib.rs"), base.join("app/src/link.rs"))
+            .unwrap();
+        assert_eq!(
+            native_source_files(&canonical).unwrap_err(),
+            "Native source symlink refused"
+        );
+        // Relative and non-canonical inputs are refused.
+        assert_eq!(
+            native_path(Path::new("relative"), true).unwrap_err(),
+            "Native inputs require absolute paths without parents"
+        );
+        assert!(
+            native_path(&base.join("."), true).is_err(),
+            "a non-canonical path is refused"
+        );
         fs::remove_dir_all(base).unwrap();
     }
 }
