@@ -17778,3 +17778,31 @@ patching six sites at once, which is the hazard this file has already produced i
 
 Splitting keeps each patch small enough to compile on the first try; six simultaneous anchor edits in a 27k-line
 file did not.
+
+### Round 648 — step one of two: the feedback draft knows its scope
+
+**The change, deliberately small.** `FeedbackDraft.message_id` is now `Option<String>` — `None` means a
+session-level remark, `Some(id)` keeps every existing per-message path identical. The four construction sites
+were threaded (`feedback_press` and the three fixture seeds), the version lookup and the two reply comparisons
+now compare through `as_deref()`, and submit takes the message branch only when the scope has an id; a session
+draft parks with `submitting: false` until the next commit gives it a dispatch.
+
+**Why it is split.** Round 647 tried scope, entry point and worker leg in one patch and left an unbalanced
+brace. This half is a single concern: no new UI, nothing unreachable, no new command — and both suites prove
+it changed nothing.
+
+**One slip, caught by the fixture suite.** My blanket edit also rewrote the `MessageFeedbackItem`'s own
+`message_id` (a `String` on the transport DTO) inside `seed_feedback`, which the default build never compiles;
+the fixture suite failed with `expected String, found Option<_>` and the line was restored. A global replace
+across two different `message_id` types is the same hazard as a stale anchor.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1589 passed**, 1 ignored |
+| app, default | **0** | **1533 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |
+
+**Step two, next round:** `Message::SessionFeedbackOpen`, the header entry point, the `SessionFeedbackRecord`
+command and its event — landed together so the dialog never exists without its caller.

@@ -1030,7 +1030,8 @@ struct WidthDrag {
 /// The feedback dialog for one message: the chosen rating, an optional category and note.
 #[derive(Clone)]
 struct FeedbackDraft {
-    message_id: String,
+    /// `None` is a session-level remark; `Some(id)` is one message's feedback.
+    message_id: Option<String>,
     rating: String,
     category: Option<String>,
     note: String,
@@ -4930,16 +4931,24 @@ impl App {
                 let note = draft.note.trim().to_owned();
                 let if_version = self
                     .feedback
-                    .get(&draft.message_id)
+                    .get(draft.message_id.as_deref().unwrap_or_default())
                     .map(|item| item.version.clone());
                 self.feedback_dialog = Some(FeedbackDraft {
                     error: None,
                     submitting: true,
                     ..draft.clone()
                 });
+                let Some(message_id) = draft.message_id.clone() else {
+                    // The session-level dispatch lands with its entry point in the next commit.
+                    self.feedback_dialog = Some(FeedbackDraft {
+                        submitting: false,
+                        ..draft
+                    });
+                    return Task::none();
+                };
                 self.command(worker::Command::FeedbackPut {
                     session,
-                    message_id: draft.message_id,
+                    message_id,
                     rating: draft.rating,
                     if_version,
                     note: (!note.is_empty()).then_some(note),
@@ -6778,7 +6787,7 @@ impl App {
                 match failure {
                     Some(reason) => {
                         if let Some(draft) = &mut self.feedback_dialog
-                            && draft.message_id == feedback_id
+                            && draft.message_id.as_deref() == Some(feedback_id.as_str())
                         {
                             draft.submitting = false;
                             draft.error = Some(reason.clone());
@@ -6787,11 +6796,9 @@ impl App {
                     }
                     None => {
                         if close {
-                            if self
-                                .feedback_dialog
-                                .as_ref()
-                                .is_some_and(|draft| draft.message_id == feedback_id)
-                            {
+                            if self.feedback_dialog.as_ref().is_some_and(|draft| {
+                                draft.message_id.as_deref() == Some(feedback_id.as_str())
+                            }) {
                                 self.feedback_dialog = None;
                             }
                         }
@@ -8831,7 +8838,7 @@ impl App {
     pub(crate) fn seed_feedback_capped(&mut self) {
         self.seed_feedback();
         self.feedback_dialog = Some(FeedbackDraft {
-            message_id: "PUBLIC-feedback-message".into(),
+            message_id: Some("PUBLIC-feedback-message".into()),
             rating: "positive".into(),
             category: None,
             note: "PUBLIC note at the field's own bound".into(),
@@ -8852,7 +8859,7 @@ impl App {
     pub(crate) fn seed_feedback_failed(&mut self) {
         self.seed_feedback();
         self.feedback_dialog = Some(FeedbackDraft {
-            message_id: "PUBLIC-feedback-message".into(),
+            message_id: Some("PUBLIC-feedback-message".into()),
             rating: "negative".into(),
             category: Some("task-result".into()),
             note: "PUBLIC typed note that must survive the refusal".into(),
@@ -11969,7 +11976,7 @@ impl App {
                 // resets to `CLOSED` (`dialog.ts:62-65`), so Like→Dislike never resubmits the old text.
                 let _ = current;
                 self.feedback_dialog = Some(FeedbackDraft {
-                    message_id,
+                    message_id: Some(message_id),
                     rating: rating.to_owned(),
                     category: None,
                     note: String::new(),
