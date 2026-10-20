@@ -16638,3 +16638,33 @@ three-builder rewrite fixes.
 
 **No code:** a verification round; the two frames are the artifact and are archived under
 `app/evidence/terminal-sweep-<date>/`.
+
+### Round 575 — a short window gives the header and footer room first
+
+**The gap the frame proved.** Round 573's 520-high capture showed the input row, Write button and notice
+below the fold, because the output box kept a 240px floor while the header alone is about 300px.
+
+**The change.** `terminal_output_height` now branches on the window: under 700px the box takes
+`clamp(window - 420, 60, 240)`, so the header and footer get their room first; at 700px and above it keeps
+the round-571 share `clamp(window * 0.42, 240, 640)`. The 520 case goes from 240 to 100px, and the
+re-captured frame shows the **input row back in view** — the control that was unreachable.
+
+**Tests.** The existing test now pins both branches: 400 → 60, 520 → 100, 600 → 180, 900 → 378, 4000 → 640.
+The first run failed on the 600 case, which the old share had set to 252; the branch is the point, so the
+expectation states 180.
+
+**Frame.** `shots/350-terminal-short.png` (1200x520, `terminal-panel-short`): the shell, terminal row and
+OUTPUT label above a 100px output box, with the input row visible beneath it. The Write button and notice
+still sit at the very bottom edge and can be scrolled to; pinning them remains the three-builder rewrite's
+job, and that is recorded, not claimed.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1569 passed**, 1 ignored |
+| app, default | **0** | **1513 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |
+| DP-2 capture | — | `shots/350-terminal-short.png`, `status: passed`, 1200x520 |
+| `xtask verify --suite all` | **—** | still unavailable: `dsh-xtask` is mid-migration |
+| format debt | **—** | moved to `xtask format-debt`; last measured 0 |

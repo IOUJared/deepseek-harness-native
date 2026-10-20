@@ -19448,7 +19448,14 @@ impl App {
     /// The terminal output box's height: a share of the window, so a tall window shows more terminal
     /// and a short one keeps the shell and terminal lists above it reachable.
     fn terminal_output_height(window: f32) -> f32 {
-        (window * 0.42).clamp(240.0, 640.0)
+        // A tall window gives the output its share; a short one gives the header and footer room first,
+        // because round 573's 520-high frame showed the input row and Write button below the fold when
+        // the box kept a 240px floor.
+        if window < 700.0 {
+            (window - 420.0).clamp(60.0, 240.0)
+        } else {
+            (window * 0.42).clamp(240.0, 640.0)
+        }
     }
     /// Client-only terminal panel. It renders exactly what the Host confirmed: the
     /// list, shell profiles and limits from read ACKs, the ACK-created terminal, and
@@ -23531,9 +23538,19 @@ mod tests {
     fn the_terminal_output_box_takes_a_share_of_the_window_with_a_floor_and_a_ceiling() {
         // A tall window shows much more terminal than a short one, and neither the floor nor the
         // ceiling is crossed: the reference fills its pane, which the panel cannot yet do.
-        assert!((App::terminal_output_height(600.0) - 252.0).abs() < 0.01);
+        // Under 700 the header and footer come first: 600 leaves the box 180.
+        assert!((App::terminal_output_height(600.0) - 180.0).abs() < 0.01);
         assert!((App::terminal_output_height(900.0) - 378.0).abs() < 0.01);
-        assert_eq!(App::terminal_output_height(400.0), 240.0, "the floor holds");
+        assert_eq!(
+            App::terminal_output_height(400.0),
+            60.0,
+            "a short window keeps the footer in view"
+        );
+        assert_eq!(
+            App::terminal_output_height(520.0),
+            100.0,
+            "the short window's share"
+        );
         assert_eq!(
             App::terminal_output_height(4000.0),
             640.0,
