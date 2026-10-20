@@ -15446,3 +15446,46 @@ size, over-limit columns and over-limit rows each refused locally).
 | transport / core / JS | — | transport unchanged this round (last **60** + 17 + 91 + 7); core and JS unchanged (115, 419/0) |
 | DP-2 capture | — | `shots/334-terminal-resize.png`, `status: passed`, 1200x900 |
 | app bin | — | **21** warnings |
+
+### Round 541 — a schedule changed elsewhere reloads an open catalog
+
+**The gap.** The coverage table carried this as a **user-only verification**: "a `schedule/changed` live
+refresh is unverified — the Host's event contract for it has never been observed in a run, so native
+reads the catalog only on open, Refresh, and after its own writes." The reference's own client
+re-reads on that notification (`ui-schedule/src/client/catalog-source.ts:173`, `index.ts:99-100`), and
+the Host emits it after every durable schedule write with the emitter's failure contained
+(`packages/schedule/schedule/src/index.ts:376-386`).
+
+**What the code already had.** Native's transport opens the `$events` stream and parses forwarded
+`Emit` frames, and the UI already routes `Emit` events by name (`api-session/*`,
+`goal/activation-changed`). Nothing was missing except the arm for this notification, so the earlier
+"unverified" label understated what could be built safely: the wire path and the emitter both exist.
+
+**The change.** `root()`'s `Emit` match gains `"schedule/changed"`: when the Schedules page or the
+reminders popover is open it marks the catalog loading and issues the same `ScheduleCatalog` read the
+Refresh control uses. A closed catalog issues nothing, so the notification costs no request when no one
+is looking.
+
+**Tests.** `a_schedule_change_from_the_host_reloads_an_open_catalog` — no read with both surfaces closed;
+exactly one read with the page open, and `schedules_loading` set; exactly one with only the reminders
+popover open.
+
+**Still user-only, stated precisely.** The arm is test-covered and the Host's emission is
+source-confirmed, but no live run has yet shown the notification arriving on a real session: that needs
+the user's running Host and a schedule changed from another client. Until then the coverage table says
+"arm built and unit-tested; live arrival unobserved".
+
+**No frame:** this round changes behaviour, not pixels.
+
+**Battery (round 541).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1547 passed**, 1 ignored |
+| app, default | **0** | **1491 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-ld13gogq`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-s60ntx_p`) |
+| transport / core / JS | — | unchanged this round (last 60+17+91+7, 115, 419/0) |
+| DP-2 capture | — | none: a behaviour round |
+| app bin | — | **21** warnings |

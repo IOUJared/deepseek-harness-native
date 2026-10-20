@@ -8001,6 +8001,18 @@ impl App {
                         self.observe_goal_activation(value);
                     }
                 }
+                // The Host emits this after every durable schedule write
+                // (`packages/schedule/schedule/src/index.ts:376-386`), and the reference's catalog
+                // source re-reads on the same notification (`catalog-source.ts:173`,
+                // `index.ts:99-100`). Native reads the catalog only on open, Refresh and after its
+                // own writes, so a change from another client would otherwise be missed until the
+                // next manual press.
+                "schedule/changed" => {
+                    if self.schedules_open || self.reminders_open {
+                        self.schedules_loading = true;
+                        self.command(worker::Command::ScheduleCatalog);
+                    }
+                }
                 "api-session/status" => {
                     if let (Some(id), Some(running)) = (
                         args.first()
@@ -23324,6 +23336,63 @@ mod tests {
             .expect("the row keeps a binding");
         assert_eq!(crate::keybindings::display(&binding[0]), "Ctrl+G");
     }
+    #[test]
+    fn a_schedule_change_from_the_host_reloads_an_open_catalog() {
+        use dsh_native_transport::dto::RemoteEventFrame;
+        let (mut app, mut receiver) = managed_app();
+        // Nothing is open: the notification costs nothing and issues no read.
+        drop(app.receive(Event::Root {
+            frame: RemoteEventFrame::Emit {
+                event: "schedule/changed".into(),
+                args: Vec::new(),
+            },
+            decision_key: None,
+        }));
+        let mut reads = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if matches!(command, Command::ScheduleCatalog) {
+                reads += 1;
+            }
+        }
+        assert_eq!(reads, 0, "a closed catalog does not reload");
+        // With the page open, the same event re-reads the catalog once and states it is loading.
+        let _ = app.update(Message::OpenSchedules);
+        assert!(app.schedules_open);
+        while receiver.try_recv().is_ok() {}
+        drop(app.receive(Event::Root {
+            frame: RemoteEventFrame::Emit {
+                event: "schedule/changed".into(),
+                args: Vec::new(),
+            },
+            decision_key: None,
+        }));
+        let mut reads = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if matches!(command, Command::ScheduleCatalog) {
+                reads += 1;
+            }
+        }
+        assert_eq!(reads, 1, "the open catalog reloads once");
+        assert!(app.schedules_loading);
+        // The reminders popover counts as an open catalog too.
+        let _ = app.update(Message::ToggleReminders(true));
+        while receiver.try_recv().is_ok() {}
+        drop(app.receive(Event::Root {
+            frame: RemoteEventFrame::Emit {
+                event: "schedule/changed".into(),
+                args: Vec::new(),
+            },
+            decision_key: None,
+        }));
+        let mut reads = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if matches!(command, Command::ScheduleCatalog) {
+                reads += 1;
+            }
+        }
+        assert_eq!(reads, 1, "the reminders popover reloads too");
+    }
+
     #[test]
     fn schedules_open_read_and_delete_with_the_armed_confirmation() {
         use dsh_native_transport::dto::{ScheduleCatalogItem, ScheduleDeleteOutcome};
