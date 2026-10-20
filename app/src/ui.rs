@@ -978,6 +978,26 @@ fn attachment_cards(files: Vec<FileCard>) -> Element<'static, Message> {
         .spacing(design::ATTACHMENT_CARD_GAP)
         .align_x(iced::Alignment::End);
     for file in files {
+        // An inline image carries its decoded thumbnail: the card shows the picture where a file shows its
+        // glyph, sized to the same 240px column (`FileCard.module.css:1-40`). The rest of the card stays,
+        // so the name and the size line are still readable under it.
+        if let Some((width, height, rgba)) = &file.thumbnail {
+            let handle =
+                iced::widget::image::Handle::from_rgba(*width, *height, rgba.as_ref().clone());
+            let ratio = *height as f32 / (*width).max(1) as f32;
+            let shown = 240.0 * ratio.min(0.75);
+            cards = cards.push(
+                container(
+                    iced::widget::image(handle)
+                        .width(Length::Fixed(240.0))
+                        .height(Length::Fixed(shown)),
+                )
+                .width(Length::Fixed(240.0))
+                .clip(true)
+                .style(|_| design::card(OVERLAY, design::USER_BUBBLE_RADIUS)),
+            );
+            continue;
+        }
         let icon = container(label(ATTACHMENT_GLYPH, TEXT).size(18))
             .width(28)
             .height(28)
@@ -11092,6 +11112,7 @@ impl App {
         for (ticket, metadata) in self.files.attachments() {
             items.push((
                 FileCard {
+                    thumbnail: None,
                     name: metadata.name.clone(),
                     meta: crate::reducer::attachment_meta(&metadata.name, metadata.bytes),
                 },
@@ -11115,7 +11136,11 @@ impl App {
                 .retryable(ticket)
                 .then(|| Message::FileRetry(ticket.clone()));
             items.push((
-                FileCard { name, meta },
+                FileCard {
+                    name,
+                    meta,
+                    thumbnail: None,
+                },
                 Message::FileRemove(ticket.clone()),
                 retry,
             ));
@@ -22572,6 +22597,7 @@ mod tests {
         let plain = display_row(1, "You");
         let mut attached = plain.clone();
         attached.files = vec![FileCard {
+            thumbnail: None,
             name: "PUBLIC-note.txt".into(),
             meta: "TXT 12B".into(),
         }];

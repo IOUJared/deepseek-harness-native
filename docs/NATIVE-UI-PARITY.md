@@ -17934,3 +17934,33 @@ round 652 introduced, it must be able to draw a widget instead:
 class of structural edit that `terminal_footer` took four attempts — and starting it with a small budget left
 would repeat round 647's outcome rather than avoid it. The seam and the reuse are recorded instead, and both
 are verified in source (`attachment_ui.rs:137,222`).
+
+### Round 656 — an inline image becomes a painted card
+
+**The seam, now used.** The human bubble's attachment stack is `stack.push(attachment_cards(record.files.clone()))`
+inside the `if human` branch (`ui.rs:18263-18269`), so the card path is exactly where a picture belongs. It is
+also measured before it is drawn: `design::attachment_height(row.files.len(), has_bubble)` at `:15638`.
+
+**The change.** `FileCard` carries `thumbnail: Option<(u32, u32, Arc<Vec<u8>>)>`; the reducer's `image` arm
+turns a decodable part into a card — name, `WxH · media`, and a decoded RGBA thumbnail bounded to 320px — while
+an undecodable part keeps round 652's descriptive line. `attachment_cards` paints the thumbnail at the card's
+own 240px width with its aspect ratio (capped at 0.75) instead of the file glyph, so a picture in a user message
+is now an image in the bubble rather than a sentence about one.
+
+**One real bug the test caught.** `DynamicImage::thumbnail` **upscales** a picture smaller than its box — the
+1×1 PNG came back 320×320 — so the code now keeps an image already inside the bound as it is.
+
+**Tests.** `an_inline_image_becomes_a_card_with_a_bounded_thumbnail` — name, `1×1 · image/png`, a four-byte RGBA
+thumbnail, and no card for base64 that is not an image.
+
+**Frame: not yet.** No fixture preset carries an inline image, so the card is suite-verified and **not**
+frame-verified; the preset that seeds one (a `FileCard` with a thumbnail in the `attachment` fixture) and its
+DP-2 capture are the next round, and this round says so instead of implying a frame.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1592 passed**, 1 ignored |
+| app, default | **0** | **1536 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |

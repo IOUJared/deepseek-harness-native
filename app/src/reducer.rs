@@ -52,6 +52,33 @@ use assistant_parts::{Block, Kind};
 mod chat_presentation;
 
 #[cfg(test)]
+mod inline_image_card_tests {
+    use serde_json::json;
+
+    #[test]
+    fn an_inline_image_becomes_a_card_with_a_bounded_thumbnail() {
+        // A 1x1 PNG: the card names it, states the real size and carries a decoded RGBA thumbnail.
+        let part = json!({
+            "type": "image",
+            "mediaType": "image/png",
+            "name": "PUBLIC.png",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        });
+        let card = super::image_card(&part).expect("a card");
+        assert_eq!(card.name, "PUBLIC.png");
+        assert_eq!(card.meta, "1×1 · image/png");
+        let (width, height, rgba) = card.thumbnail.expect("a thumbnail");
+        assert_eq!((width, height), (1, 1));
+        assert_eq!(rgba.len(), 4, "one RGBA pixel");
+        // Base64 that is not an image gets no card, so the descriptive line still says what it was.
+        assert!(
+            super::image_card(&json!({"type":"image","mediaType":"image/png","data":"UFVCTElD"}))
+                .is_none()
+        );
+    }
+}
+
+#[cfg(test)]
 mod inline_image_line_tests {
     use serde_json::json;
 
@@ -100,6 +127,9 @@ pub const MAX_DISPLAY_BYTES: usize = 32 * 1024;
 pub struct FileCard {
     pub name: String,
     pub meta: String,
+    /// A decoded thumbnail for an inline image attachment: `(width, height, RGBA)`. The row paints it where
+    /// a plain file card shows its glyph, so the bubble carries the picture the envelope already delivered.
+    pub thumbnail: Option<(u32, u32, std::sync::Arc<Vec<u8>>)>,
 }
 /// The referenced-session summary line's copy: the reference's
 /// `Referenced session · {labels}` with `message.referenceSeparator` between labels
@@ -1518,6 +1548,7 @@ fn file_card(attachment: &Value) -> Option<FileCard> {
         .collect();
     let size = file_size_text(bytes);
     Some(FileCard {
+        thumbnail: None,
         name,
         meta: if extension.is_empty() {
             size
@@ -1552,6 +1583,35 @@ fn image_line(part: &Value) -> String {
     }
 }
 
+/// Decode an inline image into a card with a bounded thumbnail; `None` keeps the descriptive line that
+/// `image_line` writes, so an unreadable part still says what it was.
+fn image_card(part: &Value) -> Option<FileCard> {
+    const MAX_BYTES: usize = 8 * 1024 * 1024;
+    const THUMB: u32 = 320;
+    let (media, bytes, name) = dsh_native_transport::dto::inline_image(part)?;
+    if bytes.len() > MAX_BYTES {
+        return None;
+    }
+    let decoded = image::ImageReader::new(std::io::Cursor::new(&bytes))
+        .with_guessed_format()
+        .ok()?
+        .decode()
+        .ok()?;
+    let (width, height) = (decoded.width(), decoded.height());
+    // `thumbnail` upscales a small picture to the box; a picture already inside it is kept as it is.
+    let thumb = if width <= THUMB && height <= THUMB {
+        decoded
+    } else {
+        decoded.thumbnail(THUMB, THUMB)
+    };
+    let (tw, th) = (thumb.width(), thumb.height());
+    Some(FileCard {
+        name: name.unwrap_or_else(|| "inline image".into()),
+        meta: format!("{width}×{height} · {media}"),
+        thumbnail: Some((tw, th, std::sync::Arc::new(thumb.to_rgba8().into_raw()))),
+    })
+}
+
 fn user_content(value: &Value) -> (String, Vec<FileCard>) {
     let Some(parts) = value.as_array() else {
         return (content(value), Vec::new());
@@ -1566,7 +1626,10 @@ fn user_content(value: &Value) -> (String, Vec<FileCard>) {
                 part["name"].as_str().unwrap_or("unknown"),
                 part["arguments"].as_str().unwrap_or("")
             )),
-            Some("image") => text.push(image_line(part)),
+            Some("image") => match image_card(part) {
+                Some(card) => files.push(card),
+                None => text.push(image_line(part)),
+            },
             Some("file") => match file_card(&part["attachment"]) {
                 Some(card) => files.push(card),
                 // A file whose metadata is missing keeps its text line rather
