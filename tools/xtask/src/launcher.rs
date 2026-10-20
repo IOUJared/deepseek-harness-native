@@ -1166,6 +1166,188 @@ pub fn native_source_inventory(base: &Path) -> Result<serde_json::Value, String>
     }))
 }
 
+fn package_name_ok(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 100
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+}
+
+fn package_version_ok(version: &str) -> bool {
+    !version.is_empty()
+        && version.len() <= 100
+        && version
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'+' | b'_' | b'-'))
+}
+
+fn license_file_name(name: &str) -> bool {
+    let upper = name.to_ascii_uppercase();
+    for prefix in ["LICENSE", "COPYING", "NOTICE", "COPYRIGHT"] {
+        if let Some(rest) = upper.strip_prefix(prefix)
+            && (rest.is_empty() || rest.starts_with(['.', '_', '-']))
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Copy the license texts of every registry package and write the inventory.
+pub fn licenses(metadata: &Value, cargo_src: &Path, payload: &Path) -> Result<Value, String> {
+    let Some(packages) = metadata["packages"].as_array() else {
+        return Err("Invalid bounded Cargo metadata package list".into());
+    };
+    if packages.is_empty() || packages.len() > 1024 {
+        return Err("Invalid bounded Cargo metadata package list".into());
+    }
+    let cargo_src = cargo_src
+        .canonicalize()
+        .map_err(|_| "Cargo license source is not the expected cached crate")?;
+    for package in packages {
+        if !package.is_object() {
+            return Err("Invalid Cargo package metadata".into());
+        }
+        if package["source"].is_null() {
+            continue;
+        }
+        let (Some(source), Some(name), Some(version)) = (
+            package["source"].as_str(),
+            package["name"].as_str(),
+            package["version"].as_str(),
+        ) else {
+            return Err("Unsupported Cargo package identity".into());
+        };
+        if !source.starts_with("registry+")
+            || !package_name_ok(name)
+            || !package_version_ok(version)
+        {
+            return Err("Unsupported Cargo package identity".into());
+        }
+        let Some(manifest) = package["manifest_path"].as_str().map(Path::new) else {
+            return Err("Cargo license source is not the expected cached crate".into());
+        };
+        let manifest = manifest
+            .canonicalize()
+            .map_err(|_| "Cargo license source is not the expected cached crate")?;
+        let parent = manifest
+            .parent()
+            .ok_or("Cargo license source is not the expected cached crate")?;
+        let relative = parent
+            .strip_prefix(&cargo_src)
+            .map_err(|_| "Cargo license source is not the expected cached crate")?;
+        if manifest
+            .file_name()
+            .is_some_and(|name| name != "Cargo.toml")
+            || relative.components().count() != 2
+            || parent
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                != Some(format!("{name}-{version}"))
+        {
+            return Err("Cargo license source is not the expected cached crate".into());
+        }
+    }
+    let mut ordered: Vec<&Value> = packages
+        .iter()
+        .filter(|package| !package["source"].is_null())
+        .collect();
+    ordered.sort_by(|a, b| {
+        (a["name"].as_str(), a["version"].as_str())
+            .cmp(&(b["name"].as_str(), b["version"].as_str()))
+    });
+    let mut records = Vec::new();
+    for package in ordered {
+        let name = package["name"].as_str().unwrap_or_default();
+        let version = package["version"].as_str().unwrap_or_default();
+        let root = Path::new(package["manifest_path"].as_str().unwrap_or_default())
+            .canonicalize()
+            .map_err(|_| "Cargo license source is not the expected cached crate")?
+            .parent()
+            .ok_or("Cargo license source is not the expected cached crate")?
+            .to_path_buf();
+        let mut chosen: std::collections::BTreeSet<PathBuf> = std::collections::BTreeSet::new();
+        for entry in std::fs::read_dir(&root).map_err(|error| error.to_string())? {
+            let path = entry.map_err(|error| error.to_string())?.path();
+            let file_name = path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if path.is_file() && license_file_name(&file_name) {
+                chosen.insert(path);
+            }
+        }
+        if let Some(explicit) = package["license_file"].as_str() {
+            let explicit = PathBuf::from(explicit);
+            let explicit = if explicit.is_absolute() {
+                explicit
+            } else {
+                root.join(explicit)
+            };
+            if let Ok(resolved) = explicit.canonicalize()
+                && resolved.starts_with(&root)
+            {
+                chosen.insert(resolved);
+            }
+        }
+        let mut copied = Vec::new();
+        for path in chosen {
+            if path
+                .symlink_metadata()
+                .is_ok_and(|info| info.file_type().is_symlink())
+                || !path.is_file()
+                || path
+                    .metadata()
+                    .map(|info| info.len() > 1024 * 1024)
+                    .unwrap_or(true)
+            {
+                continue;
+            }
+            let file_name = path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let relative = Path::new("licenses/rust")
+                .join(format!("{name}-{version}"))
+                .join(&file_name);
+            copy_new(&path, &payload.join(&relative), 0o644, 1024 * 1024)?;
+            copied.push(relative.to_string_lossy().into_owned());
+        }
+        records.push(serde_json::json!({
+            "name": name,
+            "version": version,
+            "declaredLicense": package["license"],
+            "licenseTexts": copied,
+            "source": format!("https://crates.io/crates/{name}/{version}"),
+        }));
+    }
+    let with_texts = records
+        .iter()
+        .filter(|record| {
+            record["licenseTexts"]
+                .as_array()
+                .is_some_and(|texts| !texts.is_empty())
+        })
+        .count();
+    let inventory = serde_json::json!({
+        "scope": "Cargo registry metadata lockfile/target superset; source=None path dependencies excluded (notices retained in selected native sources); not exact compiled-link closure or legal certification",
+        "packageCount": records.len(),
+        "packagesWithCopiedLicenseTexts": with_texts,
+        "packages": records,
+    });
+    std::fs::create_dir_all(payload.join("licenses")).map_err(|error| error.to_string())?;
+    std::fs::write(
+        payload.join("licenses/rust-inventory.json"),
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&inventory).map_err(|error| error.to_string())?
+        ),
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(inventory)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1777,6 +1959,76 @@ mod native_tests {
             native_path(&base.join("."), true).is_err(),
             "a non-canonical path is refused"
         );
+        fs::remove_dir_all(base).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod license_tests {
+    use super::*;
+    use std::fs;
+
+    fn fixture() -> (PathBuf, PathBuf, Value) {
+        let base =
+            crate::tempdir::make_temp_dir(&std::env::temp_dir(), "package-licenses-").unwrap();
+        let src = base.join("registry/src");
+        // The cache nests crates under an index directory, so the crate is two parts deep.
+        let crate_dir = src.join("index.crates.io-1949cf8c6b5b557f/public-crate-1.2.3");
+        fs::create_dir_all(&crate_dir).unwrap();
+        fs::write(crate_dir.join("Cargo.toml"), b"[package]\n").unwrap();
+        fs::write(crate_dir.join("LICENSE-MIT"), b"PUBLIC MIT text").unwrap();
+        fs::write(crate_dir.join("NOTICE"), b"PUBLIC notice").unwrap();
+        let payload = base.join("payload");
+        fs::create_dir_all(&payload).unwrap();
+        let metadata = serde_json::json!({"packages": [
+            {"name": "public-crate", "version": "1.2.3", "source": "registry+https://crates.io",
+             "manifest_path": crate_dir.join("Cargo.toml").to_string_lossy(),
+             "license": "MIT OR Apache-2.0"},
+            {"name": "local-path", "version": "0.1.0", "source": null,
+             "manifest_path": crate_dir.join("Cargo.toml").to_string_lossy(), "license": null},
+        ]});
+        (base, payload, metadata)
+    }
+
+    #[test]
+    fn registry_license_texts_are_copied_and_inventoried() {
+        let (base, payload, metadata) = fixture();
+        let inventory =
+            licenses(&metadata, &base.join("registry/src"), &payload).expect("licenses");
+        assert_eq!(
+            inventory["packageCount"], 1,
+            "a path dependency is not a registry package"
+        );
+        assert_eq!(inventory["packagesWithCopiedLicenseTexts"], 1);
+        let texts = inventory["packages"][0]["licenseTexts"].as_array().unwrap();
+        assert_eq!(texts.len(), 2);
+        let copied = payload.join(texts[0].as_str().unwrap());
+        assert_eq!(fs::read(&copied).unwrap(), b"PUBLIC MIT text");
+        assert!(payload.join("licenses/rust-inventory.json").is_file());
+        // A non-registry source, an invalid name and a mismatched crate directory are refused.
+        for (packages, expected) in [
+            (
+                serde_json::json!([{"name": "x", "version": "1.0.0", "source": "git+https://example",
+                "manifest_path": base.join("registry/src/index.crates.io-1949cf8c6b5b557f/public-crate-1.2.3/Cargo.toml").to_string_lossy(), "license": null}]),
+                "Unsupported Cargo package identity",
+            ),
+            (
+                serde_json::json!([{"name": "bad name", "version": "1.0.0", "source": "registry+x",
+                "manifest_path": base.join("registry/src/index.crates.io-1949cf8c6b5b557f/public-crate-1.2.3/Cargo.toml").to_string_lossy(), "license": null}]),
+                "Unsupported Cargo package identity",
+            ),
+            (
+                serde_json::json!([{"name": "other", "version": "9.9.9", "source": "registry+x",
+                "manifest_path": base.join("registry/src/index.crates.io-1949cf8c6b5b557f/public-crate-1.2.3/Cargo.toml").to_string_lossy(), "license": null}]),
+                "Cargo license source is not the expected cached crate",
+            ),
+        ] {
+            let metadata = serde_json::json!({"packages": packages});
+            assert_eq!(
+                licenses(&metadata, &base.join("registry/src"), &payload).unwrap_err(),
+                expected
+            );
+        }
         fs::remove_dir_all(base).unwrap();
     }
 }
