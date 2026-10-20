@@ -70,8 +70,9 @@ full-screen TUI's keys reach the process but its escape-driven screen does not r
   return, which the panel applies as a line redraw, and the erase sequences `ESC [ K`/`ESC [ J`, which
   it applies to the same screen, so `clear` clears and a progress bar is one line, rounds 552–553;
   `ESC [ H`/`A`–`D`/`G`/`d` address a grid as tall as the Host's rows, whose bottom row scrolls into
-  scrollback, round 554; colours, the alternate screen, wide characters and scroll regions are not
-  rendered) and retained
+  scrollback, round 554; SGR `30`–`37`/`90`–`97`/`39`/`1`/`0` colour the cells and are drawn through
+  `design::ansi_ink`, round 555; backgrounds, the alternate screen, wide characters and scroll regions
+  are not rendered) and retained
   in the panel only: at most **400 chunks / 128 KiB**, newest kept, and the panel renders only
   the newest **32 KiB**. Every discarded chunk and every byte an oversized chunk loses is
   counted and shown.

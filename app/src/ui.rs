@@ -19869,25 +19869,27 @@ impl App {
                     .size(10),
                 );
             }
-            let text = self.terminal.output().display(DISPLAY_BYTES);
+            // One rich-text line per screen row: a shell's colours are part of what it printed.
+            let rows = self.terminal.output().display_styled(DISPLAY_BYTES);
+            let mut lines = column![].spacing(0);
+            if rows.is_empty() {
+                lines = lines.push(label("(no output yet)".to_owned(), TEXT).size(11));
+            }
+            for runs in rows {
+                let spans: Vec<iced::widget::text::Span<'_, (), iced::Font>> = runs
+                    .into_iter()
+                    .map(|(text, ink)| match ink {
+                        Some(index) => span::<(), iced::Font>(text).color(design::ansi_ink(index)),
+                        None => span::<(), iced::Font>(text).color(TEXT),
+                    })
+                    .collect();
+                lines = lines.push(rich_text(spans).size(11));
+            }
             body = body.push(
                 container(
-                    scrollable(
-                        container(
-                            label(
-                                if text.is_empty() {
-                                    "(no output yet)".to_owned()
-                                } else {
-                                    text
-                                },
-                                TEXT,
-                            )
-                            .size(11),
-                        )
-                        .width(Length::Fill),
-                    )
-                    .direction(design::scrollbar())
-                    .style(design::scrollable_style),
+                    scrollable(container(lines).width(Length::Fill))
+                        .direction(design::scrollbar())
+                        .style(design::scrollable_style),
                 )
                 .height(Length::Fixed(240.0))
                 .width(Length::Fill)

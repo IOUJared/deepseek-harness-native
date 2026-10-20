@@ -15990,3 +15990,38 @@ scroll region — the screen is a monochrome grid of single-column cells.
 | transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
 | DP-2 capture | — | `shots/340-terminal-address.png`, `status: passed`, 1200x900 |
 | app bin | — | **21** warnings |
+
+### Round 555 — the terminal draws the colours a shell prints
+
+**The gap.** The screen was monochrome: every cell was a `char`, so `cargo`'s green `ok`, red `error:`
+and yellow `warning:` arrived as plain text — and the sanitizer kept only the characters of an SGR
+sequence's payload, discarding the colour entirely. The reference's emulator renders ANSI inks.
+
+**The change.** A cell is now `{ character, ink }`, where `ink` is an ANSI index 0–15 (or none). The
+screen tracks the current SGR colour — `30`–`37` for the base eight, `90`–`97` for the bright eight,
+`39` back to the default, `1` mapping a base colour onto its bright twin, `0` clearing everything —
+and `Output::display_styled` returns per-line runs of `(text, ink)`. The panel builds one `rich_text`
+line per screen row, colouring each run through `design::ansi_ink`, which maps the sixteen indices onto
+the Rosé Pine palette (the bright half mirrors the base, as a terminal's bold brights do). Backgrounds,
+underlines and other attributes are still not drawn.
+
+**Tests.** `sgr_colours_a_run_of_cells_and_the_bright_half_is_the_second_eight` — a green run between
+plain text, `91` as index 9, bold brightening `32` to 10, and `39` returning to the default ink. (Its
+first run failed because `39` was a no-op; the test is what found that the "reset" did not reset.)
+
+**Frame.** `shots/341-terminal-colors.png` (1200x900, new `terminal-colors` preset): `ok` in foam, `error:`
+in the danger ink, `warning:` in gold, and the muted `done in 1.2s` — a shell's own colouring, drawn
+natively.
+
+**Battery (round 555).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1558 passed**, 1 ignored |
+| app, default | **0** | **1502 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-tkft12dk`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-2ju6w16z`) |
+| transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
+| DP-2 capture | — | `shots/341-terminal-colors.png`, `status: passed`, 1200x900 |
+| app bin | — | **21** warnings (two helpers became test-only; measured at 24 first) |

@@ -212,6 +212,7 @@ pub const PRESETS: &[&str] = &[
     "terminal-progress",
     "terminal-clear",
     "terminal-address",
+    "terminal-colors",
     "reference-crumbs",
     "reference-subagents",
     "stats-dialog",
@@ -337,6 +338,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "terminal-progress" => Some((Size::new(1200.0, 900.0), 1.0)),
         "terminal-clear" => Some((Size::new(1200.0, 900.0), 1.0)),
         "terminal-address" => Some((Size::new(1200.0, 900.0), 1.0)),
+        "terminal-colors" => Some((Size::new(1200.0, 900.0), 1.0)),
         "reference-crumbs" => Some((Size::new(1040.0, 620.0), 1.0)),
         "reference-subagents" => Some((Size::new(1040.0, 620.0), 1.0)),
         "stats-dialog" => Some((Size::new(1040.0, 760.0), 1.0)),
@@ -363,6 +365,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "terminal-progress"
         | "terminal-clear"
         | "terminal-address"
+        | "terminal-colors"
         | "collapsed-wide"
         | "title-controls"
         | "title-controls-expanded"
@@ -4479,6 +4482,7 @@ pub fn build(
         || preset == "terminal-progress"
         || preset == "terminal-clear"
         || preset == "terminal-address"
+        || preset == "terminal-colors"
     {
         // The terminal panel with one selected Host terminal and its recorded output. Every frame the
         // panel sees here is one a Host could send; nothing is created or written.
@@ -4544,7 +4548,20 @@ pub fn build(
             .follow()
             .cloned()
             .expect("selecting attaches a follow");
-        let frames: [(i64, &str); 3] = if preset == "terminal-address" {
+        let frames: [(i64, &str); 3] = if preset == "terminal-colors" {
+            // A shell that colours its own output: the panel draws the inks it printed.
+            [
+                (
+                    1,
+                    "PUBLIC $ cargo test\n\u{1b}[32mtest widget::layout ... ok\u{1b}[0m\n",
+                ),
+                (
+                    2,
+                    "\u{1b}[31merror:\u{1b}[0m one failure\n\u{1b}[33mwarning:\u{1b}[0m two notices\n",
+                ),
+                (3, "\u{1b}[90mdone in 1.2s\u{1b}[0m\n"),
+            ]
+        } else if preset == "terminal-address" {
             // Cursor addressing: the second line is written after the first, not below it, so the
             // panel must place text on the row the sequence names.
             [

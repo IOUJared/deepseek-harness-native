@@ -5,6 +5,21 @@ use iced::{Border, Color, Degrees, Theme, gradient};
 // modules spell them `crate::ui::ACCENT` and friends; nothing else may redeclare
 // a palette entry.
 pub const BASE: Color = Color::from_rgb8(0x19, 0x17, 0x24);
+/// The terminal's ANSI inks, as Rosé Pine's own palette: a shell that colours `ls` or a test result
+/// stays readable without a second theme. Index 8–15 mirror their base colour (a terminal's bold
+/// brights), which the screen applies by mapping bold onto the bright half.
+pub fn ansi_ink(index: u8) -> Color {
+    match index % 8 {
+        0 => MUTED,
+        1 => DANGER,
+        2 => FOAM,
+        3 => GOLD,
+        4 => ACCENT,
+        5 => Color::from_rgb8(0xc4, 0xa7, 0xe7),
+        6 => FOAM,
+        _ => TEXT,
+    }
+}
 pub const SURFACE: Color = Color::from_rgb8(0x1f, 0x1d, 0x2e);
 pub const OVERLAY: Color = Color::from_rgb8(0x26, 0x23, 0x3a);
 pub const TEXT: Color = Color::from_rgb8(0xe0, 0xde, 0xf4);

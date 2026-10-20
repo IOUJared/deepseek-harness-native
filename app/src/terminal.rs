@@ -350,13 +350,23 @@ const SCREEN_LINES: usize = 2_000;
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Screen {
     /// Lines that scrolled off the grid, oldest first: a terminal's scrollback.
-    history: Vec<Vec<char>>,
+    history: Vec<Vec<Cell>>,
     /// The visible grid, exactly `rows` lines once a size is known (one until then).
-    grid: Vec<Vec<char>>,
+    grid: Vec<Vec<Cell>>,
     row: usize,
     column: usize,
     rows: usize,
     dropped: usize,
+    /// The SGR colour the next written cell takes: an ANSI index 0–15, or none for the panel's
+    /// default ink.
+    ink: Option<u8>,
+}
+
+/// One screen cell: a character and the colour it was written with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Cell {
+    character: char,
+    ink: Option<u8>,
 }
 impl Default for Screen {
     fn default() -> Self {
@@ -374,6 +384,7 @@ impl Screen {
             // reports its rows is not scrolled into scrollback and later "cleared".
             rows: 0,
             dropped: 0,
+            ink: None,
         }
     }
     /// Adopt the Host's row count: the grid becomes that tall, keeping the newest lines.
@@ -399,7 +410,7 @@ impl Screen {
         self.row = self.row.min(self.grid.len().saturating_sub(1));
         self.rows = rows;
     }
-    fn line(&mut self) -> &mut Vec<char> {
+    fn line(&mut self) -> &mut Vec<Cell> {
         if self.grid.is_empty() {
             self.grid.push(Vec::new());
             self.row = 0;
@@ -436,14 +447,20 @@ impl Screen {
     /// Write one character at the cursor, overwriting the column it lands on.
     fn put(&mut self, character: char) {
         let column = self.column;
+        let ink = self.ink;
+        let cell = Cell { character, ink };
         let line = self.line();
         if column < line.len() {
-            line[column] = character;
+            line[column] = cell;
         } else {
+            let blank = Cell {
+                character: ' ',
+                ink: None,
+            };
             while line.len() < column {
-                line.push(' ');
+                line.push(blank);
             }
-            line.push(character);
+            line.push(cell);
         }
         self.column = column + 1;
     }
@@ -456,7 +473,10 @@ impl Screen {
             1 => {
                 let end = column.min(line.len().saturating_sub(1));
                 for cell in line.iter_mut().take(end + 1) {
-                    *cell = ' ';
+                    *cell = Cell {
+                        character: ' ',
+                        ink: None,
+                    };
                 }
             }
             _ => line.clear(),
@@ -533,6 +553,24 @@ impl Screen {
                             Some('J') if !private => {
                                 self.erase_display(numbers.first().copied().unwrap_or(0))
                             }
+                            Some('m') if !private => {
+                                for code in numbers.iter().copied() {
+                                    match code {
+                                        0 => self.ink = None,
+                                        // Bold brightens the base colour, the way a terminal's
+                                        // bold attribute is drawn.
+                                        1 => self.ink = self.ink.map(|ink| (ink % 8) + 8),
+                                        // `39` restores the default foreground; `22` cancels bold,
+                                        // which the panel does not draw separately.
+                                        39 => self.ink = None,
+                                        22 => {}
+                                        30..=37 => self.ink = Some((code - 30) as u8),
+                                        90..=97 => self.ink = Some((code - 90 + 8) as u8),
+                                        // Background and every other attribute are not drawn.
+                                        _ => {}
+                                    }
+                                }
+                            }
                             Some('G') if !private => self.column = first - 1,
                             Some('d') if !private => self.place(first - 1, self.column),
                             Some('H') | Some('f') if !private => {
@@ -584,12 +622,13 @@ impl Screen {
             }
         }
     }
+    #[cfg(test)]
     fn render(&self) -> String {
         // The whole screen: what scrolled off, then the grid. Trailing blank rows are the cleared
         // space below the cursor, so they collapse to one newline rather than a run of them.
         let mut blocks: Vec<String> = Vec::new();
         for line in self.history.iter().chain(self.grid.iter()) {
-            blocks.push(line.iter().collect());
+            blocks.push(line.iter().map(|cell| cell.character).collect());
         }
         let mut trailing = 0;
         while blocks.last().is_some_and(|line| line.is_empty()) {
@@ -663,7 +702,45 @@ impl Output {
     pub fn text(&self) -> String {
         self.chunks.concat()
     }
-    /// The panel's text: the screen rendered within `max_bytes`, newest lines kept.
+    /// The screen as coloured runs, one per line: `(text, ANSI colour)` where `None` is the panel's
+    /// own ink. This is what the panel draws; [`Self::display`] is the same text without colour.
+    pub fn display_styled(&self, max_bytes: usize) -> Vec<Vec<(String, Option<u8>)>> {
+        let mut lines: Vec<Vec<(String, Option<u8>)>> = Vec::new();
+        for line in self.screen.history.iter().chain(self.screen.grid.iter()) {
+            let mut runs: Vec<(String, Option<u8>)> = Vec::new();
+            for cell in line {
+                match runs.last_mut() {
+                    Some((text, ink)) if *ink == cell.ink => text.push(cell.character),
+                    _ => runs.push((cell.character.to_string(), cell.ink)),
+                }
+            }
+            lines.push(runs);
+        }
+        // Collapse the cleared rows below the cursor the same way `display` does.
+        while lines
+            .last()
+            .is_some_and(|runs| runs.iter().all(|(text, _)| text.trim().is_empty()))
+        {
+            lines.pop();
+        }
+        let single = lines.len() == 1;
+        lines.retain(|runs| !runs.is_empty() || single);
+        let mut used = 0usize;
+        let mut kept: Vec<Vec<(String, Option<u8>)>> = Vec::new();
+        for runs in lines.into_iter().rev() {
+            let size: usize = runs.iter().map(|(text, _)| text.len()).sum::<usize>() + 1;
+            if used + size > max_bytes && !kept.is_empty() {
+                break;
+            }
+            used += size;
+            kept.push(runs);
+        }
+        kept.reverse();
+        kept
+    }
+    /// The screen as plain text, newest lines kept: the tests read this, the panel draws the
+    /// styled runs from [`Self::display_styled`].
+    #[cfg(test)]
     ///
     /// The screen applies the redraw and erase rules a real terminal applies — `\r` overwrites in
     /// place, `ESC [ K` erases part of a line, `ESC [ 2 J` clears the display — while the retained
@@ -2746,6 +2823,41 @@ mod tests {
         assert!(
             !terminal.shells_failed(),
             "an answered read clears the flag"
+        );
+    }
+
+    #[test]
+    fn sgr_colours_a_run_of_cells_and_the_bright_half_is_the_second_eight() {
+        let mut output = Output::default();
+        output.push("plain \u{1b}[32mPASS\u{1b}[0m plain\n");
+        let runs: Vec<Vec<(String, Option<u8>)>> = output.display_styled(DISPLAY_BYTES);
+        assert_eq!(runs.len(), 1);
+        assert_eq!(
+            runs[0],
+            vec![
+                ("plain ".to_owned(), None),
+                ("PASS".to_owned(), Some(2)),
+                (" plain".to_owned(), None),
+            ]
+        );
+        // A bright colour is the second eight: `90`+ is index 8+, and bold brightens a base colour.
+        let mut output = Output::default();
+        output.push("\u{1b}[91mbright\u{1b}[32m\u{1b}[1mbold\u{1b}[0m\n");
+        let runs: Vec<Vec<(String, Option<u8>)>> = output.display_styled(DISPLAY_BYTES);
+        assert_eq!(
+            runs[0],
+            vec![
+                ("bright".to_owned(), Some(9)),
+                ("bold".to_owned(), Some(10)),
+            ]
+        );
+        // An unwritten tail keeps the default ink, and a reset returns to it.
+        let mut output = Output::default();
+        output.push("\u{1b}[31mred\u{1b}[39m back\n");
+        let runs: Vec<Vec<(String, Option<u8>)>> = output.display_styled(DISPLAY_BYTES);
+        assert_eq!(
+            runs[0],
+            vec![("red".to_owned(), Some(1)), (" back".to_owned(), None),]
         );
     }
 
