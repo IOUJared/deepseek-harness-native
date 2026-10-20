@@ -185,6 +185,7 @@ pub const PRESETS: &[&str] = &[
     "turn-rail-hover",
     "tool-activity-attachment",
     "attachment-image",
+    "attachment-webp",
     "tool-activity-edit-error",
     "tool-activity-diff",
     "tool-activity-diff-long",
@@ -314,6 +315,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "tool-activity-terminal-search"
         | "tool-activity-attachment"
         | "attachment-image"
+        | "attachment-webp"
         | "tool-activity-edit-error"
         | "tool-activity-diff"
         | "tool-activity-diff-long"
@@ -1339,6 +1341,15 @@ fn public_tool_records_with(attachment: Option<&str>) -> Vec<Value> {
                 "name": name,
                 "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
             }));
+        } else if name.ends_with(".webp") {
+            // A real 2x1 lossless VP8L WebP, base64 in the same envelope. The reference accepts
+            // webp alongside png/jpeg/gif (`ui-conversation/src/client/service.ts:588-603`).
+            parts.push(json!({
+                "type": "image",
+                "mediaType": "image/webp",
+                "name": name,
+                "data": "UklGRh4AAABXRUJQVlA4TBEAAAAvAQAAAA8Q87//8x8OMqL/AQA="
+            }));
         } else {
             parts.push(json!({"type":"file", "attachment":{"name":name, "bytes":12}}));
         }
@@ -1741,6 +1752,8 @@ pub fn build(
         public_tool_records_with(Some("PUBLIC-note.txt"))
     } else if preset == "attachment-image" {
         public_tool_records_with(Some("PUBLIC-shot.png"))
+    } else if preset == "attachment-webp" {
+        public_tool_records_with(Some("PUBLIC-shot.webp"))
     } else if preset == "tool-activity-edit-error" {
         public_tool_edit_error_records()
     } else if matches!(
@@ -5280,10 +5293,17 @@ mod tests {
                         !app.transcript.rows()[0].text.contains("PUBLIC-note.txt"),
                         "the file part must leave the bubble body"
                     );
-                } else if preset == "attachment-image" {
+                } else if preset == "attachment-image" || preset == "attachment-webp" {
                     // The picture rides the row's cards, and the sentence beside it must survive: a card
                     // that swallowed the bubble's text would leave a picture with no message under it.
+                    let (name, meta) = if preset == "attachment-image" {
+                        ("PUBLIC-shot.png", "1×1 · image/png")
+                    } else {
+                        ("PUBLIC-shot.webp", "2×1 · image/webp")
+                    };
                     assert_eq!(files.len(), 1, "one card for one image part");
+                    assert_eq!(files[0].name, name);
+                    assert_eq!(files[0].meta, meta);
                     assert!(
                         files[0].thumbnail.is_some(),
                         "the card carries the decoded thumbnail"

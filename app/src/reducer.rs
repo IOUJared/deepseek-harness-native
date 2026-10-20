@@ -72,6 +72,25 @@ mod inline_image_card_tests {
     }
 
     #[test]
+    fn a_webp_inline_image_decodes_like_a_gif() {
+        // A real 2x1 lossless VP8L WebP (RIFF....WEBPVP8L), generated with Pillow rather than
+        // hand-synthesised. The reference accepts webp beside png/jpeg/gif, and the card path is
+        // format-agnostic once the decoder has the bytes (`ui-conversation/src/client/service.ts:588-603`).
+        let part = json!({
+            "type": "image",
+            "mediaType": "image/webp",
+            "name": "PUBLIC-shot.webp",
+            "data": "UklGRh4AAABXRUJQVlA4TBEAAAAvAQAAAA8Q87//8x8OMqL/AQA="
+        });
+        let card = super::image_card(&part).expect("a webp card");
+        assert_eq!(card.name, "PUBLIC-shot.webp");
+        assert_eq!(card.meta, "2×1 · image/webp");
+        let (width, height, rgba) = card.thumbnail.expect("a thumbnail");
+        assert_eq!((width, height), (2, 1));
+        assert_eq!(rgba.len(), 8, "two RGBA pixels");
+    }
+
+    #[test]
     fn an_inline_image_becomes_a_card_with_a_bounded_thumbnail() {
         // A 1x1 PNG: the card names it, states the real size and carries a decoded RGBA thumbnail.
         let part = json!({

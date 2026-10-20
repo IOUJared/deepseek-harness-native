@@ -18151,3 +18151,39 @@ schedule turn cards and the right-Sidebar task tab remain unbuilt; the marks no 
 (`SessionScheduleMark.tsx:49-51`); native's mark rides inside the row's own `button`, so pressing the
 clock selects the Session like any other cell. Splitting the row's hit area for one 16px seat is not
 worth a second click target.
+
+### Round 665 — a real WebP file closes the fourth image format
+
+**The gap.** Round 663 enabled `image`'s `webp` and `gif` features but could only test GIF: it
+recorded that a minimal valid WebP could not be synthesised, so WebP rode the feature flag and
+`image-webp`'s decoder rather than an assertion of ours. The reference accepts all four media types
+(`ui-conversation/src/client/service.ts:588-603`), so leaving one unproven was an evidence hole, not
+a feature hole.
+
+**The fixture.** Pillow generated a real **2×1 lossless VP8L** WebP — 38 bytes, a `RIFF` header and a
+`WEBPVP8L` chunk — and the test carries it base64 exactly as the envelope does.
+`a_webp_inline_image_decodes_like_a_gif` asserts the card's name (`PUBLIC-shot.webp`), its meta
+(`2×1 · image/webp`) and a decoded 2×1 RGBA thumbnail (eight bytes).
+
+**The frame.** A new `attachment-webp` preset seeds the same records as `attachment-image` with that
+part instead of the 1×1 PNG; `attachment-image` keeps its PNG, so each format has its own capture.
+`shots/364-attachment-webp.png` shows the WebP picture card at 240px wide (120px tall for the 2:1
+picture) above the message bubble.
+
+**Test and pinning.** The unit test above, plus the `attachment-webp` arm in
+`presets_render_actual_app_without_queued_effects`, which pins the card's name, meta, thumbnail and
+the surviving bubble text.
+
+**Round 663's asymmetry is closed:** WebP is now asserted with a real file of ours, not only with
+`image-webp`'s own decoder.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| format | **0** | `cargo fmt` applied; format-debt 0 files, 0 hunks |
+| app, fixture | **0** | **1595 passed**, 1 ignored |
+| app, default | **0** | **1539 passed**, 1 ignored |
+| transport | **0** | 62 + 17 + 91 + 7 passed |
+| app bin | — | **21** warnings (22 with the summary line) |
+| battery | **passed** | **17 checks, 0 failing** (`verification-0d8e22f518bc`) |
