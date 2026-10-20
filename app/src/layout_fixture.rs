@@ -183,6 +183,7 @@ pub const PRESETS: &[&str] = &[
     "turn-rail",
     "turn-rail-hover",
     "tool-activity-attachment",
+    "attachment-image",
     "tool-activity-edit-error",
     "tool-activity-diff",
     "tool-activity-diff-long",
@@ -311,6 +312,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "tool-activity-trajectory"
         | "tool-activity-terminal-search"
         | "tool-activity-attachment"
+        | "attachment-image"
         | "tool-activity-edit-error"
         | "tool-activity-diff"
         | "tool-activity-diff-long"
@@ -1325,7 +1327,17 @@ fn public_tool_records_with(attachment: Option<&str>) -> Vec<Value> {
         json!({"type":"text", "text":"PUBLIC conversation · compare user, compact tool activity and assistant. No tools were executed."}),
     ];
     if let Some(name) = attachment {
-        parts.push(json!({"type":"file", "attachment":{"name":name, "bytes":12}}));
+        if name.ends_with(".png") {
+            // An inline image, base64 in the envelope exactly as the wire carries it: a 1x1 PNG.
+            parts.push(json!({
+                "type": "image",
+                "mediaType": "image/png",
+                "name": name,
+                "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+            }));
+        } else {
+            parts.push(json!({"type":"file", "attachment":{"name":name, "bytes":12}}));
+        }
     }
     let mut records = vec![event(
         0,
@@ -1723,6 +1735,8 @@ pub fn build(
         records
     } else if preset == "tool-activity-attachment" {
         public_tool_records_with(Some("PUBLIC-note.txt"))
+    } else if preset == "attachment-image" {
+        public_tool_records_with(Some("PUBLIC-shot.png"))
     } else if preset == "tool-activity-edit-error" {
         public_tool_edit_error_records()
     } else if matches!(

@@ -17964,3 +17964,26 @@ DP-2 capture are the next round, and this round says so instead of implying a fr
 | app, fixture | **0** | **1592 passed**, 1 ignored |
 | app, default | **0** | **1536 passed**, 1 ignored |
 | app bin | — | **21** warnings (22 with the summary line) |
+
+### Round 657 — the image card is framed, and the frame found a second defect
+
+**Fixture.** New preset `attachment-image`: the same records as `tool-activity-attachment`, but its user message
+carries an inline image part (`{"type":"image","mediaType":"image/png",…}` with a 1×1 PNG in base64) instead of
+a file part, so the card path from round 656 is exercised by a real frame.
+
+**Frame.** `shots/359-attachment-image.png` — the picture paints in the user stack: a 240-wide card, its aspect
+ratio capped at 0.75, right-aligned above the row's text, in a rounded overlay container.
+
+**What the frame also shows, and it is not right.** The user message's **text bubble is missing** from the
+frame: the card is drawn, then empty space, then the tool line. The text part is in the record (the preset
+helpers always push it) and the bubble is only skipped when it is empty *and* files are empty, so something in
+the geometry is collapsing it — the two candidates are `geometry.body_height` being zeroed by the
+file-only branch (`attachments && !has_bubble` at `ui.rs:15623`) or the bubble container clipping to a zero
+height. `row.text` is non-empty here, so `has_bubble` should be true; that is what to instrument first.
+
+**Recorded as an open defect, not shipped as success.** The next round instruments `has_bubble` and
+`geometry.body_height` for this preset before changing anything — the same diagnostic-first rule that found the
+cursor's dual-source bug.
+
+**Measured.** app fixture **1592** / default **1536** / 1 ignored each, **21** real warnings; the preset adds a
+fixture-only branch, so no `app/src` behaviour changed.
