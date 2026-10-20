@@ -16935,6 +16935,9 @@ them had already shipped in earlier rounds as working-looking code.
 | 593 | `CSI r;c H`/`G`/`C` set a billion-column cursor | the next glyph padded a billion blanks | `clamp_column`, `cols - 1` or 10,000 |
 | 594 | an insert **dropped the last row** before a size arrived | `one/two/three` + `CSI L` rendered `one/X/two` | unbounded grids grow and shrink |
 | 595 | `CSI 1 J` erased **past** the cursor | a pager lost its status text | blank only up to and including the cursor |
+| 599 | `CSI 2 J` **homed the cursor** as it cleared | a program redrawing in place wrote from the top-left | clear only; `CSI H` is the program's own business. Its first commit landed on a red suite because the old test asserted the bug — the follow-up fixed the assertion |
+| 600 | the battery was 15/18 for a stale artifact | `binary-freshness` failed on a source change with no rebuild | both release artifacts are rebuilt each round; recorded in the handover |
+| 602 | `release-guards` was misdiagnosed as open work | the gate ran against a deleted `.github/scripts` | it is a leftover from a **finished** port stage (`PYTHON-TO-RUST.md:132`); the one-line removal is the port's |
 
 **Coverage now:** a thirteen-case bounded-join harness (`adversarial_escape_input_terminates_and_renders`)
 plus a dedicated regression test for every row above that changed behaviour.
