@@ -16597,3 +16597,25 @@ mode to watch is round 569's: the footer appearing above the output.
 **No code this round:** the plan is the artifact. The suites were re-measured on the unchanged tree:
 fixture **1569**, default **1513**, app bin **21** warnings (22 with the summary line). `xtask verify
 --suite all` and `format-debt` remain unavailable while `tools/xtask` is mid-migration.
+
+### Round 573 — a 520-high window shows the panel does not fit, and why
+
+**The frame.** The new `terminal-panel-short` preset (1200x520) exists so the rewrite's short-window case
+has a committed frame. It shows the panel **overflowing**: the output box is clipped at the fold and the
+**input row, Write button and notice are below it**, reachable only by scrolling the panel's body.
+`shots/350-terminal-short.png` is that evidence, archived with the preset so the rewrite's frame matrix
+(round 572's note) has its baseline.
+
+**What was tried and reverted.** Lowering the output floor from 240 to 120 and capping the share at
+`window - 300` changed the 520 case only from 240 to 218 — the header alone (title, authority copy,
+limits line, shell, terminal list) is about 300px, so the shortfall is structural, not the box's share.
+Reverted: the box keeps round 571's `clamp(window * 0.42, 240, 640)`, because a formula that changes
+nothing measurable is worse than the simple one.
+
+**What the frame establishes for the rewrite.** Pinning the footer (input row + Write + notice) is not
+polish: at 520 high the panel cannot show its own controls without scrolling, so the three-builder
+composition must give the footer a fixed place below the output rather than leaving it at the end of one
+scrolling column.
+
+**Kept:** the `terminal-panel-short` preset and the frame. **No product change**; `cargo test --
+output_box_takes` passes on the reverted tree.

@@ -48,6 +48,7 @@ pub const PRESETS: &[&str] = &[
     "warnings",
     "conversation",
     "terminal-panel",
+    "terminal-panel-short",
     "terminal-panel-readonly",
     "terminal-panel-shells-failed",
     "jobs-panel",
@@ -298,6 +299,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "terminal-panel" | "terminal-panel-readonly" | "terminal-panel-shells-failed" => {
             Some((Size::new(1200.0, 900.0), 1.0))
         }
+        "terminal-panel-short" => Some((Size::new(1200.0, 520.0), 1.0)),
         "assistant-details-source"
         | "assistant-details-formatted"
         | "assistant-details-fallback" => Some((Size::new(1040.0, 900.0), 1.0)),
@@ -368,6 +370,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "wide-welcome"
         | "conversation"
         | "terminal-panel"
+        | "terminal-panel-short"
         | "terminal-panel-readonly"
         | "terminal-panel-shells-failed"
         | "terminal-rename"
@@ -4490,6 +4493,7 @@ pub fn build(
         }
     }
     if preset == "terminal-panel"
+        || preset == "terminal-panel-short"
         || preset == "terminal-panel-readonly"
         || preset == "terminal-panel-shells-failed"
         || preset == "terminal-rename"
