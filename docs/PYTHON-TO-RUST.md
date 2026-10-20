@@ -99,11 +99,10 @@ Deliberate differences, all measured against the Python originals:
   report, both captures and the artifact digest, with `class`/`xwayland` matched to
   the fixture. `qualify-composed-export.py` and `qualify-development-package.py`
   still import the Python module, so it is deleted with them.
-- The composed-export **report and capture contract** is ported (`export`): two
-  exact save receipts (a new archive, then a same-path refusal that must not save),
-  the receipt serial/editor/attempt advancement on one epoch, the retired pending
-  controller, and both private PNG captures. The independent ZIP inspector and the
-  owned run remain, so the Python file stays.
+- The composed-export qualifier is fully ported and deleted (`export`): two exact
+  save receipts, both private PNG captures, an independent ZIP inspector (central
+  directory and local header bounds, bounded inflate, CRC, UTF-8 object JSONL and
+  the ordinary v4 header profile), the owned run and the streamed fixture digest.
 - The draft-interruption qualifier is fully ported (`interruption`): nine
   checkpoints with the document expected at each, hold/recover/crash shapes, the
   latch-until-owned-kill crash gate, and the rule that a graceful phase may not
@@ -133,8 +132,8 @@ Deliberate differences, all measured against the Python originals:
 
 | Family | Files | Lines | Target |
 |---|---|---|---|
-| `scripts/qualify-*` | 11 | 2,504 | `xtask qualify <name>`; the assertions are already Rust examples writing `result.json` |
-| `scripts/test_*` | 11 | 2,365 | Rust tests next to the qualifiers; rewrite each guard's subject, never copy it verbatim. `app/` has no Python left |
+| `scripts/qualify-*` | 10 | 2,241 | `xtask qualify <name>`; the assertions are already Rust examples writing `result.json` |
+| `scripts/test_*` | 10 | 2,228 | Rust tests next to the qualifiers; rewrite each guard's subject, never copy it verbatim. `app/` has no Python left |
 | `.github/scripts/*` | 4 | 387 | `xtask package` / `xtask publish`; `tar` + `flate2` are already dependencies, `gh` stays a child process |
 | `development-launcher.py` | 1 | 356 | **Shipped** as `launch.py` in the development package: a Rust `dsh-native-launch` binary replaces it, so the archive stops requiring Python 3.11+; update the archive verifier and install docs together |
 | `benchmarks/run.py` | 1 | 330 | Deleted with the qualification family, whose scripts import the library; `xtask bench run` is already the replacement and `test_runner.py` is already deleted |

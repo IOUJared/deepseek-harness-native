@@ -193,7 +193,7 @@ const CAPTURES: [(&str, &str); 2] = [
     ("archivedRestoreReviewCapture", "restore-review.png"),
 ];
 
-fn crc32(parts: &[&[u8]]) -> u32 {
+pub(super) fn crc32(parts: &[&[u8]]) -> u32 {
     let mut crc = 0xffff_ffffu32;
     for part in parts {
         for &byte in *part {
