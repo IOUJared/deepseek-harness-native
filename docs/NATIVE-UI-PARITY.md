@@ -17664,3 +17664,23 @@ from blocked to deferred.
 **Session feedback: to be built on the web UI's own endpoint.** You asked me to use whatever the web UI has
 set up rather than invent a shape, so the next round reads the web client's feedback mutation and mirrors it;
 nothing is guessed in this round.
+
+### Round 643 — the image decision is not the blocker; the missing byte source is
+
+**What the answer unblocked and what it did not.** "Allow with limits" settles the *policy*, and the app
+already has everything the policy needs — `image 0.25.10` (png, jpeg), `png 0.18.0`, `reqwest 0.13.5` in the
+transport, and `app/src/attachment_preview.rs` already decoding with `image::Limits` at `MAX_DIMENSION 4096`
+and `MAX_PIXELS 4_000_000`. No new dependency is required.
+
+**The actual gap, measured.** The app has **no remote image path at all**: `grep` over `app/src` finds no
+`reqwest` use and no image URL field, and `transport/src` has no attachment-bytes route — its attachments are
+*terminal control* attachment ids, not images. So a reply cannot show a Host image today because nothing
+delivers the bytes, not because of a policy question.
+
+**So images move from "needs a decision" to "needs a byte source", with the limits settled.** The clearing
+step is now concrete: a Host route that returns attachment bytes (or inline base64 in the message payload).
+With that, the native side is a small job — fetch under the decided limits (`https` only, 8 MiB, 4096-pixel
+budget, memory-only cache, timeout), sniff PNG/JPEG, and hand the bytes to the decode that already exists.
+
+**Nothing committed beyond this note**, because there is no honest code to write against a route that does
+not exist; adding a fetch path with no source would be dead code and a 22nd warning.
