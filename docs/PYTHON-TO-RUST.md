@@ -33,6 +33,7 @@ file is the stage map; it is deleted with the last Python file.
 | Control layout | `app/qualify_control_layout.py` | `xtask qualify control` (32 public captures + one real-keyless run) |
 | Slint scale | `benchmarks/slint/qualify-scale.py` | `xtask bench scale` (both renderers, sequential) |
 | Composed settings | `scripts/qualify-composed-settings.py` | `xtask qualify composed-settings`: pidfd root pinning, parent-chain fencing, bounded TERM/KILL cleanup. The Python file **stays** until its qualification dependents are ported |
+| Lazy account | `scripts/qualify-lazy-account.py` | `xtask qualify lazy-account`, on a shared `run_owned` (same pin/fence/cleanup rules, private report, source digests, exact lifecycle validator). Stays until its dependents are ported |
 | App qualifier (root) | `scripts/qualify-native-app.py` | `xtask qualify app`: owned-tree sampling, per-thread CPU, pidfd identity guard, SIGINT/SIGTERM cleanup, compositor mapping proxy, keyless-idle medians. The Python file **stays** until its qualification dependents are ported |
 | Their guards | 4 Python test modules | 65 tests in `tools/xtask` (`src/*` units + `tests/cli.rs`) |
 | Entry point | `check.sh` → `python3` | `check.sh` → `cargo run -- verify` |
