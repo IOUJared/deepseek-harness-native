@@ -834,8 +834,7 @@ pub fn run_owned(
                 break;
             }
             pin_failures +=
-                observe_descendants(&mut owned, pinned_root, &mut pidfds, &mut observed, owner)
-                    as u64;
+                observe_descendants(&mut owned, pinned_root, &mut pidfds, &mut observed, owner);
             if owned.poll().is_err() {
                 pin_failures += 1;
                 break;
