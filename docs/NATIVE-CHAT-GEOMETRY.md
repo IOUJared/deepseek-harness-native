@@ -77,6 +77,12 @@ Their *exact* rhythm stays unverified until `reference.png` lands.
 ## Remaining limits
 
 - Preview: **four source lines / 240 code points / four displayed lines**, not full-message height/Markdown. Long unbreakable tokens may clip; Details preserves bounded display source. [Formatted Details](<NATIVE-FORMATTED-DETAILS.md>) is optional/basic.
+- A reply's fenced block reserves the height of the card it draws: wrapped (the default since
+  round 533) it measures the source at `width - 2 * CODE_PAD` with word wrapping, and unwrapped it
+  keeps one code line plus `design::CODE_CHROME` and scrolls sideways. The wrap state lives on the
+  reply (`Prepared::set_code_wrap`), so `block_height`, `document_height` and the paint read the same
+  value; `a_wrapped_code_card_reserves_the_lines_it_will_draw` pins both heights and that a block
+  fitting on one line reserves the same either way.
 - The inline diff card is drawn for an `edit`/`write` call (round 362): path header, added and
   removed rows with the reference's 3px bar and tint, `⋯` between hunks and a 9-row cap with its
   fold. The reference's card also carries its code toolbar (language, wrap, copy), which native's

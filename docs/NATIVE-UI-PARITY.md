@@ -15582,3 +15582,38 @@ dead helper, the dead test and one false positive (a note that already recorded 
 | transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
 | DP-2 capture | — | none: a documentation and test round |
 | app bin | — | **21** warnings |
+
+### Round 544 — the wrapped code card's height rule, measured and pinned
+
+**The gap.** Round 533 made code cards wrap by default and put the wrap state on the reply so
+`block_height` and the paint read one value — but no test compared the two heights. That is the exact
+shape of the bug round 531's frame caught (a reservation that disagrees with the paint clips the last
+line), so the rule needed a measurement test rather than a state test.
+
+**The test.** `a_wrapped_code_card_reserves_the_lines_it_will_draw` parses a fenced block holding one
+200-character line and asserts what the two states reserve at a 400px lane: the wrapped card is
+strictly taller, the unwrapped card is exactly `design::CODE_CHROME + one code line`, and a block that
+fits on one wrapped line reserves the same height either way. The unwrapped state is built through the
+same `CodeWrap::for_reply` the app uses, so the test exercises the production seam rather than a
+hand-built struct.
+
+**The doc.** `docs/NATIVE-CHAT-GEOMETRY.md` gains the rule beside its other reservation contracts: the
+wrapped card measures at `width - 2 * CODE_PAD` with word wrapping, the unwrapped one keeps one line
+and scrolls, and both read `Prepared::set_code_wrap`. The document previously described only the
+tool-body diff card, so a reader of the geometry contract could not tell there were two code heights.
+
+**No frame:** the frame that shows a wrapped card already exists (`shots/327-code-wrapped.png`, round
+533); this round proves the number behind it.
+
+**Battery (round 544).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1549 passed**, 1 ignored |
+| app, default | **0** | **1493 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-4f6yqjqw`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-uzr0pf2k`) |
+| transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
+| DP-2 capture | — | none: a measurement round; the wrapped-card frame is round 533's |
+| app bin | — | **21** warnings |

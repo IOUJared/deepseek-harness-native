@@ -2219,6 +2219,38 @@ mod tests {
     }
 
     #[test]
+    fn a_wrapped_code_card_reserves_the_lines_it_will_draw() {
+        // The reference's card wraps by default and measures what it wraps
+        // (`CodeCard.module.css:113-134`); native's unwrapped card keeps one line's height and
+        // scrolls. The two states must therefore reserve different heights, or the wrapped text
+        // clips — the class of bug round 531's frame caught.
+        let source = format!("```rust\nlet line = \"{}\";\n```\n", "x".repeat(200));
+        let doc = formatted::parse(&source).unwrap_or_else(|_| panic!("valid fence"));
+        let wrapped = CodeWrap::default();
+        let mut unwrapped_keys = std::collections::BTreeSet::new();
+        unwrapped_keys.insert((7u64, 0usize));
+        let unwrapped = CodeWrap::for_reply(&unwrapped_keys, 7);
+        let wrapped_height = document_height(&doc, 400.0, 0.0, 0.0, Ladder::Body, &wrapped);
+        let unwrapped_height = document_height(&doc, 400.0, 0.0, 0.0, Ladder::Body, &unwrapped);
+        assert!(
+            wrapped_height > unwrapped_height,
+            "a wrapped long line is several lines tall ({wrapped_height} vs {unwrapped_height})"
+        );
+        // The unwrapped height is exactly one code line plus the card's chrome.
+        assert_eq!(
+            unwrapped_height,
+            design::CODE_CHROME + line_box(design::CODE_FONT as f32, design::code_line(0.0))
+        );
+        // A block that fits on one wrapped line reserves the same height either way.
+        let short =
+            formatted::parse("```\nlet x = 1;\n```\n").unwrap_or_else(|_| panic!("valid fence"));
+        assert_eq!(
+            document_height(&short, 400.0, 0.0, 0.0, Ladder::Body, &wrapped),
+            document_height(&short, 400.0, 0.0, 0.0, Ladder::Body, &unwrapped)
+        );
+    }
+
+    #[test]
     fn an_h1_to_h3_heading_steps_above_the_body_rhythm_and_a_small_heading_does_not() {
         // The sheet gives `h1`-`h3` `32px 0 16px` and `h4`-`h6` `16px 0`
         // (`MarkdownText.module.css:330-341`), so the top margin is the ladder's heading gap for the
