@@ -136,7 +136,7 @@ Deliberate differences, all measured against the Python originals:
 
 | Composed registry | `scripts/qualify-composed-registry.py` + guard | Deleted: `xtask qualify composed-registry` (stage contract, PNG writer profile, owned run). The guard's validator and PNG cases are Rust tests; its three orchestration cases exercise the shared pin/probe/cleanup path and have no dedicated unit test |
 
-| Composed usage | `scripts/qualify-composed-usage.py` (in progress) | `usage`: a dependency-free YAML subset reader, the pinned usage document, the usage lock, the runtime patch with its eight exact pins, and canonical JSON are ported; the account document and the multi-phase runs remain |
+| Composed usage | `scripts/qualify-composed-usage.py` (in progress) | `usage`: a dependency-free YAML subset reader, the pinned usage document, the usage lock, the runtime patch with its eight exact pins, canonical JSON, the account document with its lock, and the runtime/accounts phase validators are ported; the multi-phase runs remain |
 
 ## Remaining
 
