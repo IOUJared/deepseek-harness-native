@@ -17912,3 +17912,25 @@ non-base64 refused) and `an_inline_image_part_states_its_real_size_instead_of_un
 | app, default | **0** | **1535 passed**, 1 ignored |
 | transport | **0** | **7 passed** |
 | app bin | — | **21** warnings (22 with the summary line) |
+
+### Round 653 — the painting machinery already exists; only the row is missing
+
+**Found, so the next round does not rebuild it.** The app **does** paint bitmaps today: `attachment_ui.rs:222`
+turns decoded RGBA into `iced::widget::image::Handle::from_rgba(…)` and `:137` renders it with
+`iced::widget::image(handle.clone())` for the attach rail's preview. So the missing piece for inline message
+images is **not** the painting API, the decoder, or the policy — it is that the transcript row renders text
+only, so there is nowhere for a widget to go.
+
+**The seam, named for the next round.** Wherever a row currently draws the `Image … (W×H, media)` line that
+round 652 introduced, it must be able to draw a widget instead:
+
+1. decode the base64 through `dto::inline_image` (already shipped) and `attachment_preview`'s bounded decode —
+   `MAX_DIMENSION 4096`, `MAX_PIXELS 4_000_000`, thumbnail 160×120;
+2. keep the handle in app state keyed by a digest of the part's bytes, so a repaint does not decode again;
+3. render `iced::widget::image(handle)` in place of that line, with the same content-sized row treatment the
+   attach rail uses.
+
+**Why nothing was written today.** The change needs a row type that can carry an `Element`, which is the same
+class of structural edit that `terminal_footer` took four attempts — and starting it with a small budget left
+would repeat round 647's outcome rather than avoid it. The seam and the reuse are recorded instead, and both
+are verified in source (`attachment_ui.rs:137,222`).
