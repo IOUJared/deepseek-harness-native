@@ -27,7 +27,7 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > 2. Measure the baselines rather than trusting this file:
 >    - fixture: `cargo test --manifest-path app/Cargo.toml --locked --offline --jobs 2 --features public-layout-fixture --bin dsh-native-app -- --test-threads=2`
 >    - default: the same without `--features`
->    - at handover: **1565** fixture / **1509** default, 1 ignored each (round 563).
+>    - at handover: **1566** fixture / **1510** default, 1 ignored each (round 564).
 > 3. Load `.agents/skills/native-ui-parity/SKILL.md` (and `.agents/skills/impeccable-rust/SKILL.md` for
 >    Rust changes) — `AGENTS.md` makes both mandatory for this work. Then read `docs/SESSION-PROMPT.md`
 >    (capture conventions, next shot number), `docs/VERIFICATION.md`, and the coverage table at the end
@@ -125,7 +125,7 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > glyphs (round 556), the alternate screen a full-screen program swaps to (round 557), and wrapping at
 > the Host's column count (round 558), insert/delete line and character (round 559), and the terminal's
 > own documents corrected to describe that screen (round 560), scroll regions (round 561), autowrap off
-> (round 562), and combining marks taking no column (round 563).
+> (round 562), combining marks taking no column (round 563), and underlined runs (round 564).
 >
 > ### Etiquette
 > Be terse. Prefer numbered lists over tables in replies. Challenge your own claims; walk back anything

@@ -6430,7 +6430,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Workspace browser: grouped/animated rows, drag order, per-row menus | difference: workspace filter + navigation sheet |
 | Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory; the app's Host serves browse, so Browse… falls back to the in-app list and `pick` reports unavailable) |
 | Workflow-run surface | cloned (folded `tool-workflow/*` card, five run states including the round-525 `Interrupted` for a stoppless run in a closed turn; a closed step alone does not interrupt, a named limit) |
-| Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, **reviewed resize (round 540)**, shell discovery with a remembered preference, output bounds, and **a native screen emulator core** (rounds 552–559: redraw, erase, addressing, insert/delete, ANSI colours, wide glyphs, wrapping, scrollback, alternate screen). Still unbuilt: background/underline attributes, the reference's automatic fit-to-pane, `terminal/retain` and a docked multi-terminal tab — recorded in `docs/NATIVE-TERMINAL.md`. |
+| Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, **reviewed resize (round 540)**, shell discovery with a remembered preference, output bounds, and **a native screen emulator core** (rounds 552–559: redraw, erase, addressing, insert/delete, ANSI colours, wide glyphs, wrapping, scrollback, alternate screen). Still unbuilt: background colours, the reference's automatic fit-to-pane, `terminal/retain` and a docked multi-terminal tab — recorded in `docs/NATIVE-TERMINAL.md`. |
 | Dockkit layout presets | difference: native fixed layout with its own preferences |
 | Locales (zh/en) | difference: English-only |
 
@@ -15853,7 +15853,7 @@ next round start.
 
 | item | what exists | what the next round series needs |
 | --- | --- | --- |
-| The terminal screen | **built as a native emulator core** in rounds 552–561 (grid sized by the Host, redraw, erase, addressing, insert/delete, SGR colours, two-column wide glyphs, wrapping and autowrap off, 2,000-line scrollback, alternate screen, scroll regions); output still bounded to 400 chunks/128 KiB and every mutating action reviewed | background/underline attributes; nothing here needs a dependency decision any more |
+| The terminal screen | **built as a native emulator core** in rounds 552–561 (grid sized by the Host, redraw, erase, addressing, insert/delete, SGR colours, two-column wide glyphs, wrapping and autowrap off, 2,000-line scrollback, alternate screen, scroll regions); output still bounded to 400 chunks/128 KiB and every mutating action reviewed | background colours; nothing here needs a dependency decision any more |
 | `terminal/retain` and a docked multi-terminal tab | the panel's own slice; retain exists in the Host for holding tabs open | a right-docked tab strip first, because retain only means something with tabs |
 | Schedules: sidebar marks, hover cards, turn cards, right-Sidebar tab | the page, history, edits, pickers, the header chip and the live reload | per-session schedule counts from the Host (`sessionListMetadata` does not carry them), then the marks |
 | The right-Sidebar review tab | the deliverables sheet is a native surface | a deliberate second layout decision, recorded as such rather than built silently |
@@ -16293,4 +16293,37 @@ address to column 3 after a marked glyph writes one column past the base.
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-pdfeummp`) |
 | transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
 | DP-2 capture | — | none: an absent glyph cannot be framed |
+| app bin | — | **21** warnings |
+
+### Round 564 — underline is a paintable attribute
+
+**The gap.** `SGR 4` — what a diff tool underlines a path with, and what `man` underlines a heading with —
+was consumed with the other attributes, so the text arrived visually flat.
+
+**The change.** A cell carries an `underline` flag beside its ink; `SGR 4` and `21` set it, `24` clears it,
+and `0` clears it with the colour. The alternate screen saves and restores it like the ink, and
+`display_styled` groups runs by colour **and** underline so the panel can paint both — the panel maps the
+flag onto `Span::underline`. `run` grouping, and the twelve expectations that read the styled runs, were
+widened from `(text, ink)` to `(text, ink, underline)`.
+
+**Tests.** `underline_is_a_paintable_attribute_and_resets_with_the_rest` — an underlined run between plain
+text, `4;31` carrying both attributes, `0` clearing both, and `21` drawing as one underline. The first run
+failed because `0` cleared only the colour: the test is what found the missing reset.
+
+**Frame.** `shots/345-terminal-underline.png` (1200x900, new `terminal-underline` preset): a
+`git diff --stat` whose two paths are underlined, as the tool prints them.
+
+**Stated:** background colours remain the only unbuilt paint attribute.
+
+**Battery (round 564).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1566 passed**, 1 ignored |
+| app, default | **0** | **1510 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-61exzvm4`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-hyo8ylhf`) |
+| transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
+| DP-2 capture | — | `shots/345-terminal-underline.png`, `status: passed`, 1200x900 |
 | app bin | — | **21** warnings |
