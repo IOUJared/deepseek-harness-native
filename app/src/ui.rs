@@ -19900,6 +19900,10 @@ impl App {
                         .direction(design::scrollbar())
                         .style(design::scrollable_style),
                 )
+                // A fixed 240px box. `Length::Fill` was tried in round 567 and collapsed to the
+                // content: the panel's body is a shrink column inside a scrollable, so a Fill child
+                // has no height to take. Filling the pane needs the body restructured, not a
+                // different length here.
                 .height(Length::Fixed(240.0))
                 .width(Length::Fill)
                 .padding(8)

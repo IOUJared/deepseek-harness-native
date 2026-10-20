@@ -16398,3 +16398,41 @@ than implied.
 | transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
 | DP-2 capture | — | none: a bound |
 | app bin | — | **21** warnings |
+
+### Round 567 — why the terminal output box is still 240px, and the gate migration
+
+**The attempt.** The reference's terminal fills the space it is given; native's output box was a fixed
+240px, leaving the lower half of the panel empty on a tall window. Round 567 changed that box to
+`Length::Fill` and captured it: the box **collapsed to its content** and everything below moved up, which
+is worse than the fixed height. `shots/347-terminal-fill.png` is the evidence, and the reason is now a
+comment beside the length: the panel's body is a shrink column inside a scrollable, so a Fill child has
+no height to take. Filling the pane needs the body restructured (the output owning the remaining height
+outside the scroll), not a different length.
+
+**The gate migration, mid-round.** While this round ran, the repository's verification moved from
+`scripts/*.py` to `tools/xtask` — a deliberate change by the user ("im converting all the python files to
+rust right now"), not an accident. Two consequences for this record:
+
+- `scripts/verify-native.py` and `scripts/format-debt.py` are staged for deletion, and `tools/xtask`
+  owns `verify --suite doctor|clippy|lint|examples|test|all` and `format-debt`.
+- The new battery checks more than the old one: it adds `binary-freshness` (the release binary must be
+  newer than the sources it was built from) and `wayland-drops` (the private-seat drop harness, which
+  needs a real seat and is not runnable in a headless check).
+
+At the time of writing `dsh-xtask` itself does not compile (a type-inference error in its `verify` suite
+plus an `unused_mut`), so the full battery is unavailable; the app gates below were run directly with
+cargo and are the last reliable measurement of this round.
+
+**Measured (direct cargo, while `xtask` is in flight).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1568 passed**, 1 ignored |
+| app, default | **0** | **1512 passed**, 1 ignored |
+| app bin | — | **21** warnings |
+| release binary | — | rebuilt, 21 warnings |
+| `xtask verify --suite clippy` | **0** | passed before the migration's own breakage (app-clippy, xtask-clippy) |
+| `xtask verify --suite all` | **—** | `binary-freshness` and `wayland-drops` failed; `dsh-xtask` then stopped compiling mid-migration |
+| format debt | **—** | moved to `xtask format-debt`; the last measurement was 0 |
+
+**Not committed from round 567:** the `Length::Fill` experiment (reverted), and nothing of the migration.
