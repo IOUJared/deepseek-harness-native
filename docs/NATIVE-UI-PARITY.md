@@ -16754,3 +16754,31 @@ inputs, and that code is fed by remote bytes. Bisect by feeding one case at a ti
 (`cargo run --bin …`), starting with the `999999999` parameters (`H`, then `;999999999r`) and the
 `3;1r` + `L`/`M`/`P`/`@` group — the two shapes with allocations whose bound comes from a parsed number.
 A regression test belongs with the fix, not before it.
+
+### Round 589 — the hang was a tab loop, and it is fixed
+
+**Bisected, not guessed.** Round 588's adversarial test hung. A per-case harness (each input in its own
+thread with a two-second join) named it: **case 9, `"\r\b\t\u{7f}ok"`** — the tab.
+
+**The bug.** A tab advanced to the next eight-column stop:
+`let next = (column / 8 + 1) * 8; while column < next { put(' ') }`. On a five-column screen that stop is
+past the right margin, and with autowrap on, `put` wrapped at the margin and reset the column to 0 — so
+the stop was never reached and the loop never ended. The screen is fed bytes from the Host, so a `\t` in
+any output could spin the UI thread forever.
+
+**The fix.** The stop is clamped to the last column when the width is known
+(`next = next.min(cols - 1)`), so the loop always terminates; on a wide screen the ordinary eight-column
+stop is unchanged.
+
+**Test.** `a_tab_past_the_last_column_does_not_spin` — `"\rab\tX"` on five columns renders `ab  X`, and
+`ab\tX` on eighty still reaches the normal stop (`ab      X`). The adversarial harness itself is **not**
+committed; the single case became this regression test, and the other nine shapes passed.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1570 passed**, 1 ignored |
+| app, default | **0** | **1514 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |
+| `xtask verify --suite all` | **—** | not re-run this round; the last full battery was 18/19 with `wayland-drops` hardware-only |

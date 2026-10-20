@@ -867,7 +867,13 @@ impl Screen {
                 '\n' => self.newline(),
                 '\u{8}' => self.column = self.column.saturating_sub(1),
                 '\t' => {
-                    let next = (self.column / 8 + 1) * 8;
+                    // Clamped to the last column: with autowrap on, `put` would wrap at the margin
+                    // and a tab stop past it would never be reached — an infinite loop on a byte the
+                    // Host can send (found by the adversarial test in round 588).
+                    let mut next = (self.column / 8 + 1) * 8;
+                    if self.cols > 0 {
+                        next = next.min(self.cols - 1);
+                    }
                     while self.column < next {
                         self.put(' ');
                     }
@@ -3185,6 +3191,23 @@ mod tests {
                 ("two".to_owned(), None, true, None),
             ]
         );
+    }
+
+    #[test]
+    fn a_tab_past_the_last_column_does_not_spin() {
+        // A tab advances to the next eight-column stop. On a five-column screen that stop is past the
+        // margin, and with autowrap on the cursor wrapped to column 0 on every space, so the stop was
+        // never reached: an infinite loop on `\t`, a byte a shell prints. The stop is clamped to the
+        // last column. Found by the round-588 adversarial test, which hung.
+        let mut output = Output::default();
+        output.set_size(5, 3);
+        output.push("\rab\tX");
+        assert_eq!(output.display(DISPLAY_BYTES), "ab  X");
+        // The same bytes at a wide screen still reach the ordinary eight-column stop.
+        let mut output = Output::default();
+        output.set_size(80, 3);
+        output.push("ab\tX");
+        assert_eq!(output.display(DISPLAY_BYTES), "ab      X");
     }
 
     #[test]
