@@ -17467,3 +17467,22 @@ the three-builder split.
 
 **The parity backlog now has no unbuilt app item.** The panel split, the cursor paint and the screen protocol
 are shipped; what remains is the six entries in "Blocked on a user action".
+
+### Round 638 — the footer cannot be framed, and that is now recorded
+
+**What was tried.** Round 636 split `terminal_footer` out but noted the frame could not see it, because the
+`terminal-panel` state has no Host agent so the input row is not rendered. The read-only state was captured to
+find one: `shots/357-panel-readonly.png` — the same panel, the same "Host limits unavailable" line, and
+**no footer either**.
+
+**Why no fixture state shows it.** The footer renders only when Host limits are available (the panel's
+`enabled` path needs `context.allowed` and a view for the ticket), and every terminal preset in
+`layout_fixture.rs` seeds "no Host agent". So the footer's layout has **no visual verification** at all: its
+correctness rests on the two suites (fixture 1581, default 1525) and on the extraction being a verbatim slice.
+
+**What would close it.** A fixture preset that seeds Host limits and an attached terminal view, so the input
+row, the Write button and the notice line appear in a frame. That is fixture work with its own round, and it
+is the honest way to claim the footer is right — a green suite cannot see a control that never renders, which
+is the round-107 lesson in its exact form.
+
+**Frame.** `shots/357-panel-readonly.png`, archived beside `356-footer-split.png`.
