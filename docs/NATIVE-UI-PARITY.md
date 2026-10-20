@@ -17237,3 +17237,23 @@ at the wrong point relative to the byte-budget loop, or `kept` being rebuilt aft
 Print those six values in the failing test before changing anything.
 
 `app/src/terminal.rs` is reverted; `cargo check` measures **21** warnings (22 with the summary line).
+
+### Round 624 — the cursor index works for a filled row and fails on the trailing one
+
+**What the diagnostic proved.** With the print in place, `paint_cursor` returned **`Some((0, 2))`** for
+`"ab"` with the cursor at column 2 — so the arithmetic and its placement (after `retain`, after the byte
+budget, after the cap) are right. The earlier `None` at the same point was my round-621 version taking
+`rows_before_trim` **before** the trailing-blank trim, which included popped rows in `removed`.
+
+**Where it still fails, and why.** Extending the test to the trailing row — `"ab\n"` expecting
+`Some((1, 0))` — leaves it `None`, and that made both suites red, so the attempt was reverted. The cause is
+the one round 623 spotted: the render's first pass pops **every** blank row, including the cursor's, so a
+prompt on a fresh line has no row to index into.
+
+**The one-line fix for the next attempt:** make that trim stop at the cursor's row —
+`while lines.len() > cursor_row + 1 && <row is blank> { pop }`, with `cursor_row = history.len() +
+screen.row`. Then `paint_cursor` returns `Some` for a prompt row as well, and only then does the panel work
+(Panel: split the run, append the block when the row has no runs) make sense.
+
+**Reverted:** both files at `f3ac579`+`2ad5639`, suites green again — default **1524 passed**, `cargo check`
+**21** warnings (22 with the summary line).
