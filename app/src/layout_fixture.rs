@@ -215,6 +215,7 @@ pub const PRESETS: &[&str] = &[
     "terminal-colors",
     "terminal-wide",
     "terminal-altscreen",
+    "terminal-wrap",
     "reference-crumbs",
     "reference-subagents",
     "stats-dialog",
@@ -343,6 +344,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "terminal-colors" => Some((Size::new(1200.0, 900.0), 1.0)),
         "terminal-wide" => Some((Size::new(1200.0, 900.0), 1.0)),
         "terminal-altscreen" => Some((Size::new(1200.0, 900.0), 1.0)),
+        "terminal-wrap" => Some((Size::new(1200.0, 900.0), 1.0)),
         "reference-crumbs" => Some((Size::new(1040.0, 620.0), 1.0)),
         "reference-subagents" => Some((Size::new(1040.0, 620.0), 1.0)),
         "stats-dialog" => Some((Size::new(1040.0, 760.0), 1.0)),
@@ -372,6 +374,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "terminal-colors"
         | "terminal-wide"
         | "terminal-altscreen"
+        | "terminal-wrap"
         | "collapsed-wide"
         | "title-controls"
         | "title-controls-expanded"
@@ -4491,6 +4494,7 @@ pub fn build(
         || preset == "terminal-colors"
         || preset == "terminal-wide"
         || preset == "terminal-altscreen"
+        || preset == "terminal-wrap"
     {
         // The terminal panel with one selected Host terminal and its recorded output. Every frame the
         // panel sees here is one a Host could send; nothing is created or written.
@@ -4523,7 +4527,7 @@ pub fn build(
                     title: "PUBLIC build shell".into(),
                     shell: shell.clone(),
                     cwd: "/PUBLIC/workspace".into(),
-                    cols: 80,
+                    cols: if preset == "terminal-wrap" { 40 } else { 80 },
                     rows: 24,
                     state: TerminalState::Running,
                     exit_code: None,
@@ -4556,7 +4560,17 @@ pub fn build(
             .follow()
             .cloned()
             .expect("selecting attaches a follow");
-        let frames: [(i64, &str); 3] = if preset == "terminal-altscreen" {
+        let frames: [(i64, &str); 3] = if preset == "terminal-wrap" {
+            // A line longer than the terminal's forty columns wraps where the shell would wrap it.
+            [
+                (1, "PUBLIC $ cat notes.txt\n"),
+                (
+                    2,
+                    "This paragraph is longer than the terminal is wide, so it wraps at the\n",
+                ),
+                (3, "last column exactly as the shell counts it.\n"),
+            ]
+        } else if preset == "terminal-altscreen" {
             // A full-screen program in the alternate screen: the shell line above it is gone while
             // the program draws, and comes back when it exits.
             [

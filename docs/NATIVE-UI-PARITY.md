@@ -16094,3 +16094,36 @@ combining marks; the alternate screen itself no longer belongs on that list.
 | transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
 | DP-2 capture | — | `shots/343-terminal-altscreen.png`, `status: passed`, 1200x900 |
 | app bin | — | **21** warnings |
+
+### Round 558 — a line longer than the terminal wraps where the shell wraps it
+
+**The gap.** The screen knew the Host's rows but not its columns, so a line longer than the terminal grew
+sideways into one endless row: the panel's vertical scroll could not show it, and a shell that wraps at
+eighty columns was rendered as if its window were unbounded.
+
+**The change.** `set_size(cols, rows)` replaces the rows-only entry (the tests keep a rows-only helper),
+and a glyph that would end past the last column wraps first — counting columns, not characters, so a wide
+glyph that would straddle the edge moves to the next row instead of losing its second half. A zero column
+count means "no bound known yet", which keeps the screen growing until the Host reports its size.
+
+**Tests.** `a_line_that_reaches_the_last_column_wraps_to_the_next_row` — twelve columns into ten produce
+two rows; `ab` plus a wide glyph in a three-column screen wraps the glyph whole; a space at the last
+column wraps like any other glyph. The first run of the suite caught the mistake this test could not: my
+`set_size(0, …)` clamped zero to one column, so every existing terminal test wrapped one character per
+line.
+
+**Frame.** `shots/344-terminal-wrap.png` (1200x900, new `terminal-wrap` preset, a 40-column Host terminal):
+a paragraph breaking mid-word exactly at the column boundary, as a terminal's own line discipline does.
+
+**Battery (round 558).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1561 passed**, 1 ignored |
+| app, default | **0** | **1505 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-_1u9uv8q`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-6xnkrgxf`) |
+| transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
+| DP-2 capture | — | `shots/344-terminal-wrap.png`, `status: passed`, 1200x900 |
+| app bin | — | **21** warnings |

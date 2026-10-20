@@ -356,6 +356,9 @@ struct Screen {
     row: usize,
     column: usize,
     rows: usize,
+    /// The Host's column count: a glyph written past it wraps to the next row, the way a shell's own
+    /// line does, instead of drawing one endless row.
+    cols: usize,
     dropped: usize,
     /// The SGR colour the next written cell takes: an ANSI index 0–15, or none for the panel's
     /// default ink.
@@ -433,10 +436,21 @@ impl Screen {
             // No size yet: the grid grows instead of scrolling, so text written before the Host
             // reports its rows is not scrolled into scrollback and later "cleared".
             rows: 0,
+            cols: 0,
             dropped: 0,
             ink: None,
             alternate: None,
         }
+    }
+    /// Adopt the Host's size: the grid becomes that tall and that wide.
+    fn set_size(&mut self, cols: u64, rows: u64) {
+        // Zero means "no column bound known yet": the screen grows instead of wrapping.
+        self.cols = if cols == 0 {
+            0
+        } else {
+            usize::try_from(cols).unwrap_or(usize::MAX).clamp(1, 500)
+        };
+        self.set_rows(rows);
     }
     /// Adopt the Host's row count: the grid becomes that tall, keeping the newest lines.
     fn set_rows(&mut self, rows: u64) {
@@ -497,9 +511,14 @@ impl Screen {
     }
     /// Write one character at the cursor, overwriting the column it lands on.
     fn put(&mut self, character: char) {
+        // A glyph that would end past the last column wraps first: the shell's own line discipline
+        // starts the next row rather than letting the screen grow sideways.
+        let width = columns(character);
+        if self.cols > 0 && self.column + width > self.cols {
+            self.newline();
+        }
         let column = self.column;
         let ink = self.ink;
-        let width = columns(character);
         let cell = Cell {
             character,
             ink,
@@ -751,9 +770,14 @@ pub struct Output {
     truncated: usize,
 }
 impl Output {
-    /// Adopt the Host's row count so the screen scrolls into history instead of growing for ever.
+    /// Rows only, for the tests whose subject is scrolling rather than wrapping.
+    #[cfg(test)]
     pub fn set_rows(&mut self, rows: u64) {
-        self.screen.set_rows(rows);
+        self.screen.set_size(0, rows);
+    }
+    /// Adopt the Host's size: the row count bounds the grid, the column count wraps a long line.
+    pub fn set_size(&mut self, cols: u64, rows: u64) {
+        self.screen.set_size(cols, rows);
     }
     pub fn clear(&mut self) {
         self.chunks.clear();
@@ -1281,15 +1305,15 @@ impl Terminal {
         self.selected = Some(id.clone());
         self.attachment = Some(attachment.clone());
         self.output.clear();
-        // The Host's own row count sizes the screen for this terminal, so a full-screen program
-        // scrolls into scrollback instead of growing the grid.
-        if let Some(rows) = self
+        // The Host's own size drives the screen for this terminal: rows bound the grid so a
+        // full-screen program scrolls into scrollback, and columns wrap a long line.
+        if let Some((cols, rows)) = self
             .list
             .iter()
             .find(|info| info.id == id)
-            .map(|info| info.rows)
+            .map(|info| (info.cols, info.rows))
         {
-            self.output.set_rows(rows);
+            self.output.set_size(cols, rows);
         }
         let follow = FollowTicket {
             epoch: ticket.epoch,
@@ -1894,7 +1918,7 @@ impl Terminal {
             TerminalFrame::State { info } => {
                 if dsh_native_transport::terminal::validate_info(&info).is_ok() {
                     if self.selected.as_ref() == Some(&info.id) {
-                        self.output.set_rows(info.rows);
+                        self.output.set_size(info.cols, info.rows);
                     }
                     self.upsert(info);
                     self.control_notice();
@@ -2916,6 +2940,27 @@ mod tests {
             !terminal.shells_failed(),
             "an answered read clears the flag"
         );
+    }
+
+    #[test]
+    fn a_line_that_reaches_the_last_column_wraps_to_the_next_row() {
+        let mut output = Output::default();
+        output.set_size(10, 4);
+        output.push("abcdefghijkl\n");
+        // Twelve columns into a ten-column screen: two rows, and the trailing newline ends a third.
+        assert_eq!(output.display(DISPLAY_BYTES), "abcdefghij\nkl\n");
+        // Wrapping counts columns, not characters: a wide glyph that would straddle the edge wraps
+        // rather than losing its second half.
+        let mut output = Output::default();
+        output.set_size(3, 4);
+        output.push("ab\u{4f60}");
+        assert_eq!(output.display(DISPLAY_BYTES), "ab\n\u{4f60}");
+        // A space at the last column wraps like any other glyph, so the shell's own padding does
+        // not hide the first character of the next row.
+        let mut output = Output::default();
+        output.set_size(4, 4);
+        output.push("abcd e");
+        assert_eq!(output.display(DISPLAY_BYTES), "abcd\n e");
     }
 
     #[test]
