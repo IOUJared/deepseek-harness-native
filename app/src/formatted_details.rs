@@ -54,6 +54,10 @@ pub enum Block {
         language: Option<String>,
         text: String,
         indent: u8,
+        /// A code block keeps its container's rule and indent, like any other block
+        /// (`render.tsx:281-289`).
+        quote: bool,
+        quote_first: bool,
     },
     /// A GitHub table (`Options::ENABLE_TABLES`): the first row is the header.
     Table {
@@ -137,6 +141,8 @@ struct Code {
     language: Option<String>,
     text: String,
     indent: u8,
+    quote: bool,
+    quote_first: bool,
 }
 
 #[derive(Default)]
@@ -468,9 +474,6 @@ impl Builder {
                 });
             }
             Tag::CodeBlock(kind) => {
-                if self.quotes != 0 {
-                    return Err(Failure::Unsupported);
-                }
                 self.flush_synthetic()?;
                 self.preserve_item_marker()?;
                 let language = match kind {
@@ -486,6 +489,9 @@ impl Builder {
                     text: String::new(),
                     // No marker on Code: even the first list level is indented.
                     indent: self.lists.len() as u8,
+                    quote: self.quotes != 0,
+                    quote_first: self.quotes != 0
+                        && self.containers.first() == Some(&Container::Quote),
                 });
             }
             Tag::Strong => {
@@ -585,6 +591,8 @@ impl Builder {
                     language: code.language,
                     text: code.text,
                     indent: code.indent,
+                    quote: code.quote,
+                    quote_first: code.quote_first,
                 })?;
             }
             // A footnote definition is a container: its paragraph has already flushed itself.
@@ -737,6 +745,7 @@ mod tests {
                 language,
                 text,
                 indent,
+                ..
             } => (language.as_deref(), text, *indent),
             _ => panic!("expected code"),
         }
@@ -796,6 +805,48 @@ mod tests {
                 .any(|s| s.text == "x < y" && s.code && !s.bold && !s.italic)
         );
         assert!(spans.iter().any(|s| s.text == "all" && s.bold && s.italic));
+    }
+
+    #[test]
+    fn a_code_block_inside_a_container_keeps_its_rule_and_indent() {
+        // The reference nests a fenced block in the same containers as any block
+        // (`render.tsx:281-289`); a block inside a list item is indented at every level because a
+        // code card has no marker column.
+        let quoted = document("> ```rust\n> let x = 1;\n> ```\n");
+        match &quoted.blocks[0] {
+            Block::Code {
+                quote,
+                quote_first,
+                indent,
+                language,
+                text,
+            } => {
+                assert!(*quote, "the block is quoted");
+                assert!(*quote_first);
+                assert_eq!(*indent, 0);
+                assert_eq!(language.as_deref(), Some("rust"));
+                assert_eq!(text, "let x = 1;\n");
+            }
+            _ => panic!("a code block"),
+        }
+        // An item's marker paragraph comes first, so the block is found rather than indexed.
+        let listed = document("- ```\n  let y = 2;\n  ```\n");
+        let listed = listed
+            .blocks
+            .iter()
+            .find_map(|block| match block {
+                Block::Code { quote, indent, .. } => Some((*quote, *indent)),
+                _ => None,
+            })
+            .expect("the item's code block");
+        assert_eq!(listed, (false, 1), "not a quote, one level in");
+        // A plain block keeps zero provenance.
+        match &document("```\nx\n```\n").blocks[0] {
+            Block::Code {
+                quote, quote_first, ..
+            } => assert_eq!((*quote, *quote_first), (false, false)),
+            _ => panic!("a code block"),
+        }
     }
 
     #[test]
@@ -1308,11 +1359,8 @@ mod tests {
     #[test]
     fn unsupported_content_anywhere_fails_whole_source() {
         for source in [
-            // A fenced code block inside a container is still refused: its text keeps no
-            // list/quote provenance.
-            "> ```\n> code\n> ```",
-            ">     code\n",
-            "- > ```\n  > code\n  > ```",
+            // An image inside an image is still refused: its alt run has no room for another.
+            "![![inner](a.png)](b.png)",
         ] {
             failure(source, Failure::Unsupported);
         }
@@ -1516,7 +1564,7 @@ mod tests {
     fn diagnostics_only_expose_content_free_failure_variants() {
         // A heading inside a quote is refused, so it can stand in for content that must never
         // reach a diagnostic.
-        let private_source = "PRIVATE_TOKEN\n\n> ```\n> PRIVATE_CODE\n> ```";
+        let private_source = "PRIVATE_TOKEN ![![PRIVATE_INNER](a.png)](b.png)";
         let error = match parse(private_source) {
             Err(error) => error,
             Ok(_) => panic!("expected unsupported HTML"),
@@ -1582,7 +1630,7 @@ mod extension_tests {
         let doc = parse("Plain **bold** text.\n").unwrap();
         assert_eq!(texts(&doc.blocks), vec!["Plain bold text.".to_owned()]);
         // An unsupported construct still fails closed; raw HTML is drawn literally.
-        assert!(parse("> ```\n> nested\n> ```").is_err());
+        assert!(parse("![![nested](a.png)](b.png)").is_err());
         assert!(parse("<div>html</div>\n").is_ok());
     }
 }

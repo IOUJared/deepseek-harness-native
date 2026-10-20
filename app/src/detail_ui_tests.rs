@@ -150,7 +150,7 @@ fn covered_or_closing_detail_controls_are_inert() {
 fn unsupported_document_preserves_complete_source_and_nonce_exhaustion_disables_actions() {
     let (mut app, mut queue) = app();
     let source =
-        "# PUBLIC\n\n![no fetch](file:///PUBLIC/no-image.png)\n\n> ```\n> PUBLIC nested\n> ```";
+        "# PUBLIC\n\n![no fetch](file:///PUBLIC/no-image.png)\n\n![![PUBLIC nested](a.png)](b.png)";
     snapshot(&mut app, "assistant/message", source);
     let ticket = open(&mut app);
     assert!(!app.detail.as_ref().unwrap().formatted_available());

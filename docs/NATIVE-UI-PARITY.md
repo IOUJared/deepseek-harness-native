@@ -15279,3 +15279,41 @@ a quote**, which still fails closed.
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 capture | — | `shots/330-table-quote.png`, `status: passed`, 1040x620 |
 | app bin | — | **21** warnings |
+
+### Round 537 — a fenced block inside a container keeps its rule
+
+**The gap.** `Tag::CodeBlock` refused whenever a quote was open, so `> ```bash … ``` ` failed the whole
+document. The reference nests a code card in the same containers as any block
+(`ui-primitives/src/markdown/render.tsx:281-289`).
+
+**The change.** `Block::Code` carries `quote` and `quote_first` beside its `indent`; the event arm records
+the container state instead of refusing, so a fenced block — and an indented one — inside a quote or a
+list item parses. The card is drawn inside the rule (or its indent), its height and the search offset
+measure at the width the containers leave, and the banner's wrap/copy controls keep working inside the
+quote.
+
+**Frame.** `shots/331-code-quote.png` (1040x620, new `markdown-code-quote` preset): a `bash` card inside
+one continuous rule — banner reading `No wrap · Copy code`, the command line inside — with the quoted
+note after it back at the quote's edge.
+
+**Tests.** `a_code_block_inside_a_container_keeps_its_rule_and_indent` (a quoted block keeps quote,
+quote-first, language and text; a listed block is one level in and not a quote; a plain block keeps zero
+provenance). An item's marker paragraph comes first, so the list case *finds* its block rather than
+indexing the document — the first draft assumed index 0 and the probe showed why it cannot.
+
+**Recorded state of the renderer.** With this round the structural refusals are down to **an image
+inside an image** (its alt run has no room for another) and the event-level budgets; the "unsupported"
+exemplars across the tests now name the nested image.
+
+**Battery (round 537).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1541 passed**, 1 ignored |
+| app, default | **0** | **1485 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-qarv21iw`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-3i9xedj2`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 capture | — | `shots/331-code-quote.png`, `status: passed`, 1040x620 |
+| app bin | — | **21** warnings |

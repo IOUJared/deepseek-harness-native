@@ -319,6 +319,7 @@ fn view(document: &formatted::Document) -> Element<'_, Message> {
                 language,
                 text: code,
                 indent,
+                ..
             } => {
                 // The same code box the transcript draws: the reference's 11px/19px
                 // code font, a 9px/14px banner at 11px/18px, a 16px pre padding and

@@ -1248,13 +1248,20 @@ fn block_height(
                 ladder.line(delta, delta_secondary),
             )
         }
-        formatted::Block::Code { text, .. } => {
+        formatted::Block::Code {
+            text,
+            indent,
+            quote,
+            ..
+        } => {
             // A wrapped block can be several lines tall, so the same state that draws it has to
-            // measure it (`CodeCard.module.css:113-134`).
+            // measure it (`CodeCard.module.css:113-134`), at the width its containers leave.
             let no_wrap = !wrap.wrapped(index);
+            let lane =
+                width - *indent as f32 * 18.0 - if *quote { ladder.quote_inset() } else { 0.0 };
             plain_height(
                 text,
-                width - if no_wrap { 0.0 } else { 2.0 * design::CODE_PAD },
+                lane - if no_wrap { 0.0 } else { 2.0 * design::CODE_PAD },
                 design::CODE_FONT as f32 + delta_secondary,
                 design::code_line(delta_secondary),
                 MONO,
@@ -1352,10 +1359,16 @@ pub(crate) fn document_first_offset(
             // The same code metrics the block is drawn and measured with: the 11px
             // code font, the 19px code line, and the banner plus the pre's top padding
             // above the text.
-            formatted::Block::Code { text, language, .. } => first_offset(
+            formatted::Block::Code {
+                text,
+                language,
+                indent,
+                quote,
+                ..
+            } => first_offset(
                 highlight(text, language.as_deref()),
                 query,
-                width,
+                width - *indent as f32 * 18.0 - if *quote { ladder.quote_inset() } else { 0.0 },
                 design::CODE_FONT as f32 + delta_secondary,
                 design::code_line(delta_secondary),
                 MONO,
@@ -1605,6 +1618,8 @@ fn document_view(
                 language,
                 text: source,
                 indent,
+                quote,
+                quote_first,
             } => {
                 let banner = container(
                     row![
@@ -1686,17 +1701,33 @@ fn document_view(
                         .width(Length::Fill)
                         .into()
                 };
-                // The banner and the pre own their own padding, so the block adds
-                // none; only a list indent moves the whole block right.
-                container(Column::new().push(banner).push(code).spacing(0))
+                // The banner and the pre own their own padding, so the card adds none; only its
+                // containers move it right and draw their rule around it (`render.tsx:281-289`).
+                let card = container(Column::new().push(banner).push(code).spacing(0))
                     .style(|_| design::card(design::OVERLAY, design::RADIUS_LG))
                     .width(Length::Fill)
-                    .padding(iced::Padding {
+                    .clip(true);
+                if !*quote {
+                    card.padding(iced::Padding {
                         left: *indent as f32 * 18.0,
                         ..iced::Padding::ZERO
                     })
-                    .clip(true)
                     .into()
+                } else {
+                    let height =
+                        block_height(block, index, width, delta, delta_secondary, ladder, wrap);
+                    let mut line = row![].spacing(0);
+                    if *quote_first {
+                        let (rule, pad) = quote_rule(height, ladder);
+                        line = line.push(rule).push(pad);
+                    }
+                    line = line.push(iced::widget::Space::new().width(*indent as f32 * 18.0));
+                    if !*quote_first {
+                        let (rule, pad) = quote_rule(height, ladder);
+                        line = line.push(rule).push(pad);
+                    }
+                    line.push(card).into()
+                }
             }
             formatted::Block::Table {
                 header,
@@ -2040,7 +2071,12 @@ mod tests {
         assert!(p.matches("supplied reasoning"));
         assert!(!p.matches("absent"));
         // A heading inside a quote is inert markup: the whole source stays searchable text.
-        let raw = cache.prepare(1, 3, String::new(), "> ```\n> PUBLIC inert\n> ```".into());
+        let raw = cache.prepare(
+            1,
+            3,
+            String::new(),
+            "![![PUBLIC inert](a.png)](b.png)".into(),
+        );
         assert!(raw.document.is_none());
         assert!(raw.matches("PUBLIC inert"));
     }
@@ -2212,6 +2248,8 @@ mod tests {
             language: None,
             text: String::new(),
             indent: 0,
+            quote: false,
+            quote_first: false,
         };
         let blocks = vec![paragraph(), heading(2), paragraph()];
         assert_eq!(
@@ -2492,7 +2530,7 @@ mod tests {
     #[test]
     fn unsupported_markup_is_inert_full_source_not_partial_formatting() {
         let cache = Cache::default();
-        let source = "> ```\n> PUBLIC code\n> ```";
+        let source = "![![PUBLIC inert](a.png)](b.png)";
         let p = cache.prepare(1, 0, String::new(), source.into());
         assert!(p.document.is_none());
         assert_eq!(p.answer, source);
