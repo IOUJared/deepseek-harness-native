@@ -16668,3 +16668,19 @@ job, and that is recorded, not claimed.
 | DP-2 capture | — | `shots/350-terminal-short.png`, `status: passed`, 1200x520 |
 | `xtask verify --suite all` | **—** | still unavailable: `dsh-xtask` is mid-migration |
 | format debt | **—** | moved to `xtask format-debt`; last measured 0 |
+
+### Round 576 — the terminal doc describes the box it now has
+
+**The drift, one round old.** `NATIVE-TERMINAL.md` still said "the fixed 240px box stands until it lands"
+after round 571 replaced the fixed height with a share of the window and round 575 made a short window
+give the header and footer room first. A reader would have looked for a constant that no longer exists.
+
+**What it says now.** The paragraph keeps the reason a true fill needs the three-region rewrite (and points
+at the round-572 specification), then states the two heights the box actually takes: `clamp(window * 0.42,
+240, 640)` on a tall window, `clamp(window - 420, 60, 240)` under 700px, with both frames cited
+(`349-terminal-share.png` for ~385px of screen on a tall window, `350-terminal-short.png` for the input row
+back in view at 520) and the remaining short-window scroll stated rather than glossed.
+
+**Measured (unchanged code path, doc-only round):** fixture **1569 passed**, default **1513 passed**, 1
+ignored each. `xtask verify --suite all` and `format-debt` remain unavailable while `tools/xtask` is
+mid-migration.
