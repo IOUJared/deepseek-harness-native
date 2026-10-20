@@ -167,3 +167,25 @@ down instead of the code. The failures narrowed it to this:
 The block itself is a `\u{2588}` span at the cursor cell with the panel's ink and paper swapped
 (`Some(15)` on `Some(0)` in the ANSI numbering the panel already understands), so no new painting machinery
 is needed.
+
+**Round 621 ran step 1 and it failed at the very first assertion** (`"ab"`, cursor at column 2, expected
+`Some((0, 2))`, got `None`) — in the simplest case, with nothing trimmed. That is why four panel attempts
+before it painted nothing. Start the next attempt with this diagnostic, pasted into the failing test before
+any change:
+
+```rust
+let rows = output.display_styled(DISPLAY_BYTES);
+eprintln!(
+    "history={} grid={} row={} column={} rows_before_trim={} kept={}",
+    output.screen.history.len(),
+    output.screen.grid.len(),
+    output.screen.row,
+    output.screen.column,
+    rows_before_trim,
+    rows.len(),
+);
+```
+
+Six values, one row of `"ab"`: three of them cannot produce `None`, so the printed set names the offender
+without another guess. The two suspects are `rows_before_trim` captured after `lines.retain` (which can drop
+rows and shift every index) and `kept` being rebuilt after the arithmetic.
