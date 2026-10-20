@@ -17383,3 +17383,28 @@ because the footer contains `if` blocks and a `match`, its extraction should mov
 
 **State.** Reverted to `c283639`; `cargo check` **21** real warnings (22 with the summary line), default suite
 **1525 passed**. Header and output builders remain extracted and shipped.
+
+### Round 633 — why the footer's end marker does not exist
+
+**What was tried.** The bounded slice from round 632 — `fn terminal_view(` to the next `\n    fn ` — with the
+footer's start at `let write_enabled = enabled` and its end at `body.into()` inside that slice.
+
+**What the file says.** `terminal_view` is **29,312 bytes** and does not end with `body.into()`: it ends
+
+```rust
+        .direction(design::scrollbar())
+        .style(design::scrollable_style)
+        .height(Length::Fill)
+        .into()
+    }
+```
+
+so its body is pushed into a `scrollable(container(body)…)` and returned from that. There is **no**
+`body.into()` to slice to, which is why round 632's marker matched a later function instead.
+
+**The next attempt's markers, verified:** start at `let write_enabled = enabled`, end at the **last**
+`body = body.push(` statement before the final `scrollable(container(body)` — or, simpler and safer, extract
+only up to the `body = body.push(match self.terminal.notice()` block and leave that notice match in
+`terminal_view`, taking the footer in two smaller steps.
+
+No file changed this round; tree clean at `68c9159`, suites at fixture **1581** / default **1525**.
