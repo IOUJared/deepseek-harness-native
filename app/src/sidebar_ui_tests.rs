@@ -1177,3 +1177,44 @@ fn the_open_in_app_control_launches_the_selected_workspace_and_reports_a_failure
     assert!(app.open_in_app_apps.is_none());
     assert!(app.open_in_app_action().is_none());
 }
+
+#[test]
+fn the_plugin_manager_reads_once_and_adopts_the_hosts_profile_answer() {
+    use super::plugin_manager::Action as Manager;
+    let (mut app, mut queue) = app();
+    drop(app.update(Message::PluginManager(Manager::Open)));
+    assert!(app.plugin_manager.is_open());
+    assert!(matches!(queue.try_recv(), Ok(Command::PluginManagerRead)));
+    // Opening again while the read has settled queues nothing; Refresh is the explicit read.
+    drop(app.update(Message::PluginManager(Manager::Open)));
+    assert!(queue.try_recv().is_err());
+    // A deployment without a manageable profile is its own answer, not an empty bundle list.
+    drop(app.update(Message::Worker(Event::PluginManagerLoaded(Ok((
+        false,
+        Vec::new(),
+    ))))));
+    assert_eq!(app.plugin_manager.len(), 0);
+    drop(app.update(Message::PluginManager(Manager::Refresh)));
+    assert!(matches!(queue.try_recv(), Ok(Command::PluginManagerRead)));
+    let bundle = dsh_native_transport::plugin::PluginBundle {
+        name: "PUBLIC-bundle".into(),
+        version: Some("1.0.0".into()),
+        description: None,
+        enabled: true,
+        installed: true,
+        optional: false,
+        removable: true,
+        rows: 1,
+        overrides: 0,
+        read_only_reason: None,
+        error: None,
+    };
+    drop(app.update(Message::Worker(Event::PluginManagerLoaded(Ok((
+        true,
+        vec![bundle],
+    ))))));
+    assert_eq!(app.plugin_manager.len(), 1);
+    // Escape closes the page like every other full-pane opener.
+    drop(app.update(Message::DismissPanel));
+    assert!(!app.plugin_manager.is_open());
+}

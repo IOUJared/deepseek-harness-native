@@ -48,6 +48,114 @@ pub enum FiberPhase {
     Absent,
 }
 
+/// One installed or installation-provided bundle for the read-only plugin manager
+/// (`boot/plugin-manager/lib/types/types.d.ts:25-65`). Only the bounded display fields are kept:
+/// the patch's row objects and the management diagnostic never reach the app.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PluginBundle {
+    pub name: String,
+    pub version: Option<String>,
+    pub description: Option<String>,
+    /// Selected in the profile manifest.
+    pub enabled: bool,
+    /// Whether the profile's own dependencies hold the package.
+    pub installed: bool,
+    /// Ships with the installation and may be switched on, never removed.
+    pub optional: bool,
+    pub removable: bool,
+    /// Rows the bundle's patch inserts, and built-in rows it changes.
+    pub rows: usize,
+    pub overrides: usize,
+    /// The Host's management reason, when the bundle is not addressable.
+    pub read_only_reason: Option<String>,
+    /// The Host's management error code, when the bundle has one.
+    pub error: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WireBundle {
+    name: String,
+    version: Option<String>,
+    description: Option<String>,
+    enabled: bool,
+    installed: bool,
+    #[serde(default)]
+    optional: bool,
+    #[serde(default)]
+    removable: bool,
+    #[serde(default)]
+    rows: Vec<Value>,
+    #[serde(default)]
+    overrides: Vec<Value>,
+    read_only_reason: Option<String>,
+    error: Option<WireManagementError>,
+}
+#[derive(Deserialize)]
+struct WireManagementError {
+    code: String,
+}
+pub(crate) fn project_bundles(value: Value) -> Result<Vec<PluginBundle>> {
+    bounded(&value)?;
+    let wire: Vec<WireBundle> = serde_json::from_value(value).map_err(|_| Error::InvalidDto)?;
+    if wire.len() > MAX_ROWS {
+        return Err(Error::Oversize);
+    }
+    let mut names = HashSet::new();
+    let bundles = wire
+        .into_iter()
+        .map(|b| {
+            if !text(&b.name, 512) || !names.insert(b.name.clone()) {
+                return Err(Error::InvalidDto);
+            }
+            let version = b
+                .version
+                .map(|v| text(&v, 128).then_some(v).ok_or(Error::InvalidDto))
+                .transpose()?;
+            let description = b
+                .description
+                .map(|d| text(&d, MAX_TEXT).then_some(d).ok_or(Error::InvalidDto))
+                .transpose()?;
+            let read_only_reason = b
+                .read_only_reason
+                .map(|r| text(&r, 128).then_some(r).ok_or(Error::InvalidDto))
+                .transpose()?;
+            let error = b
+                .error
+                .map(|e| {
+                    text(&e.code, 128)
+                        .then_some(e.code)
+                        .ok_or(Error::InvalidDto)
+                })
+                .transpose()?;
+            if b.rows.len() > MAX_ROWS || b.overrides.len() > MAX_ROWS {
+                return Err(Error::Oversize);
+            }
+            Ok(PluginBundle {
+                name: b.name,
+                version,
+                description,
+                enabled: b.enabled,
+                installed: b.installed,
+                optional: b.optional,
+                removable: b.removable,
+                rows: b.rows.len(),
+                overrides: b.overrides.len(),
+                read_only_reason,
+                error,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if bundles
+        .iter()
+        .map(|b| b.name.len() + b.description.as_ref().map_or(0, String::len) + 64)
+        .sum::<usize>()
+        > MAX_BYTES
+    {
+        return Err(Error::Oversize);
+    }
+    Ok(bundles)
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct SettingsDescribeValue {
     pub writable: bool,
@@ -102,6 +210,9 @@ impl std::fmt::Debug for SettingsScalar {
 #[serde(rename_all = "camelCase")]
 struct WireInventory {
     entries: Vec<WireEntry>,
+    /// The Host sets this only when the profile is manageable (`host/plugin-inventory/src/index.ts:98`).
+    #[serde(default)]
+    management_available: Option<bool>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -282,7 +393,7 @@ pub(crate) fn project_inventory(value: Value) -> Result<PluginInventorySnapshot>
     }
     Ok(PluginInventorySnapshot {
         entries,
-        management_available: false,
+        management_available: wire.management_available.unwrap_or(false),
     })
 }
 pub(crate) fn project_settings(value: Value) -> Result<SettingsDescribeValue> {
@@ -777,11 +888,51 @@ mod tests {
     }
 
     #[test]
+    fn the_bundle_projection_keeps_bounded_display_fields_and_refuses_unknown_shapes() {
+        let bundles = project_bundles(json!([
+            {"name":"@PUBLIC/bundle","version":"1.2.3","description":"PUBLIC bundle",
+             "enabled":true,"installed":true,"optional":false,"removable":true,
+             "rows":[{"rowId":"a","moduleName":"m"}],"overrides":["row"],"meta":{}},
+            {"name":"@PUBLIC/shipped","version":null,"description":null,
+             "enabled":false,"installed":false,"optional":true,"removable":false,
+             "rows":[{"rowId":"x","moduleName":"y"},{"rowId":"z","moduleName":"w"}],
+             "overrides":[],"readOnlyReason":"management-required",
+             "error":{"code":"incompatible-version","diagnostic":"PRIVATE-SENTINEL"}}
+        ]))
+        .unwrap();
+        assert_eq!(bundles[0].name, "@PUBLIC/bundle");
+        assert_eq!(bundles[0].version.as_deref(), Some("1.2.3"));
+        assert_eq!(bundles[0].description.as_deref(), Some("PUBLIC bundle"));
+        assert_eq!((bundles[0].rows, bundles[0].overrides), (1, 1));
+        assert!(bundles[0].removable);
+        assert_eq!(
+            bundles[1].read_only_reason.as_deref(),
+            Some("management-required")
+        );
+        assert_eq!(bundles[1].error.as_deref(), Some("incompatible-version"));
+        assert!(!format!("{bundles:?}").contains("PRIVATE"));
+        for bad in [
+            json!({}),
+            json!([{"name":""}]),
+            json!([{"name":"a","enabled":true}]),
+            json!([{"name":"a","version":7,"enabled":true,"installed":true}]),
+            json!([{"name":"a","enabled":true,"installed":true},{"name":"a","enabled":false,"installed":false}]),
+        ] {
+            assert!(project_bundles(bad.clone()).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
     fn inventory_drops_preset_expressions_and_metadata_and_checks_identity() {
         let s = project_inventory(json!({"entries":[{"entryId":"include:one","moduleName":"probe","enabled":true,"fiberPhase":null,"meta":{"error":"PRIVATE-SENTINEL"}}],"agentPresets":[{"condition":"PRIVATE-SENTINEL"}]})).unwrap();
         assert_eq!(s.entries[0].fiber_phase, FiberPhase::Absent);
         assert!(!format!("{s:?}").contains("PRIVATE"));
         assert!(!s.management_available);
+        // The Host's flag is carried through, not assumed: absent means no manager.
+        let managed = project_inventory(json!({"entries":[],"managementAvailable":true})).unwrap();
+        assert!(managed.management_available);
+        let unmanaged = project_inventory(json!({"entries":[]})).unwrap();
+        assert!(!unmanaged.management_available);
         assert_eq!(
             project_inventory(
                 json!({"entries":[{"entryId":"","moduleName":"probe","enabled":true,"fiberPhase":null}]})

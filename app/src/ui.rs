@@ -148,6 +148,9 @@ mod permission_ui_tests;
 mod plan_control;
 #[path = "plan_mode.rs"]
 mod plan_mode;
+/// The read-only plugin manager page.
+#[path = "plugin_manager.rs"]
+mod plugin_manager;
 /// Per-preset help for the shipped modes.
 #[path = "preset_guide.rs"]
 pub mod preset_guide;
@@ -606,6 +609,8 @@ pub enum Message {
     Capabilities,
     /// Open (from the More menu) or dismiss the read-only work records panel.
     Work(work_panel_ui::Action),
+    /// Open, close or refresh the read-only plugin manager page.
+    PluginManager(plugin_manager::Action),
     /// Expand or collapse the composer's context-management explanation.
     ToggleContextPolicy,
     /// Enter or leave plan mode through the Host's command surface.
@@ -1812,6 +1817,8 @@ pub struct App {
     session_hover_on_card: bool,
     /// The read-only More → Work records panel is open.
     work_open: bool,
+    /// The read-only plugin manager page: the Host's profile availability and installed bundles.
+    plugin_manager: plugin_manager::Manager,
     /// The More → Terminal panel is open. The Host owns every shell; the app is a client.
     terminal: crate::terminal::Terminal,
     /// The More → MCP servers panel is open. It is app-global (the composition
@@ -2175,6 +2182,7 @@ impl App {
                 capabilities: false,
                 conversation_menu: false,
                 work_open: false,
+                plugin_manager: plugin_manager::Manager::default(),
                 context_policy_open: false,
                 plan_published: None,
                 plan_toggle_pending: false,
@@ -3024,6 +3032,7 @@ impl App {
             && !self.schedules_open
             && !self.terminal.is_open()
             && !self.mcp.is_open()
+            && !self.plugin_manager.is_open()
             && self.detail.is_none()
             && !self.sidebar_sheet
             && !self
@@ -3037,6 +3046,7 @@ impl App {
             && !self.conversation_menu
             && !self.work_open
             && !self.terminal.is_open()
+            && !self.plugin_manager.is_open()
             && !self.sidebar_sheet
             && self.detail.is_some()
     }
@@ -4083,6 +4093,11 @@ impl App {
                 self.schedules_open = false;
                 self.close_schedule_editor();
                 self.schedule_delete = None;
+            }
+            Message::DismissPanel
+                if self.layout_controls_enabled() && self.plugin_manager.is_open() =>
+            {
+                self.plugin_manager.close();
             }
             Message::DismissPanel if self.layout_controls_enabled() && self.work_open => {
                 self.work_open = false;
@@ -6376,6 +6391,31 @@ impl App {
             Message::Work(work_panel_ui::Action::Close) if self.work_open => {
                 self.work_open = false;
             }
+            Message::PluginManager(action)
+                if self.layout_controls_enabled() && !self.sidebar_sheet =>
+            {
+                match action {
+                    plugin_manager::Action::Open => {
+                        // One pane owns the body: opening the manager retires the other panels.
+                        self.work_open = false;
+                        self.conversation_menu = false;
+                        self.capabilities = false;
+                        self.schedules_open = false;
+                        self.close_schedule_editor();
+                        self.dismiss_terminal();
+                        self.mcp.dismiss();
+                        self.detail = None;
+                        if !self.plugin_manager.loaded() && self.plugin_manager.begin() {
+                            self.command(worker::Command::PluginManagerRead);
+                        }
+                    }
+                    plugin_manager::Action::Refresh => {
+                        if self.plugin_manager.begin() {
+                            self.command(worker::Command::PluginManagerRead);
+                        }
+                    }
+                }
+            }
             // A disclosure with no visible composer has nothing to expand, and an
             // invisible one is collapsed again rather than kept as hidden state.
             Message::ToggleContextPolicy if self.composer_visible() => {
@@ -7035,6 +7075,9 @@ impl App {
                     Ok(false) => {}
                     Err(error) => self.status = error,
                 }
+            }
+            Event::PluginManagerLoaded(result) => {
+                self.plugin_manager.settled(result);
             }
             Event::OpenInAppApps(result) => {
                 self.open_in_app_loading = false;
@@ -10357,6 +10400,7 @@ impl App {
             && !self.schedules_open
             && !self.terminal.is_open()
             && !self.mcp.is_open()
+            && !self.plugin_manager.is_open()
             && self.detail.is_none()
     }
     /// True when the pane shows the empty-state hero instead of a conversation:
@@ -10393,6 +10437,8 @@ impl App {
                 (self.terminal_view(), false)
             } else if self.mcp.is_open() {
                 (self.mcp_view(), false)
+            } else if self.plugin_manager.is_open() {
+                (self.plugin_manager.view(), false)
             } else if let Some(detail) = &self.detail {
                 (self.detail_view(detail), false)
             } else if hero_pane {
@@ -10529,6 +10575,18 @@ impl App {
                 TEXT
             ))
             .on_press(Message::Work(work_panel_ui::Action::Open))
+            .style(design::ghost)
+            .padding([12, 14])
+            .width(Length::Fill),
+            button(label(
+                if self.plugin_manager.len() > 0 {
+                    format!("Plugins · read-only ({})", self.plugin_manager.len())
+                } else {
+                    "Plugins · read-only".to_owned()
+                },
+                TEXT,
+            ))
+            .on_press(Message::PluginManager(plugin_manager::Action::Open))
             .style(design::ghost)
             .padding([12, 14])
             .width(Length::Fill),

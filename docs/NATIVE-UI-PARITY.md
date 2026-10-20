@@ -6430,6 +6430,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Workspace browser: grouped/animated rows, drag order, per-row menus | difference: workspace filter + navigation sheet |
 | Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory; the app's Host serves browse, so Browse… falls back to the in-app list and `pick` reports unavailable) |
 | Open in app: workspace opener | cloned (round 671): the header split button lists the Host's nameable installed apps, launches the Session's workspace through the two plain Host routes, and remembers the choice; app icons stay text glyphs rather than fetched PNGs |
+| Plugin manager: installed bundles | **read-only slice** (round 674): More → Plugins shows the Host's profile availability and its bundles with version, enabled/installed/optional state, row counts and read-only reason; the reference's enable/disable, install/remove, inspect, registries and version-exemption controls are still unbuilt |
 | Workflow-run surface | cloned (folded `tool-workflow/*` card, five run states including the round-525 `Interrupted` for a stoppless run in a closed turn; a closed step alone does not interrupt, a named limit) |
 | Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, **reviewed resize (round 540)**, shell discovery with a remembered preference, output bounds, and **a native screen emulator core** (rounds 552–559: redraw, erase, addressing, insert/delete, ANSI colours, wide glyphs, wrapping, scrollback, alternate screen; a combining mark composes onto its base cell, round 669). The screen protocol is complete; the docked tabs ship in the panel above the output (round 673), re-following on a switch instead of holding `terminal/retain` streams, and the reference's automatic fit-to-pane stays a deliberate difference — recorded in `docs/NATIVE-TERMINAL.md`. |
 | Dockkit layout presets | difference: native fixed layout with its own preferences |
@@ -15876,6 +15877,7 @@ real warnings; the full battery is **17/17 (`verification-526912410ae0`).** The 
 
 | item | what exists | what the next round series needs |
 | --- | --- | --- |
+| Plugin manager mutations | the read-only page (round 674) lists bundles, their profile state and the Host's unavailable answer | enable/disable a plugin or bundle, install/remove, inspect a spec, registries and version exemptions (`pluginManager/{setPluginEnabled,setBundleEnabled,installBundle,removeBundle,inspect,registries,listVersionExemptions,setVersionExemption,waitForInstall,cancelInstall}`); each is a Host mutation and needs the review/confirm, ticket/epoch and indeterminate-outcome treatment |
 | The right-Sidebar review/task/document tabs | the full-page details panel is native's own surface | **deliberate difference**, recorded here rather than built silently |
 
 ### Named deliberate differences (not gaps)
@@ -18547,3 +18549,55 @@ holds `PUBLIC build shell` and `PUBLIC test shell`, and the dock above OUTPUT sh
 | app bin | — | **21** warnings (22 with the summary line) |
 | layout_smoke | — | **17** warnings |
 | battery | **passed** | **17 checks, 0 failing** (`verification-ca228a0e2dfe`) |
+
+### Round 674 — the plugin manager reads the Host's bundles
+
+**The gap, found by a fresh walk.** The round-670 tables said no reference surface was unbuilt. That
+was wrong: the reference ships a **plugin manager main panel** (`ui-plugin-manager/src/client/index.ts:104-127`)
+that lists the profile's bundles and plugins and lets a reader enable, install and remove them
+(`PluginManagerPage.tsx`, `manager-store.ts:776-830`). Native had only Settings → Built-in plugins (the
+live settings namespaces and a raw inventory), and its `pluginInventory/list` projection **hardcoded
+`managementAvailable: false`**, dropping the Host's own answer. This round lands the read half.
+
+**The transport.** `pluginInventory/list` now carries the Host's `managementAvailable` flag
+(`host/plugin-inventory/src/index.ts:98`), and `pluginManager/listBundles` is projected into a bounded
+`PluginBundle`: name, version, description, enabled/installed/optional/removable, row and override
+counts, and the Host's read-only reason and error **code** (never its diagnostic). Unknown shapes,
+duplicate names and oversized lists are refused.
+
+**The page.** `App::plugin_manager` is a full-page body opened from More → Plugins. It first reads the
+inventory's profile availability — the reference's own gate (`manager-store.ts:769-777`) — and only
+then the bundles, so an unmanageable deployment states the reference's unavailable sentence rather
+than an empty list. The page also draws the reference's `Reading plugins…`, `Could not read all
+plugins…` with Retry, and `No plugins are installed yet.` states, plus Refresh and Close.
+
+**Why the first frame was wrong.** The page had no outer padding, so the fill-width bundle cards ran to
+the window edge and were clipped. The frame, not the suite, showed it; the page now sits in a 20/24px
+container with a Close control.
+
+**Tests.** `the_bundle_projection_keeps_bounded_display_fields_and_refuses_unknown_shapes` and the
+inventory-flag assertions (transport), `the_plugin_manager_reads_once_and_adopts_the_hosts_profile_answer`
+(one read, the unavailable answer, Refresh, Escape), and the `plugin-manager` preset pinned in
+`presets_render_actual_app_without_queued_effects`.
+
+**Frame.** `shots/372-plugin-manager.png` (1040×760, new `plugin-manager` preset): `Plugins`, the
+read-only intro, Refresh, `Bundles · 3` and three cards — `dsh-bundle-base` enabled/installed,
+`dsh-bundle-voice` disabled/shipped/optional, and `PUBLIC-incompatible` with
+`read-only: management-required` in the danger ink.
+
+**Still unbuilt, and next.** The page is a **listing only**: enable/disable (plugin and bundle),
+install/remove, spec inspect, registries and version exemptions are Host mutations that need their own
+review/confirm rounds. No live Host with a manageable profile was read, so the route and the Host's
+availability flag are source-verified, not observed.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| format | **0** | `cargo fmt` applied; format-debt 0 files, 0 hunks |
+| app, fixture | **0** | **1606 passed**, 1 ignored |
+| app, default | **0** | **1550 passed**, 1 ignored |
+| transport | **0** | 65 + 17 + 91 + 7 passed |
+| app bin | — | **21** warnings (22 with the summary line) |
+| layout_smoke | — | **17** warnings |
+| battery | **passed** | **17 checks, 0 failing** (`verification-171a60d18ec9`) |

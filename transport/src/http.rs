@@ -180,6 +180,7 @@ enum Endpoint {
     QuestionAnswer,
     EventResult,
     PluginInventory,
+    PluginBundles,
     AgentPresetSelect,
     JobKill,
     PluginSettings,
@@ -262,6 +263,7 @@ impl Endpoint {
             Self::QuestionAnswer => "userQuestions/answer",
             Self::EventResult => "$events/result",
             Self::PluginInventory => "pluginInventory/list",
+            Self::PluginBundles => "pluginManager/listBundles",
             Self::AgentPresetSelect => "agentPresets/select",
             Self::JobKill => "job/kill",
             Self::PluginSettings => "settings/describe",
@@ -1326,6 +1328,12 @@ impl NativeClient {
     /// Metadata-only global Loader rows; no installation or enablement authority.
     pub async fn plugin_inventory(&self) -> Result<crate::plugin::PluginInventorySnapshot> {
         crate::plugin::project_inventory(self.invoke(Endpoint::PluginInventory, json!({})).await?)
+    }
+    /// The installed and installation-provided bundles the read-only plugin manager lists
+    /// (`boot/plugin-manager/lib/types/types.d.ts:44-65`). A management-capable profile is still
+    /// required before the Host serves anything; this read does not install or switch anything.
+    pub async fn plugin_manager_bundles(&self) -> Result<Vec<crate::plugin::PluginBundle>> {
+        crate::plugin::project_bundles(self.invoke(Endpoint::PluginBundles, json!({})).await?)
     }
     /// Project private redacted config and Schemastery graphs before publishing any DTO.
     pub async fn plugin_settings(&self) -> Result<crate::plugin::SettingsDescribeValue> {
