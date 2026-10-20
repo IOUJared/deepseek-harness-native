@@ -1353,6 +1353,11 @@ pub fn package_version(app_root: &Path) -> Result<String, String> {
     let manifest = crate::launcher::private_read(&app_root.join("Cargo.toml"), 64 * 1024)
         .map_err(|_| "Unsafe native package version")?;
     let text = String::from_utf8(manifest).map_err(|_| "Unsafe native package version")?;
+    version_from_manifest(&text)
+}
+
+/// The `[package] version` of a manifest text.
+pub fn version_from_manifest(text: &str) -> Result<String, String> {
     let mut in_package = false;
     for line in text.lines() {
         let line = line.trim();
@@ -1759,6 +1764,127 @@ fn write_archive(payload: &Path, output: &Path, archive: &Path) -> Result<(), St
     std::fs::set_permissions(archive, std::fs::Permissions::from_mode(0o600))
         .map_err(|error| error.to_string())?;
     Ok(())
+}
+
+/// A calendar version `YYYY.M.D-rN` with a real date.
+fn calendar_version(version: &str) -> Option<(u64, u64, u64)> {
+    let (date, revision) = version.split_once("-r")?;
+    let parts: Vec<&str> = date.split('.').collect();
+    if parts.len() != 3 || revision.is_empty() || revision.starts_with('0') {
+        return None;
+    }
+    let number = |part: &str| -> Option<u64> {
+        if part.is_empty()
+            || part.starts_with('0')
+            || !part.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return None;
+        }
+        part.parse().ok()
+    };
+    let (year, month, day) = (number(parts[0])?, number(parts[1])?, number(parts[2])?);
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let days = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if leap {
+                29
+            } else {
+                28
+            }
+        }
+        _ => return None,
+    };
+    if !(1..=days).contains(&day) {
+        return None;
+    }
+    Some((year, month, day))
+}
+
+fn plain_semantic(version: &str) -> bool {
+    let parts: Vec<&str> = version.split('.').collect();
+    parts.len() == 3
+        && parts.iter().all(|part| {
+            !part.is_empty()
+                && (part == &"0" || !part.starts_with('0'))
+                && part.bytes().all(|byte| byte.is_ascii_digit())
+        })
+}
+
+/// The release identity: a calendar tag or a CI dev tag for plain semver.
+pub fn release_identity(
+    manifest: &str,
+    commit: &str,
+    run_number: &str,
+) -> Result<serde_json::Value, String> {
+    let version = version_from_manifest(manifest)?;
+    let calendar = calendar_version(&version);
+    if calendar.is_none() && !plain_semantic(&version) {
+        return Err("App version must be plain semantic or calendar year.month.day-rN".into());
+    }
+    if commit.len() != 40
+        || !commit
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    {
+        return Err("Expected a full Git commit SHA".into());
+    }
+    if run_number.is_empty()
+        || run_number.starts_with('0')
+        || !run_number.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err("Expected a positive GitHub run number".into());
+    }
+    Ok(serde_json::json!({
+        "packageVersion": version,
+        "releaseTag": if calendar.is_some() { format!("v{version}") } else { format!("v{version}-dev.{run_number}") },
+        "commit": commit,
+        "runNumber": run_number,
+        "automaticRelease": calendar.is_none(),
+    }))
+}
+
+/// GLIBC symbols and needed dynamic libraries from readelf output.
+pub fn elf_requirements(
+    version_info: &str,
+    dynamic_info: &str,
+) -> Result<serde_json::Value, String> {
+    let mut highest: Option<(u64, u64)> = None;
+    for line in version_info.lines() {
+        let Some(rest) = line.split("Name: GLIBC_").nth(1) else {
+            continue;
+        };
+        let (major, rest) = leading_digits(rest);
+        let Some(rest) = rest.strip_prefix('.') else {
+            continue;
+        };
+        let (minor, _) = leading_digits(rest);
+        if major == u64::MAX || minor == u64::MAX {
+            continue;
+        }
+        if highest.is_none_or(|best| (major, minor) > best) {
+            highest = Some((major, minor));
+        }
+    }
+    let Some((major, minor)) = highest else {
+        return Err("Missing GNU libc symbol version requirements".into());
+    };
+    let mut dependencies = Vec::new();
+    for line in dynamic_info.lines() {
+        if !line.contains("(NEEDED)") {
+            continue;
+        }
+        if let Some(start) = line.find('[')
+            && let Some(end) = line[start..].find(']')
+        {
+            dependencies.push(line[start + 1..start + end].to_string());
+        }
+    }
+    Ok(serde_json::json!({
+        "minimumGlibcSymbols": format!("{major}.{minor}"),
+        "dynamicDependencies": dependencies,
+    }))
 }
 
 #[cfg(test)]
@@ -2610,5 +2736,63 @@ mod build_tests {
             "Source root and native binary must be supplied together"
         );
         fs::remove_dir_all(base).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod release_tests {
+    use super::*;
+
+    fn manifest(version: &str) -> String {
+        format!("[package]\nname = \"app\"\nversion = \"{version}\"\n")
+    }
+
+    #[test]
+    fn a_calendar_version_publishes_explicitly_and_semver_uses_a_dev_tag() {
+        let commit = "a".repeat(40);
+        let calendar = release_identity(&manifest("2026.10.10-r2"), &commit, "5").unwrap();
+        assert_eq!(calendar["releaseTag"], "v2026.10.10-r2");
+        assert_eq!(calendar["automaticRelease"], false);
+        let semantic = release_identity(&manifest("0.2.1"), &commit, "12").unwrap();
+        assert_eq!(semantic["releaseTag"], "v0.2.1-dev.12");
+        assert_eq!(semantic["automaticRelease"], true);
+        // A leap day is valid, a non-leap February 29 and April 31 are not.
+        assert!(release_identity(&manifest("2024.2.29-r1"), &commit, "1").is_ok());
+        for bad in [
+            "2026.2.29-r1",
+            "2026.4.31-r1",
+            "2026.0.10-r1",
+            "1.0",
+            "01.2.3",
+        ] {
+            assert!(
+                release_identity(&manifest(bad), &commit, "1").is_err(),
+                "{bad}"
+            );
+        }
+        // A short or uppercase commit and a zero run number are refused.
+        assert!(release_identity(&manifest("0.2.1"), &"a".repeat(39), "1").is_err());
+        assert!(release_identity(&manifest("0.2.1"), &"A".repeat(40), "1").is_err());
+        assert!(release_identity(&manifest("0.2.1"), &commit, "0").is_err());
+    }
+
+    #[test]
+    fn the_release_reports_the_highest_glibc_symbol_and_its_libraries() {
+        let versions = "  0x0010:   Name: GLIBC_2.15  Flags: none  Version: 16\n\
+                        0x0020:   Name: GLIBC_2.34  Flags: none  Version: 20\n\
+                        0x0030:   Name: GLIBC_ABI_DT_RELR  Flags: none  Version: 1\n";
+        let dynamic = " 0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]\n\
+                       0x0000000000000002 (NEEDED)             Shared library: [libgcc_s.so.1]\n";
+        let requirements = elf_requirements(versions, dynamic).unwrap();
+        assert_eq!(requirements["minimumGlibcSymbols"], "2.34");
+        assert_eq!(
+            requirements["dynamicDependencies"],
+            serde_json::json!(["libc.so.6", "libgcc_s.so.1"])
+        );
+        // No GNU symbol version at all is an error, not a silent 0.
+        assert_eq!(
+            elf_requirements("no versions here", "").unwrap_err(),
+            "Missing GNU libc symbol version requirements"
+        );
     }
 }
