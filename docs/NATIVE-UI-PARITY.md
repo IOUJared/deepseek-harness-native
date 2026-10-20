@@ -6421,11 +6421,11 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Goals, plan mode, permissions, approvals/questions, jobs, subagents, session log | cloned |
 | Tool rows: one row per call with the folded result, relative path, `+N −N`, and the structured cards — diff, read, terminal, search, web, ask-user | cloned (no per-tool glyphs — the reference's SVGs have no DejaVu equivalent); each run of step activity sits under a process-group seat whose live label, running detail, folding and grouping follow the **Work details** preference — Compact / Standard / Detailed / Verbose, chosen in Settings → General and persisted locally), and a settled turn folds its whole process behind one `Completed in …` / `Stopped` / `Failed` control with a hairline and the reference's 16px rung (rounds 513–514) |
 | Reasoning disclosure wording | difference: native says `Thoughts` where the reference says `Thought for a while` (`message.turnProcess.thoughtForAWhile`), by the user's stated preference for the shorter label; a settled row still previews its first line under the `settledReasoningPreview` policy |
-| Model-retry row, command row (a manual `/compact` folded into one marker), turn duration, failure and output-limit rows, card Copy control, created-task (`schedule_create`) card, skill row | cloned (the created-task card reconciles with the settled catalog: `Deleted` after its task goes, and the current title/rule while it is present — round 667 — and it renders at the Turn tail outside the process fold, round 668, where the call's own seat shows the generic recorded result) (the skill row has no `Inspect` action: native has no right Sidebar to open it in) |
+| Model-retry row, command row (a manual `/compact` folded into one marker), turn duration, failure and output-limit rows, card Copy control, created-task (`schedule_create`) card, skill row | cloned (the created-task card reconciles with the settled catalog: `Deleted` after its task goes, and the current title/rule while it is present — round 667 — and it renders at the Turn tail outside the process fold, round 668; the expanded call row states the reference's `Scheduled for` / `Repeat` / `State` fields, round 672) (the skill row has no `Inspect` action: native has no right Sidebar to open it in) |
 | Composer usage pill: tokens, cache hit, speed, turn/step counts, and the Host's session-statistics dialog | cloned |
 | Deliverables: summary, file list, per-file diff rows with both gutters, wrapping and a side-by-side layout (round 505), desktop open | cloned (rounds 475–491, 505; no right-Sidebar review tab) |
 | Message feedback: ratings, categories, note, refusal/limit states | cloned (rounds 492–497); the rating controls are words rather than thumb icons, and a session-level dialog needs a Host route native lacks |
-| Chat images: a user message's image attachment and markdown images | difference: alt text and a text placeholder — no decode/texture path, and the fetch policy is the user's decision (open item 1) |
+| Chat images: a user message's image attachment and markdown images | **inline attachments cloned** (rounds 652–665): PNG/JPEG/WebP/GIF parts decode and paint as cards; markdown remote images stay alt text, since no fetch policy applies to them |
 | Right Sidebar: document preview and resource tabs | difference: full-page details panel, no PDF/Office renderers |
 | Workspace browser: grouped/animated rows, drag order, per-row menus | difference: workspace filter + navigation sheet |
 | Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory; the app's Host serves browse, so Browse… falls back to the in-app list and `pick` reports unavailable) |
@@ -15864,6 +15864,9 @@ real warnings; the full battery is **17/17 (`verification-526912410ae0`).** The 
 - **Open in app — built** (round 671): the transport reads and launches through the two plain Host
   routes; the header names the remembered app and lists the rest. The launch is a real desktop side
   effect and has not been exercised against a running Host; app icons stay text.
+- **The created task's expanded row — built** (round 672): `Scheduled for` / `Repeat` / `State` from the
+  Host's delivery view; the absolute time uses native local text rather than the browser's `Intl`
+  format.
 - **`terminal/retain` — not attempted yet**, not blocked.
 
 ### Large, unbuilt, and not blocked
@@ -15871,7 +15874,6 @@ real warnings; the full battery is **17/17 (`verification-526912410ae0`).** The 
 | item | what exists | what the next round series needs |
 | --- | --- | --- |
 | `terminal/retain` and a docked multi-terminal tab strip | the whole panel slice — list, follow, keys, create/close/rename/resize reviews, bounded output and the native screen — and the Host's `terminal/retain` (`api/terminal-controller/src/index.ts:193-204`) | a right-docked tab strip first, because retain only holds a terminal open for tabs; native sends no retain today |
-| The created task's expanded Tool-row details | the Turn-tail card matches (title, rule, `Deleted`) and the row states `Scheduled task · …`; expanding it shows the generic recorded-result body | the reference's structured details row for `schedule_create` (`ui-tool/src/client/tool/toolviews/details-row.tsx:78-84`, `details-card-model.ts:170`) instead of the raw result text |
 | The right-Sidebar review/task/document tabs | the full-page details panel is native's own surface | **deliberate difference**, recorded here rather than built silently |
 
 ### Named deliberate differences (not gaps)
@@ -18464,3 +18466,47 @@ refusals are read from the pinned source.
 | app bin | — | **21** warnings (22 with the summary line) |
 | layout_smoke | — | **17** warnings |
 | battery | **passed** | **17 checks, 0 failing** (`verification-07499f60a9ce`) |
+
+### Round 672 — a created task's expanded row states its fields
+
+**The gap.** Round 668 moved the created-task **card** to the Turn tail, and the call's own seat fell
+back to the generic recorded-result body: expanding it printed the raw task JSON. The reference's
+`schedule_create` seat is ui-tool's structured details row (`details-row.tsx:78-84`,
+`details-card-model.ts:170`), which states `Scheduled for`, `Repeat` and `State`
+(`details-card-model.ts:101-147`).
+
+**The change.** `schedule_card::Task` carries `details: Option<TaskDetails>` only when the result has
+the Host's delivery view (`deliveryMode` `host`/`session-local` plus `state`
+`scheduled`/`overdue`), which is the reference's own admission rule. `TaskDetails` holds the stored
+instant, the **detail-copy** rule line — `Every day at …`, `Every 2 h`, `Weekly on Mon, Fri at …` —
+and the state (`Scheduled`, or `Overdue, awaiting session resume`). The expanded row renders three
+labelled rows, and its geometry reserves three lines plus their gaps.
+
+**The first frame showed a wrap.** `Scheduled for` wrapped inside the 70px label column, so the
+field read as two lines and pushed the block out of its reservation. The column is 92px; the second
+frame shows the three rows aligned.
+
+**Tests.** `a_created_task_details_exist_only_for_the_host_delivery_view` — no details without the
+delivery view, the weekly/daily/every detail copy, `Scheduled` and `Overdue, awaiting session resume`,
+and an unknown delivery mode leaving the generic body in place; the `schedule-create` preset's
+pinning now also asserts the details and opens the call's seat so the frame contains them.
+
+**Frame.** `shots/370-schedule-details.png` (1040×700, `schedule-create`): the open seat's row reads
+`Scheduled for 2026-09-01 04:00`, `Repeat Weekly on Mon, Fri at 09:00 (UTC)`, `State Scheduled`, with
+the Turn-tail card below the reply.
+
+**Deliberate difference.** The absolute time is native's local text (`2026-09-01 04:00`), the choice
+every schedule surface already makes; the reference formats it with the browser's `Intl`
+month-name/second/zone form.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| format | **0** | `cargo fmt` applied; format-debt 0 files, 0 hunks |
+| app, fixture | **0** | **1604 passed**, 1 ignored |
+| app, default | **0** | **1548 passed**, 1 ignored |
+| transport | **0** | 64 + 17 + 91 + 7 passed |
+| app bin | — | **21** warnings (22 with the summary line) |
+| layout_smoke | — | **17** warnings |
+| battery | **passed** | **17 checks, 0 failing** (`verification-6380d2fd9e8b`) |

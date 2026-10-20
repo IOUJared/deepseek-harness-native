@@ -1035,6 +1035,9 @@ fn public_schedule_create_records() -> Vec<Value> {
         "title":"PUBLIC weekly fixture reminder",
         "prompt":"PUBLIC instruction for the created task",
         "scheduledAt":"2026-09-01T09:00:00.000Z",
+        // The Host's delivery view, which is what gives the expanded Tool row its details
+        // (`details-card-model.ts:101-147`). Synthetic PUBLIC metadata.
+        "deliveryMode":"host","state":"scheduled",
         "kind":"weekly","time":"09:00","timeZone":"UTC","weekdays":[1,5]});
     vec![
         event(
@@ -3129,6 +3132,20 @@ pub fn build(
         app.open_in_app_choice = Some("kitty".into());
         app.open_in_app_menu = true;
     }
+    if preset == "schedule-create" {
+        // The call's seat is folded by default; opening it (with the row's own expansion in the
+        // scenario match below) is what puts the structured details in the frame.
+        let keys: Vec<u64> = {
+            let rows: Vec<_> = app.transcript.display_rows(false).collect();
+            app.process_seats(&rows)
+                .values()
+                .map(|seat| seat.key)
+                .collect()
+        };
+        for key in keys {
+            app.process_group_open.insert(key, true);
+        }
+    }
     drop(app.update(Message::Resized(size)));
 
     match preset {
@@ -3742,6 +3759,13 @@ pub fn build(
                 Some("Weekly on Mon, Fri at 09:00 (UTC)")
             );
             assert_eq!(card.fallback, None);
+            let details = card
+                .task
+                .as_ref()
+                .and_then(|task| task.details.as_ref())
+                .expect("the Host delivery view's details");
+            assert_eq!(details.frequency, "Weekly on Mon, Fri at 09:00 (UTC)");
+            assert_eq!(details.state, "Scheduled");
             // The card belongs to the Turn tail, outside the fold: the call's own row is not the
             // card, and folding the process cannot take the created task away
             // (`ScheduleTurnCard.tsx:107-127`).

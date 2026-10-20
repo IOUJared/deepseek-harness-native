@@ -16171,6 +16171,14 @@ impl App {
                         .and_then(|activity| activity.ask)
                 })
                 .flatten();
+            let schedule_details = (row.role == "Tool call")
+                .then(|| {
+                    self.transcript
+                        .activity(row.key, self.path_roots())
+                        .and_then(|activity| activity.schedule)
+                })
+                .flatten()
+                .and_then(|card| card.task.and_then(|task| task.details));
             let body = {
                 match (&read, &terminal, &search, &web, &ask, &diff) {
                     (Some(card), _, _, _, _, _) => self.read_card_height(card, row.key),
@@ -16181,12 +16189,15 @@ impl App {
                     (None, None, None, None, None, Some(diff)) => {
                         self.diff_card_height(diff, row.key)
                     }
-                    (None, None, None, None, None, None) => conversation_content::tool_body_height(
-                        activity_body_source(row),
-                        geometry.width - chat_geometry::BODY_INSET,
-                        self.content_delta_secondary(),
-                        design::body_line(self.content_delta()),
-                    ),
+                    (None, None, None, None, None, None) => match schedule_details {
+                        Some(_) => self.schedule_details_height(),
+                        None => conversation_content::tool_body_height(
+                            activity_body_source(row),
+                            geometry.width - chat_geometry::BODY_INSET,
+                            self.content_delta_secondary(),
+                            design::body_line(self.content_delta()),
+                        ),
+                    },
                 }
             };
             geometry.body_height =
@@ -17635,6 +17646,43 @@ impl App {
             1.0 + f32::from(card.frequency().is_some()) + f32::from(card.fallback.is_some());
         design::DIFF_PAD_TOP + design::DIFF_PAD_BOTTOM + line * lines
     }
+    /// The expanded created-task row's structured fields (`details-card-model.ts:138-146`):
+    /// `Scheduled for`, `Repeat` and `State`. The absolute time is native's local text, the same
+    /// choice every schedule surface makes; the reference's locale-formatting is the difference.
+    fn schedule_details_view(
+        &self,
+        details: &crate::reducer::schedule_card::TaskDetails,
+    ) -> Element<'static, Message> {
+        let line = design::CODE_LINE + self.content_delta_secondary();
+        let field = |name: &'static str, value: String| {
+            row![
+                label(name, MUTED).size(11).width(92),
+                label(short(&value, 160), TEXT).size(12),
+            ]
+            .spacing(8)
+            .height(line)
+            .align_y(iced::Alignment::Center)
+        };
+        container(
+            column![
+                field(
+                    "Scheduled for",
+                    time_text::local_or_stored(&details.scheduled_at),
+                ),
+                field("Repeat", details.frequency.clone()),
+                field("State", details.state.clone()),
+            ]
+            .spacing(4),
+        )
+        .padding([0, 8])
+        .width(Length::Fill)
+        .into()
+    }
+    /// The structured fields' reservation: three lines and their two 4px gaps.
+    fn schedule_details_height(&self) -> f32 {
+        let line = design::CODE_LINE + self.content_delta_secondary();
+        3.0 * line + 8.0
+    }
     /// The reference's created-task card (`ScheduleCreateCard.tsx:36-110`): the task's title, its
     /// localized rule, and — only when the result could not be narrowed to a task — its raw text.
     fn schedule_card(
@@ -18267,6 +18315,14 @@ impl App {
                                 .and_then(|activity| activity.ask)
                         })
                         .flatten();
+                    let schedule_details = (record.role == "Tool call")
+                        .then(|| {
+                            self.transcript
+                                .activity(record.key, self.path_roots())
+                                .and_then(|activity| activity.schedule)
+                        })
+                        .flatten()
+                        .and_then(|card| card.task.and_then(|task| task.details));
                     let body: Element<'static, Message> =
                         match (&read, &terminal, &search, &web, &ask, &diff) {
                             (Some(card), _, _, _, _, _) => self.read_card(card, record.key),
@@ -18279,8 +18335,9 @@ impl App {
                             (None, None, None, None, None, Some(diff)) => {
                                 self.diff_card(diff, record.key)
                             }
-                            (None, None, None, None, None, None) => {
-                                conversation_content::tool_body_view(
+                            (None, None, None, None, None, None) => match schedule_details {
+                                Some(details) => self.schedule_details_view(&details),
+                                None => conversation_content::tool_body_view(
                                     activity_body,
                                     conversation_content::tool_body_height(
                                         activity_body,
@@ -18290,8 +18347,8 @@ impl App {
                                     ),
                                     self.content_delta_secondary(),
                                     design::body_line(self.content_delta()),
-                                )
-                            }
+                                ),
+                            },
                         };
                     activity_column = activity_column.push(body);
                 }

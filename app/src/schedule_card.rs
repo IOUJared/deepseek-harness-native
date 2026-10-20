@@ -18,6 +18,19 @@ pub struct Task {
     pub title: String,
     /// The reference's localized frequency line, e.g. `Daily at 17:30 (UTC)`.
     pub frequency: String,
+    /// The expanded Tool row's fields, present only when the result carries the Host's delivery
+    /// view (`detailsCardModel`'s `scheduleItem`: `details-card-model.ts:101-147`).
+    pub details: Option<TaskDetails>,
+}
+/// The reference's structured details for one created task: `Scheduled for`, `Repeat` and `State`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TaskDetails {
+    /// The stored instant, rendered as local text by the view.
+    pub scheduled_at: String,
+    /// The reference's `detail.schedule.repeat` rule copy, e.g. `Weekly on Mon, Fri at 09:00 (UTC)`.
+    pub frequency: String,
+    /// `Scheduled`, or `Overdue, awaiting session resume`.
+    pub state: String,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -127,6 +140,51 @@ fn every_line(seconds: u64) -> String {
     format!("Every {seconds} seconds")
 }
 
+/// The reference's detail-copy rule line, which differs from the card's: `Every day at …` rather
+/// than `Daily at …`, and `Every {interval}` for `every` (`details-card-model.ts:75-147`,
+/// `ui-conversation/src/client/locales.ts:701-710`).
+fn detail_frequency(value: &Value) -> Option<String> {
+    let text = |key: &str| value.get(key).and_then(Value::as_str);
+    let zone = text("timeZone")?;
+    Some(match value["kind"].as_str()? {
+        "after" | "at" => "Once".to_owned(),
+        "every" => {
+            let seconds = value["everySeconds"]
+                .as_u64()
+                .filter(|seconds| *seconds > 0)?;
+            let interval = if seconds % 86_400 == 0 {
+                format!("{} d", seconds / 86_400)
+            } else if seconds % 3_600 == 0 {
+                format!("{} h", seconds / 3_600)
+            } else if seconds % 60 == 0 {
+                format!("{} min", seconds / 60)
+            } else {
+                format!("{seconds} s")
+            };
+            format!("Every {interval}")
+        }
+        "daily" => format!("Every day at {} ({zone})", clock_label(text("time")?)),
+        "weekly" => {
+            let weekdays = value["weekdays"].as_array()?;
+            let mut names = Vec::with_capacity(weekdays.len());
+            for day in weekdays {
+                let day = day.as_u64().filter(|day| (1..=7).contains(day))?;
+                names.push(WEEKDAYS[(day - 1) as usize]);
+            }
+            format!(
+                "Weekly on {} at {} ({zone})",
+                names.join(", "),
+                clock_label(text("time")?)
+            )
+        }
+        "cron" => format!(
+            "Cron {} ({zone})",
+            crate::reducer::bounded(text("expression")?, 128)
+        ),
+        _ => return None,
+    })
+}
+
 /// The schedules page's status filter (`TaskManagerPage.tsx:124-136`, `task-manager-locales.ts:22-24`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Filter {
@@ -219,7 +277,7 @@ pub fn narrow(value: &Value) -> Option<Task> {
     let prompt = value["prompt"]
         .as_str()
         .filter(|prompt| !prompt.is_empty())?;
-    value["scheduledAt"].as_str()?;
+    let scheduled_at = value["scheduledAt"].as_str()?;
     let title = value["title"]
         .as_str()
         .map(str::trim)
@@ -258,10 +316,27 @@ pub fn narrow(value: &Value) -> Option<Task> {
         ),
         _ => return None,
     };
+    // The expanded Tool row's details exist only for the Host-delivered view the reference's
+    // `scheduleItem` narrows: a delivery mode plus a live/overdue state (`details-card-model.ts:101-147`).
+    let details = match (value["deliveryMode"].as_str(), value["state"].as_str()) {
+        (Some("host" | "session-local"), Some(state @ ("scheduled" | "overdue"))) => {
+            detail_frequency(value).map(|frequency| TaskDetails {
+                scheduled_at: scheduled_at.to_owned(),
+                frequency,
+                state: if state == "scheduled" {
+                    "Scheduled".to_owned()
+                } else {
+                    "Overdue, awaiting session resume".to_owned()
+                },
+            })
+        }
+        _ => None,
+    };
     Some(Task {
         id: crate::reducer::bounded(id, MAX_TEXT_BYTES),
         title: crate::reducer::bounded(title, MAX_TEXT_BYTES),
         frequency,
+        details,
     })
 }
 
@@ -613,6 +688,83 @@ mod filter_tests {
             Some("daily text")
         ));
         assert!(!Filter::matches("nightly", "PUBLIC", None));
+    }
+
+    #[test]
+    fn a_created_task_details_exist_only_for_the_host_delivery_view() {
+        let base = serde_json::json!({
+            "id": "PUBLIC-schedule-1",
+            "title": "PUBLIC weekly fixture reminder",
+            "prompt": "PUBLIC instruction",
+            "scheduledAt": "2026-09-01T09:00:00.000Z",
+            "kind": "weekly",
+            "time": "09:00",
+            "timeZone": "UTC",
+            "weekdays": [1, 5]
+        });
+        // A recorded result without the Host's delivery view has no expanded details.
+        assert!(narrow(&base).expect("a task").details.is_none());
+        let mut host = base.clone();
+        host["deliveryMode"] = serde_json::json!("host");
+        host["state"] = serde_json::json!("scheduled");
+        let details = narrow(&host).expect("a task").details.expect("details");
+        assert_eq!(details.scheduled_at, "2026-09-01T09:00:00.000Z");
+        assert_eq!(details.frequency, "Weekly on Mon, Fri at 09:00 (UTC)");
+        assert_eq!(details.state, "Scheduled");
+        // The state still says the task exists but is waiting for a session to resume.
+        host["state"] = serde_json::json!("overdue");
+        assert_eq!(
+            narrow(&host)
+                .expect("a task")
+                .details
+                .expect("details")
+                .state,
+            "Overdue, awaiting session resume"
+        );
+        // The detail copy differs from the card's: `Every day at`, not `Daily at`.
+        let daily = serde_json::json!({
+            "id": "PUBLIC-schedule-2",
+            "title": "PUBLIC daily",
+            "prompt": "PUBLIC instruction",
+            "scheduledAt": "2026-09-01T09:00:00.000Z",
+            "kind": "daily",
+            "time": "17:30",
+            "timeZone": "UTC",
+            "deliveryMode": "session-local",
+            "state": "scheduled"
+        });
+        assert_eq!(
+            narrow(&daily)
+                .expect("a task")
+                .details
+                .expect("details")
+                .frequency,
+            "Every day at 17:30 (UTC)"
+        );
+        // An `every` rule states its largest whole unit with the detail copy's single letters.
+        for (seconds, expected) in [
+            (2 * 86_400u64, "Every 2 d"),
+            (7_200, "Every 2 h"),
+            (1_800, "Every 30 min"),
+            (90, "Every 90 s"),
+        ] {
+            let mut every = daily.clone();
+            every["kind"] = serde_json::json!("every");
+            every["everySeconds"] = serde_json::json!(seconds);
+            assert_eq!(
+                narrow(&every)
+                    .expect("a task")
+                    .details
+                    .expect("details")
+                    .frequency,
+                expected
+            );
+        }
+        // A delivery mode the reference does not know leaves the generic body in place.
+        let mut foreign = base.clone();
+        foreign["deliveryMode"] = serde_json::json!("other");
+        foreign["state"] = serde_json::json!("scheduled");
+        assert!(narrow(&foreign).expect("a task").details.is_none());
     }
 
     #[test]

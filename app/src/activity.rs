@@ -1514,6 +1514,7 @@ mod card_debug_tests {
                     id: "PRIVATE-SCHEDULE".into(),
                     title: "PRIVATE-TASK".into(),
                     frequency: "Once".into(),
+                    details: None,
                 }),
                 title: "PRIVATE-TASK".into(),
                 fallback: None,
