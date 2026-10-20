@@ -18036,3 +18036,21 @@ picture at 180, and the 8px gaps for both, with the fixture asserting the image 
 | app, fixture | **0** | **1593 passed**, 1 ignored |
 | app, default | **0** | **1537 passed**, 1 ignored |
 | app bin | — | **21** warnings (22 with the summary line) |
+
+### Round 661 — the battery passes with the image fix in the release binaries
+
+**Result: `passed`, 17 checks, 0 failing** (`verification-b33cd868864b`), after `cargo fmt --check` came back
+clean and **both** release artifacts were rebuilt — the order that round 650 recorded, applied first this time
+instead of after a failed run.
+
+**What this certifies:** the inline-image work end to end — `dto::inline_image` decoding base64 in the transport,
+the reducer's card with a bounded thumbnail, the picture painted at 240px with its aspect ratio, and the
+per-card height reservation that keeps the message bubble under it — compiles into the shipped binaries and
+disturbs nothing else: core, core-transport, transport, app, app-public, both smoke examples, all five guard
+families, and `binary-freshness`.
+
+**Suites at this commit:** fixture **1592** / default **1536**, 1 ignored each; app bin **21** real warnings
+(22 with the summary line); transport 7 with none.
+
+**Remaining on the parity backlog:** nothing unbuilt. Live `schedule/changed` stays deferred by your choice, and
+`wayland-drops` — closed by these full passes — still needs a real hardware seat if it is ever re-enabled.
