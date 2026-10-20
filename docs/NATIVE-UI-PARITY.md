@@ -17987,3 +17987,24 @@ cursor's dual-source bug.
 
 **Measured.** app fixture **1592** / default **1536** / 1 ignored each, **21** real warnings; the preset adds a
 fixture-only branch, so no `app/src` behaviour changed.
+
+### Round 658 — the missing bubble is specific to the image preset, and the card's comment was wrong
+
+**The comparison that narrows it.** `tool-activity-attachment` — same records, same helper, a **file** part
+instead of an **image** part — frames correctly (`shots/360-file-attachment.png`): file card above, the user's
+text bubble below it, timestamp under that. `attachment-image` draws the picture card and **no bubble**
+(`shots/359-attachment-image.png`). Same helper, same text part, one different part type, so the cause is in
+how an image part becomes a row rather than in the row's text.
+
+**So `row.text` is the suspect, not the geometry.** The reducer's image arm now returns a card *instead of*
+text for that part, which is correct for the part but means the row's text depends entirely on the other text
+part surviving — and the file preset proves that path works only when the card comes from the `file` arm. The
+instrument to add first: assert in a test that the `attachment-image` records produce a row whose `text` is
+non-empty, which separates "the reducer dropped it" from "the view clipped it".
+
+**And my card comment was wrong**, which the frame exposed: it claimed the name and size line stay readable
+under the picture, but the `continue` that draws the picture skips both. The comment now says what the code
+does — picture alone, name and size on the row's text — rather than what I intended.
+
+**No behaviour change this round:** comment only, `cargo check` **21** real warnings (22 with the summary
+line), both frames archived (`359`, `360`).

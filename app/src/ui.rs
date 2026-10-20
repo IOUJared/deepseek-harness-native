@@ -978,9 +978,9 @@ fn attachment_cards(files: Vec<FileCard>) -> Element<'static, Message> {
         .spacing(design::ATTACHMENT_CARD_GAP)
         .align_x(iced::Alignment::End);
     for file in files {
-        // An inline image carries its decoded thumbnail: the card shows the picture where a file shows its
-        // glyph, sized to the same 240px column (`FileCard.module.css:1-40`). The rest of the card stays,
-        // so the name and the size line are still readable under it.
+        // An inline image carries its decoded thumbnail: the card shows the picture alone, where a file shows
+        // its glyph, name and size, sized to the same 240px column (`FileCard.module.css:1-40`). The name and
+        // size ride the row's own text today; drawing them over the picture is a separate card layout.
         if let Some((width, height, rgba)) = &file.thumbnail {
             let handle =
                 iced::widget::image::Handle::from_rgba(*width, *height, rgba.as_ref().clone());
