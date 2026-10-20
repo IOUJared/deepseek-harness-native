@@ -1671,19 +1671,14 @@ fn package_usage() -> &'static str {
      [--native-qualification PATH] [--source-root ABS --native-binary ABS] [--cargo-src DIR]"
 }
 
-/// The single warmed registry source index, so the license inventory reads the same
-/// crates the locked metadata names. Ambiguity is refused rather than guessed.
+/// The warmed registry source root (the directory holding each index), so the license
+/// inventory reads the same crates the locked metadata names.
 fn default_cargo_src() -> Option<PathBuf> {
     let home = std::env::var_os("CARGO_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|home| Path::new(&home).join(".cargo")))?;
-    let mut indexes: Vec<PathBuf> = std::fs::read_dir(home.join("registry/src"))
-        .ok()?
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| path.is_dir())
-        .collect();
-    indexes.sort();
-    (indexes.len() == 1).then(|| indexes.remove(0))
+    let registry = home.join("registry/src");
+    registry.is_dir().then_some(registry)
 }
 
 /// `xtask package ...`: build one external-runtime development archive.

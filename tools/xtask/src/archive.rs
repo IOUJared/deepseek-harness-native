@@ -188,7 +188,7 @@ pub fn verify(
         .ok_or("expected payload has no name")?
         .to_string_lossy()
         .into_owned();
-    for name in ["launch.py", "bin/dsh-native-app"] {
+    for name in ["launch", "bin/dsh-native-app"] {
         let key = format!("{root_name}/{name}");
         let entry = expected_tree.get(&key);
         if entry.is_none_or(|entry| entry.digest.is_none() || entry.mode != 0o755) {
@@ -510,7 +510,7 @@ mod tests {
                 mode: 0o755,
             },
             File {
-                name: format!("{ROOT}/launch.py"),
+                name: format!("{ROOT}/launch"),
                 body: Some(b"#!public launcher\n".to_vec()),
                 mode: 0o755,
             },
@@ -669,7 +669,7 @@ mod tests {
     fn an_archive_that_differs_from_the_staged_payload_is_rejected() {
         let base = make_temp_dir(&std::env::temp_dir(), "archive-diff-").unwrap();
         let (staged, archive, evidence) = fixture(&base);
-        fs::write(base.join(ROOT).join("launch.py"), b"#!different\n").unwrap();
+        fs::write(base.join(ROOT).join("launch"), b"#!different\n").unwrap();
         assert_eq!(
             verify(&archive, &evidence.join("out"), &staged, &evidence).unwrap_err(),
             "Archive differs from own generated payload"
@@ -682,7 +682,7 @@ mod tests {
         let base = make_temp_dir(&std::env::temp_dir(), "archive-entry-").unwrap();
         let (staged, archive, evidence) = fixture(&base);
         fs::set_permissions(
-            base.join(ROOT).join("launch.py"),
+            base.join(ROOT).join("launch"),
             fs::Permissions::from_mode(0o644),
         )
         .unwrap();
