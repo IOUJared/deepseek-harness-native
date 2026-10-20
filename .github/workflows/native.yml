@@ -78,7 +78,6 @@ jobs:
           cargo test --locked --manifest-path tools/xtask/Cargo.toml -- --test-threads=2
           python3 -B -m unittest discover -s scripts -p 'test_*.py'
           python3 -B -m unittest discover -s benchmarks -p 'test_*.py'
-          python3 -B -m unittest discover -s app -p '*_test.py'
       - name: Test Core with and without transport
         run: |
           cargo test --locked --manifest-path core/Cargo.toml -- --test-threads=2

@@ -10,6 +10,7 @@ commands:
   archive       Verify and extract an own development archive
   bench         Prototype benchmark measurement (run, analyze)
   idle          Sample owned idle resources over a longer window
+  history       Measure or compare the controlled-frame history workload
   help          This message
 ";
 
@@ -21,6 +22,7 @@ fn main() -> ExitCode {
         Some("archive") => dsh_xtask::archive::run(&arguments[1..]),
         Some("bench") => dsh_xtask::bench::run(&arguments[1..]),
         Some("idle") => dsh_xtask::idle::run(&arguments[1..]),
+        Some("history") => dsh_xtask::history::run(&arguments[1..]),
         Some("help" | "--help" | "-h") | None => {
             print!("{USAGE}");
             0

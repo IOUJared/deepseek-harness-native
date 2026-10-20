@@ -7,6 +7,7 @@
 pub mod archive;
 pub mod bench;
 pub mod fmtdebt;
+pub mod history;
 pub mod idle;
 pub mod json;
 pub mod proc;

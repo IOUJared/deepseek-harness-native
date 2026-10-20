@@ -323,15 +323,15 @@ fn tests(root: &Path, offline: bool) -> Vec<Check> {
         name: "bridge".into(),
         command: bridge(root),
     });
-    // These four still discover the Python guards they have not replaced yet;
+    // These three still discover the Python guards they have not replaced yet;
     // each owner moves to a `cargo test` command as its family is ported.
     // `benchmarks/test_runner.py` guards `benchmarks/run.py`, which the
     // qualification scripts still import as their metrics library; it moves to
-    // `xtask-guards` when that family is ported.
+    // `xtask-guards` when that family is ported. `app/` has no Python test left
+    // (the history guards are `xtask history` tests), so it needs no discovery.
     for (name, directory, pattern) in [
         ("script-guards", "scripts", "test_*.py"),
         ("benchmark-guards", "benchmarks", "test_*.py"),
-        ("app-guards", "app", "*_test.py"),
         ("release-guards", ".github/scripts", "test_*.py"),
     ] {
         checks.push(Check {
