@@ -6431,7 +6431,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory; the app's Host serves browse, so Browse… falls back to the in-app list and `pick` reports unavailable) |
 | Open in app: workspace opener | cloned (round 671): the header split button lists the Host's nameable installed apps, launches the Session's workspace through the two plain Host routes, and remembers the choice; app icons stay text glyphs rather than fetched PNGs |
 | Workflow-run surface | cloned (folded `tool-workflow/*` card, five run states including the round-525 `Interrupted` for a stoppless run in a closed turn; a closed step alone does not interrupt, a named limit) |
-| Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, **reviewed resize (round 540)**, shell discovery with a remembered preference, output bounds, and **a native screen emulator core** (rounds 552–559: redraw, erase, addressing, insert/delete, ANSI colours, wide glyphs, wrapping, scrollback, alternate screen; a combining mark composes onto its base cell, round 669). The screen protocol is complete; what remains is not a sequence but a capability: the reference's automatic fit-to-pane, `terminal/retain` and a docked multi-terminal tab — recorded in `docs/NATIVE-TERMINAL.md`. |
+| Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, **reviewed resize (round 540)**, shell discovery with a remembered preference, output bounds, and **a native screen emulator core** (rounds 552–559: redraw, erase, addressing, insert/delete, ANSI colours, wide glyphs, wrapping, scrollback, alternate screen; a combining mark composes onto its base cell, round 669). The screen protocol is complete; the docked tabs ship in the panel above the output (round 673), re-following on a switch instead of holding `terminal/retain` streams, and the reference's automatic fit-to-pane stays a deliberate difference — recorded in `docs/NATIVE-TERMINAL.md`. |
 | Dockkit layout presets | difference: native fixed layout with its own preferences |
 | Locales (zh/en) | difference: English-only |
 
@@ -15867,13 +15867,15 @@ real warnings; the full battery is **17/17 (`verification-526912410ae0`).** The 
 - **The created task's expanded row — built** (round 672): `Scheduled for` / `Repeat` / `State` from the
   Host's delivery view; the absolute time uses native local text rather than the browser's `Intl`
   format.
-- **`terminal/retain` — not attempted yet**, not blocked.
+- **The docked terminal tabs — built** (round 673): the panel shows one tab per listed Host terminal
+  above its output and re-follows on a switch, which restores the screen from the Host's first frame;
+  `terminal/retain` is deliberately not used, because its purpose in the reference is keeping a
+  right-Sidebar tab's attachment alive. Recorded as a deliberate difference, not an omission.
 
 ### Large, unbuilt, and not blocked
 
 | item | what exists | what the next round series needs |
 | --- | --- | --- |
-| `terminal/retain` and a docked multi-terminal tab strip | the whole panel slice — list, follow, keys, create/close/rename/resize reviews, bounded output and the native screen — and the Host's `terminal/retain` (`api/terminal-controller/src/index.ts:193-204`) | a right-docked tab strip first, because retain only holds a terminal open for tabs; native sends no retain today |
 | The right-Sidebar review/task/document tabs | the full-page details panel is native's own surface | **deliberate difference**, recorded here rather than built silently |
 
 ### Named deliberate differences (not gaps)
@@ -18510,3 +18512,38 @@ month-name/second/zone form.
 | app bin | — | **21** warnings (22 with the summary line) |
 | layout_smoke | — | **17** warnings |
 | battery | **passed** | **17 checks, 0 failing** (`verification-6380d2fd9e8b`) |
+
+### Round 673 — the terminal panel docks its terminals as tabs
+
+**The gap.** The last item the round-670 audit left unbuilt was `terminal/retain` plus a docked
+multi-terminal tab strip. The reference's right Sidebar opens one terminal per tab and keeps each
+tab's attachment alive with `terminal/retain` (`api/terminal-controller/src/index.ts:193-204`); native's
+full-page panel listed terminals and followed one at a time, with no tab bar.
+
+**The change.** `Terminal::tabs` projects the Host's list onto one tab per terminal — id, title,
+running/exited/failed state, and whether this panel follows it. The panel draws the strip between the
+TERMINALS list and OUTPUT whenever the Session lists more than one terminal: a state dot, the active
+tab filled through the elevated style, and a press re-follows that terminal. Switching does not open a
+`terminal/retain` stream: the Host owns the PTY, and a follow's first frame is the whole bounded
+screen, so the tab switch restores what the reference's retained attachment would have kept live.
+That substitution is recorded as a deliberate difference.
+
+**Tests.** `the_dock_lists_one_tab_per_terminal_with_the_followed_one_active` — two terminals, Host
+order kept, the followed one active, and no tabs without terminals; the new `terminal-tabs` preset is
+pinned in `presets_render_actual_app_without_queued_effects` with the second terminal followed.
+
+**Frame.** `shots/371-terminal-tabs.png` (1200×900, new `terminal-tabs` preset): the TERMINALS list
+holds `PUBLIC build shell` and `PUBLIC test shell`, and the dock above OUTPUT shows both tabs with
+`PUBLIC test shell` active — the terminal the frame's output belongs to.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| format | **0** | `cargo fmt` applied; format-debt 0 files, 0 hunks |
+| app, fixture | **0** | **1605 passed**, 1 ignored |
+| app, default | **0** | **1549 passed**, 1 ignored |
+| transport | **0** | 64 + 17 + 91 + 7 passed |
+| app bin | — | **21** warnings (22 with the summary line) |
+| layout_smoke | — | **17** warnings |
+| battery | **passed** | **17 checks, 0 failing** (`verification-ca228a0e2dfe`) |

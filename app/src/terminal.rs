@@ -1375,6 +1375,15 @@ pub struct Context {
 struct Panel {
     ticket: Ticket,
 }
+/// One dock tab: a listed Host terminal and whether this panel is following it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TerminalTab {
+    pub id: WebTerminalId,
+    pub title: String,
+    pub state: dsh_native_transport::terminal::TerminalState,
+    pub active: bool,
+}
+
 pub struct Terminal {
     panel: Option<Panel>,
     serial: u64,
@@ -1463,6 +1472,22 @@ impl Terminal {
     }
     pub fn list(&self) -> &[WebTerminalInfo] {
         &self.list
+    }
+    /// The dock's tabs: one per listed terminal, in Host order, with the followed one marked. The
+    /// reference keeps a tab per attached terminal in its right Sidebar
+    /// (`ui-sidebar-terminal/src/client/index.tsx`); native's full-page panel keeps the same tabs
+    /// above its output and re-follows on a switch, so no `terminal/retain` stream is needed — the
+    /// Host owns the PTY and the first frame restores the screen.
+    pub fn tabs(&self) -> Vec<TerminalTab> {
+        self.list
+            .iter()
+            .map(|info| TerminalTab {
+                id: info.id.clone(),
+                title: info.title.clone(),
+                state: info.state,
+                active: self.selected.as_ref() == Some(&info.id),
+            })
+            .collect()
     }
     pub fn list_loaded(&self) -> bool {
         self.list_loaded
@@ -2516,6 +2541,25 @@ mod tests {
             controller_id: None,
         }
     }
+    #[test]
+    fn the_dock_lists_one_tab_per_terminal_with_the_followed_one_active() {
+        let mut terminal = Terminal::default();
+        terminal.list = vec![info("PUBLIC-terminal-1"), info("PUBLIC-terminal-2")];
+        terminal.selected = Some(tid("PUBLIC-terminal-2"));
+        let tabs = terminal.tabs();
+        assert_eq!(tabs.len(), 2);
+        assert_eq!(tabs[0].title, "PUBLIC terminal");
+        assert!(
+            !tabs[0].active,
+            "the unfollowed terminal is not the active tab"
+        );
+        assert!(tabs[1].active, "the followed terminal is the active tab");
+        // No terminals, no tabs.
+        terminal.list.clear();
+        terminal.selected = None;
+        assert!(terminal.tabs().is_empty());
+    }
+
     fn environment() -> TerminalEnvironment {
         TerminalEnvironment {
             cwd: "/PUBLIC/cwd".into(),

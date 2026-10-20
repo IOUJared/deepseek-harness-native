@@ -51,6 +51,7 @@ pub const PRESETS: &[&str] = &[
     "terminal-panel-short",
     "terminal-panel-readonly",
     "terminal-panel-shells-failed",
+    "terminal-tabs",
     "jobs-panel",
     "jobs-panel-error",
     "jobs-panel-many",
@@ -303,9 +304,10 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" => {
             Some((Size::new(1200.0, 820.0), 1.0))
         }
-        "terminal-panel" | "terminal-panel-readonly" | "terminal-panel-shells-failed" => {
-            Some((Size::new(1200.0, 900.0), 1.0))
-        }
+        "terminal-panel"
+        | "terminal-panel-readonly"
+        | "terminal-panel-shells-failed"
+        | "terminal-tabs" => Some((Size::new(1200.0, 900.0), 1.0)),
         "terminal-panel-short" => Some((Size::new(1200.0, 520.0), 1.0)),
         "assistant-details-source"
         | "assistant-details-formatted"
@@ -4629,6 +4631,7 @@ pub fn build(
         || preset == "terminal-panel-short"
         || preset == "terminal-panel-readonly"
         || preset == "terminal-panel-shells-failed"
+        || preset == "terminal-tabs"
         || preset == "terminal-rename"
         || preset == "terminal-resize"
         || preset == "terminal-progress"
@@ -4668,23 +4671,42 @@ pub fn build(
                 target: ticket.target.clone(),
             },
             result: Ok(Loaded {
-                list: vec![WebTerminalInfo {
-                    id: WebTerminalId::new("PUBLIC-terminal-1").unwrap(),
-                    title: "PUBLIC build shell".into(),
-                    shell: shell.clone(),
-                    cwd: "/PUBLIC/workspace".into(),
-                    cols: if preset == "terminal-wrap" { 40 } else { 80 },
-                    rows: 24,
-                    state: TerminalState::Running,
-                    exit_code: None,
-                    error: None,
-                    controller_id: (preset == "terminal-panel-readonly").then(|| {
-                        dsh_native_transport::terminal::TerminalAttachmentId::new(
-                            "PUBLIC-other-client",
-                        )
-                        .unwrap()
-                    }),
-                }],
+                list: {
+                    let mut terminals = vec![WebTerminalInfo {
+                        id: WebTerminalId::new("PUBLIC-terminal-1").unwrap(),
+                        title: "PUBLIC build shell".into(),
+                        shell: shell.clone(),
+                        cwd: "/PUBLIC/workspace".into(),
+                        cols: if preset == "terminal-wrap" { 40 } else { 80 },
+                        rows: 24,
+                        state: TerminalState::Running,
+                        exit_code: None,
+                        error: None,
+                        controller_id: (preset == "terminal-panel-readonly").then(|| {
+                            dsh_native_transport::terminal::TerminalAttachmentId::new(
+                                "PUBLIC-other-client",
+                            )
+                            .unwrap()
+                        }),
+                    }];
+                    if preset == "terminal-tabs" {
+                        // A second Host terminal, so the dock has two tabs and the follow marks
+                        // the one the panel actually attached.
+                        terminals.push(WebTerminalInfo {
+                            id: WebTerminalId::new("PUBLIC-terminal-2").unwrap(),
+                            title: "PUBLIC test shell".into(),
+                            shell: shell.clone(),
+                            cwd: "/PUBLIC/workspace".into(),
+                            cols: 80,
+                            rows: 24,
+                            state: TerminalState::Running,
+                            exit_code: None,
+                            error: None,
+                            controller_id: None,
+                        });
+                    }
+                    terminals
+                },
                 // The failure preset answers with no profiles *and* the failed-read flag, the
                 // state round 524 separates from an empty discovery (`TerminalGuide.tsx:53-64`).
                 shells: if preset == "terminal-panel-shells-failed" {
@@ -4697,9 +4719,14 @@ pub fn build(
             }),
         })));
         let ticket = app.terminal.ticket().expect("the panel's ticket");
+        let followed = if preset == "terminal-tabs" {
+            "PUBLIC-terminal-2"
+        } else {
+            "PUBLIC-terminal-1"
+        };
         drop(app.update(Message::Terminal(Action::Select {
             ticket,
-            id: WebTerminalId::new("PUBLIC-terminal-1").unwrap(),
+            id: WebTerminalId::new(followed).unwrap(),
         })));
         let follow = app
             .terminal
@@ -5365,6 +5392,16 @@ mod tests {
                 );
                 assert_eq!(shown.len(), 2);
                 assert_eq!(omitted, 1, "the third active task is counted, not dropped");
+            }
+            if preset == "terminal-tabs" {
+                // Two Host terminals, two tabs, and the tab the follow actually attached is active.
+                assert_eq!(app.terminal.list().len(), 2);
+                let tabs = app.terminal.tabs();
+                assert_eq!(tabs.len(), 2);
+                assert_eq!(tabs[0].title, "PUBLIC build shell");
+                assert!(!tabs[0].active, "the unfollowed tab is not active");
+                assert_eq!(tabs[1].title, "PUBLIC test shell");
+                assert!(tabs[1].active, "the followed terminal is the active tab");
             }
             if preset == "open-in-app" {
                 // The control names the remembered app, the unnamed id is filtered, and the menu is

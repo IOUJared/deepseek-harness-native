@@ -34,7 +34,12 @@ spawns a shell or child process; the Host owns every PTY and its process range.
 10. **Resize** opens a review on the size the Host reports, refuses zero, out-of-bounds or unchanged
     dimensions, and adopts the acknowledged size only from the Host's ACK (round 540).
 
-Left out of this slice: `terminal/retain` (which only means something with docked terminal tabs).
+**Docked tabs (round 673).** When the Session has more than one listed Host terminal, a tab strip
+sits between the TERMINALS list and OUTPUT: one tab per terminal, a state dot, the active tab filled
+and named, and a press re-follows that terminal. The reference keeps one attachment per right-Sidebar
+tab through `terminal/retain`; native's panel re-follows instead — the Host owns the PTY and the first
+frame of a follow is the terminal's whole bounded screen — so no retain stream is opened. That is a
+deliberate difference, not a missing control.
 
 **The screen is a native emulator core, not a text panel (rounds 552–559).** It owns a grid as tall and
 as wide as the Host's own terminal and applies the rules a shell depends on: `\r` redraws in place,
@@ -54,9 +59,9 @@ composes onto the cell before the cursor, stepping over a wide glyph's continuat
 most 16 marks (round 669). The terminal's **cursor** is painted as a block from the same render pass that
 builds the rows (rounds 621–626).
 
-What is still absent is **not** protocol: `terminal/retain` and a docked multi-terminal tab strip, and the
-reference's automatic fit-to-pane (native keeps a reviewed resize control instead). The panel is a cell
-renderer of that screen, not a second emulator.
+What is still absent is **not** protocol: the reference's automatic fit-to-pane (native keeps a reviewed
+resize control instead) and its retained-tab attachments (`terminal/retain`), which the dock above
+replaces with a re-follow. The panel is a cell renderer of that screen, not a second emulator.
 
 **The output does not fill the pane, and here is exactly why (rounds 567–568).** The panel is one
 `scrollable` over the whole body — `scrollable(container(container(body).max_width(...).padding(24)))` in

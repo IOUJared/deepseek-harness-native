@@ -20283,6 +20283,52 @@ impl App {
     /// The panel's footer: the input row, its Write control, the control-elsewhere prompt and the
     /// block that guards them. Third of the three builders the round-572 split names; the slice is the
     /// whole enclosing block, so the braces balance.
+    /// The panel's docked tabs: one per listed Host terminal, above the output. The reference keeps
+    /// the same tabs in its right Sidebar; native's full-page panel keeps them here and re-follows
+    /// on a switch — the Host owns the PTY and the first frame restores the screen — so no
+    /// `terminal/retain` stream is needed for the native dock.
+    fn terminal_tabs(&self) -> Element<'_, Message> {
+        use crate::terminal::Action;
+        let ticket = self.terminal.ticket().expect("visible terminal panel");
+        let context = self.terminal_context();
+        let current = context.view.as_ref().is_some_and(|view| {
+            view.epoch == ticket.epoch
+                && view.generation == ticket.generation
+                && view.target == ticket.target
+        });
+        let enabled = context.allowed && current && !self.terminal.busy();
+        let mut tabs = row![].spacing(2).align_y(iced::Alignment::Center);
+        for tab in self.terminal.tabs() {
+            let state = match tab.state {
+                dsh_native_transport::terminal::TerminalState::Running => "●",
+                dsh_native_transport::terminal::TerminalState::Exited => "○",
+                dsh_native_transport::terminal::TerminalState::Failed => "✕",
+            };
+            let active = tab.active;
+            tabs = tabs.push(
+                button(
+                    label(
+                        format!("{state} {}", short(&tab.title, 20)),
+                        if active { TEXT } else { MUTED },
+                    )
+                    .size(11),
+                )
+                .on_press_maybe(
+                    (enabled && !active).then_some(Message::Terminal(Action::Select {
+                        ticket: ticket.clone(),
+                        id: tab.id,
+                    })),
+                )
+                .style(if active {
+                    design::elevated
+                } else {
+                    design::ghost
+                })
+                .padding([6, 10]),
+            );
+        }
+        container(tabs).width(Length::Fill).into()
+    }
     fn terminal_footer(&self) -> Element<'_, Message> {
         use crate::terminal::{Action, Notice};
         let ticket = self.terminal.ticket().expect("visible terminal panel");
@@ -20762,6 +20808,9 @@ impl App {
                     ]
                     .spacing(8),
                 );
+        }
+        if self.terminal.list().len() > 1 {
+            body = body.push(self.terminal_tabs());
         }
         body = body.push(label("OUTPUT", MUTED).size(10));
         body = body.push(self.terminal_footer());
