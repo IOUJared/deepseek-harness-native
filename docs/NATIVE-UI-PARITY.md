@@ -1502,6 +1502,15 @@ cell, so new findings go at the end of the file as plain paragraphs.
   its own 12. A new `heading_margins_step_up_like_the_reference` test pins the rule
   (`h1`-`h3` after another block, `h4`-`h6` and paragraphs unchanged) and the
   document height's arithmetic.
+
+  **~~Superseded~~ — the helper and that test are gone (swept in round 543).** The
+  rhythm now lives in `conversation_content::block_margins`, which gives an `h1`–`h3` the
+  ladder's `heading_gap` and an `h4`–`h6` its `gap`, and the rule is pinned by
+  `an_h1_to_h3_heading_steps_above_the_body_rhythm_and_a_small_heading_does_not`
+  (both ladders, all six levels, and the step being larger than the rhythm). The
+  transcript's loop, `document_height` and the first-match walk all read `block_margins`
+  through `document_gap`, so there is one rule rather than a helper every caller had to
+  remember.
   Verified at `assistant-details-formatted`: the paragraph pitch between body bands
   measures **25/26/25** rows in the grab where the same preset measured **21/22/21**
   under the details panel's 12px spacing — the +4 the 16px rhythm asks for.
@@ -15534,4 +15543,42 @@ is started — `modelPromptsRequested` and `catalogRequested` are false. No fram
 | Host qualifier | **0** | `app/evidence/client-projections-20261019-195516/result.json`, `status: passed` |
 | transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
 | DP-2 capture | — | none: a verification round |
+| app bin | — | **21** warnings |
+
+### Round 543 — a doc sweep of the renderer, and the rule whose test had vanished
+
+**The sweep.** After rounds 527–538 rewrote the reply renderer, its two authoritative documents were
+stale: `docs/NATIVE-FORMATTED-DETAILS.md` still listed raw HTML, tables, link titles, container
+headings and rules, quoted code and mixed quote-list ancestry as things that "fall back", while the
+parser accepts every one of them; its supported-construct line predated strikethrough, task items,
+tables, footnotes and math-as-source. Both lines now state what the parser does and name the tests that
+pin each construct, and the Chat coverage row lists the same set (literal HTML, container provenance,
+both nesting orders, a nested image's folded alt).
+
+**What the sweep found underneath.** A round-151 note described the heading step through
+`design::HEADING_EXTRA_TOP` and `conversation_content::block_extra_top(block, first)` and cited
+`heading_margins_step_up_like_the_reference`. None of the three exist any more: the rhythm moved into
+`block_margins` in the round-510 geometry work, and the cited test went with it — so a documented,
+user-visible rule (an `h1`–`h3` steps above the body rhythm, an `h4`–`h6` does not) had no test at all.
+The note is now annotated as superseded with the current mechanism, and the rule has a test again:
+`an_h1_to_h3_heading_steps_above_the_body_rhythm_and_a_small_heading_does_not` (both ladders, all six
+levels, and the step being larger than the rhythm it replaces).
+
+**Method note.** The sweep was a mechanical citation check — every backticked name in the renderer,
+terminal, handover and parity docs looked up in the tree — followed by a read of each miss. It found the
+dead helper, the dead test and one false positive (a note that already recorded its own rename).
+
+**No frame:** documentation and one test; nothing visual changed.
+
+**Battery (round 543).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1548 passed**, 1 ignored |
+| app, default | **0** | **1492 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-c46ywy_5`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-immbk1n5`) |
+| transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
+| DP-2 capture | — | none: a documentation and test round |
 | app bin | — | **21** warnings |

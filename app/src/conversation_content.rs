@@ -2219,6 +2219,48 @@ mod tests {
     }
 
     #[test]
+    fn an_h1_to_h3_heading_steps_above_the_body_rhythm_and_a_small_heading_does_not() {
+        // The sheet gives `h1`-`h3` `32px 0 16px` and `h4`-`h6` `16px 0`
+        // (`MarkdownText.module.css:330-341`), so the top margin is the ladder's heading gap for the
+        // large headings and its body gap for the small ones — the rule round 151's note described
+        // through helpers that no longer exist.
+        let heading = |level| formatted::Block::Heading {
+            level,
+            spans: Vec::new(),
+            indent: 0,
+            quote: false,
+            quote_first: false,
+        };
+        let paragraph = || formatted::Block::Paragraph {
+            spans: Vec::new(),
+            indent: 0,
+            marker: None,
+            quote: false,
+            quote_first: false,
+        };
+        for ladder in [Ladder::Body, Ladder::Compact] {
+            for level in [1u8, 2, 3] {
+                let blocks = vec![paragraph(), heading(level)];
+                assert_eq!(
+                    block_margins(&blocks, 1, ladder).0,
+                    ladder.heading_gap(),
+                    "h{level} tops at the heading gap"
+                );
+            }
+            for level in [4u8, 5, 6] {
+                let blocks = vec![paragraph(), heading(level)];
+                assert_eq!(
+                    block_margins(&blocks, 1, ladder).0,
+                    ladder.gap(),
+                    "h{level} tops at the body gap"
+                );
+            }
+            // The step is larger than the body rhythm it replaces, which is what makes it a step.
+            assert!(ladder.heading_gap() > ladder.gap());
+        }
+    }
+
+    #[test]
     fn block_margins_follow_the_reference_rhythm() {
         // `MarkdownText.module.css`: `p { margin: 16px 0 }`, `h1`-`h3`
         // `32px 0 16px`, `h4`-`h6` `16px 0`, lists `16px 0` with
