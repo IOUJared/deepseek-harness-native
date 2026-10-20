@@ -14,6 +14,7 @@ pub mod json;
 pub mod launcher;
 pub mod proc;
 pub mod qualify;
+pub mod release;
 pub mod snapshot;
 pub mod tempdir;
 pub mod verify;

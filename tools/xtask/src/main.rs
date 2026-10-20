@@ -26,6 +26,7 @@ fn main() -> ExitCode {
         Some("history") => dsh_xtask::history::run(&arguments[1..]),
         Some("qualify") => dsh_xtask::qualify::run(&arguments[1..]),
         Some("launch") => dsh_xtask::launcher::main(&arguments[1..], None),
+        Some("release") => dsh_xtask::release::run(&arguments[1..]),
         Some("help" | "--help" | "-h") | None => {
             print!("{USAGE}");
             0
