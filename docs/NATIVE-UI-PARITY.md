@@ -17257,3 +17257,24 @@ screen.row`. Then `paint_cursor` returns `Some` for a prompt row as well, and on
 
 **Reverted:** both files at `f3ac579`+`2ad5639`, suites green again — default **1524 passed**, `cargo check`
 **21** warnings (22 with the summary line).
+
+### Round 625 — the model is proved, and the panel is drawing somewhere else
+
+**What now works, and is proved by test.** `paint_cursor` returns the right index in all three cases —
+`"ab"` at column 2 → `Some((0, 2))`, a prompt on a fresh row → `Some((1, 0))`, a cursor moved back →
+`Some((0, 0))`. Two defects were needed to get there, both now understood: `rows_before_trim` must be taken
+after the blank-row pass, and that pass must not drop the cursor's own runless row (`display_styled` still
+trims it for text, so the fourteen display tests keep their output).
+
+**Why nothing is committed.** With the panel wired to `paint_cursor`, both suites were green — fixture
+**1581**, default **1525** — and the DP-2 frame was **byte-identical** to every earlier attempt
+(`84915` bytes, `3cc1dfff…`, written 01:41). A fresh capture with a proven `Some((0, 2))` and no block means
+the panel code I am editing is **not the code that draws this panel**: `ui.rs` carries more than one terminal
+builder (the round-572 rewrite never happened, and two span builders with the same shape exist), so the
+patch lands on the unused copy.
+
+**The next step, precisely.** Find the builder the `terminal-panel` preset actually reaches — grep for the
+function called from the terminal section of `body`, not for the span-builder pattern — and wire the block
+there. Everything else in this feature is proved; only that seam is unknown.
+
+Both files reverted; `cargo check` **21** warnings (22 with the summary line), default suite **1524 passed**.
