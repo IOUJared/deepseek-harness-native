@@ -17636,3 +17636,31 @@ Ctrl+V put them in the draft.
 `selection-multiline.png`, `selection-pasted.png`, `selection-anchor-fixed.png`,
 `selection-clear-on-composer-press.png`, `selection-assistant-prose.png`,
 `selection-code-block.png`.
+
+### Round 642 — the user's answers, and what they unblock
+
+**`release-guards` — already gone.** I set out to delete `("release-guards", ".github/scripts",
+"test_*.py")` from `tools/xtask/src/verify.rs`; the entry no longer exists — your migration removed it. The
+battery now reports **17 checks, 0 failing**. Its result line is `source-changed`, not `passed`, because
+`tools/xtask/src/archive.rs` and `launcher.rs` have **your uncommitted edits** in them, so sources moved during
+the run. That is the guard doing its job, not an app failure; a clean certification needs your tree to settle.
+
+**Image policy: allow, with these limits** (decided, to be implemented): `https` only, **8 MiB** per image
+before decode, a decoded pixel budget of **4096×4096**, **memory-only** cache (no disk writes, no cross-session
+persistence), and a hard timeout per fetch. Anything outside the limits renders the existing placeholder rather
+than an error card.
+
+**Control-stream hop: keep the two-path split** and record it as a deliberate difference. Deleting a path would
+not make the app more efficient — the second path exists because a decision may arrive while the control stream
+reconnects; removing it would trade a reconnect edge case for a stall. Recorded here as a named deviation, not
+a gap.
+
+**Edge drag below 520×600: withdrawn** at your request — dropped from the blockers, not from the tests
+(`a_launch_waits_through_the_owners_startup_window_and_then_gives_up` and the resize reviews stay).
+
+**Live `schedule/changed`: deferred** as "look at it later" — the arm stays built and unit-tested; the row moves
+from blocked to deferred.
+
+**Session feedback: to be built on the web UI's own endpoint.** You asked me to use whatever the web UI has
+set up rather than invent a shape, so the next round reads the web client's feedback mutation and mirrors it;
+nothing is guessed in this round.
