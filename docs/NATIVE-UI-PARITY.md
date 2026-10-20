@@ -17684,3 +17684,30 @@ budget, memory-only cache, timeout), sniff PNG/JPEG, and hand the bytes to the d
 
 **Nothing committed beyond this note**, because there is no honest code to write against a route that does
 not exist; adding a fetch path with no source would be dead code and a 22nd warning.
+
+### Round 644 — Session feedback: the contract the web UI actually uses
+
+**Found, not invented.** The web UI records session-level feedback through a Host Remote, not a bespoke
+endpoint:
+
+- Remote and method: **`sessionFeedback.record`** (`packages/api/remotes/src/client/index.ts:21`,
+  `packages/client/ui-message-feedback/src/client/surface.ts:33-35`).
+- Request (`SessionFeedbackRecordRequest`, `packages/feedback/command-feedback/src/types.ts:45-53`):
+  `sessionId`, optional `text` (surrounding whitespace removed; blank recorded as absent), optional
+  `category`.
+- Categories (`FeedbackCategory`, same file): `task-result`, `instruction-following`, `product-interaction`,
+  `service-stability`, `resource-cost`, `security-privacy-permission`, `other`.
+- Result: `{ ok: true, value: { recorded: true } }`, or `{ ok: false, error: { code: 'session-not-found',
+  sessionId } }`.
+- Effect: a `feedback/record` **Session event** (log-only; never enters model context), which is why the
+  reference keeps `/feedback <text>` as the typed-remark path alongside the dialog.
+
+**Why this settles the item.** Native already sends `/feedback <text>` through the Host command path, so the
+typed remark is at parity; what is missing is the *dialog* with categories posting to `sessionFeedback.record`.
+The native side is now a small job with a known shape: a transport call `sessionFeedback/record` posting
+`{ sessionId, text?, category? }`, the existing per-message feedback dialog reused for a session-level entry,
+the seven categories as the chip row, and a test pinning `recorded: true` and the `session-not-found` branch.
+
+**Nothing guessed:** the path the native BFF uses is `/api/<remote>/<method>`, matching the transport's
+existing per-message feedback routes; the next round confirms it against the Host and lands the call with its
+tests.
