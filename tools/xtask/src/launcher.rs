@@ -538,6 +538,196 @@ pub fn acquire_state(data: &Path, marker: &serde_json::Value) -> Result<Held, St
     result
 }
 
+/// Parsed launcher options, mirroring the shipped command line.
+#[derive(Default)]
+pub struct Options {
+    pub workspace: String,
+    pub runtime: Option<String>,
+    pub user_home: Option<String>,
+    pub data_home: Option<String>,
+    pub node: Option<String>,
+    pub scale: f64,
+    pub check: bool,
+    pub qualify_evidence: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct Plan {
+    pub argv: Vec<String>,
+    pub env: BTreeMap<String, String>,
+    pub data: PathBuf,
+    pub marker: serde_json::Value,
+    pub state: State,
+    pub node_version: String,
+    pub node_mode: &'static str,
+}
+
+fn canonical_dir(path: &Path) -> Option<PathBuf> {
+    let resolved = path.canonicalize().ok()?;
+    resolved.is_dir().then_some(resolved)
+}
+
+fn empty_private(path: &Path) -> bool {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let Ok(info) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    if !info.is_dir()
+        || info.uid() != unsafe { libc::geteuid() }
+        || info.permissions().mode() & 0o777 != 0o700
+    {
+        return false;
+    }
+    std::fs::read_dir(path)
+        .map(|mut entries| entries.next().is_none())
+        .unwrap_or(false)
+}
+
+/// Validate every prerequisite and produce the native argv and environment.
+pub fn plan(
+    options: &Options,
+    root: &Path,
+    inherited: &BTreeMap<String, String>,
+) -> Result<Plan, String> {
+    let (manifest, binary) = package(root)?;
+    let home = options
+        .user_home
+        .clone()
+        .or_else(|| inherited.get("HOME").cloned())
+        .unwrap_or_default();
+    let user = canonical_dir(&absolute(&home)?)
+        .ok_or("User home and workspace must be existing directories")?;
+    let workspace = canonical_dir(&absolute(&options.workspace)?)
+        .ok_or("User home and workspace must be existing directories")?;
+    let Some(runtime_arg) = options.runtime.as_deref() else {
+        return Err("This package requires an explicit isolated alpha --runtime".into());
+    };
+    let runtime = canonical_dir(&absolute(runtime_arg)?)
+        .ok_or("Only the explicit isolated alpha CLI runtime is supported")?;
+    let runtime_manifest: serde_json::Value = private_read(&runtime.join("package.json"), 65536)
+        .ok()
+        .and_then(|body| serde_json::from_slice(&body).ok())
+        .ok_or("Only the explicit isolated alpha CLI runtime is supported")?;
+    if runtime_manifest["name"].as_str() != Some("@deepseek-ai/dsh")
+        || runtime_manifest["version"].as_str() != Some(VERSION)
+        || !runtime.join("lib/bin.js").is_file()
+    {
+        return Err("Only the explicit isolated alpha CLI runtime is supported".into());
+    }
+    let data_raw = match &options.data_home {
+        Some(value) => absolute(value)?,
+        None => user.join(".local/share").join(format!(
+            "dsh-native-dev-{}",
+            manifest["nativeSha256"]
+                .as_str()
+                .unwrap_or_default()
+                .get(..12)
+                .unwrap_or_default()
+        )),
+    };
+    if std::fs::symlink_metadata(&data_raw).is_ok_and(|info| info.file_type().is_symlink()) {
+        return Err("Native data directory must not be a symlink".into());
+    }
+    let data = data_raw.canonicalize().unwrap_or(data_raw.clone());
+    let mut forbidden = vec![user.join(".dsh"), root.to_path_buf(), runtime.clone()];
+    if let Some(home) = inherited.get("DSH_HOME") {
+        forbidden.push(
+            absolute(home)?
+                .canonicalize()
+                .unwrap_or_else(|_| PathBuf::from(home)),
+        );
+    }
+    let local_share = user.join(".local/share");
+    if data == Path::new("/")
+        || data == user
+        || data == local_share
+        || data == local_share.join("dsh")
+        || forbidden.iter().any(|path| overlaps(&data, path))
+        || user.starts_with(&data)
+    {
+        return Err("Native data overlaps protected installation or storage".into());
+    }
+    if !options.scale.is_finite() || !(0.75..=2.0).contains(&options.scale) {
+        return Err("Scale must be between 0.75 and 2.0".into());
+    }
+    let marker = marker_for(&manifest);
+    let state = inspect_state(&data, &marker)?;
+    let env = environment(&user, inherited, !options.check)?;
+    let node = selected_node(options.node.as_deref())?;
+    let node_version = probe_node(&environment(&user, inherited, false)?, Some(&node))?;
+    let mut argv = vec![
+        binary.to_string_lossy().into_owned(),
+        "--runtime".into(),
+        runtime.to_string_lossy().into_owned(),
+        "--expected-version".into(),
+        VERSION.into(),
+        "--home".into(),
+        data.join("host").to_string_lossy().into_owned(),
+        "--user-home".into(),
+        user.to_string_lossy().into_owned(),
+        "--cwd".into(),
+        workspace.to_string_lossy().into_owned(),
+        "--scale".into(),
+        options.scale.to_string(),
+    ];
+    if options.node.is_some() {
+        argv.push("--node".into());
+        argv.push(node.to_string_lossy().into_owned());
+    }
+    if let Some(evidence_arg) = &options.qualify_evidence {
+        if options.check
+            || options.data_home.is_none()
+            || options.user_home.is_none()
+            || state != State::New
+        {
+            return Err(
+                "Qualification requires explicit fresh data and user homes, not --check".into(),
+            );
+        }
+        let evidence = canonical_dir(&absolute(evidence_arg)?)
+            .ok_or("Qualification requires separate owned private empty evidence, workspace and user directories")?;
+        if [&evidence, &workspace, &user]
+            .iter()
+            .any(|path| !empty_private(path))
+            || overlaps(&evidence, &data)
+            || [&workspace, &user].iter().any(|path| {
+                std::fs::read_dir(path)
+                    .map(|mut d| d.next().is_some())
+                    .unwrap_or(true)
+            })
+        {
+            return Err("Qualification requires separate owned private empty evidence, workspace and user directories".into());
+        }
+        argv.extend([
+            "--smoke-new-session".into(),
+            "--exit-after-seconds".into(),
+            "8".into(),
+            "--smoke-evidence-root".into(),
+            evidence.to_string_lossy().into_owned(),
+            "--smoke-report".into(),
+            evidence.join("app.json").to_string_lossy().into_owned(),
+            "--smoke-screenshot".into(),
+            evidence
+                .join("own-window.png")
+                .to_string_lossy()
+                .into_owned(),
+        ]);
+    }
+    Ok(Plan {
+        argv,
+        env,
+        data,
+        marker,
+        state,
+        node_version,
+        node_mode: if options.node.is_some() {
+            "explicit-absolute"
+        } else {
+            "system-default"
+        },
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -796,5 +986,137 @@ mod acquire_tests {
         let other = serde_json::json!({"application": "other"});
         assert!(acquire_state(&data, &other).is_err());
         fs::remove_dir_all(base).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod plan_tests {
+    use super::*;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    struct Fixture {
+        base: PathBuf,
+        package: PathBuf,
+        runtime: PathBuf,
+        user: PathBuf,
+        workspace: PathBuf,
+        node: PathBuf,
+    }
+
+    fn fixture() -> Fixture {
+        let base = crate::tempdir::make_temp_dir(&std::env::temp_dir(), "launcher-plan-").unwrap();
+        let package = base.join("package");
+        let bin = package.join("bin/dsh-native-app");
+        fs::create_dir_all(bin.parent().unwrap()).unwrap();
+        fs::write(&bin, b"PUBLIC native binary").unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        let digest = binary_digest(&bin).unwrap();
+        let manifest = serde_json::json!({
+            "application": APP, "runtimeVersion": VERSION, "architecture": "x86_64",
+            "runtimeMode": "external-explicit", "minimumGlibc": "2.0", "nativeSha256": digest,
+        });
+        fs::write(
+            package.join("development-manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        fs::set_permissions(
+            package.join("development-manifest.json"),
+            fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+        let runtime = base.join("runtime");
+        fs::create_dir_all(runtime.join("lib")).unwrap();
+        fs::write(
+            runtime.join("package.json"),
+            serde_json::to_vec(
+                &serde_json::json!({"name": "@deepseek-ai/dsh", "version": VERSION}),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        fs::set_permissions(
+            runtime.join("package.json"),
+            fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+        fs::write(runtime.join("lib/bin.js"), b"// PUBLIC").unwrap();
+        let user = base.join("user");
+        let workspace = base.join("workspace");
+        fs::create_dir(&user).unwrap();
+        fs::create_dir(&workspace).unwrap();
+        let node = base.join("node");
+        fs::write(&node, b"#!/bin/sh\necho v26.1.2\n").unwrap();
+        fs::set_permissions(&node, fs::Permissions::from_mode(0o755)).unwrap();
+        Fixture {
+            base,
+            package,
+            runtime,
+            user,
+            workspace,
+            node,
+        }
+    }
+
+    fn options(fixture: &Fixture) -> Options {
+        Options {
+            workspace: fixture.workspace.to_string_lossy().into_owned(),
+            runtime: Some(fixture.runtime.to_string_lossy().into_owned()),
+            user_home: Some(fixture.user.to_string_lossy().into_owned()),
+            data_home: Some(fixture.base.join("data").to_string_lossy().into_owned()),
+            node: Some(fixture.node.to_string_lossy().into_owned()),
+            scale: 1.0,
+            check: true,
+            qualify_evidence: None,
+        }
+    }
+
+    #[test]
+    fn a_complete_prerequisite_set_produces_the_native_argv() {
+        let fixture = fixture();
+        let launched =
+            plan(&options(&fixture), &fixture.package, &BTreeMap::new()).expect("a valid plan");
+        assert_eq!(launched.node_version, "v26.1.2");
+        assert_eq!(launched.node_mode, "explicit-absolute");
+        assert_eq!(launched.state, State::New);
+        assert!(launched.argv.iter().any(|arg| arg == "--runtime"));
+        assert!(launched.argv.iter().any(|arg| arg.ends_with("data/host")));
+        assert_eq!(launched.env["HOME"], fixture.user.to_string_lossy());
+        // A scale outside the bound, a missing or foreign runtime, an overlapping
+        // data home and a qualification run in --check mode are refused.
+        let mut scaled = options(&fixture);
+        scaled.scale = 0.5;
+        assert_eq!(
+            plan(&scaled, &fixture.package, &BTreeMap::new()).unwrap_err(),
+            "Scale must be between 0.75 and 2.0"
+        );
+        let mut missing = options(&fixture);
+        missing.runtime = None;
+        assert!(plan(&missing, &fixture.package, &BTreeMap::new()).is_err());
+        fs::write(
+            fixture.runtime.join("package.json"),
+            serde_json::to_vec(&serde_json::json!({"name": "other", "version": VERSION})).unwrap(),
+        )
+        .unwrap();
+        assert!(plan(&options(&fixture), &fixture.package, &BTreeMap::new()).is_err());
+        fs::write(
+            fixture.runtime.join("package.json"),
+            serde_json::to_vec(
+                &serde_json::json!({"name": "@deepseek-ai/dsh", "version": VERSION}),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let mut overlap = options(&fixture);
+        overlap.data_home = Some(fixture.user.to_string_lossy().into_owned());
+        assert_eq!(
+            plan(&overlap, &fixture.package, &BTreeMap::new()).unwrap_err(),
+            "Native data overlaps protected installation or storage"
+        );
+        let mut qualified = options(&fixture);
+        qualified.qualify_evidence = Some(fixture.base.to_string_lossy().into_owned());
+        assert!(plan(&qualified, &fixture.package, &BTreeMap::new()).is_err());
+        fs::remove_dir_all(fixture.base).unwrap();
     }
 }
