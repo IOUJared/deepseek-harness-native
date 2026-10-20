@@ -1,6 +1,7 @@
 //! Prototype benchmark measurement: run owned targets or summarize finished runs.
 pub mod analyze;
 pub mod runner;
+pub mod slint;
 
 const USAGE: &str = "\
 usage: xtask bench <command>
@@ -14,6 +15,7 @@ pub fn run(arguments: &[String]) -> i32 {
     match arguments.first().map(String::as_str) {
         Some("run") => runner::run(&arguments[1..]),
         Some("analyze") => analyze::run(&arguments[1..]),
+        Some("scale") => slint::run(&crate::root()),
         Some("help" | "--help" | "-h") | None => {
             print!("{USAGE}");
             0

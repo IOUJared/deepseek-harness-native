@@ -31,6 +31,7 @@ file is the stage map; it is deleted with the last Python file.
 | Scroll-app probe | `app/qualify_scroll_app.py` | `xtask qualify scroll` |
 | Menu panes | `app/qualify_model_submenus.py` | `xtask qualify submenus` |
 | Control layout | `app/qualify_control_layout.py` | `xtask qualify control` (32 public captures + one real-keyless run) |
+| Slint scale | `benchmarks/slint/qualify-scale.py` | `xtask bench scale` (both renderers, sequential) |
 | App qualifier (root) | `scripts/qualify-native-app.py` | `xtask qualify app`: owned-tree sampling, per-thread CPU, pidfd identity guard, SIGINT/SIGTERM cleanup, compositor mapping proxy, keyless-idle medians. The Python file **stays** until its qualification dependents are ported |
 | Their guards | 4 Python test modules | 65 tests in `tools/xtask` (`src/*` units + `tests/cli.rs`) |
 | Entry point | `check.sh` → `python3` | `check.sh` → `cargo run -- verify` |
@@ -93,7 +94,6 @@ Deliberate differences, all measured against the Python originals:
 | `.github/scripts/*` | 4 | 387 | `xtask package` / `xtask publish`; `tar` + `flate2` are already dependencies, `gh` stays a child process |
 | `development-launcher.py` | 1 | 356 | **Shipped** as `launch.py` in the development package: a Rust `dsh-native-launch` binary replaces it, so the archive stops requiring Python 3.11+; update the archive verifier and install docs together |
 | `benchmarks/run.py` + `test_runner.py` | 2 | 417 | Deleted with the qualification family, whose scripts import the library; `xtask bench run` is already the replacement |
-| `benchmarks/slint/qualify-scale.py` | 1 | 116 | `xtask bench qualify-scale`; needs the standalone Slint prototype binary, so it was left until the main benchmark runner settled |
 
 Also outstanding, outside `*.py`: `core/src/process_tests.rs` spawns `/usr/bin/python3`
 as a forked fake-process tree for supervisor containment. It needs a small Rust
