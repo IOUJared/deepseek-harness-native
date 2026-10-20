@@ -4,6 +4,7 @@
 //! file copied into the release. These pieces are pure and testable without a GUI:
 //! absolute-path refusal, package overlap, the environment allow-list, the state
 //! marker and the Node 26 version line.
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -844,6 +845,130 @@ pub fn main(args: &[String], root: Option<&Path>) -> i32 {
     2
 }
 
+/// Copy a regular, non-symlinked source under a bound and refuse one that changes.
+pub fn copy_new(source: &Path, target: &Path, mode: u32, limit: u64) -> Result<(), String> {
+    use std::io::{Read, Write};
+    use std::os::unix::fs::MetadataExt;
+    let before = std::fs::symlink_metadata(source).map_err(|_| "Unexpected package source file")?;
+    if before.file_type().is_symlink() {
+        return Err("Source symlinks are not packaged".into());
+    }
+    if !before.file_type().is_file() || before.size() > limit {
+        return Err("Unexpected package source file".into());
+    }
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let mut reader = std::fs::File::open(source).map_err(|error| error.to_string())?;
+    let mut writer = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(target)
+        .map_err(|_| "Package target already exists".to_string())?;
+    let mut buffer = [0u8; 1024 * 1024];
+    loop {
+        let read = reader
+            .read(&mut buffer)
+            .map_err(|error| error.to_string())?;
+        if read == 0 {
+            break;
+        }
+        writer
+            .write_all(&buffer[..read])
+            .map_err(|error| error.to_string())?;
+    }
+    writer.sync_all().map_err(|error| error.to_string())?;
+    let after =
+        std::fs::symlink_metadata(source).map_err(|_| "Package source changed during snapshot")?;
+    if (
+        before.dev(),
+        before.ino(),
+        before.size(),
+        before.mtime(),
+        before.mtime_nsec(),
+        before.ctime(),
+        before.ctime_nsec(),
+    ) != (
+        after.dev(),
+        after.ino(),
+        after.size(),
+        after.mtime(),
+        after.mtime_nsec(),
+        after.ctime(),
+        after.ctime_nsec(),
+    ) {
+        return Err("Package source changed during snapshot".into());
+    }
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(target, std::fs::Permissions::from_mode(mode))
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn node_major_line(value: &Value) -> bool {
+    let Some(text) = value.as_str() else {
+        return true;
+    };
+    crate::launcher::parse_node_version(text.as_bytes()).is_ok()
+}
+
+/// Check the selected PUBLIC UI qualification; not signatures or all backend source.
+pub fn qualified_native(
+    path: &Path,
+    expected_digest: &str,
+    app_root: &Path,
+) -> Result<Value, String> {
+    if app_root
+        .symlink_metadata()
+        .is_ok_and(|info| info.file_type().is_symlink())
+    {
+        return Err("Native app root symlink refused".into());
+    }
+    let body = crate::launcher::private_read(path, 256 * 1024)
+        .map_err(|_| "Selected native qualification does not match this release")?;
+    let value: Value = serde_json::from_slice(&body)
+        .map_err(|_| "Selected native qualification does not match this release")?;
+    let tests_ok = [
+        "defaultAppTestsPassed",
+        "featureAppTestsPassed",
+        "fixtureExampleTestsPassed",
+    ]
+    .iter()
+    .all(|field| value[*field].as_i64().is_some_and(|count| count > 0));
+    let cases_ok = value["publicCases"].as_array().is_some_and(|cases| {
+        !cases.is_empty()
+            && cases.len() <= 128
+            && cases.iter().all(|case| {
+                case["passed"].as_bool() == Some(true) && case["exitCode"].as_i64() == Some(0)
+            })
+    }) && value["realKeyless"]["passed"].as_bool() == Some(true)
+        && value["realKeyless"]["exitCode"].as_i64() == Some(0);
+    let sources_ok = value["sourceSha256"].as_object().is_some_and(|sources| {
+        !sources.is_empty() && sources.len() <= 512 && sources.contains_key("src/ui.rs")
+    });
+    let format_ok = if value["formatCheckPassed"].as_bool() == Some(true) {
+        true
+    } else {
+        value["formatCheckPassed"].as_bool() == Some(false)
+            && value["scopedFormatCheck"]["passed"].as_bool() == Some(true)
+            && value["scopedFormatCheck"]["scope"].as_str() == Some("explicit-app-files")
+            && value["scopedFormatCheck"]["exitCode"].as_i64() == Some(0)
+    };
+    if value["scope"].as_str() != Some("native-control-layout-and-Harness-style-conversation")
+        || value["defaultReleaseSha256"].as_str() != Some(expected_digest)
+        || value["parentPaintInspectionComplete"].as_bool() != Some(true)
+        || value["checkAllTargetsFeaturePassed"].as_bool() != Some(true)
+        || !tests_ok
+        || !cases_ok
+        || !node_major_line(&value["systemNodeVersionObserved"])
+        || !sources_ok
+        || !format_ok
+    {
+        return Err("Selected native qualification does not match this release".into());
+    }
+    Ok(value)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1285,5 +1410,100 @@ mod entry_tests {
             ),
             2
         );
+    }
+}
+
+#[cfg(test)]
+mod packaging_tests {
+    use super::*;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn a_snapshot_copy_is_bounded_and_refuses_symlinks_and_existing_targets() {
+        let base = crate::tempdir::make_temp_dir(&std::env::temp_dir(), "package-copy-").unwrap();
+        let source = base.join("source.bin");
+        fs::write(&source, b"PUBLIC package payload").unwrap();
+        let target = base.join("out/source.bin");
+        copy_new(&source, &target, 0o600, 1024).expect("a bounded copy");
+        assert_eq!(fs::read(&target).unwrap(), b"PUBLIC package payload");
+        assert_eq!(
+            fs::symlink_metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        // An existing target is never overwritten.
+        assert!(copy_new(&source, &target, 0o600, 1024).is_err());
+        // A symlinked source and an over-limit source are refused.
+        std::os::unix::fs::symlink(&source, base.join("link.bin")).unwrap();
+        assert_eq!(
+            copy_new(
+                &base.join("link.bin"),
+                &base.join("out/link.bin"),
+                0o600,
+                1024
+            )
+            .unwrap_err(),
+            "Source symlinks are not packaged"
+        );
+        assert!(copy_new(&source, &base.join("out/big.bin"), 0o600, 4).is_err());
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    fn report() -> Value {
+        serde_json::json!({
+            "scope": "native-control-layout-and-Harness-style-conversation",
+            "defaultReleaseSha256": "a".repeat(64),
+            "parentPaintInspectionComplete": true,
+            "checkAllTargetsFeaturePassed": true,
+            "defaultAppTestsPassed": 10,
+            "featureAppTestsPassed": 20,
+            "fixtureExampleTestsPassed": 5,
+            "publicCases": [{"passed": true, "exitCode": 0}],
+            "realKeyless": {"passed": true, "exitCode": 0},
+            "systemNodeVersionObserved": "v26.1.2",
+            "sourceSha256": {"src/ui.rs": "b".repeat(64)},
+            "formatCheckPassed": true,
+        })
+    }
+
+    fn qualified(base: &Path, value: &Value) -> Result<Value, String> {
+        let path = base.join("qualification.json");
+        fs::write(&path, serde_json::to_vec(value).unwrap()).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        qualified_native(&path, &"a".repeat(64), base)
+    }
+
+    #[test]
+    fn a_native_qualification_must_match_the_release_and_carry_its_evidence() {
+        let base = crate::tempdir::make_temp_dir(&std::env::temp_dir(), "package-qual-").unwrap();
+        assert!(qualified(&base, &report()).is_ok());
+        for (key, value) in [
+            ("defaultReleaseSha256", serde_json::json!("c".repeat(64))),
+            ("parentPaintInspectionComplete", serde_json::json!(false)),
+            ("defaultAppTestsPassed", serde_json::json!(0)),
+            ("formatCheckPassed", serde_json::json!(false)),
+            ("systemNodeVersionObserved", serde_json::json!("v25.1.0")),
+        ] {
+            let mut broken = report();
+            broken[key] = value;
+            assert!(qualified(&base, &broken).is_err(), "{key} was accepted");
+        }
+        // A missing app-source pin is refused.
+        let mut unpinned = report();
+        unpinned["sourceSha256"] = serde_json::json!({});
+        assert!(qualified(&base, &unpinned).is_err());
+        // A scoped format check is accepted only with its exact scope and exit code.
+        let mut scoped = report();
+        scoped["formatCheckPassed"] = serde_json::json!(false);
+        scoped["scopedFormatCheck"] =
+            serde_json::json!({"passed": true, "scope": "explicit-app-files", "exitCode": 0});
+        assert!(qualified(&base, &scoped).is_ok());
+        scoped["scopedFormatCheck"]["scope"] = serde_json::json!("all");
+        assert!(qualified(&base, &scoped).is_err());
+        // A failing public case is refused.
+        let mut failing = report();
+        failing["publicCases"] = serde_json::json!([{"passed": false, "exitCode": 1}]);
+        assert!(qualified(&base, &failing).is_err());
+        fs::remove_dir_all(base).unwrap();
     }
 }

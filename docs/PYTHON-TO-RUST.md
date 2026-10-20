@@ -128,6 +128,8 @@ Deliberate differences, all measured against the Python originals:
   session the port could not claim. The Python library stays until its last
   consumer is ported, so the two runners are a named, temporary duplication.
 
+| Development package | `scripts/build-development-package.py` (in progress) | Bounded snapshot copy and the native qualification gate are ported in `launcher`; the archive assembly, licenses and manifest remain |
+
 ## Remaining
 
 | Family | Files | Lines | Target |
