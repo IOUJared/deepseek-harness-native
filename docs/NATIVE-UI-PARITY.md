@@ -15848,6 +15848,7 @@ next round start.
 | A control-stream worker hop | the reference multiplexes control and decisions on one stream; native has two paths, so a decision can arrive while the control stream is reconnecting | confirm the two-path split is acceptable, or specify the merged contract |
 | One window-edge drag below 520×600 with a close-timing run | the edge-drag path needs a physical drag this environment cannot perform | run the drag and close it during the resize |
 | Live arrival of `schedule/changed` | the arm is built and unit-tested (round 541); no live session has delivered it | open Schedules, change a schedule from another client, watch the catalog reload |
+| The `release-guards` gate | `tools/xtask/src/verify.rs:334` still discovers `test_*.py` in `.github/scripts`, which the **finished** port stage deleted (`PYTHON-TO-RUST.md:132`); the battery is 16/18 because of it | delete that discovery entry (the move `app-guards` already made), or restore the directory — the file is the port's |
 
 ### Large, unbuilt, and not blocked
 
