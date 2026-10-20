@@ -206,6 +206,7 @@ pub enum Command {
     TerminalCreate(crate::terminal::CreateSubmission),
     TerminalClose(crate::terminal::CloseSubmission),
     TerminalRename(crate::terminal::RenameSubmission),
+    TerminalResize(crate::terminal::ResizeSubmission),
     TerminalWrite(crate::terminal::WriteSubmission),
     /// Read the app-owned MCP patch file and the live Host MCP inventory.
     McpRead(crate::mcp::ReadTicket),
@@ -425,6 +426,10 @@ pub enum Event {
         submission: crate::terminal::CreateSubmission,
         result:
             Result<dsh_native_transport::terminal::WebTerminalInfo, crate::terminal::CreateFailure>,
+    },
+    TerminalResized {
+        submission: crate::terminal::ResizeSubmission,
+        result: Result<(), crate::terminal::ResizeOutcome>,
     },
     TerminalRenamed {
         submission: crate::terminal::RenameSubmission,
@@ -1217,6 +1222,10 @@ fn rejected(command: Command) -> Event {
             submission,
             result: Err(crate::terminal::RenameOutcome::NotSent),
         },
+        Command::TerminalResize(submission) => Event::TerminalResized {
+            submission,
+            result: Err(crate::terminal::ResizeOutcome::NotSent),
+        },
         Command::TerminalClose(submission) => Event::TerminalClosed {
             submission,
             result: Err(crate::terminal::CloseFailure::NotSent),
@@ -1824,6 +1833,27 @@ async fn terminal_create(
     Event::TerminalCreated { submission, result }
 }
 /// Ask the Host to close the reviewed terminal. The app owns no process teardown.
+async fn terminal_resize(
+    client: dsh_native_transport::NativeClient,
+    submission: crate::terminal::ResizeSubmission,
+) -> Event {
+    use crate::terminal::ResizeOutcome;
+    use dsh_native_transport::Error;
+    let result = client
+        .terminal_resize(
+            &submission.receipt.ticket.target,
+            &submission.receipt.id,
+            &submission.receipt.attachment,
+            submission.receipt.cols,
+            submission.receipt.rows,
+        )
+        .await
+        .map_err(|error| match error {
+            Error::TerminalUnavailable => ResizeOutcome::Unavailable,
+            _ => ResizeOutcome::Unknown,
+        });
+    Event::TerminalResized { submission, result }
+}
 async fn terminal_rename(
     client: dsh_native_transport::NativeClient,
     submission: crate::terminal::RenameSubmission,
@@ -1886,6 +1916,7 @@ enum TerminalFlight {
     Create(crate::terminal::CreateSubmission),
     Close(crate::terminal::CloseSubmission),
     Rename(crate::terminal::RenameReceipt),
+    Resize(crate::terminal::ResizeReceipt),
 }
 /// Reserve the terminal flight, which shares the single session-management flight.
 fn admit_terminal(
@@ -2566,6 +2597,15 @@ async fn run(
                         }
                         continue;
                     },
+                    Command::TerminalResize(submission)=>{
+                        let flight=TerminalFlight::Resize(submission.receipt.clone());
+                        if submission.receipt.ticket.epoch==TRANSPORT_EPOCH && admit_terminal(&mut terminal_active,&flight,&Admission::new(smoke,*closing.borrow(),operations,flights)) {
+                            tasks.spawn(terminal_resize(client.clone(),submission));
+                        } else if !publish(&events,Event::TerminalResized{submission,result:Err(crate::terminal::ResizeOutcome::NotSent)}) {
+                            break Some("Native UI delivery queue overflow".into());
+                        }
+                        continue;
+                    },
                     Command::TerminalRename(submission)=>{
                         let flight=TerminalFlight::Rename(submission.receipt.clone());
                         if submission.receipt.ticket.epoch==TRANSPORT_EPOCH && admit_terminal(&mut terminal_active,&flight,&Admission::new(smoke,*closing.borrow(),operations,flights)) {
@@ -2654,6 +2694,7 @@ async fn run(
                 let client=client.clone();tasks.spawn(async move {match command {
                     Command::TerminalUnfollow=>Event::Fault("Terminal unfollow bypassed priority dispatch".into()),
                     Command::TerminalRename(_)=>Event::Fault("Terminal rename bypassed priority dispatch".into()),
+                    Command::TerminalResize(_)=>Event::Fault("Terminal resize bypassed priority dispatch".into()),
                     Command::PermissionCatalogRead=>Event::Fault("Permission catalog bypassed priority dispatch".into()),
                     Command::PermissionSettingsRead=>Event::Fault("Permission settings bypassed priority dispatch".into()),
                     Command::AgentPresetsRead=>Event::Fault("Agent presets bypassed priority dispatch".into()),

@@ -51,6 +51,15 @@ pub enum CreateFailure {
     NotSent,
     Unknown,
 }
+/// Redacted resize outcome: only the Host's ACK states the applied dimensions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResizeOutcome {
+    Resized,
+    Unavailable,
+    NotSent,
+    Unknown,
+}
+
 /// Redacted rename outcome: only the Host's ACK is a title authority.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RenameOutcome {
@@ -122,6 +131,21 @@ pub struct CloseReceipt {
     pub id: WebTerminalId,
     pub attempt: u64,
 }
+/// One admitted resize, fenced to the panel's writable attachment.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResizeSubmission {
+    pub receipt: ResizeReceipt,
+}
+/// A resize the panel reviewed and admitted. The Host applies it to the attached PTY; the panel
+/// does not resize anything itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResizeReceipt {
+    pub ticket: Ticket,
+    pub id: WebTerminalId,
+    pub attachment: TerminalAttachmentId,
+    pub cols: u64,
+    pub rows: u64,
+}
 /// A rename the panel reviewed and admitted: the Host's ACK is the only title authority.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RenameReceipt {
@@ -154,6 +178,14 @@ pub struct Review {
 pub struct CloseReview {
     pub ticket: Ticket,
     pub id: WebTerminalId,
+}
+/// One reviewed resize: the terminal it targets and the dimensions being requested.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResizeReview {
+    pub ticket: Ticket,
+    pub id: WebTerminalId,
+    pub cols: u64,
+    pub rows: u64,
 }
 /// One reviewed rename: the terminal it targets and the title being edited.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -265,6 +297,12 @@ pub enum Notice {
     RenameFailed,
     RenamingIndeterminate,
     RenameNotSent,
+    ResizeReview,
+    Resizing,
+    Resized,
+    ResizeFailed,
+    ResizingIndeterminate,
+    ResizeNotSent,
     CloseFailed,
     ClosingIndeterminate,
     CloseNotSent,
@@ -287,6 +325,7 @@ pub enum Effect {
     Create(CreateSubmission),
     Close(CloseSubmission),
     Rename(RenameSubmission),
+    Resize(ResizeSubmission),
     Write(WriteSubmission),
 }
 
@@ -448,6 +487,18 @@ pub enum Action {
     EditRename { ticket: Ticket, title: String },
     /// Confirm the reviewed rename: one Host write, never retried.
     ConfirmRename(RenameReview),
+    /// Enter the resize review for one listed terminal.
+    ReviewResize { ticket: Ticket, id: WebTerminalId },
+    /// Leave the resize review without writing.
+    BackResize(Ticket),
+    /// Edit the reviewed dimensions.
+    EditResize {
+        ticket: Ticket,
+        cols: u64,
+        rows: u64,
+    },
+    /// Confirm the reviewed resize: one Host PTY update, never retried.
+    ConfirmResize(ResizeReview),
 }
 pub struct Context {
     pub view: Option<View>,
@@ -488,6 +539,8 @@ pub struct Terminal {
     close_review: Option<CloseReview>,
     rename_review: Option<RenameReview>,
     rename_pending: Option<RenameReceipt>,
+    resize_review: Option<ResizeReview>,
+    resize_pending: Option<ResizeReceipt>,
     close_pending: Option<CloseReceipt>,
     write_pending: Option<WriteReceipt>,
     notice: Notice,
@@ -521,6 +574,8 @@ impl Default for Terminal {
             close_review: None,
             rename_review: None,
             rename_pending: None,
+            resize_review: None,
+            resize_pending: None,
             close_pending: None,
             write_pending: None,
             notice: Notice::None,
@@ -627,6 +682,20 @@ impl Terminal {
     pub fn review_rename(&self) -> Option<&RenameReview> {
         self.rename_review.as_ref()
     }
+    /// The resize review, when one is open.
+    pub fn review_resize(&self) -> Option<&ResizeReview> {
+        self.resize_review.as_ref()
+    }
+    #[cfg(test)]
+    pub fn resize_pending(&self) -> bool {
+        self.resize_pending.is_some()
+    }
+    /// The dimensions the Host advertised for this Session, when it advertised any.
+    pub fn dimension_bounds(&self) -> Option<(u64, u64)> {
+        self.environment
+            .as_ref()
+            .map(|environment| (environment.max_cols, environment.max_rows))
+    }
     #[cfg(test)]
     pub fn rename_pending(&self) -> bool {
         self.rename_pending.is_some()
@@ -648,6 +717,7 @@ impl Terminal {
         self.create_pending.is_some()
             || self.close_pending.is_some()
             || self.rename_pending.is_some()
+            || self.resize_pending.is_some()
     }
     pub fn notice(&self) -> &Notice {
         &self.notice
@@ -659,6 +729,7 @@ impl Terminal {
         self.create_review = None;
         self.close_review = None;
         self.rename_review = None;
+        self.resize_review = None;
         self.notice = Notice::None;
         let following = self.follow.is_some();
         self.stop_follow();
@@ -666,12 +737,15 @@ impl Terminal {
     }
     /// Fence late receipts after the transport generation is gone.
     pub fn disconnect(&mut self) {
+        let resizing = self.resize_pending.take().is_some();
         let renaming = self.rename_pending.take().is_some();
         let admitted = self.create_pending.take().is_some() || self.close_pending.take().is_some();
         let writing = self.write_pending.take().is_some();
         self.dismiss();
         if admitted {
             self.notice = Notice::CreatingIndeterminate;
+        } else if resizing {
+            self.notice = Notice::ResizingIndeterminate;
         } else if renaming {
             self.notice = Notice::RenamingIndeterminate;
         } else if writing {
@@ -1054,6 +1128,90 @@ impl Terminal {
                     review.title = title;
                 }
             }
+            Action::ReviewResize { ticket, id }
+                if self.current(&ticket, context)
+                    && !self.busy()
+                    && self.write_pending.is_none()
+                    && self.attached()
+                    && self.control() != Control::Elsewhere
+                    && self.list.iter().any(|info| info.id == id) =>
+            {
+                // The review opens on the dimensions the panel last asked for, so a resize that
+                // changes nothing is visible before Confirm.
+                let (cols, rows) = self
+                    .list
+                    .iter()
+                    .find(|info| info.id == id)
+                    .map(|info| (info.cols, info.rows))
+                    .unwrap_or((DEFAULT_COLS, DEFAULT_ROWS));
+                self.resize_review = Some(ResizeReview {
+                    ticket: ticket.clone(),
+                    id,
+                    cols,
+                    rows,
+                });
+                self.create_review = None;
+                self.close_review = None;
+                self.rename_review = None;
+                self.notice = Notice::ResizeReview;
+            }
+            Action::BackResize(ticket) if self.current(&ticket, context) => {
+                self.resize_review = None;
+                self.notice = Notice::None;
+            }
+            Action::EditResize { ticket, cols, rows }
+                if self.current(&ticket, context)
+                    && self
+                        .resize_review
+                        .as_ref()
+                        .is_some_and(|review| review.ticket == ticket) =>
+            {
+                if let Some(review) = self.resize_review.as_mut() {
+                    review.cols = cols;
+                    review.rows = rows;
+                }
+            }
+            Action::ConfirmResize(review)
+                if self.current(&review.ticket, context)
+                    && !self.busy()
+                    && self.write_pending.is_none()
+                    && self.resize_review.as_ref() == Some(&review) =>
+            {
+                let (Some(attachment), Some(info)) = (
+                    self.attachment.clone(),
+                    self.list.iter().find(|info| info.id == review.id),
+                ) else {
+                    self.notice = Notice::ResizeFailed;
+                    return None;
+                };
+                // The Host bounds the dimensions it advertised; a request outside them would be
+                // refused after the round trip, so it is refused here instead.
+                let (max_cols, max_rows) = self
+                    .environment
+                    .as_ref()
+                    .map(|environment| (environment.max_cols, environment.max_rows))
+                    .unwrap_or((DEFAULT_COLS, DEFAULT_ROWS));
+                if review.cols == 0
+                    || review.rows == 0
+                    || review.cols > max_cols
+                    || review.rows > max_rows
+                    || (review.cols == info.cols && review.rows == info.rows)
+                {
+                    self.notice = Notice::ResizeFailed;
+                    return None;
+                }
+                self.resize_review = None;
+                let receipt = ResizeReceipt {
+                    ticket: review.ticket.clone(),
+                    id: review.id.clone(),
+                    attachment,
+                    cols: review.cols,
+                    rows: review.rows,
+                };
+                self.resize_pending = Some(receipt.clone());
+                self.notice = Notice::Resizing;
+                return Some(Effect::Resize(ResizeSubmission { receipt }));
+            }
             Action::ConfirmRename(review)
                 if self.current(&review.ticket, context)
                     && !self.busy()
@@ -1357,6 +1515,34 @@ impl Terminal {
         {
             self.notice = notice;
         } else if matches!(self.notice, Notice::Renaming) {
+            self.notice = Notice::None;
+        }
+    }
+    /// Retire the exact resize receipt; adopt the dimensions only from the Host's acknowledgment.
+    pub fn finish_resize(&mut self, receipt: &ResizeReceipt, outcome: ResizeOutcome) {
+        if self.resize_pending.as_ref() != Some(receipt) {
+            return;
+        }
+        self.resize_pending = None;
+        let notice = match outcome {
+            ResizeOutcome::Resized => {
+                if let Some(info) = self.list.iter_mut().find(|info| info.id == receipt.id) {
+                    info.cols = receipt.cols;
+                    info.rows = receipt.rows;
+                }
+                Notice::Resized
+            }
+            ResizeOutcome::Unavailable => Notice::ResizeFailed,
+            ResizeOutcome::NotSent => Notice::ResizeNotSent,
+            ResizeOutcome::Unknown => Notice::ResizingIndeterminate,
+        };
+        if self
+            .panel
+            .as_ref()
+            .is_some_and(|panel| panel.ticket == receipt.ticket)
+        {
+            self.notice = notice;
+        } else if matches!(self.notice, Notice::Resizing) {
             self.notice = Notice::None;
         }
     }
@@ -2371,6 +2557,108 @@ mod tests {
                     .is_none()
             );
             assert_eq!(terminal.notice(), &Notice::RenameFailed, "{title:?}");
+        }
+    }
+
+    #[test]
+    fn a_resize_is_reviewed_bounded_and_installed_only_from_the_ack() {
+        let mut terminal = opened();
+        let attach = select(&mut terminal);
+        terminal.frame(
+            &attach,
+            TerminalFrame::State {
+                info: info("PUBLIC-terminal-1"),
+            },
+        );
+        let id = WebTerminalId::new("PUBLIC-terminal-1").unwrap();
+        let t = ticket(&terminal);
+        terminal.apply(
+            Action::ReviewResize {
+                ticket: t.clone(),
+                id: id.clone(),
+            },
+            &context(),
+        );
+        let review = terminal
+            .review_resize()
+            .cloned()
+            .expect("attached, so it reviews");
+        assert_eq!(
+            (review.cols, review.rows),
+            (80, 24),
+            "the review opens on the reported size"
+        );
+        // The dimensions are edited locally until Confirm.
+        terminal.apply(
+            Action::EditResize {
+                ticket: t.clone(),
+                cols: 120,
+                rows: 40,
+            },
+            &context(),
+        );
+        let review = terminal.review_resize().cloned().expect("still open");
+        let Some(Effect::Resize(submission)) =
+            terminal.apply(Action::ConfirmResize(review), &context())
+        else {
+            panic!("confirming a resize is one Host PTY update");
+        };
+        assert_eq!(
+            (submission.receipt.cols, submission.receipt.rows),
+            (120, 40)
+        );
+        assert!(terminal.resize_pending());
+        // The reported size changes only from the ACK.
+        terminal.finish_resize(&submission.receipt, ResizeOutcome::Resized);
+        assert_eq!(
+            terminal
+                .list()
+                .iter()
+                .find(|info| info.id == id)
+                .map(|info| (info.cols, info.rows)),
+            Some((120, 40))
+        );
+        assert_eq!(terminal.notice(), &Notice::Resized);
+        assert!(!terminal.resize_pending());
+    }
+
+    #[test]
+    fn a_resize_of_zero_an_unchanged_size_or_beyond_the_limits_is_refused() {
+        let mut terminal = opened();
+        let attach = select(&mut terminal);
+        terminal.frame(
+            &attach,
+            TerminalFrame::State {
+                info: info("PUBLIC-terminal-1"),
+            },
+        );
+        let id = WebTerminalId::new("PUBLIC-terminal-1").unwrap();
+        let t = ticket(&terminal);
+        for (cols, rows) in [(0, 24), (80, 0), (80, 24), (501, 24), (80, 1001)] {
+            terminal.apply(
+                Action::ReviewResize {
+                    ticket: t.clone(),
+                    id: id.clone(),
+                },
+                &context(),
+            );
+            terminal.apply(
+                Action::EditResize {
+                    ticket: t.clone(),
+                    cols,
+                    rows,
+                },
+                &context(),
+            );
+            let review = terminal.review_resize().cloned().expect("open");
+            assert!(
+                terminal
+                    .apply(Action::ConfirmResize(review), &context())
+                    .is_none(),
+                "{cols}x{rows} was admitted"
+            );
+            assert_eq!(terminal.notice(), &Notice::ResizeFailed, "{cols}x{rows}");
+            assert!(!terminal.resize_pending());
         }
     }
 

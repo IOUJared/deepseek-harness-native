@@ -7090,6 +7090,17 @@ impl App {
                     self.command(Command::TerminalFollow(applied.follow));
                 }
             }
+            Event::TerminalResized { submission, result } => {
+                use crate::terminal::ResizeOutcome;
+                let outcome = match result {
+                    Ok(()) => ResizeOutcome::Resized,
+                    Err(ResizeOutcome::Resized) => ResizeOutcome::Resized,
+                    Err(ResizeOutcome::Unavailable) => ResizeOutcome::Unavailable,
+                    Err(ResizeOutcome::NotSent) => ResizeOutcome::NotSent,
+                    Err(ResizeOutcome::Unknown) => ResizeOutcome::Unknown,
+                };
+                self.terminal.finish_resize(&submission.receipt, outcome);
+            }
             Event::TerminalRenamed { submission, result } => {
                 use crate::terminal::RenameOutcome;
                 let outcome = match result {
@@ -8192,6 +8203,9 @@ impl App {
             }
             crate::terminal::Effect::Rename(submission) => {
                 self.command(Command::TerminalRename(submission))
+            }
+            crate::terminal::Effect::Resize(submission) => {
+                self.command(Command::TerminalResize(submission))
             }
             crate::terminal::Effect::Write(submission) => {
                 self.command(Command::TerminalWrite(submission))
@@ -19519,6 +19533,15 @@ impl App {
                     )
                     .size(10)
                     .width(Length::Fill),
+                    button("Resize…")
+                        .on_press_maybe(enabled.then_some(Message::Terminal(
+                            Action::ReviewResize {
+                                ticket: close.clone(),
+                                id: info.id.clone()
+                            }
+                        )))
+                        .style(design::ghost)
+                        .padding([6, 8]),
                     button("Rename…")
                         .on_press_maybe(enabled.then_some(Message::Terminal(
                             Action::ReviewRename {
@@ -19571,6 +19594,79 @@ impl App {
                                     }
                                 )))
                             ),
+                    ]
+                    .spacing(8),
+                );
+        }
+        if let Some(review) = self.terminal.review_resize() {
+            // The manual substitute for the reference's fit-to-pane: the Host bounds the request,
+            // so the field states the limits instead of parsing anything the Host would refuse.
+            let (max_cols, max_rows) = self
+                .terminal
+                .dimension_bounds()
+                .unwrap_or((crate::terminal::DEFAULT_COLS, crate::terminal::DEFAULT_ROWS));
+            let mut cols = review.cols.to_string();
+            cols.truncate(6);
+            let mut rows = review.rows.to_string();
+            rows.truncate(6);
+            body = body
+                .push(
+                    label(
+                        format!(
+                            "Resize {}: columns 1–{max_cols}, rows 1–{max_rows}. The Host refuses a size it never advertised.",
+                            short(review.id.as_str(), 24)
+                        ),
+                        MUTED,
+                    )
+                    .size(11),
+                )
+                .push(
+                    row![
+                        text_input("Columns", &cols)
+                            .id("native-terminal-resize-cols")
+                            .on_input_maybe(enabled.then_some({
+                                let ticket = ticket.clone();
+                                let rows = review.rows;
+                                move |text: String| {
+                                    Message::Terminal(Action::EditResize {
+                                        ticket: ticket.clone(),
+                                        cols: text.trim().parse().unwrap_or(0),
+                                        rows,
+                                    })
+                                }
+                            }))
+                            .style(design::field)
+                            .padding(8)
+                            .size(12)
+                            .width(Length::FillPortion(1)),
+                        text_input("Rows", &rows)
+                            .id("native-terminal-resize-rows")
+                            .on_input_maybe(enabled.then_some({
+                                let ticket = ticket.clone();
+                                let cols = review.cols;
+                                move |text: String| {
+                                    Message::Terminal(Action::EditResize {
+                                        ticket: ticket.clone(),
+                                        cols,
+                                        rows: text.trim().parse().unwrap_or(0),
+                                    })
+                                }
+                            }))
+                            .style(design::field)
+                            .padding(8)
+                            .size(12)
+                            .width(Length::FillPortion(1)),
+                    ]
+                    .spacing(8),
+                )
+                .push(
+                    row![
+                        button("Back").style(design::ghost).on_press_maybe(
+                            enabled.then_some(Message::Terminal(Action::BackResize(ticket.clone())))
+                        ),
+                        button("Confirm resize").style(design::primary).on_press_maybe(
+                            enabled.then_some(Message::Terminal(Action::ConfirmResize(review.clone())))
+                        ),
                     ]
                     .spacing(8),
                 );
@@ -19825,6 +19921,26 @@ impl App {
             )
             .size(11),
             Notice::CloseNotSent => label("Worker queue rejected the close: not sent.", DANGER).size(11),
+            Notice::ResizeReview => {
+                label("Review the dimensions, then Confirm resize.", MUTED).size(11)
+            }
+            Notice::Resizing => label(
+                "Resize admitted. The Host applies it to the attached PTY; the panel shows the acknowledged size only.",
+                ACCENT,
+            )
+            .size(11),
+            Notice::Resized => label("Host confirmed the new terminal size.", ACCENT).size(11),
+            Notice::ResizeFailed => label(
+                "The Host refused the resize, or the dimensions were zero, outside the Host's limits, or unchanged. No automatic retry.",
+                DANGER,
+            )
+            .size(11),
+            Notice::ResizingIndeterminate => label(
+                "Resize outcome unknown: the PTY may or may not have changed size. Refresh to read it again.",
+                DANGER,
+            )
+            .size(11),
+            Notice::ResizeNotSent => label("Worker queue rejected the resize: not sent.", DANGER).size(11),
             Notice::RenameReview => {
                 label("Review the new title, then Confirm rename.", MUTED).size(11)
             }

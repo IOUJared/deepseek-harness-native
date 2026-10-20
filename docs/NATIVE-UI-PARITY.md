@@ -6418,7 +6418,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Workspace browser: grouped/animated rows, drag order, per-row menus | difference: workspace filter + navigation sheet |
 | Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory; the app's Host serves browse, so Browse… falls back to the in-app list and `pick` reports unavailable) |
 | Workflow-run surface | cloned (folded `tool-workflow/*` card, five run states including the round-525 `Interrupted` for a stoppless run in a closed turn; a closed step alone does not interrupt, a named limit) |
-| Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, shell discovery with a remembered preference, output bounds. The xterm screen, resize, retain and a docked multi-terminal tab remain recorded as unbuilt in `docs/NATIVE-TERMINAL.md`. |
+| Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, **reviewed resize (round 540)**, shell discovery with a remembered preference, output bounds. The xterm screen, automatic fit-to-pane, retain and a docked multi-terminal tab remain recorded as unbuilt in `docs/NATIVE-TERMINAL.md`. |
 | Dockkit layout presets | difference: native fixed layout with its own preferences |
 | Locales (zh/en) | difference: English-only |
 
@@ -15401,4 +15401,48 @@ is open — the second draft confirmed a review it had not edited, and the test 
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-0likyacz`) |
 | core / JS | — | **not re-run**: neither crate changed this round (core last 115, JS 419/0) |
 | DP-2 capture | — | `shots/333-terminal-rename.png`, `status: passed`, 1200x900 |
+| app bin | — | **21** warnings |
+
+### Round 540 — the terminal can be resized
+
+**The gap.** `docs/NATIVE-TERMINAL.md` recorded in-panel resize as unbuilt, and the panel always asked
+for an `80×24` PTY. The Host serves `terminal/resize` (bounded by the limits it advertises), and the
+transport already carried `terminal_resize` with `validate_dimensions`; nothing above the transport
+reached it.
+
+**The change.** The model gains a resize review (`ReviewResize`, `BackResize`, `EditResize`,
+`ConfirmResize`) opened on the size the Host reports for the selected terminal, editable within the
+limits the Host advertised, refused locally for zero, out-of-bounds or unchanged dimensions, with
+`ResizeReceipt`/`ResizeSubmission` fenced to the panel's writable attachment and `finish_resize`
+adopting the size only from the Host's ACK. The worker gains `Command::TerminalResize` on the shared
+terminal flight and `Event::TerminalResized`; the panel draws `Resize…` per row with a review row of two
+labelled fields, Back and Confirm resize. `busy()`, dismiss, the disconnect fence and the smoke
+example's command-kind match learned the new flight.
+
+**Deliberate difference, recorded.** The reference's terminal **fits to its pane automatically** through
+the emulator it mounts; native has no screen to fit, so resize is an explicit reviewed control. The
+reference's continuous fit therefore remains unbuilt; the ability to change the PTY size does not.
+
+**Frame.** `shots/334-terminal-resize.png` (1200x900, new `terminal-resize` preset): the row reading
+`Resize… · Rename… · Close…`, the review line "Resize PUBLIC-terminal-1: columns 1–80, rows 1–24. The
+Host refuses a size it never advertised.", fields holding `72` and `18`, `Back` / `Confirm resize`, and
+the notice "Review the dimensions, then Confirm resize." The first seeds used out-of-bounds sizes
+(120x40, then 100x20) and were corrected before the frame was kept.
+
+**Tests.** `a_resize_is_reviewed_bounded_and_installed_only_from_the_ack` (an attached panel reviews the
+reported size, edits it, emits exactly one Host update, and adopts the size only from the ACK) and
+`a_resize_of_zero_an_unchanged_size_or_beyond_the_limits_is_refused` (0 columns, 0 rows, the unchanged
+size, over-limit columns and over-limit rows each refused locally).
+
+**Battery (round 540).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1546 passed**, 1 ignored |
+| app, default | **0** | **1490 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-g7gt43v7`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-2b0ghyrc`) |
+| transport / core / JS | — | transport unchanged this round (last **60** + 17 + 91 + 7); core and JS unchanged (115, 419/0) |
+| DP-2 capture | — | `shots/334-terminal-resize.png`, `status: passed`, 1200x900 |
 | app bin | — | **21** warnings |
