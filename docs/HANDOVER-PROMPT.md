@@ -8,8 +8,8 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 ## The prompt
 
 > Continue the native UI clone of the DeepSeek Harness web UI in
-> `/home/jared/Documents/deepseek-harness/default-workspace/deepseek-harness-native` (branch `main`,
-> local commits only, no push, no PR, no publish).
+> `/home/jared/Documents/deepseek-harness/default-workspace/deepseek-harness-native` (branch `main`;
+> parity commits and pushes to `main` are authorized — no PR, no publish).
 >
 > **Goal** (create it with the goal tool, `max_goal_rounds` 200): *Close the remaining native-clone gaps
 > one commit at a time, reference-first, with tests, DP-2 captures and full gates, recording user-only
@@ -22,16 +22,21 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > (pinned `c6044cc50b`). Cite it as `file:line` in code comments and round notes.
 >
 > ### Last five rounds, so the next session starts oriented
-> - 623–625: the cursor's index was proved by test (`display_paint` returns rows **and** cursor from one
->   pass; `display_styled` delegates and still trims for text) after the frame exposed a dual-source bug.
-> - 626: **the cursor is painted** — `shots/353-terminal-cursor.png` shows the block; fixture 1581, default
->   1525, 21 warnings.
-> - 627: full battery 16/18 with both release artifacts rebuilt — `wayland-drops` (hardware) and
->   `release-guards` (leftover entry for a ported stage) only.
-> - Terminal screen: protocol complete plus ECH, scroll up/down, cursor save/restore (both spellings),
->   scrollback erase and bold cancellation (605–610), all under a fifteen-case bounded-join guard.
-> - Only app item left: the **terminal panel three-builder rewrite** (`terminal_header` / `terminal_output` /
->   `terminal_footer`), specified in the round-572 note and unbuilt.
+> - 666: **the Session-row hover preview** — 800ms dwell, 200ms grace, a non-modal beside overlay that
+>   never captures input outside the card; frame `365`.
+> - 667: the created-task card follows its catalog task (`Deleted` after deletion, current title/rule
+>   while present); frame `366`.
+> - 668: that card now renders on the **Turn tail** outside the process fold, not inside the call's seat;
+>   frame `367`.
+> - 669: a combining mark **composes onto its base cell** (bounded at 16 per cell); frame `368`.
+> - 670: the round-551 "what is left" tables were re-audited against source and replaced; the handover
+>   was refreshed. Nothing in the old blocked table was still blocked except the canvas-dial approval.
+>
+> **Current remainder** (see `docs/NATIVE-UI-PARITY.md`, "What is left"): terminal `terminal/retain` +
+> a docked tab strip; the `schedule_create` expanded-details row; the workspace "Open in app" header
+> control. Blocked on the user: the canvas-dial dependency approval and the deferred live
+> `schedule/changed` observation. Baselines: fixture **1600** / default **1544**, 21 warnings, battery
+> 17/17 (`verification-526912410ae0`).
 
 ---
 
@@ -39,5 +44,6 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 
 - Refresh the baselines, shot number and backlog after every verification sweep; a stale handover costs the
   next session a round of re-discovery.
-- The last sweep that mattered (round 129) found two stale coverage rows rather than code drift — the
-  coverage table is the part most likely to rot.
+- Round 670 found the remainder tables a full clone-generation out of date (image thumbnails, session
+  feedback and the terminal split were still listed as blocked). Re-read every "blocked/unbuilt" row
+  against source before trusting it; the tables are the part most likely to rot.

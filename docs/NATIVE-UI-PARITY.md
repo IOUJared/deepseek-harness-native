@@ -15832,49 +15832,62 @@ is why it now accepts exactly the one connection a launch makes.)
 
 The historical flake stays recorded as unexplained; the window it pointed at is closed.
 
-## What is left, and what would clear it (written in round 551)
+## What is left, and what would clear it (re-audited in round 670)
 
-Every gap below is either **large enough to need its own round series** or **blocked on something only
-the user has**. Nothing here is waiting on a question; each row names the exact step that would let the
-next round start.
+The round-551 tables had rotted: they still listed image thumbnails, session feedback, the terminal
+split and the sidebar schedule marks as blocked or unbuilt after rounds 651–669 shipped them. That
+section is replaced with this measured state. Nothing below is waiting on a question; each row names
+the exact step that would let the next round start.
 
-**State at round 641 — every app-side item is closed, so this table is the whole remainder.**
-`terminal_header` / `terminal_output` / `terminal_footer` are extracted (`69f6d19`, `c283639`, `a0548c5`),
-the cursor is painted from one render pass (`9651d22`, framed in `356`/`357`), the screen protocol is
-complete with its fifteen-case hostile-input guard, and the suites are at fixture **1581** / default **1525**
-with **21** real warnings. The battery is **16/18**: `wayland-drops` needs a real seat, and `release-guards`
-is the one-line leftover from the finished port stage. Nothing else in this repo is unbuilt.
+**State at round 670.** Suites at fixture **1600** / default **1544** with **1** ignored each and **21**
+real warnings; the full battery is **17/17 (`verification-526912410ae0`).** The row's active-task clock
+(664), WebP (665), the row hover card (666), created-task reconciliation and its Turn-tail placement
+(667–668), and combining marks (669) all shipped and were framed.
 
 ### Blocked on a user action
 
 | item | why it is blocked | the step that clears it |
 | --- | --- | --- |
-| Context-ring dial (the reference's canvas ring) | native draws the ring as a text reading; the dial needs iced's `canvas` feature, a new dependency | approve the `canvas` feature (or a canvas-free dial) |
-| Image thumbnails in the attach rail and in replies | the reference decodes and paints images from its own fetch; native has no image fetch/decode policy, and adding one changes what the app may do on the network | decide the fetch policy (allow/deny, size bound, cache) |
-| Session-level feedback | the Host serves per-message feedback routes only; a session-level dialog has no route | add or point at a Host `feedback/session` route |
-| A control-stream worker hop | the reference multiplexes control and decisions on one stream; native has two paths, so a decision can arrive while the control stream is reconnecting | confirm the two-path split is acceptable, or specify the merged contract |
-| One window-edge drag below 520×600 with a close-timing run | the edge-drag path needs a physical drag this environment cannot perform | run the drag and close it during the resize |
-| Live arrival of `schedule/changed` | the arm is built and unit-tested (round 541); no live session has delivered it | open Schedules, change a schedule from another client, watch the catalog reload |
-| The `release-guards` gate | `tools/xtask/src/verify.rs:334` still discovers `test_*.py` in `.github/scripts`, which the **finished** port stage deleted (`PYTHON-TO-RUST.md:132`); the battery is 16/18 because of it | delete that discovery entry (the move `app-guards` already made), or restore the directory — the file is the port's |
+| Context-ring dial (the reference's canvas ring) | native renders the context meter as a text reading; the dial needs iced's `canvas` feature, and no dependency approval is recorded beyond `image`'s webp/gif features | approve the `canvas` feature (or confirm the text reading stands) |
+| Live arrival of `schedule/changed` | deferred by the user ("look at it later"); the arm is built and unit-tested (round 541), but no live Host has delivered the event in this environment | open Schedules in the app, change a schedule from another client, and watch the catalog reload |
+
+### Resolved, withdrawn or kept (do not re-ask)
+
+- **Image fetch/decode policy — decided** ("allow with limits") and implemented: inline bytes, 8 MiB,
+  4096-pixel budget, memory-only; PNG/JPEG/WebP/GIF decode and paint (rounds 651–665).
+- **Session-level feedback — built** (rounds 644–649) on the web client's own `sessionFeedback.record`.
+- **Window-edge drag below 520×600 — withdrawn** by the user; the resize reviews and the launch-wait
+  test stay.
+- **Control-stream worker hop — kept** as a deliberate two-path difference, not a gap.
+- **`release-guards` — gone** with the Python→Rust port; the battery is 17/17.
+- **`terminal/retain` — not attempted yet**, not blocked.
 
 ### Large, unbuilt, and not blocked
 
 | item | what exists | what the next round series needs |
 | --- | --- | --- |
-| The terminal screen | **complete as a native emulator core** (rounds 552–565): grid sized by the Host, redraw, erase, addressing, insert/delete, SGR colour, underline and background, two-column wide glyphs, combining marks take no column, wrapping and autowrap off, 2,000-line scrollback, alternate screen, scroll regions; output bounded to 400 chunks/128 KiB and 400 rendered rows, and every mutating action reviewed | **the panel, not the screen**: a true fill and a pinned footer at short heights need the three-builder rewrite specified in round 572; the reference's automatic fit-to-pane stays a deliberate difference (resize is a reviewed control), and `terminal/retain` + a docked tab strip remain unbuilt |
-| `terminal/retain` and a docked multi-terminal tab | the panel's own slice; retain exists in the Host for holding tabs open | a right-docked tab strip first, because retain only means something with tabs |
-| Schedules: sidebar marks, row hover card, turn cards, right-Sidebar tab | the page, history, edits, pickers, the header chip, the live reload, the sidebar row's active-task clock (round 664) and its row hover card with the task section (round 666) | schedule turn cards and the right-Sidebar tab. The marks were **not** blocked on `sessionListMetadata`: the reference projects the one `schedule/catalog` read that native already makes for the header (`session-schedule-state.ts:5-10, 73-82`) |
-| The right-Sidebar review tab | the deliverables sheet is a native surface | a deliberate second layout decision, recorded as such rather than built silently |
+| `terminal/retain` and a docked multi-terminal tab strip | the whole panel slice — list, follow, keys, create/close/rename/resize reviews, bounded output and the native screen — and the Host's `terminal/retain` (`api/terminal-controller/src/index.ts:193-204`) | a right-docked tab strip first, because retain only holds a terminal open for tabs; native sends no retain today |
+| The created task's expanded Tool-row details | the Turn-tail card matches (title, rule, `Deleted`) and the row states `Scheduled task · …`; expanding it shows the generic recorded-result body | the reference's structured details row for `schedule_create` (`ui-tool/src/client/tool/toolviews/details-row.tsx:78-84`, `details-card-model.ts:170`) instead of the raw result text |
+| Open the workspace in a desktop app | nothing in native; the reference has a header split button with the installed-app menu (`ui-open-in-app/src/client/index.ts:97-105`) over two plain Host routes (`host/open-in-app/src/shared.ts:10-26`) | transport reads `GET /open-in-app/apps` and posts `POST /open-in-app/open` `{app, path}`, then a header control with the remembered choice; icons may stay text (no icon fetch) |
+| The right-Sidebar review/task/document tabs | the full-page details panel is native's own surface | **deliberate difference**, recorded here rather than built silently |
 
 ### Named deliberate differences (not gaps)
 
-- Ctrl+Enter stays a plain send alias; the reference inverts its submission policy on it.
-- `Steer all` sits on the composer strip; the reference triggers it from an empty draft.
-- Search is a native Find bar; the reference leaves text search to the browser.
-- A send awaiting admission is a composer banner, not a queue row.
-- The split diff layout clips rather than mirroring with horizontal scroll.
-- A tool path is underlined, not a separate open link.
+- The reference's right Sidebar (document preview, review tab, task tab, skill inspect) → native's
+  full-page details panel; no PDF/Office renderers.
 - Rename and resize are reviewed controls; the reference's PTY fits its pane automatically.
+- Text glyphs stand in for drawn icons (`canvas`/lyon is a new dependency).
+- `@` and inline-code chips stay plain text: atomic decorations inside `text_editor` are not exposed.
+- The Settings shortcut/rename editor is read-only: the 0.14 editor has no selection/edit mutation.
+- English-only copy; the reference ships zh and en.
+- Fixed layout and native preferences; the reference's Dockkit presets are not reproduced.
+- The workspace list is time-grouped with a navigation sheet, not the reference's grouped browser.
+- Markdown math draws its source (no native typesetter) and a task item draws a box glyph.
+- A created task's expanded Tool row shows the recorded result text (the tail card matches).
+- Ctrl+Enter stays a plain send alias; `Steer all` sits on the composer strip; search is a native Find
+  bar; a send awaiting admission is a composer banner; the split diff clips rather than mirroring; a
+  tool path is underlined rather than a separate open link; the image card surface is `OVERLAY`, not
+  the reference's fixed `#2C2C2E`; the control stream keeps its two paths.
 
 ### Round 552 — a carriage return redraws its line instead of stacking a new one
 
@@ -18357,3 +18370,39 @@ than dropped.
 | transport | **0** | 62 + 17 + 91 + 7 passed |
 | app bin | — | **21** warnings (22 with the summary line) |
 | battery | **passed** | **17 checks, 0 failing** (`verification-526912410ae0`) |
+
+### Round 670 — the remainder tables are re-audited against source
+
+**The rot.** The round-551 section still described the clone as it stood hundreds of rounds ago:
+image thumbnails "blocked on a fetch policy" (shipped 651–665), session feedback "has no route" (shipped
+644–649), the terminal screen waiting on a three-builder rewrite (shipped 630–636), and the sidebar
+schedule marks waiting on `sessionListMetadata` (shipped 664, and the claim was wrong: the reference
+projects the one `schedule/catalog` read). Two of those rows had been corrected in later round notes but
+not in the table a new session reads first.
+
+**What the section says now.** A measured state line (fixture 1600 / default 1544, 21 warnings, 17/17),
+only the two genuine user-only rows (canvas-dial approval, the deferred live `schedule/changed`), a
+"resolved/withdrawn/kept — do not re-ask" list, and three verified unbuilt items: `terminal/retain` plus
+a docked tab strip, the `schedule_create` expanded-details row, and the workspace "Open in app" header
+control over its two Host routes. The deliberate-difference list is expanded to every recorded
+substitution (right Sidebar, fit-to-pane, icons, chips, editor, locale, Dockkit, workspace grouping,
+math, the created task's expanded body, and the composer/queue/diff/path/image-card choices).
+
+**Handover refreshed.** `docs/HANDOVER-PROMPT.md` still told the next session "local commits only, no
+push", contradicting the standing authorization, and its last-five-rounds list stopped at 627. It now
+carries 666–670, the current remainder, the baselines and the corrected push scope.
+
+**No frame.** This round changes no rendered surface, so there is nothing to photograph; the next visual
+round states its own frame. The suites are unchanged from round 669; the battery is re-run only to keep
+binary-freshness honest after the doc edit.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| format | **0** | no source change; `cargo fmt` clean |
+| app, fixture | **0** | **1600 passed**, 1 ignored |
+| app, default | **0** | **1544 passed**, 1 ignored |
+| transport | **0** | 62 + 17 + 91 + 7 passed |
+| app bin | — | **21** warnings (22 with the summary line) |
+| battery | **passed** | **17 checks, 0 failing** (`verification-b195d4f83a09`) |
