@@ -17618,9 +17618,13 @@ makes copying a byte slice safe without any grapheme bookkeeping.
 started in, so a phrase, a line or a code block copies in one gesture but two paragraphs need
 two. Tables, tool bodies, the reasoning title row and the Details panel are not wrapped.
 Double-click word, triple-click line, shift-click extension, keyboard selection and
-auto-scroll-while-dragging do not exist. Assistant prose, headings and code share the wrapper
-and are unit-tested, but the live window probe could only exercise a user bubble: the isolated
-profile has no provider credential, so its assistant side is the failure row.
+auto-scroll-while-dragging do not exist. Assistant reply bodies were framed separately in the
+held paint fixture (`layout_smoke --mode markdown-gfm` and `code-wrapped`), with one temporary
+switch that routed only `TextSelect` through the fixture's effect gate — selection is local
+state, so the fixture stayed zero-Host. That switch was reverted and the pristine example
+rebuilt; the fixture paints the tint but forwards no keyboard, so Ctrl+C was verified only in
+the real app window, whose isolated profile has no provider credential and therefore only had a
+user bubble (its assistant side is the failure row).
 
 **Gates.** Default **1533 passed / 1 ignored**, fixture **1589 / 1**, release bin **21**
 warnings, `layout_smoke` **17**, format check clean. Verified end to end on the shipped release
@@ -17629,4 +17633,5 @@ Ctrl+V put them in the draft.
 
 **Frame.** `app/evidence/text-selection-and-focus-545abc5f/selection-user-bubble.png`,
 `selection-multiline.png`, `selection-pasted.png`, `selection-anchor-fixed.png`,
-`selection-clear-on-composer-press.png`.
+`selection-clear-on-composer-press.png`, `selection-assistant-prose.png`,
+`selection-code-block.png`.
