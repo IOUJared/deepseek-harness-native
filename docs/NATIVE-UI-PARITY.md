@@ -15906,3 +15906,43 @@ sequences are still consumed silently, and the full grid stays in the "large, un
 | transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
 | DP-2 capture | — | `shots/338-terminal-progress.png`, `status: passed`, 1200x900 |
 | app bin | — | **21** warnings (a first draft left an unused `mut` and measured 22; removed) |
+
+### Round 553 — the terminal panel honours erase sequences, so `clear` clears
+
+**The gap.** Round 552 gave the panel the terminal's line-redraw rule, but erase sequences were still
+dropped with the other escape bytes: `clear` (`ESC [ 2 J`) left the whole transcript on screen, and a
+line erase (`ESC [ K`) left the text it was meant to replace.
+
+**The change, in the model.** `Output` now owns a `Screen` — lines, a cursor, and the rules that move
+them — fed from the same raw bytes the chunks keep: `\r` to column 0, `\n` a new line, `\b` one column
+back, `\t` to the next eight-column stop, `ESC [ <n> K` (truncate, blank to the cursor, or clear the
+line), `ESC [ <n> J` (truncate from the cursor, blank to it, or clear the display), with every other
+sequence consumed silently. The screen keeps 2,000 lines and counts what it drops; the chunk and byte
+bounds are unchanged, so the dropped/truncated accounting still describes the Host's bytes and
+`display` renders the screen within the display budget.
+
+**Tests.** `the_screen_applies_the_erase_sequences_a_shell_uses` — `2 J` empties the display and
+returns the prompt, `K` erases to the end of the line while keeping its prefix, `2 K` clears the line and
+leaves the cursor (so the next character lands at that column, not at the start), `\b` overwrites
+in place, and an unsupported SGR sequence is consumed rather than drawn. Round 552's redraw test still
+passes against the screen.
+
+**Frame.** `shots/339-terminal-clear.png` (1200x900, new `terminal-clear` preset): after
+`make test` prints two steps, `clear` leaves only `PUBLIC $`.
+
+**What this is not.** Still no scroll or cursor-addressing sequences: `ESC [ H` is consumed, not obeyed,
+so a full-screen program's layout does not render. The grid, the cursor and the alternate screen stay in
+the "large, unbuilt" list.
+
+**Battery (round 553).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1556 passed**, 1 ignored |
+| app, default | **0** | **1500 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-w99a5g11`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-ljv1xzrw`) |
+| transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
+| DP-2 capture | — | `shots/339-terminal-clear.png`, `status: passed`, 1200x900 |
+| app bin | — | **21** warnings (the round-552 transform became dead and was deleted; the first measurement caught it at 23) |

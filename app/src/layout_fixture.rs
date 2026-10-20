@@ -210,6 +210,7 @@ pub const PRESETS: &[&str] = &[
     "terminal-rename",
     "terminal-resize",
     "terminal-progress",
+    "terminal-clear",
     "reference-crumbs",
     "reference-subagents",
     "stats-dialog",
@@ -333,6 +334,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "terminal-rename" => Some((Size::new(1200.0, 900.0), 1.0)),
         "terminal-resize" => Some((Size::new(1200.0, 900.0), 1.0)),
         "terminal-progress" => Some((Size::new(1200.0, 900.0), 1.0)),
+        "terminal-clear" => Some((Size::new(1200.0, 900.0), 1.0)),
         "reference-crumbs" => Some((Size::new(1040.0, 620.0), 1.0)),
         "reference-subagents" => Some((Size::new(1040.0, 620.0), 1.0)),
         "stats-dialog" => Some((Size::new(1040.0, 760.0), 1.0)),
@@ -357,6 +359,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "terminal-rename"
         | "terminal-resize"
         | "terminal-progress"
+        | "terminal-clear"
         | "collapsed-wide"
         | "title-controls"
         | "title-controls-expanded"
@@ -4471,6 +4474,7 @@ pub fn build(
         || preset == "terminal-rename"
         || preset == "terminal-resize"
         || preset == "terminal-progress"
+        || preset == "terminal-clear"
     {
         // The terminal panel with one selected Host terminal and its recorded output. Every frame the
         // panel sees here is one a Host could send; nothing is created or written.
@@ -4536,7 +4540,14 @@ pub fn build(
             .follow()
             .cloned()
             .expect("selecting attaches a follow");
-        let frames: [(i64, &str); 3] = if preset == "terminal-progress" {
+        let frames: [(i64, &str); 3] = if preset == "terminal-clear" {
+            // A `clear` mid-stream: the transcript above it goes away and the prompt returns.
+            [
+                (1, "PUBLIC $ make test\nstep 1\nstep 2\n"),
+                (2, "PUBLIC $ clear\u{1b}[2J\u{1b}[HPUBLIC $ "),
+                (3, ""),
+            ]
+        } else if preset == "terminal-progress" {
             // One progress line, redrawn four times with `\r`: the panel must show the newest
             // state on one line, not four lines.
             [

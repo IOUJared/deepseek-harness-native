@@ -342,12 +342,167 @@ pub enum Effect {
     Write(WriteSubmission),
 }
 
+/// How many lines the screen keeps before it drops the oldest; a screen has no scrollback of its
+/// own, so this is the panel's own bound and the drop is counted the way a chunk drop is.
+const SCREEN_LINES: usize = 2_000;
+
+/// One screen line, written left to right by a cursor that `\r`, `\b` and the erase sequences move.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Screen {
+    lines: Vec<Vec<char>>,
+    column: usize,
+    dropped: usize,
+}
+impl Screen {
+    fn new() -> Self {
+        Self {
+            lines: vec![Vec::new()],
+            column: 0,
+            dropped: 0,
+        }
+    }
+    fn line(&mut self) -> &mut Vec<char> {
+        if self.lines.is_empty() {
+            self.lines.push(Vec::new());
+        }
+        self.lines.last_mut().expect("a line")
+    }
+    fn newline(&mut self) {
+        self.lines.push(Vec::new());
+        self.column = 0;
+        while self.lines.len() > SCREEN_LINES {
+            self.lines.remove(0);
+            self.dropped = self.dropped.saturating_add(1);
+        }
+    }
+    /// Write one character at the cursor, overwriting the column it lands on.
+    fn put(&mut self, character: char) {
+        let column = self.column;
+        let line = self.line();
+        if column < line.len() {
+            line[column] = character;
+        } else {
+            while line.len() < column {
+                line.push(' ');
+            }
+            line.push(character);
+        }
+        self.column = column + 1;
+    }
+    /// Erase in line: 0 truncates at the cursor, 1 blanks up to it, 2 clears the line.
+    fn erase_line(&mut self, mode: u32) {
+        let column = self.column;
+        let line = self.line();
+        match mode {
+            0 => line.truncate(column),
+            1 => {
+                let end = column.min(line.len().saturating_sub(1));
+                for cell in line.iter_mut().take(end + 1) {
+                    *cell = ' ';
+                }
+            }
+            _ => line.clear(),
+        }
+    }
+    /// Erase in display: 0 truncates at the cursor and drops what follows, 1 blanks everything up to
+    /// and including the cursor, 2 clears the whole display.
+    fn erase_display(&mut self, mode: u32) {
+        match mode {
+            0 => {
+                let column = self.column;
+                if let Some(last) = self.lines.last_mut() {
+                    last.truncate(column);
+                }
+            }
+            1 => {
+                let column = self.column;
+                self.lines = vec![vec![' '; column]];
+            }
+            _ => {
+                self.lines = vec![Vec::new()];
+                self.column = 0;
+            }
+        }
+    }
+    /// Consume one chunk of raw Host bytes, applying the redraw and erase rules.
+    fn feed(&mut self, data: &str) {
+        let mut chars = data.chars().peekable();
+        while let Some(character) = chars.next() {
+            match character {
+                '\u{1b}' => {
+                    if chars.peek() == Some(&'[') {
+                        chars.next();
+                        let mut params = String::new();
+                        let mut final_byte = None;
+                        for c in chars.by_ref() {
+                            if ('\u{40}'..='\u{7e}').contains(&c) {
+                                final_byte = Some(c);
+                                break;
+                            }
+                            params.push(c);
+                        }
+                        let mode = params
+                            .split(';')
+                            .next()
+                            .filter(|part| !part.is_empty())
+                            .and_then(|part| part.parse().ok())
+                            .unwrap_or(0);
+                        match final_byte {
+                            Some('K') => self.erase_line(mode),
+                            Some('J') => self.erase_display(mode),
+                            // Every other sequence is consumed silently: the panel draws text, not
+                            // a full screen, and a guess would corrupt what it does draw.
+                            _ => {}
+                        }
+                    } else if chars.peek() == Some(&']') {
+                        chars.next();
+                        while let Some(c) = chars.next() {
+                            if c == '\u{7}' {
+                                break;
+                            }
+                            if c == '\u{1b}' && chars.peek() == Some(&'\\') {
+                                chars.next();
+                                break;
+                            }
+                        }
+                    } else {
+                        chars.next();
+                    }
+                }
+                '\r' => self.column = 0,
+                '\n' => self.newline(),
+                '\u{8}' => self.column = self.column.saturating_sub(1),
+                '\t' => {
+                    let next = (self.column / 8 + 1) * 8;
+                    while self.column < next {
+                        self.put(' ');
+                    }
+                }
+                c if c.is_control() => {}
+                c => self.put(c),
+            }
+        }
+    }
+    fn render(&self) -> String {
+        let mut out = String::new();
+        for (index, line) in self.lines.iter().enumerate() {
+            if index > 0 {
+                out.push('\n');
+            }
+            out.extend(line.iter());
+        }
+        out
+    }
+}
+
 /// A bounded, sanitized plain-text view of Host terminal output.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Output {
     chunks: Vec<String>,
     bytes: usize,
     dropped: usize,
+    /// The screen the panel draws: lines with a cursor, fed from the same raw bytes as the chunks.
+    screen: Screen,
     /// Bytes a single oversized chunk lost at [`CHUNK_BYTES`]. Counted separately from whole-chunk
     /// eviction so the panel's "never silently hidden" copy stays true.
     truncated: usize,
@@ -358,9 +513,11 @@ impl Output {
         self.bytes = 0;
         self.dropped = 0;
         self.truncated = 0;
+        self.screen = Screen::new();
     }
     /// Append one sanitized chunk, evicting the oldest chunks under both bounds.
     pub fn push(&mut self, data: &str) {
+        self.screen.feed(data);
         let mut text = sanitize(data);
         if text.len() > CHUNK_BYTES {
             let mut cut = CHUNK_BYTES;
@@ -390,14 +547,26 @@ impl Output {
     pub fn text(&self) -> String {
         self.chunks.concat()
     }
-    /// The panel's text: the bounded tail with every carriage return applied. A `\r` returns the
-    /// cursor to the start of its line and later characters overwrite it, which is how a shell
-    /// redraws a progress bar in place; the retained chunks stay untouched so the bounds and the
-    /// dropped/truncated accounting still describe the Host's bytes.
+    /// The panel's text: the screen rendered within `max_bytes`, newest lines kept.
+    ///
+    /// The screen applies the redraw and erase rules a real terminal applies — `\r` overwrites in
+    /// place, `ESC [ K` erases part of a line, `ESC [ 2 J` clears the display — while the retained
+    /// chunks stay untouched, so the bounds and the dropped/truncated accounting still describe the
+    /// Host's bytes.
     pub fn display(&self, max_bytes: usize) -> String {
-        apply_carriage_returns(&self.tail(max_bytes))
+        let mut text = self.screen.render();
+        if text.len() <= max_bytes {
+            return text;
+        }
+        let mut cut = text.len() - max_bytes;
+        while cut < text.len() && !text.is_char_boundary(cut) {
+            cut += 1;
+        }
+        text.drain(..cut);
+        text
     }
-    /// Newest retained output bounded to `max_bytes`, for the rendered panel only.
+    /// Newest retained output bounded to `max_bytes`: the raw bound the retention tests read.
+    #[cfg(test)]
     pub fn tail(&self, max_bytes: usize) -> String {
         let mut out = String::new();
         for chunk in self.chunks.iter().rev() {
@@ -467,41 +636,6 @@ fn sanitize(input: &str) -> String {
             c => out.push(c),
         }
     }
-    out
-}
-
-/// Overwrite in place after a carriage return: the terminal's own redraw rule for one line.
-///
-/// A `\r` moves the cursor to column 0 without erasing, so text written after it replaces only the
-/// columns it reaches and leaves the rest of the line — a progress bar's `45%` becoming `100%` is
-/// one line, not two. Newlines still end a line.
-fn apply_carriage_returns(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut line: Vec<char> = Vec::new();
-    let mut column = 0usize;
-    let flush = |out: &mut String, line: &mut Vec<char>| {
-        out.extend(line.iter());
-        line.clear();
-    };
-    for character in text.chars() {
-        match character {
-            '\r' => column = 0,
-            '\n' => {
-                flush(&mut out, &mut line);
-                out.push('\n');
-                column = 0;
-            }
-            other => {
-                if column < line.len() {
-                    line[column] = other;
-                } else {
-                    line.push(other);
-                }
-                column += 1;
-            }
-        }
-    }
-    flush(&mut out, &mut line);
     out
 }
 
@@ -2484,6 +2618,32 @@ mod tests {
             !terminal.shells_failed(),
             "an answered read clears the flag"
         );
+    }
+
+    #[test]
+    fn the_screen_applies_the_erase_sequences_a_shell_uses() {
+        // `clear` is `ESC [ 2 J` (plus a home): the display empties instead of keeping the history.
+        let mut output = Output::default();
+        output.push("one\ntwo\nthree\n");
+        output.push("\u{1b}[2JPUBLIC $ ");
+        assert_eq!(output.display(DISPLAY_BYTES), "PUBLIC $ ");
+        // `ESC [ K` erases from the cursor to the end of its line, leaving the prefix.
+        let mut output = Output::default();
+        output.push("PUBLIC progress 45%\u{1b}[K done");
+        assert_eq!(output.display(DISPLAY_BYTES), "PUBLIC progress 45% done");
+        // `ESC [ 2 K` clears the whole line and leaves the cursor where it was, so the next
+        // character lands at that column rather than at the start.
+        let mut output = Output::default();
+        output.push("PUBLIC junk\u{1b}[2KA");
+        assert_eq!(output.display(DISPLAY_BYTES), "           A");
+        // A backspace steps the cursor back without erasing, so the next character overwrites it.
+        let mut output = Output::default();
+        output.push("abc\u{8}X");
+        assert_eq!(output.display(DISPLAY_BYTES), "abX");
+        // An unsupported sequence is consumed rather than drawn.
+        let mut output = Output::default();
+        output.push("\u{1b}[1;31mPUBLIC\u{1b}[0m");
+        assert_eq!(output.display(DISPLAY_BYTES), "PUBLIC");
     }
 
     #[test]
