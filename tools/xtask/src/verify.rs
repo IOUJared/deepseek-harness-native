@@ -323,23 +323,24 @@ fn tests(root: &Path, offline: bool) -> Vec<Check> {
         name: "bridge".into(),
         command: bridge(root),
     });
-    // These three still discover the Python guards they have not replaced yet;
-    // each owner moves to a `cargo test` command as its family is ported.
-    // `benchmarks/test_runner.py` guards `benchmarks/run.py`, which the
-    // qualification scripts still import as their metrics library; it moves to
-    // `xtask-guards` when that family is ported. `app/` has no Python test left
-    // (the history guards are `xtask history` tests), so it needs no discovery.
-    for (name, directory, pattern) in [
-        ("script-guards", "scripts", "test_*.py"),
-        ("release-guards", ".github/scripts", "test_*.py"),
-    ] {
-        checks.push(Check {
-            name: name.into(),
-            command: argv(&[
-                "python3", "-B", "-m", "unittest", "discover", "-s", directory, "-p", pattern,
-            ]),
-        });
-    }
+    // One Python family is left: `scripts/test_*.py` still guards the qualification
+    // scripts that have not been ported. `benchmarks/test_runner.py` became `xtask
+    // bench` tests and `.github/scripts` became the `xtask release` commands, so their
+    // discovery entries are gone rather than left pointing at deleted directories.
+    checks.push(Check {
+        name: "script-guards".into(),
+        command: argv(&[
+            "python3",
+            "-B",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts",
+            "-p",
+            "test_*.py",
+        ]),
+    });
     checks
 }
 
