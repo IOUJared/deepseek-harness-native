@@ -17193,3 +17193,27 @@ includes every blank row *below* the cursor inside the grid.
 result (a small struct with `rows` and `cursor`), and let the panel paint from that. One function signature
 instead of two independent coordinate systems. Both files are reverted to `aa298ce`; nothing of this
 attempt is committed beyond this note.
+
+### Round 619 — fourth cursor attempt: the coordinate fix is not the blocker
+
+**What was implemented (reverted again).** `display_paint() -> ScreenPaint { rows, cursor }` with the cursor
+index computed inside the renderer where the trims are known, `display_styled()` delegating to it, and a
+panel split that paints a block glyph at that cell — including the empty-row case a prompt sits on
+(`if !placed && at >= column`).
+
+**What the frame showed.** `shots/353-terminal-cursor.png`, **byte-identical** to the previous capture:
+no block, four attempts running. So the block never reaches a row, and the coordinate maths being fixed did
+not change that — which means `cursor` is `None` in this state, not that the paint arm is wrong.
+
+**Why `None` is the likely answer, and how to prove it next time:** `absolute_cursor − removed` only lands
+inside `kept` when the cursor's row survived the byte budget and the row-retention pass. The fixture's
+terminal cursor sits on a row that the *grid* does not contain yet (the cursor is one row past the last
+written line), so its absolute index exceeds `kept.len()`. The next attempt should **assert the index before
+painting**: a unit test on `display_paint` — write `"ab"`, move to `(0, 1)`, expect
+`cursor == Some((0, 1))` — and a fixture state built the same way, rather than reading the frame to infer it.
+
+**Also found:** the panel switching to `display_paint` leaves `display_styled` used only by tests, which
+raises the warning count by one (22 real). The version that ships needs `#[allow(dead_code)]` on
+`display_styled` with a comment naming the tests, or the tests should read `display_paint().rows`.
+
+Both files are reverted to `f3ac579`; `cargo check` measures **21** warnings (22 with the summary line).
