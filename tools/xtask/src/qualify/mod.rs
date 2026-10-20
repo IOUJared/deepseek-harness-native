@@ -9,6 +9,7 @@ pub mod composed_files;
 pub mod control;
 pub mod decisions;
 pub mod drafts;
+pub mod export;
 pub mod interruption;
 pub mod layout;
 pub mod node;

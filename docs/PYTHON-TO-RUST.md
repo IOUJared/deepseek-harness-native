@@ -99,6 +99,11 @@ Deliberate differences, all measured against the Python originals:
   report, both captures and the artifact digest, with `class`/`xwayland` matched to
   the fixture. `qualify-composed-export.py` and `qualify-development-package.py`
   still import the Python module, so it is deleted with them.
+- The composed-export **report and capture contract** is ported (`export`): two
+  exact save receipts (a new archive, then a same-path refusal that must not save),
+  the receipt serial/editor/attempt advancement on one epoch, the retired pending
+  controller, and both private PNG captures. The independent ZIP inspector and the
+  owned run remain, so the Python file stays.
 - The draft-interruption qualifier is fully ported (`interruption`): nine
   checkpoints with the document expected at each, hold/recover/crash shapes, the
   latch-until-owned-kill crash gate, and the rule that a graceful phase may not

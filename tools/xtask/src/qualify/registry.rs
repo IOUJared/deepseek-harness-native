@@ -349,7 +349,7 @@ pub fn png_dimensions(data: &[u8]) -> Option<(u32, u32)> {
     None
 }
 
-fn private_regular(path: &Path, maximum: u64) -> Option<Vec<u8>> {
+pub(super) fn private_regular(path: &Path, maximum: u64) -> Option<Vec<u8>> {
     let info = fs::symlink_metadata(path).ok()?;
     if !info.file_type().is_file() || info.mode() & 0o777 != 0o600 || info.size() > maximum {
         return None;
