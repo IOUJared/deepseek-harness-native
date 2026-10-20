@@ -213,6 +213,7 @@ pub const PRESETS: &[&str] = &[
     "terminal-clear",
     "terminal-address",
     "terminal-colors",
+    "terminal-wide",
     "reference-crumbs",
     "reference-subagents",
     "stats-dialog",
@@ -339,6 +340,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "terminal-clear" => Some((Size::new(1200.0, 900.0), 1.0)),
         "terminal-address" => Some((Size::new(1200.0, 900.0), 1.0)),
         "terminal-colors" => Some((Size::new(1200.0, 900.0), 1.0)),
+        "terminal-wide" => Some((Size::new(1200.0, 900.0), 1.0)),
         "reference-crumbs" => Some((Size::new(1040.0, 620.0), 1.0)),
         "reference-subagents" => Some((Size::new(1040.0, 620.0), 1.0)),
         "stats-dialog" => Some((Size::new(1040.0, 760.0), 1.0)),
@@ -366,6 +368,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "terminal-clear"
         | "terminal-address"
         | "terminal-colors"
+        | "terminal-wide"
         | "collapsed-wide"
         | "title-controls"
         | "title-controls-expanded"
@@ -4483,6 +4486,7 @@ pub fn build(
         || preset == "terminal-clear"
         || preset == "terminal-address"
         || preset == "terminal-colors"
+        || preset == "terminal-wide"
     {
         // The terminal panel with one selected Host terminal and its recorded output. Every frame the
         // panel sees here is one a Host could send; nothing is created or written.
@@ -4548,7 +4552,18 @@ pub fn build(
             .follow()
             .cloned()
             .expect("selecting attaches a follow");
-        let frames: [(i64, &str); 3] = if preset == "terminal-colors" {
+        let frames: [(i64, &str); 3] = if preset == "terminal-wide" {
+            // A CJK name in a listing: the glyphs take two columns each, so the size column stays
+            // aligned with the lines above and below it.
+            [
+                (
+                    1,
+                    "PUBLIC $ ls -l\n-rw-r--r-- 1 PUBLIC  120 \u{9879}\u{76ee}\u{6587}\u{4ef6}.rs\n",
+                ),
+                (2, "-rw-r--r-- 1 PUBLIC 4096 \u{6587}\u{4ef6}\u{5939}/\n"),
+                (3, "-rw-r--r-- 1 PUBLIC   12 main.rs\n"),
+            ]
+        } else if preset == "terminal-colors" {
             // A shell that colours its own output: the panel draws the inks it printed.
             [
                 (

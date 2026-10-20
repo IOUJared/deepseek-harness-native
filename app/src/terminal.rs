@@ -367,6 +367,42 @@ struct Screen {
 struct Cell {
     character: char,
     ink: Option<u8>,
+    /// The second column of a wide character: it draws nothing of its own, so a CJK glyph keeps its
+    /// two-column width without the line collecting a phantom space.
+    continuation: bool,
+}
+
+impl Cell {
+    fn blank() -> Self {
+        Self {
+            character: ' ',
+            ink: None,
+            continuation: false,
+        }
+    }
+}
+
+/// The columns one character occupies: two for the East Asian wide and fullwidth ranges and for
+/// emoji, one for everything else. A single-column terminal would misalign a CJK prompt against the
+/// text below it, which is what a `CSI H` layout notices first.
+fn columns(character: char) -> usize {
+    let c = character as u32;
+    let wide = matches!(c,
+        0x1100..=0x115F
+            | 0x2E80..=0x303E
+            | 0x3041..=0x33FF
+            | 0x3400..=0x4DBF
+            | 0x4E00..=0x9FFF
+            | 0xA000..=0xA4CF
+            | 0xAC00..=0xD7A3
+            | 0xF900..=0xFAFF
+            | 0xFE30..=0xFE6F
+            | 0xFF00..=0xFF60
+            | 0xFFE0..=0xFFE6
+            | 0x1F300..=0x1F64F
+            | 0x1F900..=0x1F9FF
+            | 0x20000..=0x3FFFD);
+    if wide { 2 } else { 1 }
 }
 impl Default for Screen {
     fn default() -> Self {
@@ -448,21 +484,25 @@ impl Screen {
     fn put(&mut self, character: char) {
         let column = self.column;
         let ink = self.ink;
-        let cell = Cell { character, ink };
+        let width = columns(character);
+        let cell = Cell {
+            character,
+            ink,
+            continuation: false,
+        };
         let line = self.line();
-        if column < line.len() {
-            line[column] = cell;
-        } else {
-            let blank = Cell {
-                character: ' ',
-                ink: None,
-            };
-            while line.len() < column {
-                line.push(blank);
-            }
-            line.push(cell);
+        while line.len() <= column + width - 1 {
+            line.push(Cell::blank());
         }
-        self.column = column + 1;
+        line[column] = cell;
+        if width == 2 {
+            line[column + 1] = Cell {
+                character: ' ',
+                ink,
+                continuation: true,
+            };
+        }
+        self.column = column + width;
     }
     /// Erase in line, relative to the cursor row.
     fn erase_line(&mut self, mode: u32) {
@@ -473,10 +513,7 @@ impl Screen {
             1 => {
                 let end = column.min(line.len().saturating_sub(1));
                 for cell in line.iter_mut().take(end + 1) {
-                    *cell = Cell {
-                        character: ' ',
-                        ink: None,
-                    };
+                    *cell = Cell::blank();
                 }
             }
             _ => line.clear(),
@@ -628,7 +665,12 @@ impl Screen {
         // space below the cursor, so they collapse to one newline rather than a run of them.
         let mut blocks: Vec<String> = Vec::new();
         for line in self.history.iter().chain(self.grid.iter()) {
-            blocks.push(line.iter().map(|cell| cell.character).collect());
+            blocks.push(
+                line.iter()
+                    .filter(|cell| !cell.continuation)
+                    .map(|cell| cell.character)
+                    .collect(),
+            );
         }
         let mut trailing = 0;
         while blocks.last().is_some_and(|line| line.is_empty()) {
@@ -708,7 +750,7 @@ impl Output {
         let mut lines: Vec<Vec<(String, Option<u8>)>> = Vec::new();
         for line in self.screen.history.iter().chain(self.screen.grid.iter()) {
             let mut runs: Vec<(String, Option<u8>)> = Vec::new();
-            for cell in line {
+            for cell in line.iter().filter(|cell| !cell.continuation) {
                 match runs.last_mut() {
                     Some((text, ink)) if *ink == cell.ink => text.push(cell.character),
                     _ => runs.push((cell.character.to_string(), cell.ink)),
@@ -2824,6 +2866,28 @@ mod tests {
             !terminal.shells_failed(),
             "an answered read clears the flag"
         );
+    }
+
+    #[test]
+    fn a_wide_character_takes_two_columns_and_keeps_a_layout_aligned() {
+        // A CJK prompt is two columns per glyph, so text addressed to column 8 lands where the
+        // glyphs end, not one column early.
+        let mut output = Output::default();
+        output.set_rows(4);
+        // Three columns of glyphs plus `: ` put column 7 (index 6) right after the space; a
+        // single-column model would have written there one column early.
+        output.push("\u{4f60}\u{597d}: \u{1b}[1;7Hok\n");
+        assert_eq!(output.display(DISPLAY_BYTES), "\u{4f60}\u{597d}: ok\n");
+        // The second column of a wide glyph draws nothing of its own.
+        let mut output = Output::default();
+        output.push("a\u{4f60}b");
+        let runs = output.display_styled(DISPLAY_BYTES);
+        let text: String = runs[0].iter().map(|(text, _)| text.as_str()).collect();
+        assert_eq!(text, "a\u{4f60}b");
+        // A wide glyph at the end of a written line still occupies its two columns.
+        let mut output = Output::default();
+        output.push("x\u{4f60}");
+        assert_eq!(output.display(DISPLAY_BYTES), "x\u{4f60}");
     }
 
     #[test]

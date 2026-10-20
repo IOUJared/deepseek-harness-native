@@ -27,7 +27,7 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > 2. Measure the baselines rather than trusting this file:
 >    - fixture: `cargo test --manifest-path app/Cargo.toml --locked --offline --jobs 2 --features public-layout-fixture --bin dsh-native-app -- --test-threads=2`
 >    - default: the same without `--features`
->    - at handover: **1558** fixture / **1502** default, 1 ignored each (round 555).
+>    - at handover: **1559** fixture / **1503** default, 1 ignored each (round 556).
 > 3. Load `.agents/skills/native-ui-parity/SKILL.md` (and `.agents/skills/impeccable-rust/SKILL.md` for
 >    Rust changes) — `AGENTS.md` makes both mandatory for this work. Then read `docs/SESSION-PROMPT.md`
 >    (capture conventions, next shot number), `docs/VERIFICATION.md`, and the coverage table at the end
@@ -121,7 +121,8 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > single-instance owner-startup window closed (round 550; the one historical flake is still
 > unexplained but not reproducible in 68 runs), and carriage-return redraw in the terminal panel
 > (round 552), the erase sequences a `clear` sends (round 553), cursor addressing with a scrolling
-> grid and scrollback (round 554), and the ANSI colours a shell prints (round 555).
+> grid and scrollback (round 554), the ANSI colours a shell prints (round 555), and two-column wide
+> glyphs (round 556).
 >
 > ### Etiquette
 > Be terse. Prefer numbered lists over tables in replies. Challenge your own claims; walk back anything

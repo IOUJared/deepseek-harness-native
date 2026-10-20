@@ -16025,3 +16025,37 @@ natively.
 | transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
 | DP-2 capture | — | `shots/341-terminal-colors.png`, `status: passed`, 1200x900 |
 | app bin | — | **21** warnings (two helpers became test-only; measured at 24 first) |
+
+### Round 556 — a wide glyph occupies two columns, so a CJK listing stays aligned
+
+**The gap.** Every cell was one column, so a CJK name in `ls -l` shifted the size column three columns
+left on that line and a `CSI H` layout written against the glyphs landed one column early per glyph.
+
+**The change.** A cell now knows whether it is the continuation of a wide glyph, and `columns` maps the
+East Asian wide and fullwidth ranges plus the emoji planes to two columns (everything else stays one).
+`put` writes the glyph and its continuation so the cursor advances by two, and both renderers skip the
+continuation rather than drawing a phantom space.
+
+**Tests.** `a_wide_character_takes_two_columns_and_keeps_a_layout_aligned` — three columns of glyphs put
+column 7 right after a `: `, a wide glyph between letters renders once, and a wide glyph at the end of a
+line keeps its width. Two of my expectations were wrong on the first run (the address was one column off,
+and the trailing newline a rendered prompt carries); the test states the corrected rule.
+
+**Frame.** `shots/342-terminal-wide.png` (1200x900, new `terminal-wide` preset): `项目文件.rs` and
+`文件夹/` in a listing whose owner and size columns line up with the ASCII line beneath.
+
+**Stated:** widths come from Unicode ranges, not from a font's own metrics, so a zero-width joiner or a
+combining mark still counts as one column; full-width forms and emoji are the cases this fixes.
+
+**Battery (round 556).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1559 passed**, 1 ignored |
+| app, default | **0** | **1503 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-ebykv74q`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-ofd2imi6`) |
+| transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
+| DP-2 capture | — | `shots/342-terminal-wide.png`, `status: passed`, 1200x900 |
+| app bin | — | **21** warnings |
