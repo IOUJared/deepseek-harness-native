@@ -31,6 +31,7 @@ fn catalog_stale_success_error_and_duplicate_cannot_replace_newer_flight_or_cach
         queue.try_recv(),
         Ok(Command::ScheduleCatalog)
     ));
+    assert!(matches!(queue.try_recv(), Ok(Command::OpenInAppApps)));
     assert_ne!(old, current); // Same fixed worker epoch after retirement, distinct serial.
     let status = app.status.clone();
     for result in [Ok(catalog_fixture()), Err("PUBLIC stale error".into())] {
@@ -220,6 +221,7 @@ fn catalog_exhaustion_shutdown_and_closing_never_admit_or_apply_metadata() {
         queue.try_recv(),
         Ok(Command::ScheduleCatalog)
     ));
+    assert!(matches!(queue.try_recv(), Ok(Command::OpenInAppApps)));
     assert!(queue.try_recv().is_err());
     for closing in [Close::Inspecting, Close::Stopping] {
         let (mut app, mut queue) = managed_app();

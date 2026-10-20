@@ -608,6 +608,20 @@ pub const LAYOUT_CODING_VIEW: &str = "layout.codingView";
 /// own preference key (`api/terminal-controller/src/client/shell-preference.ts:2`), so a reload does
 /// not send the user back to the first discovered shell.
 pub const LAYOUT_TERMINAL_SHELL: &str = "layout.terminalShell";
+/// The application the workspace opener last launched, by catalog id: the reference keeps the same
+/// fact in `dsh.open-in-app.choice` (`ui-open-in-app/src/client/controller.ts:30-34`).
+pub const LAYOUT_OPEN_IN_APP_CHOICE: &str = "layout.openInAppChoice";
+/// A stored app choice is accepted only when it is a catalog-shaped id; anything else is ignored,
+/// leaving the opener on the Host's first nameable app.
+pub fn parse_open_in_app_choice(raw: &str) -> Option<String> {
+    let id = raw.trim();
+    (!id.is_empty()
+        && id.len() <= 32
+        && id
+            .chars()
+            .all(|character| character.is_ascii_lowercase() || character.is_ascii_digit()))
+    .then(|| id.to_owned())
+}
 /// A stored shell path is accepted only when it looks like one: absolute, bounded, and free of
 /// control characters. Anything else is ignored, leaving the panel on the Host's first shell.
 pub fn parse_terminal_shell(raw: &str) -> Option<String> {
@@ -1290,6 +1304,28 @@ mod tests {
         }
         for width in [f32::NAN, f32::INFINITY, 0.0, -1.0, 4097.0] {
             assert_eq!(format_layout_width(width), None, "width {width}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod open_in_app_choice_tests {
+    //! The remembered app: accepted only when it is a catalog-shaped id.
+    use super::*;
+
+    #[test]
+    fn only_a_catalog_shaped_choice_is_stored() {
+        assert_eq!(
+            parse_open_in_app_choice("vscode").as_deref(),
+            Some("vscode")
+        );
+        assert_eq!(
+            parse_open_in_app_choice("  gnometerminal ").as_deref(),
+            Some("gnometerminal")
+        );
+        let long = "x".repeat(33);
+        for rejected in ["", "   ", "VS Code", "vs-code", "vscode.exe", long.as_str()] {
+            assert!(parse_open_in_app_choice(rejected).is_none(), "{rejected:?}");
         }
     }
 }

@@ -6429,6 +6429,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Right Sidebar: document preview and resource tabs | difference: full-page details panel, no PDF/Office renderers |
 | Workspace browser: grouped/animated rows, drag order, per-row menus | difference: workspace filter + navigation sheet |
 | Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory; the app's Host serves browse, so Browse… falls back to the in-app list and `pick` reports unavailable) |
+| Open in app: workspace opener | cloned (round 671): the header split button lists the Host's nameable installed apps, launches the Session's workspace through the two plain Host routes, and remembers the choice; app icons stay text glyphs rather than fetched PNGs |
 | Workflow-run surface | cloned (folded `tool-workflow/*` card, five run states including the round-525 `Interrupted` for a stoppless run in a closed turn; a closed step alone does not interrupt, a named limit) |
 | Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, **reviewed resize (round 540)**, shell discovery with a remembered preference, output bounds, and **a native screen emulator core** (rounds 552–559: redraw, erase, addressing, insert/delete, ANSI colours, wide glyphs, wrapping, scrollback, alternate screen; a combining mark composes onto its base cell, round 669). The screen protocol is complete; what remains is not a sequence but a capability: the reference's automatic fit-to-pane, `terminal/retain` and a docked multi-terminal tab — recorded in `docs/NATIVE-TERMINAL.md`. |
 | Dockkit layout presets | difference: native fixed layout with its own preferences |
@@ -15860,6 +15861,9 @@ real warnings; the full battery is **17/17 (`verification-526912410ae0`).** The 
   test stay.
 - **Control-stream worker hop — kept** as a deliberate two-path difference, not a gap.
 - **`release-guards` — gone** with the Python→Rust port; the battery is 17/17.
+- **Open in app — built** (round 671): the transport reads and launches through the two plain Host
+  routes; the header names the remembered app and lists the rest. The launch is a real desktop side
+  effect and has not been exercised against a running Host; app icons stay text.
 - **`terminal/retain` — not attempted yet**, not blocked.
 
 ### Large, unbuilt, and not blocked
@@ -15868,7 +15872,6 @@ real warnings; the full battery is **17/17 (`verification-526912410ae0`).** The 
 | --- | --- | --- |
 | `terminal/retain` and a docked multi-terminal tab strip | the whole panel slice — list, follow, keys, create/close/rename/resize reviews, bounded output and the native screen — and the Host's `terminal/retain` (`api/terminal-controller/src/index.ts:193-204`) | a right-docked tab strip first, because retain only holds a terminal open for tabs; native sends no retain today |
 | The created task's expanded Tool-row details | the Turn-tail card matches (title, rule, `Deleted`) and the row states `Scheduled task · …`; expanding it shows the generic recorded-result body | the reference's structured details row for `schedule_create` (`ui-tool/src/client/tool/toolviews/details-row.tsx:78-84`, `details-card-model.ts:170`) instead of the raw result text |
-| Open the workspace in a desktop app | nothing in native; the reference has a header split button with the installed-app menu (`ui-open-in-app/src/client/index.ts:97-105`) over two plain Host routes (`host/open-in-app/src/shared.ts:10-26`) | transport reads `GET /open-in-app/apps` and posts `POST /open-in-app/open` `{app, path}`, then a header control with the remembered choice; icons may stay text (no icon fetch) |
 | The right-Sidebar review/task/document tabs | the full-page details panel is native's own surface | **deliberate difference**, recorded here rather than built silently |
 
 ### Named deliberate differences (not gaps)
@@ -18406,3 +18409,58 @@ binary-freshness honest after the doc edit.
 | transport | **0** | 62 + 17 + 91 + 7 passed |
 | app bin | — | **21** warnings (22 with the summary line) |
 | battery | **passed** | **17 checks, 0 failing** (`verification-b195d4f83a09`) |
+
+### Round 671 — the workspace opens in a desktop app from the header
+
+**The gap.** The reference's Session header carries an **open-in-app** split button: it reads the
+Host's installed desktop applications, names the remembered one, lists the rest in a menu, and
+launches the Session's workspace directory in the chosen application. Native had no equivalent — the
+whole `ui-open-in-app` surface was absent from the coverage table. Its contract is two **plain Host
+routes**, not BFF remotes: `GET /open-in-app/apps` → `{apps: string[]}` and
+`POST /open-in-app/open` `{app, path}` → `{ok:true}` (`host/open-in-app/src/shared.ts:10-26`,
+`index.ts:195-203, 243-311`); the button lives at `conversation.session.header.utilities`
+(`ui-open-in-app/src/client/index.ts:97-105`).
+
+**The transport.** `open_in_app_apps` and `open_in_app_open` reuse the connection's authenticated
+origin and cookie, send the composition's `Origin` header for its trust fence, and read through the
+same bounded JSON reader as every BFF reply. The catalog is bounded to 64 lowercase ids; the launch
+requires an absolute path and a `{ok:true}` receipt, never a guessed success.
+
+**The header.** `App::open_in_app_action` draws the reference's split control — `Open in {app}` plus a
+`▾` menu — only for a Session with a workspace and only for ids the reference can name
+(`open_in_app::nameable` filters unnamed probes the way `applications.ts:5-40` does). A launch sets a
+busy state, reports the reference's `Could not open. Try again.` on failure, and remembers the chosen
+app; the choice is stored as `layout.openInAppChoice` and restored at boot.
+
+**Why the first frame failed.** The preset was a blank Session, so the conversation header — the whole
+surface — was not drawn, and the capture's `native-header` count disagreed with its metadata. Giving
+the preset a transcript fixed it. The example's exhaustive `Command` match also caught the two new
+commands, and the first build measured 22 warnings: the launch event carried an unused `path` and a
+terminal size arm had a duplicate entry. Both were removed rather than accepted.
+
+**Tests.** `an_open_in_app_catalog_is_bounded_to_real_ids` and
+`an_open_in_app_launch_needs_the_ok_receipt` (transport), `only_named_ids_survive_and_the_choice_leads_when_it_is_installed`,
+`only_a_catalog_shaped_choice_is_stored` (the persisted preference), and
+`the_open_in_app_control_launches_the_selected_workspace_and_reports_a_failure` (one request, busy
+fence, named failure, remembered success, hidden on a failed catalog); the `open-in-app` preset is
+pinned in `presets_render_actual_app_without_queued_effects`.
+
+**Frame.** `shots/369-open-in-app.png` (1040×700, new `open-in-app` preset): the header reads
+`Open in kitty ▾`, and its menu lists `kitty`, `VS Code` and `GNOME Terminal` — the unnamed probe id is
+filtered and the remembered `kitty` leads.
+
+**Limits.** App icons are text product names, not the reference's fetched PNG bundles. The launch is a
+real desktop side effect and has **not** been exercised against a running Host; the routes, shapes and
+refusals are read from the pinned source.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| format | **0** | `cargo fmt` applied; format-debt 0 files, 0 hunks |
+| app, fixture | **0** | **1603 passed**, 1 ignored |
+| app, default | **0** | **1547 passed**, 1 ignored |
+| transport | **0** | 64 + 17 + 91 + 7 passed |
+| app bin | — | **21** warnings (22 with the summary line) |
+| layout_smoke | — | **17** warnings |
+| battery | **passed** | **17 checks, 0 failing** (`verification-07499f60a9ce`) |

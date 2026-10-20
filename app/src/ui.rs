@@ -138,6 +138,9 @@ mod model_controls;
 mod model_metadata_ui_tests;
 #[path = "notifications.rs"]
 mod notifications;
+/// Product names for the Host's open-in-app catalog, shared by the workspace opener.
+#[path = "open_in_app.rs"]
+mod open_in_app;
 #[cfg(test)]
 #[path = "permission_ui_tests.rs"]
 mod permission_ui_tests;
@@ -383,6 +386,10 @@ pub enum Message {
     FeedbackSubmit,
     /// Opens the shared feedback dialog for the whole session rather than one message.
     SessionFeedbackOpen,
+    /// Open the workspace in one installed desktop app.
+    OpenInAppLaunch(String),
+    /// Open or close the workspace opener's application menu.
+    ToggleOpenInAppMenu,
     /// Cancels the open feedback dialog.
     FeedbackCancel,
     /// Opens the one-shot date calendar.
@@ -1547,6 +1554,15 @@ pub struct App {
     schedules_settled: bool,
     /// The header's reminder popover is open (`ScheduleCatalogAction.tsx:42`).
     reminders_open: bool,
+    /// The Host's installed desktop apps for the workspace opener, in its menu order (`None` until a
+    /// read settles, or after a failed read, which hides the control as the reference does).
+    open_in_app_apps: Option<Vec<String>>,
+    /// The application the opener names first; the reference remembers it across launches.
+    open_in_app_choice: Option<String>,
+    open_in_app_menu: bool,
+    open_in_app_busy: bool,
+    open_in_app_loading: bool,
+    open_in_app_error: Option<String>,
     /// The task whose delete waits for a second press: (session binding, id).
     schedule_delete: Option<(SessionId, String)>,
     /// The task with a delete in flight.
@@ -1923,6 +1939,10 @@ impl App {
         // Host lists (`shell-preference.ts:2`).
         let terminal_shell =
             stored(draft_store::LAYOUT_TERMINAL_SHELL).and_then(draft_store::parse_terminal_shell);
+        // The application the workspace opener last launched, so a reload names the same one
+        // (`controller.ts:30-34`).
+        let open_in_app_choice = stored(draft_store::LAYOUT_OPEN_IN_APP_CHOICE)
+            .and_then(draft_store::parse_open_in_app_choice);
         // Shortcut overrides are the reference's own local preference document
         // (`dsh.keybindings.v1`, `shortcuts/src/client/storage.ts:9`), read once at boot like
         // the layout preferences. An absent, unreadable or unrecognised entry leaves the shipped
@@ -2033,6 +2053,12 @@ impl App {
                 schedules_error: None,
                 schedules_settled: false,
                 reminders_open: false,
+                open_in_app_apps: None,
+                open_in_app_choice,
+                open_in_app_menu: false,
+                open_in_app_busy: false,
+                open_in_app_loading: false,
+                open_in_app_error: None,
                 schedule_delete: None,
                 schedule_busy: None,
                 todo_dock_open: false,
@@ -2736,6 +2762,10 @@ impl App {
             (
                 draft_store::LAYOUT_TERMINAL_SHELL,
                 self.terminal.preferred_shell().map(str::to_owned),
+            ),
+            (
+                draft_store::LAYOUT_OPEN_IN_APP_CHOICE,
+                self.open_in_app_choice.clone(),
             ),
             (
                 draft_store::LAYOUT_WORK_DETAILS,
@@ -5025,6 +5055,25 @@ impl App {
                 self.feedback_dialog = None;
                 self.feedback_note = None;
             }
+            Message::OpenInAppLaunch(app) if !self.open_in_app_busy => {
+                let Some(cwd) = self.selected_cwd() else {
+                    self.open_in_app_error = Some("Could not open. Try again.".into());
+                    return Task::none();
+                };
+                if open_in_app::workspace_of(Some(&cwd)).is_none() {
+                    self.open_in_app_error = Some("Could not open. Try again.".into());
+                    return Task::none();
+                }
+                self.open_in_app_busy = true;
+                self.open_in_app_menu = false;
+                self.open_in_app_error = None;
+                self.command(worker::Command::OpenInAppOpen { app, path: cwd });
+            }
+            Message::ToggleOpenInAppMenu => {
+                if self.open_in_app_apps.is_some() {
+                    self.open_in_app_menu = !self.open_in_app_menu;
+                }
+            }
             Message::SessionFeedbackOpen => {
                 // Same surface as a message's feedback, session scope: no rating and no version, and a
                 // second press replaces the draft rather than stacking one (`FeedbackDialog.tsx:62-65`).
@@ -6578,6 +6627,7 @@ impl App {
                 self.status = format!("Owned Core {version}; authenticated native transport ready");
                 self.request_catalog();
                 self.request_reminders();
+                self.request_open_in_app();
                 if !self.stopped && matches!(self.close, Close::None) {
                     return Task::batch([self.load_drafts(false), self.load_sidebar(false)]);
                 }
@@ -6984,6 +7034,26 @@ impl App {
                     }
                     Ok(false) => {}
                     Err(error) => self.status = error,
+                }
+            }
+            Event::OpenInAppApps(result) => {
+                self.open_in_app_loading = false;
+                match result {
+                    Ok(apps) => self.open_in_app_apps = Some(apps),
+                    // A failed read hides the control; the reference draws no broken button.
+                    Err(_) => self.open_in_app_apps = None,
+                }
+            }
+            Event::OpenInAppLaunched { app, result } => {
+                self.open_in_app_busy = false;
+                match result {
+                    Ok(()) => {
+                        self.open_in_app_choice = Some(app);
+                        self.open_in_app_error = None;
+                        self.persist_preference();
+                    }
+                    // The reference announces the failure but keeps the control usable.
+                    Err(_) => self.open_in_app_error = Some("Could not open. Try again.".into()),
                 }
             }
             Event::WorkspacePathOpened { path, result } => {
@@ -11084,6 +11154,12 @@ impl App {
         actions = actions.push(Space::new().width(Length::Fill));
         // The utilities cluster sits right of the free space, in its own order: the reminder chip at
         // -5, the overflow control at 0 (`ui-schedule/src/client/index.ts:213-215`).
+        if let Some(open) = self.open_in_app_action() {
+            actions = actions.push(open);
+        }
+        if let Some(error) = self.open_in_app_error.as_deref() {
+            actions = actions.push(label(short(error, 60), DANGER).size(10));
+        }
         if self.selected.is_some() {
             actions = actions.push(
                 button(label("Feedback", MUTED).size(12))
@@ -11948,6 +12024,92 @@ impl App {
             self.reminders_open = false;
             self.schedule_delete = None;
         }
+    }
+    /// Read the Host's installed desktop applications once, for the header's workspace opener. A
+    /// failed read leaves no control rather than a broken one (`controller.ts:76-95`).
+    fn request_open_in_app(&mut self) {
+        if self.options.smoke.is_some()
+            || self.background_reads_disabled
+            || !self.ready
+            || self.stopped
+            || self.observations_lost
+            || !matches!(self.close, Close::None)
+            || self.open_in_app_loading
+            || self.open_in_app_apps.is_some()
+        {
+            return;
+        }
+        self.open_in_app_loading = true;
+        self.command(worker::Command::OpenInAppApps);
+    }
+    /// The selected Session's own working directory: what the workspace opener launches.
+    fn selected_cwd(&self) -> Option<String> {
+        self.selected
+            .as_ref()
+            .and_then(|id| self.sessions.get(id))
+            .and_then(|session| session.cwd.clone())
+    }
+    /// The header's workspace opener: the reference's split button with its installed-app menu
+    /// (`ui-open-in-app/src/client/index.ts:97-105`, `OpenTargetButton.tsx:92-140`). It is absent
+    /// when the Session has no workspace or the Host named no app.
+    fn open_in_app_action(&self) -> Option<Element<'_, Message>> {
+        let cwd = self.selected_cwd()?;
+        open_in_app::workspace_of(Some(&cwd))?;
+        let apps = self.open_in_app_apps.as_deref()?;
+        let named = open_in_app::nameable(apps, self.open_in_app_choice.as_deref());
+        let (preferred, name) = *named.first()?;
+        let busy = self.open_in_app_busy;
+        let primary = button(
+            label(
+                if busy {
+                    "Opening…".to_owned()
+                } else {
+                    format!("Open in {name}")
+                },
+                MUTED,
+            )
+            .size(12),
+        )
+        .on_press_maybe((!busy).then(|| Message::OpenInAppLaunch(preferred.to_owned())))
+        .style(design::ghost)
+        .padding([7, 8]);
+        let chevron = button(label("▾", MUTED).size(11))
+            .on_press(Message::ToggleOpenInAppMenu)
+            .style(design::ghost)
+            .padding([7, 4]);
+        let anchor = row![primary, chevron]
+            .spacing(0)
+            .align_y(iced::Alignment::Center);
+        let menu = self.open_in_app_menu.then(|| {
+            let rows: Vec<(String, String)> = named
+                .iter()
+                .map(|(id, name)| ((*id).to_owned(), (*name).to_owned()))
+                .collect();
+            self.open_in_app_menu_view(&rows)
+        });
+        Some(anchored_popup::anchored_below(
+            anchor.into(),
+            menu,
+            Message::ToggleOpenInAppMenu,
+        ))
+    }
+    /// The opener's application menu: one row per nameable installed app, in Host order.
+    fn open_in_app_menu_view(&self, rows: &[(String, String)]) -> Element<'_, Message> {
+        let mut list = column![].spacing(2);
+        for (id, name) in rows {
+            list = list.push(
+                button(label(name.clone(), TEXT).size(12))
+                    .on_press(Message::OpenInAppLaunch(id.clone()))
+                    .style(design::ghost)
+                    .padding([6, 10])
+                    .width(Length::Fill),
+            );
+        }
+        container(list)
+            .padding(6)
+            .width(220)
+            .style(|_| design::card(OVERLAY, design::RADIUS_MD))
+            .into()
     }
     /// Read the Host's schedule catalog once the transport is ready, so the open Session's header
     /// can count its reminders (`ScheduleCatalogAction.tsx:58-76`: the web's header source reads when
@@ -28396,6 +28558,8 @@ mod tests {
         // The header's reminder count is the other automatic startup read
         // (`ScheduleCatalogAction.tsx:58-76`): the Host's schedule catalog, not a write.
         assert!(matches!(receiver.try_recv(), Ok(Command::ScheduleCatalog)));
+        // The workspace opener's app catalog is the third automatic startup read.
+        assert!(matches!(receiver.try_recv(), Ok(Command::OpenInAppApps)));
         let _ = window.view();
         assert!(window.ready);
         assert_eq!(window.account, "Account metadata not loaded");
@@ -28444,6 +28608,8 @@ mod tests {
         // The header's reminder count is the other automatic startup read
         // (`ScheduleCatalogAction.tsx:58-76`): the Host's schedule catalog, not a write.
         assert!(matches!(receiver.try_recv(), Ok(Command::ScheduleCatalog)));
+        // The workspace opener's app catalog is the third automatic startup read.
+        assert!(matches!(receiver.try_recv(), Ok(Command::OpenInAppApps)));
         assert!(receiver.try_recv().is_err());
         let account = PublicEvent::Account(dsh_native_core::AccountMetadata {
             status: dsh_native_core::AccountStatus::CredentialStored,
@@ -28487,6 +28653,8 @@ mod tests {
         // The header's reminder count is the other automatic startup read
         // (`ScheduleCatalogAction.tsx:58-76`): the Host's schedule catalog, not a write.
         assert!(matches!(receiver.try_recv(), Ok(Command::ScheduleCatalog)));
+        // The workspace opener's app catalog is the third automatic startup read.
+        assert!(matches!(receiver.try_recv(), Ok(Command::OpenInAppApps)));
         let _ = app.update(Message::Settings(Action::Close));
         let _ = app.update(Message::Settings(Action::Open));
         let Command::PluginsRead(read) = receiver.try_recv().expect("General reads its namespace")
@@ -28512,6 +28680,8 @@ mod tests {
         // The header's reminder count is the other automatic startup read
         // (`ScheduleCatalogAction.tsx:58-76`): the Host's schedule catalog, not a write.
         assert!(matches!(receiver.try_recv(), Ok(Command::ScheduleCatalog)));
+        // The workspace opener's app catalog is the third automatic startup read.
+        assert!(matches!(receiver.try_recv(), Ok(Command::OpenInAppApps)));
         assert!(receiver.try_recv().is_err());
         let ticket = app.settings.plugin_read_ticket();
         let _ = app.update(Message::Settings(Action::Plugins(
@@ -28555,6 +28725,8 @@ mod tests {
         // The header's reminder count is the other automatic startup read
         // (`ScheduleCatalogAction.tsx:58-76`): the Host's schedule catalog, not a write.
         assert!(matches!(receiver.try_recv(), Ok(Command::ScheduleCatalog)));
+        // The workspace opener's app catalog is the third automatic startup read.
+        assert!(matches!(receiver.try_recv(), Ok(Command::OpenInAppApps)));
         assert!(receiver.try_recv().is_err());
         for _ in 0..32 {
             assert!(app.handle.send(Command::Inspect).is_ok());
@@ -28585,6 +28757,8 @@ mod tests {
         // The header's reminder count is the other automatic startup read
         // (`ScheduleCatalogAction.tsx:58-76`): the Host's schedule catalog, not a write.
         assert!(matches!(receiver.try_recv(), Ok(Command::ScheduleCatalog)));
+        // The workspace opener's app catalog is the third automatic startup read.
+        assert!(matches!(receiver.try_recv(), Ok(Command::OpenInAppApps)));
         assert!(app.settings.is_open());
         assert_eq!(app.settings.input_ticket().epoch, worker::TRANSPORT_EPOCH);
         assert!(app.settings_enabled());

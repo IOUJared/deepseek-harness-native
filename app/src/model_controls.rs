@@ -1206,6 +1206,7 @@ mod tests {
         assert!(matches!(rx.try_recv().unwrap(), Command::Catalog(_)));
         // The reminder count's own startup read (`ScheduleCatalogAction.tsx:58-76`).
         assert!(matches!(rx.try_recv().unwrap(), Command::ScheduleCatalog));
+        assert!(matches!(rx.try_recv().unwrap(), Command::OpenInAppApps));
         assert!(rx.try_recv().is_err());
         let current = open(&mut app);
         assert_ne!(early, current);

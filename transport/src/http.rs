@@ -869,6 +869,56 @@ impl NativeClient {
             None => Err(Error::InvalidDto),
         }
     }
+    /// The installed-desktop catalog the reference's `open-in-app` routes serve. These are plain
+    /// Host routes, not BFF remotes: `GET /open-in-app/apps` answers `{apps: string[]}`
+    /// (`host/open-in-app/src/shared.ts:10-14`, `index.ts:195-203`).
+    pub async fn open_in_app_apps(&self) -> Result<Vec<String>> {
+        let auth = self.inner.authority()?;
+        let url = auth
+            .origin
+            .join("/open-in-app/apps")
+            .map_err(|_| Error::InvalidLaunch)?;
+        let response = self
+            .inner
+            .http
+            .get(url)
+            .header(ORIGIN, auth.origin.origin().ascii_serialization())
+            .header(COOKIE, auth.cookie)
+            .send()
+            .await
+            .map_err(map_network)?;
+        let value = read_response(response, self.inner.limits).await?;
+        open_in_app_apps_of(&value)
+    }
+
+    /// Launch one installed desktop app on one absolute Host directory (`POST /open-in-app/open`,
+    /// `host/open-in-app/src/shared.ts:22-26`, `index.ts:243-311`). The caller must intend the side
+    /// effect: the Host launches a real application.
+    pub async fn open_in_app_open(&self, app: &str, path: &str) -> Result<()> {
+        if !valid_open_in_app_id(app) || !path.starts_with('/') || !valid_open_path(path) {
+            return Err(Error::InvalidDto);
+        }
+        let auth = self.inner.authority()?;
+        let url = auth
+            .origin
+            .join("/open-in-app/open")
+            .map_err(|_| Error::InvalidLaunch)?;
+        let body = serde_json::to_vec(&json!({"app": app, "path": path}))
+            .map_err(|_| Error::InvalidDto)?;
+        let response = self
+            .inner
+            .http
+            .post(url)
+            .header(ORIGIN, auth.origin.origin().ascii_serialization())
+            .header(COOKIE, auth.cookie)
+            .header(CONTENT_TYPE, "application/json")
+            .body(body)
+            .send()
+            .await
+            .map_err(map_network)?;
+        let value = read_response(response, self.inner.limits).await?;
+        open_in_app_launched(&value)
+    }
     /// List `@` session-reference candidates for one session's query. Mentions are the canonical
     /// markdown form the Host expects in prompt text.
     pub async fn session_reference_candidates(
@@ -1888,6 +1938,45 @@ fn parse_changes_summary(value: Value) -> Option<ChangesSummary> {
 fn valid_open_path(path: &str) -> bool {
     !path.is_empty() && path.len() <= 4096 && !path.chars().any(char::is_control)
 }
+/// One open-in-app catalog id: the reference's catalog keys are lowercase words (`vscode`,
+/// `gnometerminal`), so anything else is refused rather than sent back to the Host.
+fn valid_open_in_app_id(app: &str) -> bool {
+    !app.is_empty()
+        && app.len() <= 32
+        && app
+            .chars()
+            .all(|character| character.is_ascii_lowercase() || character.is_ascii_digit())
+}
+
+/// Parse `GET /open-in-app/apps`: a bounded array of catalog ids, in menu order.
+fn open_in_app_apps_of(value: &Value) -> Result<Vec<String>> {
+    let apps = value
+        .get("apps")
+        .and_then(Value::as_array)
+        .ok_or(Error::InvalidDto)?;
+    if apps.len() > 64 {
+        return Err(Error::InvalidDto);
+    }
+    let mut out = Vec::with_capacity(apps.len());
+    for app in apps {
+        let id = app.as_str().ok_or(Error::InvalidDto)?;
+        if !valid_open_in_app_id(id) {
+            return Err(Error::InvalidDto);
+        }
+        out.push(id.to_owned());
+    }
+    Ok(out)
+}
+
+/// Parse `POST /open-in-app/open`: a `{ok:true}` receipt, never a guessed success.
+fn open_in_app_launched(value: &Value) -> Result<()> {
+    if value.get("ok").and_then(Value::as_bool) == Some(true) {
+        Ok(())
+    } else {
+        Err(Error::InvalidDto)
+    }
+}
+
 fn bounded_session_references(
     items: Vec<SessionReferenceCandidate>,
 ) -> Option<Vec<SessionReferenceCandidate>> {
@@ -2805,5 +2894,48 @@ mod directory_listing_tests {
             }))
             .is_none()
         );
+    }
+}
+
+#[cfg(test)]
+mod open_in_app_tests {
+    use super::{open_in_app_apps_of, open_in_app_launched};
+    use serde_json::json;
+
+    #[test]
+    fn an_open_in_app_catalog_is_bounded_to_real_ids() {
+        assert_eq!(
+            open_in_app_apps_of(&json!({"apps": ["vscode", "kitty"]})).unwrap(),
+            ["vscode", "kitty"]
+        );
+        assert!(
+            open_in_app_apps_of(&json!({"apps": []}))
+                .unwrap()
+                .is_empty()
+        );
+        for bad in [
+            json!({}),
+            json!({"apps": "vscode"}),
+            json!({"apps": ["VS Code"]}),
+            json!({"apps": [""]}),
+            json!({"apps": [1]}),
+            json!({"apps": ["x".repeat(33)]}),
+            json!({"apps": (0..65).map(|index| format!("app{index}")).collect::<Vec<_>>()}),
+        ] {
+            assert!(open_in_app_apps_of(&bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn an_open_in_app_launch_needs_the_ok_receipt() {
+        assert!(open_in_app_launched(&json!({"ok": true})).is_ok());
+        for bad in [
+            json!({}),
+            json!({"ok": false}),
+            json!({"ok": "true"}),
+            json!(null),
+        ] {
+            assert!(open_in_app_launched(&bad).is_err(), "{bad}");
+        }
     }
 }

@@ -1077,6 +1077,8 @@ impl Fixture {
                 worker::Command::FileReferences { .. } => "FileReferences",
                 worker::Command::SessionReferences { .. } => "SessionReferences",
                 worker::Command::OpenWorkspacePath { .. } => "OpenWorkspacePath",
+                worker::Command::OpenInAppApps => "OpenInAppApps",
+                worker::Command::OpenInAppOpen { .. } => "OpenInAppOpen",
                 worker::Command::FeedbackPut { .. } => "FeedbackPut",
                 worker::Command::PickDirectory => "PickDirectory",
                 worker::Command::ListDirectory { .. } => "ListDirectory",

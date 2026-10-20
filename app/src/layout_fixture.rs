@@ -145,6 +145,7 @@ pub const PRESETS: &[&str] = &[
     "session-schedule-mark",
     "session-hover",
     "mcp",
+    "open-in-app",
     "changes-card",
     "changes-diff",
     "changes-split",
@@ -388,7 +389,6 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "terminal-address"
         | "terminal-colors"
         | "terminal-wide"
-        | "terminal-combining"
         | "terminal-altscreen"
         | "terminal-wrap"
         | "terminal-underline"
@@ -454,7 +454,9 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "effort-submenu-tiny" => Some((Size::new(608.0, 448.0), 1.25)),
         // The sidebar's session rows and their scheduled-task seats need the expanded sidebar; a
         // 760px frame draws its compact rail instead, where rows are not drawn at all.
-        "session-schedule-mark" | "session-hover" => Some((Size::new(1040.0, 700.0), 1.0)),
+        "session-schedule-mark" | "session-hover" | "open-in-app" => {
+            Some((Size::new(1040.0, 700.0), 1.0))
+        }
         "narrow-welcome"
         | "menu"
         | "navigation"
@@ -1536,7 +1538,7 @@ pub fn build(
         "running":preset.starts_with("working-") || matches!(preset, "menu" | "navigation" | "navigation-tiny"),
         // A preset that carries a transcript is not a blank session; the reference's own row
         // list and the chat fixtures both depend on this flag.
-        "blank": !matches!(preset, "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" | "conversation" | "chat-density" | "chat-markdown" | "chat-thoughts" | "thoughts-preview" | "chat-thoughts-markdown" | "chat-table" | "reminders" | "reminders-delete" | "session-schedule-mark" | "session-hover")
+        "blank": !matches!(preset, "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" | "conversation" | "chat-density" | "chat-markdown" | "chat-thoughts" | "thoughts-preview" | "chat-thoughts-markdown" | "chat-table" | "reminders" | "reminders-delete" | "session-schedule-mark" | "session-hover" | "open-in-app")
             && !preset.starts_with("tool-activity"),
 
         "cwd":"/PUBLIC-layout-fixture/workspace",
@@ -1875,6 +1877,7 @@ pub fn build(
             | "reminders-delete"
             | "session-schedule-mark"
             | "session-hover"
+            | "open-in-app"
             | "subagent-catalog"
             | "subagent-catalog-error"
             | "subagent-readonly"
@@ -3113,6 +3116,18 @@ pub fn build(
         for key in keys {
             app.process_group_open.insert(key, true);
         }
+    }
+    if preset == "open-in-app" {
+        // The Host's catalog as the routes return it: one id the reference cannot name is filtered,
+        // and the remembered choice leads the menu (`applications.ts:5-40`, `controller.ts:47-62`).
+        app.open_in_app_apps = Some(vec![
+            "unknown".into(),
+            "vscode".into(),
+            "kitty".into(),
+            "gnometerminal".into(),
+        ]);
+        app.open_in_app_choice = Some("kitty".into());
+        app.open_in_app_menu = true;
     }
     drop(app.update(Message::Resized(size)));
 
@@ -5326,6 +5341,23 @@ mod tests {
                 );
                 assert_eq!(shown.len(), 2);
                 assert_eq!(omitted, 1, "the third active task is counted, not dropped");
+            }
+            if preset == "open-in-app" {
+                // The control names the remembered app, the unnamed id is filtered, and the menu is
+                // the state the chevron press reaches.
+                assert!(app.open_in_app_menu);
+                let apps = app.open_in_app_apps.as_deref().expect("the catalog");
+                let named = crate::ui::open_in_app::nameable(apps, Some("kitty"));
+                assert_eq!(
+                    named,
+                    [
+                        ("kitty", "kitty"),
+                        ("vscode", "VS Code"),
+                        ("gnometerminal", "GNOME Terminal")
+                    ]
+                );
+                assert!(app.open_in_app_action().is_some());
+                assert_eq!(app.open_in_app_error, None);
             }
             if preset == "permission-chip" {
                 // The chip is drawn only from the recorded preset, and the record

@@ -1126,3 +1126,54 @@ fn the_hover_card_shows_two_ordered_active_tasks_and_counts_the_rest() {
     assert_eq!(elsewhere[0].id, "PUBLIC-hover-elsewhere");
     assert_eq!(omitted, 0);
 }
+
+#[test]
+fn the_open_in_app_control_launches_the_selected_workspace_and_reports_a_failure() {
+    let (mut app, mut queue) = app();
+    app.sessions
+        .get_mut(&id("a"))
+        .expect("the selected row")
+        .cwd = Some("/PUBLIC-workspace".into());
+    app.open_in_app_apps = Some(vec!["vscode".into(), "kitty".into(), "unknown".into()]);
+    app.open_in_app_choice = Some("kitty".into());
+    // The control names the remembered app and offers only the ids the reference can name.
+    assert!(app.open_in_app_action().is_some());
+    drop(app.update(Message::OpenInAppLaunch("kitty".into())));
+    assert!(app.open_in_app_busy);
+    let Command::OpenInAppOpen { app: chosen, path } = queue.try_recv().expect("one launch") else {
+        panic!("only an explicit launch expected")
+    };
+    assert_eq!(chosen, "kitty");
+    assert_eq!(path, "/PUBLIC-workspace");
+    // A second press while the first is in flight is ignored, not queued twice.
+    drop(app.update(Message::OpenInAppLaunch("vscode".into())));
+    assert!(queue.try_recv().is_err());
+    // A failed launch keeps the control usable and states the reference's copy.
+    drop(app.update(Message::Worker(Event::OpenInAppLaunched {
+        app: "kitty".into(),
+        result: Err("Open in app: HttpStatus(502)".into()),
+    })));
+    assert!(!app.open_in_app_busy);
+    assert_eq!(
+        app.open_in_app_error.as_deref(),
+        Some("Could not open. Try again.")
+    );
+    // The next launch's receipt clears the failure and remembers the chosen app.
+    drop(app.update(Message::OpenInAppLaunch("vscode".into())));
+    let Command::OpenInAppOpen { app: chosen, .. } = queue.try_recv().expect("the retry") else {
+        panic!("only an explicit launch expected")
+    };
+    assert_eq!(chosen, "vscode");
+    drop(app.update(Message::Worker(Event::OpenInAppLaunched {
+        app: "vscode".into(),
+        result: Ok(()),
+    })));
+    assert_eq!(app.open_in_app_choice.as_deref(), Some("vscode"));
+    assert_eq!(app.open_in_app_error, None);
+    // A failed catalog read hides the control rather than drawing a broken one.
+    drop(app.update(Message::Worker(Event::OpenInAppApps(Err(
+        "Open in app: HttpStatus(404)".into(),
+    )))));
+    assert!(app.open_in_app_apps.is_none());
+    assert!(app.open_in_app_action().is_none());
+}

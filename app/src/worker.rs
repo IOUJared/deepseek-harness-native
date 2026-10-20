@@ -95,6 +95,13 @@ pub enum Command {
     OpenWorkspacePath {
         path: String,
     },
+    /// Read the Host's installed desktop applications for the workspace opener.
+    OpenInAppApps,
+    /// Launch one installed desktop app on one workspace directory.
+    OpenInAppOpen {
+        app: String,
+        path: String,
+    },
     /// Open the Host's native directory chooser.
     PickDirectory,
     /// List one directory level for the in-app browser.
@@ -307,6 +314,13 @@ pub enum Event {
     WorkspacePathOpened {
         path: String,
         result: Result<bool, String>,
+    },
+    /// The installed-desktop catalog the workspace opener may offer.
+    OpenInAppApps(Result<Vec<String>, String>),
+    /// One launched application, acknowledged by the Host's `{ok:true}` receipt.
+    OpenInAppLaunched {
+        app: String,
+        result: Result<(), String>,
     },
     DirectoryPicked(Result<Option<String>, String>),
     DirectoryListed(Result<dsh_native_transport::dto::DirectoryListing, String>),
@@ -1053,6 +1067,11 @@ fn rejected(command: Command) -> Event {
         },
         Command::OpenWorkspacePath { path } => Event::WorkspacePathOpened {
             path,
+            result: Err(error),
+        },
+        Command::OpenInAppApps => Event::OpenInAppApps(Err(error)),
+        Command::OpenInAppOpen { app, .. } => Event::OpenInAppLaunched {
+            app,
             result: Err(error),
         },
         Command::ChangesDiff { seq, index, .. } => Event::ChangesDiffLoaded {
@@ -2744,6 +2763,13 @@ async fn run(
                     Command::OpenWorkspacePath{path}=>Event::WorkspacePathOpened{
                         result:client.open_workspace_path(&path).await.map_err(|error|format!("Open path: {error}")),
                         path,
+                    },
+                    Command::OpenInAppApps=>Event::OpenInAppApps(
+                        client.open_in_app_apps().await.map_err(|error|format!("Open in app: {error}")),
+                    ),
+                    Command::OpenInAppOpen{app,path}=>Event::OpenInAppLaunched{
+                        result:client.open_in_app_open(&app,&path).await.map_err(|error|format!("Open in app: {error}")),
+                        app,
                     },
                     Command::SessionReferences{session,query}=>Event::SessionReferencesLoaded{
                         result:client.session_reference_candidates(&session,&query).await.map_err(|error|format!("Session references: {error}")),
