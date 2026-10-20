@@ -9,6 +9,7 @@ pub mod control;
 pub mod layout;
 pub mod node;
 pub mod scroll;
+pub mod upload;
 
 use crate::compositor::{Facts, window_facts};
 use crate::proc;
@@ -514,6 +515,7 @@ pub fn run(arguments: &[String]) -> i32 {
         "agent-discovery" => node::agent_discovery(&root, &output, sdk),
         "client-projections" => node::client_projections(&root, &output),
         "turn-outline" => node::turn_outline(&root, &output),
+        "file-upload" => upload::run(&root, &output),
         "composed-settings" => composed::run(&root, &output, scale),
         "lazy-account" => composed::lazy_account(&root, &output),
         "control" => control::run(&root.join("app")),
