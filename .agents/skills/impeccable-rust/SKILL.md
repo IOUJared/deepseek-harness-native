@@ -35,7 +35,7 @@ Do not call tests, fuzzing or bounded model checking a proof. Name inputs, sched
 
 ## Native frontend and backend
 
-For the native repository, read `docs/VERIFICATION.md` from its root. Its `scripts/verify-native.py` provides a bounded plan, doctor, lints and headless regression suites. Run the doctor before selecting additional tools. Serialize Cargo with two jobs, locked dependencies and the available cache; do not run another agent's build concurrently.
+For the native repository, read `docs/VERIFICATION.md` from its root. Its `tools/xtask` crate provides a bounded plan, doctor, lints and headless regression suites. Run the doctor before selecting additional tools. Serialize Cargo with two jobs, locked dependencies and the available cache; do not run another agent's build concurrently.
 
 For the TypeScript Harness backend, read its `AGENTS.md` and `docs/testing.md`. Apply the same risk/evidence discipline using its existing typecheck, focused Vitest, real Loader and replay checks—not Rust tools or Rust API idioms. Preserve typed same-process trust; validate actual parser, persistence, process and wire input. Never substitute RC API inspection for alpha source/artifact evidence.
 

@@ -8,20 +8,20 @@ Run from the native repository. The runner prints plans without running checks, 
 
 ```sh
 scripts/check.sh
-python3 -B scripts/verify-native.py --suite test --plan
-python3 -B scripts/verify-native.py --suite doctor
-python3 -B scripts/verify-native.py --suite lint
-python3 -B scripts/verify-native.py --suite clippy
-python3 -B scripts/verify-native.py --suite examples
-python3 -B scripts/verify-native.py --suite test
+cargo run --quiet --manifest-path tools/xtask/Cargo.toml --locked -- verify --suite test --plan
+cargo run --quiet --manifest-path tools/xtask/Cargo.toml --locked -- verify --suite doctor
+cargo run --quiet --manifest-path tools/xtask/Cargo.toml --locked -- verify --suite lint
+cargo run --quiet --manifest-path tools/xtask/Cargo.toml --locked -- verify --suite clippy
+cargo run --quiet --manifest-path tools/xtask/Cargo.toml --locked -- verify --suite examples
+cargo run --quiet --manifest-path tools/xtask/Cargo.toml --locked -- verify --suite test
 ```
 
-`scripts/check.sh` is the single entry point: with no arguments it runs `--suite all`, and any other argument is forwarded unchanged (`scripts/check.sh --plan`). Use `--cargo-home ABS_PATH` for an existing cache.
+The runner is the first-party `tools/xtask` crate, not a Python script: a checkout with Rust runs these predicates without an interpreter. `scripts/check.sh` is the single entry point: with no arguments it runs `--suite all`, and any other argument is forwarded unchanged (`scripts/check.sh --plan`). Use `--cargo-home ABS_PATH` for an existing cache.
 
 ## Formatting and lint debt
 
 - `format-debt` owns formatting. It runs the scoped `cargo fmt --manifest-path <crate>/Cargo.toml -- --check` for Core, transport and App, deliberately without `--all`, so the pinned third-party `app/vendor/winit` tree is never reported as ours. Pass a path list to keep a change scoped: `cargo fmt -- <paths>` formats the whole crate regardless, which is how the App crate became rustfmt-clean in one pass.
-- `AGENTS.md` forbids rewriting all shared Rust files to resolve local formatting debt, so the remaining first-party debt is recorded per file in `scripts/format-debt-baseline.json` rather than waived. The check prints current file and hunk totals and **fails when a file that was clean becomes unformatted, or a new file is added unformatted**. Removing debt is reported, not failed; record an intentional change with `python3 -B scripts/format-debt.py --update`. Baseline at 2026-10-11: **0 files, 0 hunks** — every first-party file is rustfmt-clean, so any new debt is now a genuine regression rather than a recorded allowance.
+- `AGENTS.md` forbids rewriting all shared Rust files to resolve local formatting debt, so the remaining first-party debt is recorded per file in `scripts/format-debt-baseline.json` rather than waived. The check prints current file and hunk totals and **fails when a file that was clean becomes unformatted, or a new file is added unformatted**. Removing debt is reported, not failed; record an intentional change with `cargo run --quiet --manifest-path tools/xtask/Cargo.toml --locked -- format-debt --update`. Baseline at 2026-10-11: **0 files, 0 hunks** — every first-party file is rustfmt-clean, so any new debt is now a genuine regression rather than a recorded allowance. `tools/xtask` joined the check when it was added, so the new crate is held to the same rule.
 - Clippy denies unfinished macros and implicit unsafe operations; other warnings stay visible by policy, and a guard asserts the suite does not deny all baseline warnings.
 - Visible totals measured 2026-10-11 for the **production** targets (`cargo clippy -- -D warnings`): App **0**, Core **0**, transport **0** — down from App 32, Core 1, transport 0. This is the plain target set, not `--all-targets --all-features`; the wider set still reports findings in test and fixture code and is not a gate this suite runs. The reduction came from the machine-applicable `collapsible_if` subset (Rust 2024 let-chains, no behaviour change), documented `#[allow(dead_code)]` on retained API, boxing the four enum variants whose payload dwarfed their peers, and a function-scoped allow for `select!` branches. Under `--all-targets --all-features` the same findings multiply per target (App 1,133 summary lines); compare like with like.
 - **Every `app/examples` target that includes production sources must declare the same shared module set** (`crash_log`, `goal_ui`, `keybindings`, `queue_dock`, `queue_update`, `single_instance`). `--suite clippy` compiles `--all-targets --all-features`, so a stale include list fails that gate even while `--suite test` is green. Eleven composed smoke examples and the geometry probe had drifted; they are synchronized as of 2026-10-17. The geometry probe includes `ui.rs` inside a wrapper so `chat_geometry`'s inline helpers keep the same module ancestry as the App instead of needing private UI modules made `pub(crate)`.
@@ -47,7 +47,7 @@ Reports contain exact commands, outcomes, toolchain details and before/after sou
 | Core | Pipe/framing limits, owned descendants, shutdown, secret handling, persistence uncertainty | Core tests with and without transport |
 | HTTP/WebSocket transport | Authentication/privacy, malformed JSON, correlation, byte/item/depth limits, cancellation, no blind mutation retry | Transport tests against the fixed fake-wire fixture |
 | JavaScript Host bridge | Command/framing validation, diagnostic privacy, account/Codex disposal and uncertain writes | Production-module Node tests |
-| Packaging/qualification | Evidence guardrails and archive/launcher behavior | Existing Python guard tests |
+| Packaging/qualification | Evidence guardrails and archive/launcher behavior | Existing Python guard tests; the verification runner's own guards are `tools/xtask` tests |
 
 The fake-wire suite needs the existing `transport/tests` dependencies and `/usr/bin/node`; CI prepares them. The runner does not replace Node or install npm dependencies. Existing tests own their isolated fixtures and cleanup.
 

@@ -65,6 +65,7 @@ jobs:
             core
             transport
             app
+            tools/xtask
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Prepare empty test scratch
         run: mkdir -p app/evidence
@@ -74,6 +75,7 @@ jobs:
         run: node --test core/runtime/*.test.mjs
       - name: Test qualification and packaging guards
         run: |
+          cargo test --locked --manifest-path tools/xtask/Cargo.toml -- --test-threads=2
           python3 -B -m unittest discover -s scripts -p 'test_*.py'
           python3 -B -m unittest discover -s benchmarks -p 'test_*.py'
           python3 -B -m unittest discover -s app -p '*_test.py'
@@ -89,11 +91,11 @@ jobs:
           cargo test --locked --manifest-path app/Cargo.toml --features public-layout-fixture --bin dsh-native-app -- --test-threads=2
           cargo check --locked --manifest-path app/Cargo.toml --all-targets --all-features
           cargo test --locked --manifest-path app/Cargo.toml -p winit --lib data_device -- --test-threads=2
-          python3 -B scripts/verify-native.py --suite examples --online
+          cargo run --quiet --manifest-path tools/xtask/Cargo.toml --locked -- verify --suite examples --online
       - name: Check selected Rust safety lints
         run: |
           rustup component add clippy
-          python3 -B scripts/verify-native.py --suite clippy --online
+          cargo run --quiet --manifest-path tools/xtask/Cargo.toml --locked -- verify --suite clippy --online
       - name: Build release executable
         run: cargo build --locked --release --manifest-path app/Cargo.toml --bin dsh-native-app
       - name: Smoke test without a display or backend

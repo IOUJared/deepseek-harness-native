@@ -6,7 +6,7 @@
 #   scripts/check.sh --plan              # print commands without executing
 #
 # Suites, offline defaults, two-job Cargo serialization and evidence handling are
-# owned by scripts/verify-native.py; this wrapper only supplies the default suite.
+# owned by tools/xtask; this wrapper only supplies the default suite.
 # The opt-in `examples`, `doctor` and `--online` paths stay explicit arguments.
 set -euo pipefail
 
@@ -16,4 +16,4 @@ if [ "$#" -eq 0 ]; then
   set -- --suite all
 fi
 
-exec python3 -B "$root/scripts/verify-native.py" "$@"
+exec cargo run --quiet --manifest-path "$root/tools/xtask/Cargo.toml" --locked -- verify "$@"

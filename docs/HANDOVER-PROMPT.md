@@ -46,8 +46,8 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 >    **Inspect the frame before committing** — a green suite cannot see an element that vanished
 >    (round 107) or a duplicated label (round 109).
 > 5. Run the full battery: fixture, default, transport (59+17+91+7), core `--lib` (115), JS
->    (`node --test core/runtime/*.test.mjs`, 419), `scripts/format-debt.py` (0), `verify-native.py
->    --suite clippy` and `--suite examples`, and report the app bin warning count (21).
+>    (`node --test core/runtime/*.test.mjs`, 419), `tools/xtask format-debt` (0), `tools/xtask
+>    verify --suite clippy` and `--suite examples`, and report the app bin warning count (21).
 > 6. Record the round in `docs/NATIVE-UI-PARITY.md` with a battery table and honest notes — including
 >    mistakes made inside the round.
 > 7. Bump the shot counter in `docs/SESSION-PROMPT.md` and **verify the line actually changed**; a

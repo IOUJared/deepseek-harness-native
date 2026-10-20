@@ -71,9 +71,9 @@ cargo test --manifest-path app/Cargo.toml --locked --offline --jobs 2 \
 cargo test --manifest-path transport/Cargo.toml --locked --offline --jobs 2 -- --test-threads=2
 cargo test --manifest-path core/Cargo.toml --locked --offline --jobs 2 --lib -- --test-threads=2
 node --test core/runtime/*.test.mjs
-python3 -B scripts/format-debt.py
-python3 -B scripts/verify-native.py --suite clippy      # when source or examples change
-python3 -B scripts/verify-native.py --suite examples    # when an example changes
+cargo run --quiet --manifest-path tools/xtask/Cargo.toml --locked -- format-debt
+cargo run --quiet --manifest-path tools/xtask/Cargo.toml --locked -- verify --suite clippy    # when source or examples change
+cargo run --quiet --manifest-path tools/xtask/Cargo.toml --locked -- verify --suite examples  # when an example changes
 ```
 
 Rules: capture the exit code (`cmd | tail` returns `tail`'s status); run **both** app profiles; format

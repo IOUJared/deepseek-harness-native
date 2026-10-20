@@ -21,7 +21,7 @@ Legacy plain versions retain `v0.1.0-dev.run` automation. Gaps reflect workflow 
 
 - Ubuntu 24.04 / Linux x86_64, Rust 1.99.0 and Node 26.10.0.
 - Separate Core, transport and app suites; PUBLIC layout models and all-target compilation.
-- Supervisor tests, Python qualification/packaging guards and release metadata tests.
+- Supervisor tests, Python qualification/packaging guards, `tools/xtask` tests and release metadata tests.
 - Locked public dependencies and standalone [fake-wire npm dependency](<../transport/tests/package.json>). Native-only CI has no built sibling alpha: **22 real-flock/Cordis tests explicitly skip**, while seven portable bridge tests still run. `DSH_REQUIRE_ALPHA_TEST_ARTIFACTS=1` makes absent artifacts fail; wrong versions, broken imports/ABI/exports and assertions always fail. Strict companion-artifact checks and full-profile native composition remain separate release evidence.
 - Empty synthetic test scratch only; no private evidence, API keys, login, GUI startup or real model calls.
 
@@ -39,6 +39,7 @@ The compatible `0.2.1-alpha.1` backend, Node, profiles and credentials are **not
 npm ci --prefix transport/tests --ignore-scripts
 mkdir -p app/evidence
 node --test core/runtime/*.test.mjs
+cargo test --locked --manifest-path tools/xtask/Cargo.toml -- --test-threads=2
 python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
 cargo test --locked --manifest-path core/Cargo.toml --features transport -- --test-threads=2
 cargo test --locked --manifest-path transport/Cargo.toml -- --test-threads=2
