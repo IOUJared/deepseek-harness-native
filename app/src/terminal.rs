@@ -363,6 +363,9 @@ struct Screen {
     /// body scrolls, so a newline at the region's bottom scrolls only the region.
     top: usize,
     bottom: usize,
+    /// Autowrap (`DECAWM`, `CSI ? 7 h`/`l`): on by default, so a glyph past the last column wraps; a
+    /// program turns it off to overwrite the last column instead.
+    wrap: bool,
     dropped: usize,
     /// The SGR colour the next written cell takes: an ANSI index 0–15, or none for the panel's
     /// default ink.
@@ -445,6 +448,7 @@ impl Screen {
             // `usize::MAX` is "the last row": the region is the whole screen until a program sets
             // one, and every use clamps it to the grid.
             bottom: usize::MAX,
+            wrap: true,
             dropped: 0,
             ink: None,
             alternate: None,
@@ -522,10 +526,16 @@ impl Screen {
         // A glyph that would end past the last column wraps first: the shell's own line discipline
         // starts the next row rather than letting the screen grow sideways.
         let width = columns(character);
-        if self.cols > 0 && self.column + width > self.cols {
+        if self.wrap && self.cols > 0 && self.column + width > self.cols {
             self.newline();
         }
-        let column = self.column;
+        // With autowrap off the cursor parks on the last column and every further glyph overwrites
+        // it, which is what a progress bar at the screen's edge relies on.
+        let column = if !self.wrap && self.cols > 0 {
+            self.column.min(self.cols - 1)
+        } else {
+            self.column
+        };
         let ink = self.ink;
         let cell = Cell {
             character,
@@ -705,6 +715,9 @@ impl Screen {
                                 let enter = final_byte == Some('h');
                                 self.alternate_screen(enter)
                             }
+                            // `DECAWM`: autowrap on or off.
+                            Some('h') if private && numbers.contains(&7) => self.wrap = true,
+                            Some('l') if private && numbers.contains(&7) => self.wrap = false,
                             Some('r') if !private => {
                                 // `CSI t;b r`: 1-based, both defaulting to the full screen. A
                                 // region homes to its own first row, not the screen's.
@@ -3012,6 +3025,24 @@ mod tests {
             !terminal.shells_failed(),
             "an answered read clears the flag"
         );
+    }
+
+    #[test]
+    fn autowrap_off_overwrites_the_last_column_instead_of_wrapping() {
+        let mut output = Output::default();
+        output.set_size(5, 3);
+        output.push("abcdefg");
+        assert_eq!(output.display(DISPLAY_BYTES), "abcde\nfg");
+        // With autowrap off the sixth character and everything after it stay in the last column.
+        let mut output = Output::default();
+        output.set_size(5, 3);
+        output.push("\u{1b}[?7labcdefg");
+        assert_eq!(output.display(DISPLAY_BYTES), "abcdg");
+        // `?7h` turns it back on.
+        let mut output = Output::default();
+        output.set_size(5, 3);
+        output.push("\u{1b}[?7l\u{1b}[?7habcdefg");
+        assert_eq!(output.display(DISPLAY_BYTES), "abcde\nfg");
     }
 
     #[test]

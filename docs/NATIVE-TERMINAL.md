@@ -43,9 +43,10 @@ characters, `CSI m` colours the cells (drawn through `design::ansi_ink`), wide a
 two columns, a glyph past the last column wraps, the bottom row scrolls into scrollback (2,000 lines),
 and `CSI ? 1049 h`/`l` swaps to the alternate screen a full-screen program draws in and restores the
 shell on exit, and `CSI t;b r` sets a scroll region whose rows scroll alone while the rows above and
-below stay put (round 561). What it still does not do: **`DECAWM` off, combining marks, and background
-colours or underline attributes** — so a TUI that relies on zero-width joins or on a specific background
-colour renders without that detail. The panel is a monochrome-per-cell renderer of that
+below stay put (round 561), and `CSI ? 7 h`/`l` turns autowrap on or off, so a program that overwrites
+its own last column keeps that column instead of wrapping (round 562). What it still does not do:
+**combining marks and background or underline attributes** — so zero-width joins and a specific
+background colour do not render. The panel is a monochrome-per-cell renderer of that
 screen, not a second emulator.
 
 Resize is a reviewed control in the panel (round 540) rather than the reference's automatic fit-to-pane:

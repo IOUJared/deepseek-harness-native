@@ -6430,7 +6430,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Workspace browser: grouped/animated rows, drag order, per-row menus | difference: workspace filter + navigation sheet |
 | Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory; the app's Host serves browse, so Browse… falls back to the in-app list and `pick` reports unavailable) |
 | Workflow-run surface | cloned (folded `tool-workflow/*` card, five run states including the round-525 `Interrupted` for a stoppless run in a closed turn; a closed step alone does not interrupt, a named limit) |
-| Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, **reviewed resize (round 540)**, shell discovery with a remembered preference, output bounds, and **a native screen emulator core** (rounds 552–559: redraw, erase, addressing, insert/delete, ANSI colours, wide glyphs, wrapping, scrollback, alternate screen). Still unbuilt: `DECAWM` off, combining marks and background/underline attributes, the reference's automatic fit-to-pane, `terminal/retain` and a docked multi-terminal tab — recorded in `docs/NATIVE-TERMINAL.md`. |
+| Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, **reviewed resize (round 540)**, shell discovery with a remembered preference, output bounds, and **a native screen emulator core** (rounds 552–559: redraw, erase, addressing, insert/delete, ANSI colours, wide glyphs, wrapping, scrollback, alternate screen). Still unbuilt: combining marks and background/underline attributes, the reference's automatic fit-to-pane, `terminal/retain` and a docked multi-terminal tab — recorded in `docs/NATIVE-TERMINAL.md`. |
 | Dockkit layout presets | difference: native fixed layout with its own preferences |
 | Locales (zh/en) | difference: English-only |
 
@@ -15853,7 +15853,7 @@ next round start.
 
 | item | what exists | what the next round series needs |
 | --- | --- | --- |
-| The terminal screen | **built as a native emulator core** in rounds 552–561 (grid sized by the Host, redraw, erase, addressing, insert/delete, SGR colours, two-column wide glyphs, wrapping, 2,000-line scrollback, alternate screen, scroll regions); output still bounded to 400 chunks/128 KiB and every mutating action reviewed | `DECAWM` off, combining marks and background/underline attributes; nothing here needs a dependency decision any more |
+| The terminal screen | **built as a native emulator core** in rounds 552–561 (grid sized by the Host, redraw, erase, addressing, insert/delete, SGR colours, two-column wide glyphs, wrapping and autowrap off, 2,000-line scrollback, alternate screen, scroll regions); output still bounded to 400 chunks/128 KiB and every mutating action reviewed | combining marks and background/underline attributes; nothing here needs a dependency decision any more |
 | `terminal/retain` and a docked multi-terminal tab | the panel's own slice; retain exists in the Host for holding tabs open | a right-docked tab strip first, because retain only means something with tabs |
 | Schedules: sidebar marks, hover cards, turn cards, right-Sidebar tab | the page, history, edits, pickers, the header chip and the live reload | per-session schedule counts from the Host (`sessionListMetadata` does not carry them), then the marks |
 | The right-Sidebar review tab | the deliverables sheet is a native surface | a deliberate second layout decision, recorded as such rather than built silently |
@@ -16228,6 +16228,37 @@ and my first insert/delete bodies had to be confined to the region for the fixtu
 | format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
 | clippy suite | **0** | core, transport and app passed (`verification-di6bphps`) |
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-qbckyqd6`) |
+| transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
+| DP-2 capture | — | none: transient screen state |
+| app bin | — | **21** warnings |
+
+### Round 562 — autowrap turns off, so a program keeps its last column
+
+**The gap.** `CSI ? 7 l` (`DECAWM` off) is how a program writes a progress bar or a status right up to
+the screen's edge without the line wrapping to the next row. Native always wrapped, so such a bar pushed
+the frame down one row per update.
+
+**The change.** The screen keeps a `wrap` flag (on by default): with autowrap off, `put` parks the cursor
+on the last column and every further glyph overwrites it. `CSI ? 7 h`/`l` sets the flag in the same
+private-mode match as the alternate screen.
+
+**Test.** `autowrap_off_overwrites_the_last_column_instead_of_wrapping` — `abcdefg` in five columns wraps
+into `abcde` / `fg`; the same bytes with `?7l` give `abcdg`, and `?7h` restores wrapping. The first run
+failed because I had only gated the *wrap*, not clamped the column, so the line grew sideways instead.
+
+**No frame:** the state is transient, and the wrap frame from round 558 already shows the on case.
+
+**Stated:** combining marks and background/underline attributes remain unbuilt.
+
+**Battery (round 562).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1564 passed**, 1 ignored |
+| app, default | **0** | **1508 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-h7ncvza7`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-lwkbzy62`) |
 | transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
 | DP-2 capture | — | none: transient screen state |
 | app bin | — | **21** warnings |
