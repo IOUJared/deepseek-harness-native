@@ -32,6 +32,7 @@ file is the stage map; it is deleted with the last Python file.
 | Menu panes | `app/qualify_model_submenus.py` | `xtask qualify submenus` |
 | Control layout | `app/qualify_control_layout.py` | `xtask qualify control` (32 public captures + one real-keyless run) |
 | Slint scale | `benchmarks/slint/qualify-scale.py` | `xtask bench scale` (both renderers, sequential) |
+| Composed settings | `scripts/qualify-composed-settings.py` | `xtask qualify composed-settings`: pidfd root pinning, parent-chain fencing, bounded TERM/KILL cleanup. The Python file **stays** until its qualification dependents are ported |
 | App qualifier (root) | `scripts/qualify-native-app.py` | `xtask qualify app`: owned-tree sampling, per-thread CPU, pidfd identity guard, SIGINT/SIGTERM cleanup, compositor mapping proxy, keyless-idle medians. The Python file **stays** until its qualification dependents are ported |
 | Their guards | 4 Python test modules | 65 tests in `tools/xtask` (`src/*` units + `tests/cli.rs`) |
 | Entry point | `check.sh` → `python3` | `check.sh` → `cargo run -- verify` |
@@ -79,6 +80,12 @@ Deliberate differences, all measured against the Python originals:
 - The app run is tested end to end against a stand-in binary (spawn, sample, pidfd
   guard, cleanup, private report); no real keyless app qualification was run, which
   needs the built Host runtime and a Wayland session.
+- The composed-settings containment rules are ported as written: pin the root before
+  any poll, fence every parent back to it, and signal only pinned identities with
+  bounded TERM/KILL budgets. The cleanup path is tested by pinning a live `sleep`
+  child and reaping it; the composed verdict is tested against synthetic cleanup and
+  window facts. No real composed run was made (needs the fixture binary and a
+  Wayland session).
 - The benchmark runner is tested end to end against a stand-in script (protocol
   parsing, sampling, a killed overrunning child), except `benchmarks/run.py` was
   not compared against `xtask bench run` on a real app: that needs a GPU/Wayland

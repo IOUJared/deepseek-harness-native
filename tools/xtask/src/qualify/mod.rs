@@ -4,6 +4,7 @@
 //! directory, the isolated child environment, the owned-process guard and the
 //! per-mode component run. No Host, model, login or desktop setting is touched.
 pub mod app;
+pub mod composed;
 pub mod control;
 pub mod layout;
 pub mod scroll;
@@ -504,6 +505,7 @@ pub fn run(arguments: &[String]) -> i32 {
         ),
         "details" => layout::run(&root.join("app")),
         "scroll" => scroll::run(&root.join("app")),
+        "composed-settings" => composed::run(&root, &output, scale),
         "control" => control::run(&root.join("app")),
         "submenus" => layout::submenus(&root.join("app")),
         "dialog" => dialog(&root, &output, scale),
