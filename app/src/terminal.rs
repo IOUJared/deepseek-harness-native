@@ -627,6 +627,8 @@ impl Screen {
     /// 2 clears the grid. Scrollback survives every mode, as a terminal's does.
     fn erase_display(&mut self, mode: u32) {
         match mode {
+            // `CSI 3 J` is the only mode that clears the scrollback; a shell's `clear -x` uses it.
+            3 => self.history.clear(),
             0 => {
                 let column = self.column;
                 let row = self.row;
@@ -3284,6 +3286,21 @@ mod tests {
                 ("two".to_owned(), None, true, None),
             ]
         );
+    }
+
+    #[test]
+    fn erasing_the_scrollback_is_the_only_mode_that_clears_it() {
+        // `CSI 3 J` clears the lines that scrolled off; `CSI 2 J` deliberately leaves them, as a
+        // terminal's buffer does.
+        let mut output = Output::default();
+        output.set_rows(2);
+        output.push("old\nnew\nthird\n\u{1b}[3J\u{1b}[2J");
+        assert_eq!(output.display(DISPLAY_BYTES).trim_end(), "");
+        // Without the `3 J` the scrolled line survives a `2 J`.
+        let mut output = Output::default();
+        output.set_rows(2);
+        output.push("old\nnew\nthird\n\u{1b}[2J");
+        assert_eq!(output.display(DISPLAY_BYTES).trim_end(), "old\nnew");
     }
 
     #[test]

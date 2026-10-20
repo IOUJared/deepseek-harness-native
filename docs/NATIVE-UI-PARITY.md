@@ -17097,3 +17097,23 @@ yields `(bold, 10)` then `(base, 2)`.
 | app, fixture | **0** | **1578 passed**, 1 ignored |
 | app, default | **0** | **1522 passed**, 1 ignored |
 | app bin | — | **21** warnings (22 with the summary line) |
+
+### Round 609 — `CSI 3 J` clears the scrollback, and only it does
+
+**The gap.** Every `J` mode cleared the grid and left the scrollback; `CSI 3 J` — the one mode that *does*
+erase the scrolled-off lines, used by `clear -x` and by shells that offer "clear including history" — was
+consumed with nothing happening.
+
+**The change.** `erase_display(3)` clears the screen's history. `0`, `1` and `2` keep it, which is what a
+terminal's buffer does and what the round-553 note recorded.
+
+**Test.** `erasing_the_scrollback_is_the_only_mode_that_clears_it` — a two-row screen with a scrolled line
+renders nothing after `CSI 3 J` + `CSI 2 J`, while `CSI 2 J` alone leaves `old / new`.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1579 passed**, 1 ignored |
+| app, default | **0** | **1523 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |
