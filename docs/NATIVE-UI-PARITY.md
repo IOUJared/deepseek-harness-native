@@ -16619,3 +16619,22 @@ scrolling column.
 
 **Kept:** the `terminal-panel-short` preset and the frame. **No product change**; `cargo test --
 output_box_takes` passes on the reverted tree.
+
+### Round 574 — replaying the terminal presets after the panel-height change
+
+**Why.** Round 571 changed the output box's height from a fixed 240px to a share of the window. That is a
+layout change inside a panel whose presets had been captured at a fixed height, and layout changes have no
+measurement contract — the suites cannot see a control that moved off-screen. So two earlier presets were
+re-captured on the current binary and read against what their rounds recorded.
+
+| preset | its round recorded | re-captured |
+| --- | --- | --- |
+| `terminal-resize` | the row controls `Resize… · Rename… · Close…`, the review line with the Host's bounds, fields `72` / `18`, `Back` / `Confirm resize` | `shots/351-sweep-resize.png` — identical content, review rows intact |
+| `terminal-underline` | `git diff --stat` with both paths underlined | `shots/352-sweep-underline.png` — both paths still underlined |
+
+No drift: the taller output box did not push the review rows, the fields or the underlined runs out of
+place at 1200x900. The 520-high case remains the known overflow (round 573) and is what the pending
+three-builder rewrite fixes.
+
+**No code:** a verification round; the two frames are the artifact and are archived under
+`app/evidence/terminal-sweep-<date>/`.
