@@ -16918,3 +16918,32 @@ the cursor's own cell; the corrected assertion says why.
 | app, fixture | **0** | **1573 passed**, 1 ignored |
 | app, default | **0** | **1517 passed**, 1 ignored |
 | app bin | — | **21** warnings (22 with the summary line) |
+
+### Round 596 — the screen audit, consolidated
+
+Eight rounds (588–595) hardened the terminal screen against the bytes it is fed, and the record is easier to
+use as one table than as eight notes. Every row below was found by writing the unusual case first; three of
+them had already shipped in earlier rounds as working-looking code.
+
+| round | defect | how it presented | fix |
+| --- | --- | --- | --- |
+| 588 | the adversarial test itself **hung** | `cargo test` sat at "running for over 60 seconds" | bisected in round 589 |
+| 589 | a tab stop past the last column looped forever | five-column screen + `\t` → UI thread spin | stop clamped to `cols - 1` |
+| 590 | the battery exposed a migration gap | `release-guards` failed on a missing `.github/scripts` | recorded for the port's owner, not edited |
+| 591 | the harness could wedge the suite | any future non-terminating input | each case runs in a thread with a two-second join |
+| 592 | `CSI N L`/`M`/`P`/`@` allocated from a parsed count | a billion rows inserted one at a time | counts clamped to the grid/width (1,024 before a size) |
+| 593 | `CSI r;c H`/`G`/`C` set a billion-column cursor | the next glyph padded a billion blanks | `clamp_column`, `cols - 1` or 10,000 |
+| 594 | an insert **dropped the last row** before a size arrived | `one/two/three` + `CSI L` rendered `one/X/two` | unbounded grids grow and shrink |
+| 595 | `CSI 1 J` erased **past** the cursor | a pager lost its status text | blank only up to and including the cursor |
+
+**Coverage now:** a thirteen-case bounded-join harness (`adversarial_escape_input_terminates_and_renders`)
+plus a dedicated regression test for every row above that changed behaviour.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1573 passed**, 1 ignored |
+| app, default | **0** | **1517 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |
+| `xtask verify --suite all` | — | last run 16/18; `wayland-drops` hardware-only and `release-guards` awaiting the port |
