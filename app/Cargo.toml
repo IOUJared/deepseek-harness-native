@@ -9,7 +9,7 @@ publish = false
 [dependencies]
 dsh-native-core = { path = "../core", features = ["transport"] }
 dsh-native-transport = { path = "../transport" }
-iced = { version = "=0.14.0", default-features = false, features = ["wgpu", "tiny-skia", "wayland", "tokio", "advanced-shaping", "advanced", "image-without-codecs"] }
+iced = { version = "=0.14.0", default-features = false, features = ["wgpu", "tiny-skia", "wayland", "tokio", "advanced-shaping", "advanced", "image-without-codecs", "canvas"] }
 tokio = { version = "=1.53.2", features = ["macros", "rt-multi-thread", "sync", "time"] }
 futures-util = "=0.3.34"
 raw-window-handle = "=0.6.2"

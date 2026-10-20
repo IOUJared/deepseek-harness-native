@@ -15858,10 +15858,13 @@ real warnings; the full battery is **17/17 (`verification-526912410ae0`).** The 
 
 | item | why it is blocked | the step that clears it |
 | --- | --- | --- |
-| Context-ring dial (the reference's canvas ring) | native renders the context meter as a text reading; the dial needs iced's `canvas` feature, and no dependency approval is recorded beyond `image`'s webp/gif features | approve the `canvas` feature (or confirm the text reading stands) |
 | Live arrival of `schedule/changed` | deferred by the user ("look at it later"); the arm is built and unit-tested (round 541), but no live Host has delivered the event in this environment | open Schedules in the app, change a schedule from another client, and watch the catalog reload |
 
 ### Resolved, withdrawn or kept (do not re-ask)
+
+- **Context-ring dial — approved and built** (round 685). The user approved iced's `canvas` feature; the
+  composer now draws the reference's 14px ring (5.5px radius, 2px round-capped stroke, twelve-o'clock
+  start) beside the same percentage, and the breakdown panel is unchanged.
 
 - **Image fetch/decode policy — decided** ("allow with limits") and implemented: inline bytes, 8 MiB,
   4096-pixel budget, memory-only; PNG/JPEG/WebP/GIF decode and paint (rounds 651–665).
@@ -19051,3 +19054,39 @@ verified, rebuilt after the documentation edit.
 | app bin | — | **21** warnings (22 with the summary line) |
 | layout_smoke | — | **17** warnings |
 | battery | **passed** | **17 checks, 0 failing** (`verification-707c8098ff18`) |
+
+### Round 685 — the context meter draws its ring
+
+**The approved dependency.** The user approved iced's `canvas` feature. `app/Cargo.toml` enables it and
+`app/Cargo.lock` gains the six crates it needs (`lyon` 1.0.19, `lyon_*`, `float_next_after`); no other
+dependency changed.
+
+**The ring.** `context_ring` strokes the reference's own geometry on a 14×14 canvas: a 5.5px-radius
+track in the quietest rule colour, a 2px round-capped fill starting at twelve o'clock, swept by the
+claimed percentage clamped to 0–100 (`ContextMeter.tsx:17-20,110-117`; `ContextMeter.module.css:38-49`).
+The composer's pill is now ring + `{percent}%` (same severity ink as before) and still opens the
+existing breakdown panel; a pressure reading without a capacity keeps the sentence and draws no ring,
+as the reference renders nothing without both. `anchored_with` now takes an element rather than a text
+so the pill can hold the canvas.
+
+**Tests.** `a_ring_sweeps_only_the_clamped_occupancy` covers 0/50/100/150% sweeps and the clamp. The
+existing `context-pressure-risk` preset is the frame; its pinning assertion is unchanged (the ring has
+no state to assert).
+
+**Frame.** `shots/382-context-ring.png` (760×592, `context-pressure-risk`): the composer footer shows the
+full red ring at the 102% cap, `102%`, then `· Context policy`.
+
+**Live `schedule/changed`.** With the user's approval in hand, the dial round is committed first; the
+live observation is attempted next against the running Host.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| format | **0** | `cargo fmt` applied; format-debt 0 files, 0 hunks |
+| app, fixture | **0** | **1616 passed**, 1 ignored |
+| app, default | **0** | **1560 passed**, 1 ignored |
+| transport | **0** | 70 + 17 + 91 + 7 passed |
+| app bin | — | **21** warnings (22 with the summary line) |
+| layout_smoke | — | **17** warnings |
+| battery | **passed** | **17 checks, 0 failing** (`verification-0f98d0df5758`) |

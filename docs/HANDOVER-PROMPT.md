@@ -22,22 +22,21 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > (pinned `c6044cc50b`). Cite it as `file:line` in code comments and round notes.
 >
 > ### Last five rounds, so the next session starts oriented
-> - 680: **an inspected spec installs** after one explicit Confirm, reporting bundle/version/restart or
->   failure and re-reading; frame `378`.
 > - 681: **installs carry a request id**, a lost reply is recovered through `waitForInstall` (not a
 >   retry), and `cancelInstall` states cancelled/too-late/not-running; frame `379`.
 > - 682: **a failed install's pending package scripts are approved and retried**; frame `380`.
 > - 683: **the install's Host phase, per-registry attempt and a bounded pnpm log tail are shown**;
 >   frame `381`.
-> - 684: **the final walk** enumerated every reference client slot and found no unbuilt surface;
->   the composer row's three stale claims were corrected and the round record is the only commit.
+> - 684: **the final walk** found no unbuilt surface and corrected three stale composer claims.
+> - 685: **the context meter draws the reference's 14px ring** on iced's newly approved `canvas`
+>   feature; frame `382`. The live `schedule/changed` attempt is recorded: the Web UI schedule lives on
+>   a different Host than the app's isolated one, and the Host has no create route.
 >
-> **No unbuilt reference surface remains.** What stands is the user-only canvas context-ring approval
-> (the context meter is a text reading), the deferred live `schedule/changed` observation, and the named
-> deliberate differences (right Sidebar tabs, dockkit presets, locales, markdown remote images,
-> web-only onboarding, session-level feedback dialog, workflow-run interrupted state, terminal
-> fit-to-pane). Baselines: fixture **1615** / default **1559**, 21 warnings, battery 17/17
-> (`verification-707c8098ff18`).
+> **No unbuilt reference surface remains.** The only unobserved item is live `schedule/changed` arrival
+> in the app's own Host (unit-tested; needs an agent turn that creates a schedule there), and the
+> deferred schedule observation is no longer a user action — it is an environment limit recorded in
+> `docs/NATIVE-LIVE-VERIFICATION.md`. Baselines: fixture **1616** / default **1560**, 21 warnings,
+> battery 17/17 (`verification-0f98d0df5758`).
 
 ---
 

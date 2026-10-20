@@ -99,6 +99,9 @@ mod command_menu_ui_tests;
 /// Where the context window went.
 #[path = "context_breakdown.rs"]
 pub mod context_breakdown;
+/// The composer's context-occupancy ring (iced canvas).
+#[path = "context_ring.rs"]
+mod context_ring;
 #[cfg(test)]
 #[path = "conversation_actions_ui_tests.rs"]
 mod conversation_actions_ui_tests;
@@ -14227,7 +14230,7 @@ impl App {
             if let Some(stats) = &stats {
                 text.push_str(&format!(" · {}", stats.counts()));
             }
-            let pill = label(text, MUTED).size(10);
+            let pill = label(text, MUTED).size(10).into();
             metadata = metadata.push(self.anchored_with(
                 stats.as_ref().is_some_and(|stats| stats.has_dialog()),
                 pill,
@@ -14237,9 +14240,23 @@ impl App {
         }
         if token_reading.is_none() || context.line != chat_usage::UNAVAILABLE {
             // The reference's occupancy reading opens a panel naming what the window holds
-            // (`ContextMeter.tsx:133-176`). Native draws the reading as text rather than a 14px ring
-            // — recorded, not hidden — but the panel behind it is the same reading.
-            let pill = label(context.line.clone(), severity_color).size(10);
+            // (`ContextMeter.tsx:133-176`). The 14px ring carries the same fraction and the text
+            // beside it stays the reading; the panel behind it is the same breakdown.
+            let reading = context_breakdown::reading(self.transcript.projections());
+            let pill: Element<'_, Message> = match reading {
+                Some((used, capacity)) => {
+                    let percent = context_breakdown::reading_percent(used, capacity);
+                    row![
+                        context_ring::view(percent, severity_color),
+                        label(format!("{percent}%"), severity_color).size(10),
+                    ]
+                    .spacing(6)
+                    .align_y(iced::Alignment::Center)
+                    .into()
+                }
+                // A pressure reading without a capacity cannot draw a fraction; the sentence stays.
+                None => label(context.line.clone(), severity_color).size(10).into(),
+            };
             let breakdown = context_breakdown::read(self.transcript.projections());
             let popup = (self.context_breakdown_open && breakdown.is_some()).then(|| {
                 // The headline's numbers come from the pressure projection itself: the state in
@@ -15838,12 +15855,12 @@ impl App {
     fn anchored_with<'a>(
         &'a self,
         interactive: bool,
-        anchor: iced::widget::text::Text<'a>,
+        anchor: Element<'a, Message>,
         toggle: Message,
         popup: Option<Element<'a, Message>>,
     ) -> Element<'a, Message> {
         if !interactive {
-            return anchor.into();
+            return anchor;
         }
         anchored_popup::anchored(
             button(anchor)

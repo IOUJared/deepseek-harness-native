@@ -232,3 +232,19 @@ The runtime and the launch-token exchange are the app's own; no installed CLI or
 involved. Keep the token, cookie and home private. The harness used here is not committed: it
 imports `loadForkRuntime` and `runProfile` from `core/runtime`, writes the ready URL to a mode-0600
 file, and exits on SIGTERM. Do not substitute the installed rc runtime — it is a different version.
+
+
+## 2026-10-20 — the web-created schedule did not reach this client
+
+The user created a schedule task in the Web UI after approving the context-ring dependency. That
+schedule lives on the Web Host's profile; the native app starts its **own** isolated Host from
+`--runtime/--home` (Core's fork supervisor, `config::USAGE`), so the two profiles share no schedule
+store and the Web UI's `schedule/changed` cannot arrive in the native client. Creating a schedule in
+the native app's own Host is not available to this audit either: the Host exposes `schedule/catalog`,
+`list`, `history`, `update` and `delete`, but **no create route** — creation is the agent's
+`schedule_create` tool, which requires a model turn.
+
+The `schedule/changed` arm therefore remains **unit-tested only** (round 541); live arrival is still
+unobserved. The step that would clear it: run the native app against its own Host, make one agent turn
+that creates a schedule (or otherwise change one in that Host's profile), and watch the open Schedules
+page reload.
