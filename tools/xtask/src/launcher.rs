@@ -728,6 +728,122 @@ pub fn plan(
     })
 }
 
+fn refused() -> i32 {
+    eprintln!(
+        "Native development launch refused: invalid package, runtime, private data, display or Node prerequisites. No installation or migration was attempted."
+    );
+    2
+}
+
+fn parse_options(args: &[String]) -> Result<Options, String> {
+    let mut options = Options {
+        scale: 1.0,
+        ..Options::default()
+    };
+    let mut seen = std::collections::BTreeSet::new();
+    let mut index = 0;
+    while index < args.len() {
+        let token = &args[index];
+        let (name, inline) = match token.split_once('=') {
+            Some((name, value)) => (name.to_string(), Some(value.to_string())),
+            None => (token.clone(), None),
+        };
+        if name.starts_with("--") && !seen.insert(name.clone()) {
+            return Err("Duplicate launcher option".into());
+        }
+        let mut value = || -> Result<String, String> {
+            if let Some(value) = inline.clone() {
+                return Ok(value);
+            }
+            index += 1;
+            args.get(index)
+                .cloned()
+                .ok_or_else(|| format!("{name} needs a value"))
+        };
+        match name.as_str() {
+            "--workspace" => options.workspace = value()?,
+            "--runtime" => options.runtime = Some(value()?),
+            "--user-home" => options.user_home = Some(value()?),
+            "--data-home" => options.data_home = Some(value()?),
+            "--node" => options.node = Some(value()?),
+            "--qualify-evidence" => options.qualify_evidence = Some(value()?),
+            "--scale" => {
+                options.scale = value()?
+                    .parse()
+                    .map_err(|_| "Scale must be between 0.75 and 2.0".to_string())?
+            }
+            "--check" => options.check = true,
+            other => return Err(format!("Unknown launcher option {other}")),
+        }
+        index += 1;
+    }
+    if options.workspace.is_empty() {
+        return Err("--workspace is required".into());
+    }
+    Ok(options)
+}
+
+/// The shipped launcher entry point: validate, optionally report, then exec.
+pub fn main(args: &[String], root: Option<&Path>) -> i32 {
+    let Ok(options) = parse_options(args) else {
+        return refused();
+    };
+    let root = match root {
+        Some(root) => root.to_path_buf(),
+        None => match std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(Path::to_path_buf))
+        {
+            Some(root) => root,
+            None => return refused(),
+        },
+    };
+    let inherited: BTreeMap<String, String> = std::env::vars().collect();
+    let Ok(plan) = plan(&options, &root, &inherited) else {
+        return refused();
+    };
+    if options.check {
+        let manifest_mode = package(&root)
+            .ok()
+            .and_then(|(manifest, _)| manifest["runtimeMode"].as_str().map(str::to_string))
+            .unwrap_or_default();
+        println!(
+            "{}",
+            serde_json::json!({
+                "status": "prerequisites-valid",
+                "runtimeVersion": VERSION,
+                "nativeDataStatus": if plan.state == State::New { "new" } else { "owned" },
+                "runtimeDependencyResolutionValidated": false,
+                "runtimeStartupValidated": false,
+                "guiStarted": false,
+                "hostStarted": false,
+                "nativeDataCreated": false,
+                "runtimeMode": manifest_mode,
+                "nodeVersionObserved": plan.node_version,
+                "nodeMajorAccepted": 26,
+                "nodeSelectionMode": plan.node_mode,
+            })
+        );
+        return 0;
+    }
+    let held = match acquire_state(&plan.data, &plan.marker) {
+        Ok(held) => held,
+        Err(_) => return refused(),
+    };
+    // The lock must survive the exec so the native process owns the directory.
+    use std::os::unix::io::AsRawFd;
+    // Safe: a live descriptor and a constant command.
+    unsafe { libc::fcntl(held.lock.as_raw_fd(), libc::F_SETFD, 0) };
+    use std::os::unix::process::CommandExt;
+    let error = std::process::Command::new(&plan.argv[0])
+        .args(&plan.argv[1..])
+        .env_clear()
+        .envs(&plan.env)
+        .exec();
+    eprintln!("Native development launch failed: {error}");
+    2
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1118,5 +1234,56 @@ mod plan_tests {
         qualified.qualify_evidence = Some(fixture.base.to_string_lossy().into_owned());
         assert!(plan(&qualified, &fixture.package, &BTreeMap::new()).is_err());
         fs::remove_dir_all(fixture.base).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod entry_tests {
+    use super::*;
+
+    fn args(tokens: &[&str]) -> Vec<String> {
+        tokens.iter().map(|token| token.to_string()).collect()
+    }
+
+    #[test]
+    fn the_entry_point_parses_flags_and_refuses_bad_ones() {
+        let options = parse_options(&args(&[
+            "--workspace",
+            "/tmp/ws",
+            "--runtime=/tmp/rt",
+            "--check",
+            "--scale",
+            "1.25",
+            "--user-home",
+            "/tmp/user",
+        ]))
+        .expect("a valid command line");
+        assert_eq!(options.workspace, "/tmp/ws");
+        assert_eq!(options.runtime.as_deref(), Some("/tmp/rt"));
+        assert_eq!(options.user_home.as_deref(), Some("/tmp/user"));
+        assert!(options.check);
+        assert_eq!(options.scale, 1.25);
+        // A duplicated option, an unknown option, a missing value and a bad scale fail.
+        assert_eq!(
+            parse_options(&args(&["--workspace", "/a", "--workspace", "/b"]))
+                .err()
+                .unwrap(),
+            "Duplicate launcher option"
+        );
+        assert!(parse_options(&args(&["--workspace", "/a", "--other"])).is_err());
+        assert!(parse_options(&args(&["--workspace"])).is_err());
+        assert!(parse_options(&args(&["--scale", "nope", "--workspace", "/a"])).is_err());
+        assert!(
+            parse_options(&args(&["--check"])).is_err(),
+            "workspace is required"
+        );
+        // A refusal exits 2 without touching the filesystem.
+        assert_eq!(
+            main(
+                &args(&["--workspace", "/tmp", "--check"]),
+                Some(Path::new("/nonexistent-package"))
+            ),
+            2
+        );
     }
 }

@@ -25,6 +25,7 @@ fn main() -> ExitCode {
         Some("idle") => dsh_xtask::idle::run(&arguments[1..]),
         Some("history") => dsh_xtask::history::run(&arguments[1..]),
         Some("qualify") => dsh_xtask::qualify::run(&arguments[1..]),
+        Some("launch") => dsh_xtask::launcher::main(&arguments[1..], None),
         Some("help" | "--help" | "-h") | None => {
             print!("{USAGE}");
             0
