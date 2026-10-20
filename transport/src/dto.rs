@@ -390,6 +390,21 @@ pub enum ImageMediaType {
     #[serde(rename = "image/gif")]
     Gif,
 }
+/// Decode an inline image part (`{"type":"image","mediaType":…,"data":<base64>,"name"?}`) into its bytes,
+/// media type and optional name. Images travel inline in the RPC envelope — the wire is JSON, so base64 is
+/// how the bytes arrive — and this is the one place that decoding is allowed to happen.
+pub fn inline_image(part: &serde_json::Value) -> Option<(String, Vec<u8>, Option<String>)> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    let media = part.get("mediaType")?.as_str()?.to_owned();
+    let data = part.get("data")?.as_str()?;
+    let bytes = STANDARD.decode(data).ok()?;
+    let name = part
+        .get("name")
+        .and_then(|name| name.as_str())
+        .map(str::to_owned);
+    Some((media, bytes, name))
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum PromptContentPart {
@@ -1313,5 +1328,34 @@ mod job_view_tests {
         ] {
             assert!(!encoded.contains(absent), "{absent} in {encoded}");
         }
+    }
+}
+
+#[cfg(test)]
+mod inline_image_part_tests {
+    #[test]
+    fn an_inline_image_part_decodes_its_bytes_and_keeps_its_name() {
+        // "PUBLIC" in base64; the point is the decode, not the picture.
+        let part = serde_json::json!({
+            "type": "image",
+            "mediaType": "image/png",
+            "data": "UFVCTElD",
+            "name": "PUBLIC.png"
+        });
+        let (media, bytes, name) = super::inline_image(&part).expect("decoded");
+        assert_eq!(media, "image/png");
+        assert_eq!(bytes, b"PUBLIC");
+        assert_eq!(name.as_deref(), Some("PUBLIC.png"));
+        // A part without data, or with bytes that are not base64, is refused rather than guessed at.
+        assert!(
+            super::inline_image(&serde_json::json!({"type":"image","mediaType":"image/png"}))
+                .is_none()
+        );
+        assert!(
+            super::inline_image(&serde_json::json!({
+                "type":"image","mediaType":"image/png","data":"not base64 !!"
+            }))
+            .is_none()
+        );
     }
 }

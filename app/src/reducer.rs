@@ -50,6 +50,38 @@ pub use assistant_parts::AssistantParts;
 use assistant_parts::{Block, Kind};
 #[path = "chat_presentation.rs"]
 mod chat_presentation;
+
+#[cfg(test)]
+mod inline_image_line_tests {
+    use serde_json::json;
+
+    #[test]
+    fn an_inline_image_part_states_its_real_size_instead_of_unsupported() {
+        // A 1x1 PNG, base64 in the envelope exactly as the wire carries it.
+        let part = json!({
+            "type": "image",
+            "mediaType": "image/png",
+            "name": "PUBLIC.png",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        });
+        assert_eq!(
+            super::image_line(&part),
+            "Image PUBLIC.png (1×1, image/png)"
+        );
+        // Bytes that are not base64 are named as undecodable, never guessed at.
+        assert_eq!(
+            super::image_line(
+                &json!({"type":"image","mediaType":"image/png","data":"not base64 !!"})
+            ),
+            "[Image attachment: could not be decoded]"
+        );
+        // Base64 that is not an image header still reports the media type rather than a size.
+        assert_eq!(
+            super::image_line(&json!({"type":"image","mediaType":"image/png","data":"UFVCTElD"})),
+            "Image inline (image/png, dimensions unreadable)"
+        );
+    }
+}
 #[cfg(test)]
 #[path = "chat_visibility_tests.rs"]
 mod chat_visibility_tests;
@@ -1498,6 +1530,28 @@ fn file_card(attachment: &Value) -> Option<FileCard> {
 /// the file cards stacked above it. Every other caller keeps [`content`], which
 /// still joins a `File · …` line, because a tool result or a system message has
 /// no card to move a file into.
+/// One line for an inline image part: its bytes are base64 in the envelope, so the honest thing the rows can
+/// say today is what the picture *is* — name, media type and real pixel size read from the header under the
+/// approved bound. Painting the bitmap is the next step; claiming "unsupported" hid even the dimensions.
+fn image_line(part: &Value) -> String {
+    const MAX_BYTES: usize = 8 * 1024 * 1024;
+    let Some((media, bytes, name)) = dsh_native_transport::dto::inline_image(part) else {
+        return "[Image attachment: could not be decoded]".into();
+    };
+    let label = name.unwrap_or_else(|| "inline".into());
+    if bytes.len() > MAX_BYTES {
+        return format!("Image {label} ({media}, over the 8 MiB bound)");
+    }
+    let size = image::ImageReader::new(std::io::Cursor::new(&bytes))
+        .with_guessed_format()
+        .ok()
+        .and_then(|reader| reader.into_dimensions().ok());
+    match size {
+        Some((width, height)) => format!("Image {label} ({width}×{height}, {media})"),
+        None => format!("Image {label} ({media}, dimensions unreadable)"),
+    }
+}
+
 fn user_content(value: &Value) -> (String, Vec<FileCard>) {
     let Some(parts) = value.as_array() else {
         return (content(value), Vec::new());
@@ -1512,7 +1566,7 @@ fn user_content(value: &Value) -> (String, Vec<FileCard>) {
                 part["name"].as_str().unwrap_or("unknown"),
                 part["arguments"].as_str().unwrap_or("")
             )),
-            Some("image") => text.push("[Image attachment: native image panel unsupported]".into()),
+            Some("image") => text.push(image_line(part)),
             Some("file") => match file_card(&part["attachment"]) {
                 Some(card) => files.push(card),
                 // A file whose metadata is missing keeps its text line rather
@@ -1538,7 +1592,7 @@ pub(super) fn content(value: &Value) -> String {
                     part["name"].as_str().unwrap_or("unknown"),
                     part["arguments"].as_str().unwrap_or("")
                 ),
-                Some("image") => "[Image attachment: native image panel unsupported]".into(),
+                Some("image") => image_line(part),
                 Some("file") => file_summary(&part["attachment"]),
                 _ => safe_json(part),
             })

@@ -17881,3 +17881,34 @@ and paint through the attach rail's existing thumbnail path.
 **Next round's target, with the seam named:** find where native turns a message's content parts into display
 rows (`conversation_content.rs`) and give it an image part — decode in the worker, keep only the thumbnail in
 the row, and a test that a base64 PNG part becomes a row with a decoded size rather than `NotImage`.
+
+### Round 652 — an inline image now states what it is
+
+**The change.** `dsh_native_transport::dto::inline_image(part)` decodes an inline image content part — media
+type, base64 bytes, optional name — in the one place base64 is allowed (the transport, which already depends on
+`base64 = 0.22.1`, so the app needs no new crate). The reducer's two `image` arms call a new `image_line`
+instead of printing `[Image attachment: native image panel unsupported]`:
+
+- a decodable part under 8 MiB reports `Image PUBLIC.png (1×1, image/png)` — name, real pixel size read from
+  the header, and media type;
+- over the bound: `(image/png, over the 8 MiB bound)`;
+- base64 that is not an image: `(image/png, dimensions unreadable)`;
+- data that is not base64 at all: `[Image attachment: could not be decoded]`.
+
+**Why this instead of painting the bitmap.** The bitmap needs a row that carries pixels and an iced image
+handle per row; that is its own round. What shipped today is the honest half: the rows no longer claim
+"unsupported" while hiding dimensions the app can read safely, and the images.rs painting step has its input
+decoded and bounded.
+
+**Tests.** `an_inline_image_part_decodes_its_bytes_and_keeps_its_name` (transport: decode, missing data and
+non-base64 refused) and `an_inline_image_part_states_its_real_size_instead_of_unsupported` (app: 1×1 PNG gives
+`1×1`, a non-image base64 gives "dimensions unreadable", bad base64 gives "could not be decoded").
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1591 passed**, 1 ignored |
+| app, default | **0** | **1535 passed**, 1 ignored |
+| transport | **0** | **7 passed** |
+| app bin | — | **21** warnings (22 with the summary line) |
