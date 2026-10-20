@@ -18054,3 +18054,26 @@ families, and `binary-freshness`.
 
 **Remaining on the parity backlog:** nothing unbuilt. Live `schedule/changed` stays deferred by your choice, and
 `wayland-drops` — closed by these full passes — still needs a real hardware seat if it is ever re-enabled.
+
+### Round 662 — the backlog is closed, with two named dispositions
+
+**Nothing is unbuilt.** The terminal (screen protocol, cursor, three builders), session feedback, and inline
+images are all shipped, tested and framed; the battery is green at **17/17** and the suites stand at **1592** /
+**1536** with **21** real warnings.
+
+**One limitation named rather than quietly accepted.** Inline images decode **PNG and JPEG** only — the app's
+`image` crate is pinned to those two features, matching `attachment_preview`'s existing local-preview policy. An
+inline **WebP or GIF** therefore falls back to round 652's descriptive line (`Image … (image/webp, dimensions
+unreadable)`) instead of a picture, while the reference renders them (its `ImageMediaType` covers all four).
+Closing it means enabling `image`'s `webp` and `gif` features, which pulls **new crates** (`image-webp`, `gif`)
+into the build, so it stays a dependency decision rather than something I take unilaterally.
+
+**Two dispositions, both yours, both recorded:**
+1. **Live `schedule/changed` — deferred ("look at it later").** The arm is built and has an end-to-end test that
+   already pins the closed-open case, the reload, and the loading flag
+   (`a_schedule_change_from_the_host_reloads_an_open_catalog`); what it cannot prove here is that a real Host
+   emits the event, which needs a running session rather than code.
+2. **Window-edge drag below 520×600 — withdrawn.**
+
+**So the parity work is complete on this side**, and the two items above are a dependency decision and a live
+observation, not unbuilt features.
