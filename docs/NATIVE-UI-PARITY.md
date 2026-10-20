@@ -16462,3 +16462,26 @@ the full battery cannot run. The app gates were measured directly with cargo:
 | format debt | **—** | moved to `xtask format-debt`; last measured 0 |
 
 **No frame:** a constraint and a plan; the frame that proved it is round 567's.
+
+### Round 569 — the panel split attempted, framed, and reverted
+
+**What was tried.** Round 568's plan: split `terminal_view` into a scrolling header and a fixed bottom
+region so the output can fill the pane. The edit cut the body at the `OUTPUT` label, pushed the output and
+write row into a `bottom` column, and composed `column![scrollable(header).height(Shrink), bottom.height(Fill)]`.
+
+**What the frame showed.** `shots/348-terminal-fill.png`: the output box **did** grow to fill the height
+left above the write row — the intended effect — but the composition **reordered the panel**: the input
+row and the Write button appeared above the output, because the output's own push was still inside the
+header column while the input had moved into `bottom`. The screenshot is unambiguous, the suite was green
+(79 terminal tests), and the frame wins: the restructure is reverted in full (`app/src/ui.rs` back to
+`4cd78bb`'s state) rather than shipped half-ordered.
+
+**The correction for the next attempt.** Isolate the *output container push itself* into `bottom` first
+(leaving the `OUTPUT` label, input row and notices where they are), verify the frame, and only then move
+the input row below it. Splitting by "everything after the label" is what reordered the panel.
+
+**No commit of code:** the only artifact is this note and the archived frame. The 240px box stands.
+
+**Measured after the revert:** `cargo check` app bin **21** warnings; the terminal suite was green (79
+tests) on the reverted tree in round 568; `dsh-xtask` is still mid-migration, so the full battery remains
+unavailable and the app suites are gated directly with cargo.
