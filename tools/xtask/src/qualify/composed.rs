@@ -26,9 +26,9 @@ const KILL_SECONDS: u64 = 2;
 const POLL: Duration = Duration::from_millis(20);
 const FIXTURE_CLASS: &str = "ai.deepseek.harness.native.settings-composed-fixture";
 
-static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+pub(super) static INTERRUPTED: AtomicBool = AtomicBool::new(false);
 
-extern "C" fn interrupt(_: libc::c_int) {
+pub(super) extern "C" fn interrupt(_: libc::c_int) {
     INTERRUPTED.store(true, Ordering::SeqCst);
 }
 
@@ -43,9 +43,9 @@ fn our_pid() -> i32 {
 }
 
 /// A child whose reaping is owned by this runner alone.
-struct Owned {
-    child: Child,
-    status: Option<ExitStatus>,
+pub(super) struct Owned {
+    pub child: Child,
+    pub status: Option<ExitStatus>,
 }
 
 impl Owned {
@@ -62,7 +62,7 @@ impl Owned {
         self.status.is_some()
     }
 
-    fn code(&self) -> i32 {
+    pub(super) fn code(&self) -> i32 {
         self.status.map(crate::exit_code).unwrap_or(-1)
     }
 }
@@ -324,6 +324,82 @@ fn read_app(output: &Path) -> Value {
     }
 }
 
+/// The outcome of one guarded owned run: identity-pinned facts and cleanup.
+pub(super) struct GuardedRun {
+    pub owned: Owned,
+    pub facts: Option<compositor::Facts>,
+    pub forced: bool,
+    pub failure: Option<&'static str>,
+    pub observation_failures: u64,
+    pub observed: usize,
+    pub cleanup: Cleanup,
+    pub interrupted: bool,
+}
+
+/// Pin, observe and clean up one spawned process tree. The caller installs the
+/// signal handlers before spawning and restores them after this returns.
+pub(super) fn guard(mut owned: Owned) -> GuardedRun {
+    let owner = our_pid();
+    let mut pidfds: BTreeMap<Key, i32> = BTreeMap::new();
+    let mut observed: BTreeSet<Key> = BTreeSet::new();
+    let mut facts: Option<compositor::Facts> = None;
+    let mut forced = false;
+    let mut failure: Option<&'static str> = None;
+    let mut observation_failures = 0u64;
+    let mut root_pinned = false;
+    let mut root: Option<proc::Stat> = None;
+    match pin_root(&mut owned, owner) {
+        Err(()) => {
+            failure = Some("root-pidfd-acquisition-failed");
+            forced = true;
+        }
+        Ok((pinned, fd)) => {
+            root_pinned = true;
+            pidfds.insert(identity(&pinned), fd);
+            observed.insert(identity(&pinned));
+            root = Some(pinned);
+        }
+    }
+    if let Some(pinned) = root.as_ref() {
+        let deadline = Instant::now() + Duration::from_secs(QUALIFICATION_SECONDS);
+        loop {
+            if owned.poll().ok().flatten().is_some() {
+                break;
+            }
+            observation_failures +=
+                observe_descendants(&mut owned, pinned, &mut pidfds, &mut observed, owner);
+            if facts.is_none()
+                && let Some(candidate) = compositor::window_facts(pinned.pid)
+                && candidate["mapped"].as_bool() == Some(true)
+            {
+                facts = Some(candidate);
+            }
+            if INTERRUPTED.load(Ordering::SeqCst) || Instant::now() >= deadline {
+                forced = true;
+                break;
+            }
+            std::thread::sleep(POLL * 5);
+        }
+    }
+    let cleanup = cleanup_owned(&mut owned, &pidfds, root_pinned);
+    for fd in pidfds.values() {
+        // Safe: each descriptor was opened for one identity this run and closed once.
+        unsafe {
+            libc::close(*fd);
+        }
+    }
+    GuardedRun {
+        owned,
+        facts,
+        forced,
+        failure,
+        observation_failures,
+        observed: observed.len(),
+        cleanup,
+        interrupted: INTERRUPTED.load(Ordering::SeqCst),
+    }
+}
+
 /// Run the composed settings fixture and return its report.
 pub fn measure(script_root: &Path, output: &Path, scale: f64) -> Result<Value, String> {
     let output = prepare(script_root, output)?;
@@ -355,81 +431,29 @@ pub fn measure(script_root: &Path, output: &Path, scale: f64) -> Result<Value, S
         .process_group(0)
         .spawn()
         .map_err(|error| error.to_string())?;
-    let mut owned = Owned {
+    let run = guard(Owned {
         child,
         status: None,
-    };
-    let owner = our_pid();
-    let mut pidfds: BTreeMap<Key, i32> = BTreeMap::new();
-    let mut observed: BTreeSet<Key> = BTreeSet::new();
-    let mut facts: Option<compositor::Facts> = None;
-    let mut forced = false;
-    let mut failure: Option<&str> = None;
-    let mut observation_failures = 0u64;
-    let mut root_pinned = false;
-    let mut root: Option<proc::Stat> = None;
-
-    match pin_root(&mut owned, owner) {
-        Err(()) => {
-            failure = Some("root-pidfd-acquisition-failed");
-            forced = true;
-        }
-        Ok((pinned, fd)) => {
-            root_pinned = true;
-            pidfds.insert(identity(&pinned), fd);
-            observed.insert(identity(&pinned));
-            root = Some(pinned);
-        }
-    }
-    if let Some(root) = root.as_ref() {
-        let deadline = Instant::now() + Duration::from_secs(QUALIFICATION_SECONDS);
-        loop {
-            if owned.poll().ok().flatten().is_some() {
-                break;
-            }
-            observation_failures +=
-                observe_descendants(&mut owned, root, &mut pidfds, &mut observed, owner);
-            if facts.is_none()
-                && let Some(candidate) = compositor::window_facts(root.pid)
-                && candidate["mapped"].as_bool() == Some(true)
-            {
-                facts = Some(candidate);
-            }
-            if INTERRUPTED.load(Ordering::SeqCst) || Instant::now() >= deadline {
-                forced = true;
-                break;
-            }
-            std::thread::sleep(POLL * 5);
-        }
-    }
-    let cleanup = cleanup_owned(&mut owned, &pidfds, root_pinned);
-    for fd in pidfds.values() {
-        // Safe: each descriptor was opened for one identity this run and closed once.
-        unsafe {
-            libc::close(*fd);
-        }
-    }
+    });
     // Safe: restore the handlers this run installed.
     unsafe {
         libc::signal(libc::SIGINT, previous_int);
         libc::signal(libc::SIGTERM, previous_term);
     }
-    if cleanup.root_was_running_at_cleanup {
-        forced = true;
-    }
+    let forced = run.forced || run.cleanup.root_was_running_at_cleanup;
     let app = read_app(&output);
-    let exit_code = owned.code();
+    let exit_code = run.owned.code();
     let binary_unchanged = crate::sha256_file(&binary)
         .map(|hash| hash == before_hash)
         .unwrap_or(false);
     let passed = composed_passed(
         exit_code,
         forced,
-        failure,
-        &cleanup,
-        observation_failures,
+        run.failure,
+        &run.cleanup,
+        run.observation_failures,
         &app,
-        facts.as_ref(),
+        run.facts.as_ref(),
         binary_unchanged,
     );
     let report = json!({
@@ -438,15 +462,15 @@ pub fn measure(script_root: &Path, output: &Path, scale: f64) -> Result<Value, S
         "binarySha256": before_hash,
         "exitCode": exit_code,
         "forced": forced,
-        "interrupted": INTERRUPTED.load(Ordering::SeqCst),
-        "failureCode": failure,
-        "ownedWindow": facts,
-        "observedOwnedProcessCount": observed.len(),
-        "ownershipObservationFailures": observation_failures,
+        "interrupted": run.interrupted,
+        "failureCode": run.failure,
+        "ownedWindow": run.facts,
+        "observedOwnedProcessCount": run.observed,
+        "ownershipObservationFailures": run.observation_failures,
         "qualificationBudgetSeconds": QUALIFICATION_SECONDS,
-        "cleanup": &cleanup,
-        "remainingBeforeExternalCleanup": &cleanup.remaining_before_external_cleanup,
-        "remainingAfterExternalCleanup": &cleanup.remaining_after_external_cleanup,
+        "cleanup": &run.cleanup,
+        "remainingBeforeExternalCleanup": &run.cleanup.remaining_before_external_cleanup,
+        "remainingAfterExternalCleanup": &run.cleanup.remaining_after_external_cleanup,
         "app": app,
         "paintInspected": false,
         "nativeKeyboardPointerInputQualified": false,

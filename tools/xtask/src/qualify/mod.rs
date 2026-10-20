@@ -7,6 +7,7 @@ pub mod app;
 pub mod composed;
 pub mod composed_files;
 pub mod control;
+pub mod decisions;
 pub mod layout;
 pub mod node;
 pub mod prompt;
@@ -461,6 +462,7 @@ pub fn run(arguments: &[String]) -> i32 {
     let mut screenshot = false;
     let mut sdk = false;
     let mut fail_at = String::from("none");
+    let mut viewport_minimum = false;
     let mut arguments = arguments[1..].iter();
     while let Some(argument) = arguments.next() {
         let parsed: Result<(), String> = (|| match argument.as_str() {
@@ -491,6 +493,16 @@ pub fn run(arguments: &[String]) -> i32 {
             }
             "--sdk" => {
                 sdk = true;
+                Ok(())
+            }
+            "--viewport" => {
+                match arguments.next().ok_or("--viewport needs a value")?.as_str() {
+                    "full" => viewport_minimum = false,
+                    "minimum" => viewport_minimum = true,
+                    other => {
+                        return Err(format!("--viewport must be full or minimum, not {other}"));
+                    }
+                }
                 Ok(())
             }
             "--fail-at" => {
@@ -535,6 +547,10 @@ pub fn run(arguments: &[String]) -> i32 {
         "upload-uncertainty" => uncertainty::run(&root, &output, &fail_at),
         "composed-settings" => composed::run(&root, &output, scale),
         "composed-files" => composed_files::run(&root, &output, scale),
+        "composed-decisions" => {
+            let viewport = if viewport_minimum { "minimum" } else { "full" };
+            decisions::run(&root, &output, scale, viewport)
+        }
         "lazy-account" => composed::lazy_account(&root, &output),
         "control" => control::run(&root.join("app")),
         "submenus" => layout::submenus(&root.join("app")),
