@@ -17859,3 +17859,25 @@ order.
 
 **State:** session feedback is end-to-end (transport, worker, header entry point, dialog, outcomes, test);
 suites fixture **1590** / default **1534**; app bin **21** real warnings; transport 7 with 0 warnings.
+
+### Round 651 — images were never blocked on the Host; the bytes travel inline
+
+**The correction, and it matters.** Round 643 concluded images needed a Host route. That was wrong. The RPC
+payloads already carry images as **base64 inside JSON**:
+
+- the web client's HTTP bridge sizes its frames around "aggregate image limit (200 MiB) after base64
+  expansion" (`packages/client/connection/src/http-bridge.ts:11`, `connection/src/index.ts:71`), so image bytes
+  ride in the ordinary envelope;
+- native already **sends** them that way: `PromptContentPart::Image { media_type, data, name }`
+  (`transport/src/dto.rs:396-404`) is what the attach rail posts, with `ImageMediaType` covering png, jpeg,
+  webp and gif.
+
+**So the gap is entirely on our side:** `app/src` parses message content as text only — the only decoder is
+`attachment_preview::load` for a local path — so an image part in a reply is dropped rather than rendered. No
+Host route, no new dependency, no policy question: decode the base64 part with the `image` crate already
+present, under the limits you approved (8 MiB before decode, 4096/4 M pixels, memory-only cache, timeout),
+and paint through the attach rail's existing thumbnail path.
+
+**Next round's target, with the seam named:** find where native turns a message's content parts into display
+rows (`conversation_content.rs`) and give it an image part — decode in the worker, keep only the thumbnail in
+the row, and a test that a base64 PNG part becomes a row with a decoded size rather than `NotImage`.
