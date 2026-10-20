@@ -316,6 +316,10 @@ pub fn run(args: &[String]) -> i32 {
         }
         index += 1;
     }
+    if args.iter().any(|arg| arg == "publish") {
+        let env: BTreeMap<String, String> = std::env::vars().collect();
+        return publish_run(&crate::root(), &env);
+    }
     let (Some(binary), Some(output)) = (binary, output) else {
         eprintln!("release package needs --binary and --output");
         return 1;
@@ -323,6 +327,281 @@ pub fn run(args: &[String]) -> i32 {
     let root = crate::root();
     let env: BTreeMap<String, String> = std::env::vars().collect();
     package_run(&root, Path::new(&binary), Path::new(&output), &env)
+}
+
+fn gh(args: &[String]) -> Result<String, String> {
+    let output = std::process::Command::new("gh")
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn sha256_file(path: &Path) -> Result<String, String> {
+    crate::sha256_file(path).map_err(|error| error.to_string())
+}
+
+/// Verify the original archive/checksum and its embedded target, without extraction.
+pub fn verify_assets(directory: &Path, tag: &str, commit: &str) -> Result<(), String> {
+    use std::io::Read;
+    let name = format!("dsh-native-linux-x86_64-{tag}");
+    let archive = directory.join(format!("{name}.tar.gz"));
+    let mut names: Vec<String> = std::fs::read_dir(directory)
+        .map_err(|_| "Missing or unexpected release assets")?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    let mut expected = vec![format!("{name}.tar.gz"), "SHA256SUMS".to_string()];
+    expected.sort();
+    if names != expected {
+        return Err("Missing or unexpected release assets".into());
+    }
+    let checksum = std::fs::read_to_string(directory.join("SHA256SUMS"))
+        .map_err(|_| "Release archive checksum mismatch")?;
+    let digest = sha256_file(&archive)?;
+    if checksum != format!("{digest}  {name}.tar.gz\n") {
+        return Err("Release archive checksum mismatch".into());
+    }
+    let file = std::fs::File::open(&archive).map_err(|_| "Invalid embedded build metadata")?;
+    let decoder = flate2::read::GzDecoder::new(file);
+    let mut tar = tar::Archive::new(decoder);
+    let mut info: Option<Value> = None;
+    for entry in tar
+        .entries()
+        .map_err(|_| "Invalid embedded build metadata")?
+    {
+        let mut entry = entry.map_err(|_| "Invalid embedded build metadata")?;
+        let path = entry
+            .path()
+            .map_err(|_| "Invalid embedded build metadata")?
+            .to_string_lossy()
+            .into_owned();
+        if path == format!("{name}/build-info.json") {
+            if !entry.header().entry_type().is_file() || entry.size() > 64 * 1024 {
+                return Err("Invalid embedded build metadata".into());
+            }
+            let mut body = Vec::new();
+            entry
+                .read_to_end(&mut body)
+                .map_err(|_| "Invalid embedded build metadata")?;
+            info = serde_json::from_slice(&body).ok();
+        }
+    }
+    let Some(info) = info else {
+        return Err("Invalid embedded build metadata".into());
+    };
+    if info["commit"].as_str() != Some(commit)
+        || info["releaseTag"].as_str() != Some(tag)
+        || info["developmentPrerelease"].as_bool() != Some(true)
+    {
+        return Err("Release metadata does not match the tested commit".into());
+    }
+    Ok(())
+}
+
+fn valid_tag(tag: &str) -> bool {
+    let Some(rest) = tag.strip_prefix('v') else {
+        return false;
+    };
+    let Some((version, run)) = rest.split_once("-dev.") else {
+        return false;
+    };
+    let parts: Vec<&str> = version.split('.').collect();
+    parts.len() == 3
+        && parts.iter().all(|part| {
+            !part.is_empty()
+                && part.bytes().all(|byte| byte.is_ascii_digit())
+                && (part == &"0" || !part.starts_with('0'))
+        })
+        && !run.is_empty()
+        && !run.starts_with('0')
+        && run.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+/// `xtask release publish`: draft first, never overwrite a published release.
+pub fn publish_run(root: &Path, env: &BTreeMap<String, String>) -> i32 {
+    let (Some(repo), Some(tag), Some(commit)) = (
+        env.get("GH_REPO"),
+        env.get("RELEASE_TAG"),
+        env.get("GITHUB_SHA"),
+    ) else {
+        eprintln!("publish failed: missing GH_REPO, RELEASE_TAG or GITHUB_SHA");
+        return 1;
+    };
+    if !valid_tag(tag)
+        || commit.len() != 40
+        || !commit
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    {
+        eprintln!("publish failed: invalid release target");
+        return 1;
+    }
+    let assets = root.join("release-output");
+    let archive = assets.join(format!("dsh-native-linux-x86_64-{tag}.tar.gz"));
+    let checksums = assets.join("SHA256SUMS");
+    let notes = assets.join("release-notes.md");
+    let files = [
+        archive.to_string_lossy().into_owned(),
+        checksums.to_string_lossy().into_owned(),
+    ];
+    let result = (|| -> Result<String, String> {
+        let refs: Value = serde_json::from_str(&gh(&[
+            "api".into(),
+            format!("repos/{repo}/git/matching-refs/tags/{tag}"),
+        ])?)
+        .map_err(|_| "Unexpected tag response")?;
+        let matching: Vec<&Value> = refs
+            .as_array()
+            .map(|refs| {
+                refs.iter()
+                    .filter(|entry| entry["ref"].as_str() == Some(&format!("refs/tags/{tag}")))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !matching.is_empty()
+            && (matching.len() != 1
+                || matching[0]["object"]["type"].as_str() != Some("commit")
+                || matching[0]["object"]["sha"].as_str() != Some(commit))
+        {
+            return Err("Existing release tag targets another commit or is not lightweight".into());
+        }
+        let view = std::process::Command::new("gh")
+            .args([
+                "release",
+                "view",
+                tag,
+                "--repo",
+                repo,
+                "--json",
+                "isDraft,isPrerelease,targetCommitish,assets",
+            ])
+            .stdin(std::process::Stdio::null())
+            .output()
+            .map_err(|error| error.to_string())?;
+        let release: Option<Value> = if view.status.success() {
+            serde_json::from_slice(&view.stdout).ok()
+        } else {
+            None
+        };
+        if let Some(release) = &release {
+            if release["isPrerelease"].as_bool() != Some(true)
+                || release["targetCommitish"].as_str() != Some(commit)
+            {
+                return Err("Existing release does not match this development build".into());
+            }
+            if release["isDraft"].as_bool() != Some(true) {
+                let mut names: Vec<String> = release["assets"]
+                    .as_array()
+                    .map(|assets| {
+                        assets
+                            .iter()
+                            .filter_map(|asset| asset["name"].as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                names.sort();
+                let mut expected = vec![
+                    format!("dsh-native-linux-x86_64-{tag}.tar.gz"),
+                    "SHA256SUMS".to_string(),
+                ];
+                expected.sort();
+                if matching.is_empty() || names != expected {
+                    return Err(
+                        "Published release is missing its expected assets; not overwritten".into(),
+                    );
+                }
+                let temporary = crate::tempdir::make_temp_dir(
+                    &std::env::temp_dir(),
+                    "native-published-assets-",
+                )
+                .map_err(|error| error.to_string())?;
+                let mut download = vec![
+                    "release".to_string(),
+                    "download".to_string(),
+                    tag.to_string(),
+                    "--repo".to_string(),
+                    repo.to_string(),
+                    "--dir".to_string(),
+                    temporary.to_string_lossy().into_owned(),
+                ];
+                gh(&download)?;
+                verify_assets(&temporary, tag, commit)?;
+                let _ = std::fs::remove_dir_all(&temporary);
+                download.clear();
+                return Ok(
+                    "Published release and original assets verified; nothing overwritten.".into(),
+                );
+            }
+            let mut upload = vec!["release".to_string(), "upload".to_string(), tag.to_string()];
+            upload.extend(files.iter().cloned());
+            upload.extend([
+                "--repo".to_string(),
+                repo.to_string(),
+                "--clobber".to_string(),
+            ]);
+            gh(&upload)?;
+        } else {
+            let mut create = vec!["release".to_string(), "create".to_string(), tag.to_string()];
+            create.extend(files.iter().cloned());
+            create.extend([
+                "--repo".to_string(),
+                repo.to_string(),
+                "--target".to_string(),
+                commit.to_string(),
+                "--title".to_string(),
+                format!("Harness Native {tag}"),
+                "--draft".to_string(),
+                "--prerelease".to_string(),
+                "--latest=false".to_string(),
+                "--notes-file".to_string(),
+                notes.to_string_lossy().into_owned(),
+            ]);
+            gh(&create)?;
+        }
+        let temporary =
+            crate::tempdir::make_temp_dir(&std::env::temp_dir(), "native-draft-assets-")
+                .map_err(|error| error.to_string())?;
+        gh(&[
+            "release".into(),
+            "download".into(),
+            tag.to_string(),
+            "--repo".into(),
+            repo.to_string(),
+            "--dir".into(),
+            temporary.to_string_lossy().into_owned(),
+        ])?;
+        verify_assets(&temporary, tag, commit)?;
+        let _ = std::fs::remove_dir_all(&temporary);
+        gh(&[
+            "release".into(),
+            "edit".into(),
+            tag.to_string(),
+            "--repo".into(),
+            repo.to_string(),
+            "--draft=false".into(),
+            "--prerelease".into(),
+            "--latest=false".into(),
+        ])?;
+        Ok(format!(
+            "Published verified development release {tag} for {commit}."
+        ))
+    })();
+    match result {
+        Ok(message) => {
+            println!("{message}");
+            0
+        }
+        Err(message) => {
+            eprintln!("publish failed: {message}");
+            1
+        }
+    }
 }
 
 #[cfg(test)]
@@ -342,5 +621,76 @@ mod tests {
         let notes = notes(&identity, "2.34");
         assert!(notes.contains("`2.34`"));
         assert!(notes.contains("Not self-contained"));
+    }
+}
+
+#[cfg(test)]
+mod publish_tests {
+    use super::*;
+    use std::fs;
+
+    fn assets(tag: &str, commit: &str) -> PathBuf {
+        let base = crate::tempdir::make_temp_dir(&std::env::temp_dir(), "release-assets-").unwrap();
+        let name = format!("dsh-native-linux-x86_64-{tag}");
+        let payload = base.join(&name);
+        fs::create_dir_all(payload.join("bin")).unwrap();
+        fs::write(payload.join("bin/dsh-native-app"), b"PUBLIC binary").unwrap();
+        fs::write(
+            payload.join("build-info.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "commit": commit, "releaseTag": tag, "developmentPrerelease": true,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let archive = base.join(format!("{name}.tar.gz"));
+        write_archive(&payload, &name, &archive).unwrap();
+        // The assets directory holds only the archive and its checksum.
+        fs::remove_dir_all(&payload).unwrap();
+        let digest = crate::sha256_file(&archive).unwrap();
+        fs::write(
+            base.join("SHA256SUMS"),
+            format!("{digest}  {name}.tar.gz\n"),
+        )
+        .unwrap();
+        base
+    }
+
+    #[test]
+    fn release_assets_must_checksum_and_carry_the_tested_commit() {
+        let tag = "v0.2.1-dev.7";
+        let commit = "a".repeat(40);
+        let base = assets(tag, &commit);
+        assert!(verify_assets(&base, tag, &commit).is_ok());
+        // A changed archive breaks the checksum.
+        fs::write(base.join("SHA256SUMS"), "0  wrong\n").unwrap();
+        assert_eq!(
+            verify_assets(&base, tag, &commit).unwrap_err(),
+            "Release archive checksum mismatch"
+        );
+        // An extra asset is refused.
+        let base = assets(tag, &commit);
+        fs::write(base.join("extra.txt"), b"x").unwrap();
+        assert_eq!(
+            verify_assets(&base, tag, &commit).unwrap_err(),
+            "Missing or unexpected release assets"
+        );
+        // A build info for another commit is refused.
+        let base = assets(tag, &"b".repeat(40));
+        assert_eq!(
+            verify_assets(&base, tag, &commit).unwrap_err(),
+            "Release metadata does not match the tested commit"
+        );
+        // Only dev tags with a positive run number are publish targets.
+        assert!(valid_tag("v0.2.1-dev.7"));
+        for bad in [
+            "v0.2.1",
+            "v1.2.3-dev.0",
+            "v01.2.3-dev.1",
+            "0.2.1-dev.7",
+            "v1.2-dev.1",
+        ] {
+            assert!(!valid_tag(bad), "{bad}");
+        }
     }
 }
