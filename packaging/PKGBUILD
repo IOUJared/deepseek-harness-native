@@ -3,7 +3,7 @@
 # Node 26 and any profile remain external; this installs the app, the launcher
 # wrapper, the desktop entry and the icon. Build with:  makepkg -si
 pkgname=dsh-native-app
-pkgver=2026.10.10.r2
+pkgver=2026.10.20.r1
 pkgrel=1
 pkgdesc="Native DeepSeek Harness Linux client (development build; external 0.2.1-alpha.1 backend required)"
 arch=('x86_64')
@@ -13,11 +13,11 @@ depends=('glibc' 'gcc-libs' 'wayland' 'libxkbcommon' 'vulkan-icd-loader' 'ttf-de
 optdepends=('deepseek-harness-linux: isolated built 0.2.1-alpha.1 backend (external, not packaged here)')
 provides=('dsh-native-app')
 conflicts=('dsh-native-app')
-source=("dsh-native-app-$pkgver.tar.gz::https://github.com/IOUJared/deepseek-harness-native/releases/download/v2026.10.10-r2/dsh-native-linux-x86_64-development-2026.10.10-r2-4ecec524d097.tar.gz")
-sha256sums=('a2f97dd899ae978d01f5fb0cbf3e6d04b83bca86e3bd6c7eeaea13029647b594')
+source=("dsh-native-app-$pkgver.tar.gz::https://github.com/IOUJared/deepseek-harness-native/releases/download/v2026.10.20-r1/dsh-native-linux-x86_64-development-2026.10.20-r1-1d07bde7b784.tar.gz")
+sha256sums=('29bf25543e14787c16153e0ba204aa0262980db67f645df6aafa8c09a03ac7d1')
 
 package() {
-  local payload="dsh-native-linux-x86_64-development-2026.10.10-r2-4ecec524d097"
+  local payload="dsh-native-linux-x86_64-development-2026.10.20-r1-1d07bde7b784"
   install -Dm755 "$srcdir/$payload/bin/dsh-native-app" "$pkgdir/usr/bin/dsh-native-app"
 
   mkdir -p "$pkgdir/usr/bin"

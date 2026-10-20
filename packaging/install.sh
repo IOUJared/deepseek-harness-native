@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Install or upgrade the native Harness client for the current user, or stage it with DESTDIR.
 #
-#   packaging/install.sh --binary /ABS/dsh-native-app --version 2026.10.10-r2
-#   packaging/install.sh --upgrade --binary /ABS/dsh-native-app --version 2026.10.10-r2
+#   packaging/install.sh --binary /ABS/dsh-native-app --version 2026.10.20-r1
+#   packaging/install.sh --upgrade --binary /ABS/dsh-native-app --version 2026.10.20-r1
 #   packaging/install.sh --dry-run --upgrade --binary /ABS/dsh-native-app
 #   packaging/install.sh --binary ./bin/dsh-native-app --prefix /usr --destdir /tmp/stage
 #   packaging/install.sh --uninstall

@@ -46,7 +46,7 @@ is safe and reports `absent`.
 ## Upgrade
 
 ```sh
-packaging/install.sh --upgrade --binary /ABS/new/dsh-native-app --version 2026.10.10-r2
+packaging/install.sh --upgrade --binary /ABS/new/dsh-native-app --version 2026.10.20-r1
 packaging/install.sh --dry-run --upgrade --binary /ABS/new/dsh-native-app
 ```
 
@@ -70,7 +70,7 @@ session data the app opens.
 
 ## Arch package
 
-`packaging/PKGBUILD` packages the released archive (the pinned `2026.10.10-r2` tarball and its
+`packaging/PKGBUILD` packages the released archive (the pinned `2026.10.20-r1` tarball and its
 SHA-256) with the same wrapper, desktop entry and icon. `makepkg -si` downloads the release asset at
 build time; the backend stays an optional external dependency.
 
