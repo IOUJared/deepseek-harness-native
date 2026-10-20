@@ -16684,3 +16684,33 @@ back in view at 520) and the remaining short-window scroll stated rather than gl
 **Measured (unchanged code path, doc-only round):** fixture **1569 passed**, default **1513 passed**, 1
 ignored each. `xtask verify --suite all` and `format-debt` remain unavailable while `tools/xtask` is
 mid-migration.
+
+### Round 577 — the full battery is back, and one check is hardware-only
+
+**The migration landed.** `tools/xtask` now builds and owns the predicates: `verify --suite
+doctor|clippy|lint|examples|test|all`, `format-debt`, plus the new `history` and `qualify` commands. The
+gate line for later rounds is `scripts/check.sh` (a wrapper) or `cargo run -p xtask --locked -- verify
+--suite all`, with `format-debt` beside it; `scripts/verify-native.py` and `scripts/format-debt.py` are
+gone.
+
+**The first full run since round 566** (`verification-ba5c7b18c831`): 19 checks, **18 passed, one failed**.
+
+| check | result |
+| --- | --- |
+| format-debt, core/transport/app/xtask clippy, core, core-transport, transport, app, app-public | passed |
+| layout_smoke, scroll_app_smoke | passed |
+| binary-freshness | passed (the round-575 rebuild is newer than its sources) |
+| xtask-guards, bridge, script-guards, benchmark-guards, app-guards, release-guards | passed |
+| **wayland-drops** | **failed** — the private-seat drop harness needs a real seat; it is the recorded hardware-only check, not a regression |
+
+The run's overall status reads `source-changed` because the tool compares a source snapshot before and
+after; the per-check results above are what the battery measured. Nothing in the tree was modified by this
+round.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| `xtask verify --suite all` | **1 of 19 failed** | only `wayland-drops`, the hardware-only harness (`verification-ba5c7b18c831`) |
+| app, fixture / default | **0** | **1569** / **1513 passed**, 1 ignored each (round 575, unchanged) |
+| app bin | — | **21** warnings |
