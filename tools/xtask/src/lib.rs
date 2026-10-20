@@ -11,6 +11,7 @@ pub mod fmtdebt;
 pub mod history;
 pub mod idle;
 pub mod json;
+pub mod launcher;
 pub mod proc;
 pub mod qualify;
 pub mod snapshot;
