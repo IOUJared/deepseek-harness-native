@@ -15838,6 +15838,13 @@ Every gap below is either **large enough to need its own round series** or **blo
 the user has**. Nothing here is waiting on a question; each row names the exact step that would let the
 next round start.
 
+**State at round 641 — every app-side item is closed, so this table is the whole remainder.**
+`terminal_header` / `terminal_output` / `terminal_footer` are extracted (`69f6d19`, `c283639`, `a0548c5`),
+the cursor is painted from one render pass (`9651d22`, framed in `356`/`357`), the screen protocol is
+complete with its fifteen-case hostile-input guard, and the suites are at fixture **1581** / default **1525**
+with **21** real warnings. The battery is **16/18**: `wayland-drops` needs a real seat, and `release-guards`
+is the one-line leftover from the finished port stage. Nothing else in this repo is unbuilt.
+
 ### Blocked on a user action
 
 | item | why it is blocked | the step that clears it |
