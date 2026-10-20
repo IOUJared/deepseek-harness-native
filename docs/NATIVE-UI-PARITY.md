@@ -16977,3 +16977,20 @@ comment, and the new test pins the preserved-cursor behaviour. Both suites are g
 
 The process lesson is the useful part: the commit should not have run after a failing suite. The command
 chained `cat >>` with `git commit` without `&&`, so the red run did not stop it.
+
+### Round 600 — the battery after the erase fix, and the one check I had left stale
+
+**First run** (`verification-26ba64191ecb`): **15 of 18**, with `binary-freshness` failing because round 599's
+`terminal.rs` change had not been rebuilt into the release artifacts — my omission, not a defect.
+
+**Second run after rebuilding both artifacts** (`verification-7390cc17680d`): **16 of 18**.
+
+| check | result |
+| --- | --- |
+| format-debt, core/transport/app/xtask clippy, core, core-transport, transport, app, app-public, layout_smoke, scroll_app_smoke, xtask-guards, bridge, script-guards, benchmark-guards, app-guards, binary-freshness | passed |
+| **wayland-drops** | failed — the private-seat harness needs a real seat (hardware-only) |
+| **release-guards** | failed — `.github/scripts` is gone while `tools/xtask/src/verify.rs:334` still discovers `test_*.py` there; awaiting the port's decision |
+
+**The rule this round re-learned:** `binary-freshness` compares **both** `app/target/release/dsh-native-app`
+and `app/target/release/examples/layout_smoke`, and it checks them against the sources — so any round that
+touches `app/src` ends with two release builds, not one.
