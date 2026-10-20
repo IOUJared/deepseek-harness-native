@@ -1666,6 +1666,134 @@ pub fn build(
     Ok(result)
 }
 
+fn package_usage() -> &'static str {
+    "usage: xtask package --output NEW_DIR --rust-metadata PATH --launcher PATH \
+     [--native-qualification PATH] [--source-root ABS --native-binary ABS] [--cargo-src DIR]"
+}
+
+/// The single warmed registry source index, so the license inventory reads the same
+/// crates the locked metadata names. Ambiguity is refused rather than guessed.
+fn default_cargo_src() -> Option<PathBuf> {
+    let home = std::env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| Path::new(&home).join(".cargo")))?;
+    let mut indexes: Vec<PathBuf> = std::fs::read_dir(home.join("registry/src"))
+        .ok()?
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.is_dir())
+        .collect();
+    indexes.sort();
+    (indexes.len() == 1).then(|| indexes.remove(0))
+}
+
+/// `xtask package ...`: build one external-runtime development archive.
+///
+/// This is the explicit calendar-release builder. It refuses an output that is not a
+/// new directory under `app/evidence`, a changed release binary and a source snapshot
+/// that differs from the tree, and prints the same bounded JSON the Python builder
+/// printed (`status`, archive name/hash/bytes, glibc, inventory counts).
+pub fn package_run(args: &[String], base: Option<&Path>) -> i32 {
+    let mut output: Option<PathBuf> = None;
+    let mut metadata: Option<PathBuf> = None;
+    let mut qualification: Option<PathBuf> = None;
+    let mut source_root: Option<PathBuf> = None;
+    let mut native_binary: Option<PathBuf> = None;
+    let mut launcher: Option<PathBuf> = None;
+    let mut cargo_src: Option<PathBuf> = None;
+    fn value(args: &[String], index: &mut usize, name: &str) -> Result<PathBuf, String> {
+        *index += 1;
+        args.get(*index)
+            .map(PathBuf::from)
+            .ok_or_else(|| format!("{name} needs a value"))
+    }
+    let mut index = 0;
+    while index < args.len() {
+        let parsed: Result<(), String> = (|| match args[index].as_str() {
+            "--output" => {
+                output = Some(value(args, &mut index, "--output")?);
+                Ok(())
+            }
+            "--rust-metadata" => {
+                metadata = Some(value(args, &mut index, "--rust-metadata")?);
+                Ok(())
+            }
+            "--native-qualification" => {
+                qualification = Some(value(args, &mut index, "--native-qualification")?);
+                Ok(())
+            }
+            "--source-root" => {
+                source_root = Some(value(args, &mut index, "--source-root")?);
+                Ok(())
+            }
+            "--native-binary" => {
+                native_binary = Some(value(args, &mut index, "--native-binary")?);
+                Ok(())
+            }
+            "--launcher" => {
+                launcher = Some(value(args, &mut index, "--launcher")?);
+                Ok(())
+            }
+            "--cargo-src" => {
+                cargo_src = Some(value(args, &mut index, "--cargo-src")?);
+                Ok(())
+            }
+            other => Err(format!("unexpected argument: {other}")),
+        })();
+        if let Err(message) = parsed {
+            eprintln!("{}\n{message}", package_usage());
+            return 2;
+        }
+        index += 1;
+    }
+    let (Some(output), Some(metadata), Some(launcher)) = (output, metadata, launcher) else {
+        eprintln!(
+            "{}\n--output, --rust-metadata and --launcher are required",
+            package_usage()
+        );
+        return 2;
+    };
+    if source_root.is_some() != native_binary.is_some() {
+        eprintln!(
+            "{}\n--source-root and --native-binary are a pair",
+            package_usage()
+        );
+        return 2;
+    }
+    let root = match base {
+        Some(base) => base.to_path_buf(),
+        None => crate::root(),
+    };
+    let Some(cargo_src) = cargo_src.or_else(default_cargo_src) else {
+        eprintln!(
+            "{}\n--cargo-src is required when the registry has no single index",
+            package_usage()
+        );
+        return 2;
+    };
+    match build(
+        &root,
+        &output,
+        &metadata,
+        qualification.as_deref(),
+        source_root.as_deref(),
+        native_binary.as_deref(),
+        &launcher,
+        &cargo_src,
+    ) {
+        Ok(result) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&result).unwrap_or_default()
+            );
+            0
+        }
+        Err(message) => {
+            eprintln!("package failed: {message}");
+            1
+        }
+    }
+}
+
 fn copy_native_sources(base: &Path, payload: &Path) -> Result<(), String> {
     for (source, limit) in native_source_files(base)? {
         let relative = source
@@ -2661,6 +2789,111 @@ mod build_tests {
         )
         .unwrap();
         (base, native, launcher, metadata)
+    }
+
+    #[test]
+    fn the_package_command_builds_an_archive_from_explicit_paths() {
+        let (base, native, launcher, metadata) = base_tree();
+        let output = base.join("app/evidence/package-cli");
+        let args: Vec<String> = [
+            "--output",
+            output.to_str().unwrap(),
+            "--rust-metadata",
+            metadata.to_str().unwrap(),
+            "--launcher",
+            launcher.to_str().unwrap(),
+            "--source-root",
+            base.to_str().unwrap(),
+            "--native-binary",
+            native.to_str().unwrap(),
+            "--cargo-src",
+            base.join("deepseek-harness-tauri/.cargo-home/registry/src")
+                .to_str()
+                .unwrap(),
+        ]
+        .map(str::to_string)
+        .to_vec();
+        assert_eq!(package_run(&args, Some(&base)), 0);
+        assert!(output.join("build.json").is_file());
+        let result: serde_json::Value =
+            serde_json::from_slice(&fs::read(output.join("build.json")).unwrap()).unwrap();
+        assert_eq!(
+            result["status"],
+            "built-external-runtime-development-package"
+        );
+        assert!(output.join(result["archive"].as_str().unwrap()).is_file());
+    }
+
+    #[test]
+    fn the_package_command_requires_three_inputs_and_pairs_the_source_root() {
+        let (base, native, launcher, metadata) = base_tree();
+        let output = base.join("app/evidence/package-cli-bad");
+        for args in [
+            vec!["--output", output.to_str().unwrap()],
+            vec!["--rust-metadata", metadata.to_str().unwrap()],
+            vec!["--launcher", launcher.to_str().unwrap()],
+            vec![
+                "--output",
+                output.to_str().unwrap(),
+                "--rust-metadata",
+                metadata.to_str().unwrap(),
+                "--launcher",
+                launcher.to_str().unwrap(),
+                "--source-root",
+                base.to_str().unwrap(),
+            ],
+            vec![
+                "--output",
+                output.to_str().unwrap(),
+                "--rust-metadata",
+                metadata.to_str().unwrap(),
+                "--launcher",
+                launcher.to_str().unwrap(),
+                "--native-binary",
+                native.to_str().unwrap(),
+            ],
+            vec![
+                "--output",
+                output.to_str().unwrap(),
+                "--rust-metadata",
+                metadata.to_str().unwrap(),
+                "--launcher",
+                launcher.to_str().unwrap(),
+                "--unknown",
+                "x",
+            ],
+        ] {
+            let args: Vec<String> = args.into_iter().map(str::to_string).collect();
+            assert_eq!(package_run(&args, Some(&base)), 2, "{args:?}");
+        }
+        // The refused parses wrote nothing.
+        assert!(!output.exists());
+    }
+
+    #[test]
+    fn the_package_command_reports_a_refused_build_with_exit_one() {
+        let (base, native, launcher, metadata) = base_tree();
+        let existing = base.join("app/evidence/package-cli-existing");
+        fs::create_dir(&existing).unwrap();
+        let args: Vec<String> = [
+            "--output",
+            existing.to_str().unwrap(),
+            "--rust-metadata",
+            metadata.to_str().unwrap(),
+            "--launcher",
+            launcher.to_str().unwrap(),
+            "--source-root",
+            base.to_str().unwrap(),
+            "--native-binary",
+            native.to_str().unwrap(),
+            "--cargo-src",
+            base.join("deepseek-harness-tauri/.cargo-home/registry/src")
+                .to_str()
+                .unwrap(),
+        ]
+        .map(str::to_string)
+        .to_vec();
+        assert_eq!(package_run(&args, Some(&base)), 1);
     }
 
     #[test]

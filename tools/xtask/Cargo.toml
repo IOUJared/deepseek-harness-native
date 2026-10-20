@@ -7,10 +7,18 @@ edition = "2024"
 rust-version = "1.99"
 publish = false
 description = "Development predicates for the native harness; replaces the Python tooling"
+# `cargo run --manifest-path tools/xtask/Cargo.toml` means the predicate runner even
+# though the archive's launcher is a second binary in this package.
+default-run = "xtask"
 
 [[bin]]
 name = "xtask"
 path = "src/main.rs"
+
+# The archive's entry point: `./launch --workspace ...` with no subcommand.
+[[bin]]
+name = "dsh-launch"
+path = "src/bin/launch.rs"
 
 [dependencies]
 flate2 = "1"

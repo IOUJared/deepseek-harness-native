@@ -132,7 +132,7 @@ Deliberate differences, all measured against the Python originals:
 | Release packaging | `.github/scripts/package_release.py`, `publish_release.py` + guards | Deleted: `xtask release package` assembles the assets and `xtask release publish` runs the draft→verify→publish flow; the CI workflow calls them and the packager link now points at `release.rs` |
 
 
-| Launcher and package | `development-launcher.py`, `build-development-package.py`, `qualify-development-package.py`, `qualify-explicit-node.py` + guards | Deleted: `xtask launch`, `xtask release package`, `xtask qualify development-package` and `xtask qualify explicit-node` replace them; the archive ships `launch` |
+| Launcher and package | `development-launcher.py`, `build-development-package.py`, `qualify-development-package.py`, `qualify-explicit-node.py` + guards | Deleted: `xtask launch`, `xtask package`, `xtask release package`, `xtask qualify development-package` and `xtask qualify explicit-node` replace them; `dsh-launch` is built from `launcher::main` and the archive ships it as `launch` |
 
 | Composed registry | `scripts/qualify-composed-registry.py` + guard | Deleted: `xtask qualify composed-registry` (stage contract, PNG writer profile, owned run). The guard's validator and PNG cases are Rust tests; its three orchestration cases exercise the shared pin/probe/cleanup path and have no dedicated unit test |
 

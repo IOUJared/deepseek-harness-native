@@ -13,7 +13,7 @@ Extract into a new owned directory; retain root launcher/manifest/executable lay
 
 | Requirement | Limit |
 | --- | --- |
-| Python | 3.11+ |
+| Python | Not required by the Rust launcher; `3.11+` only for the remaining qualification scripts |
 | Node | Major 26; Arch x86_64 startup observations: 26.10.0 earlier, 26.11.1 in the current artifact checks |
 | glibc | 2.44 required by inspected ELF; older refused, other systems unqualified |
 | Display/dependencies | Native Wayland; system fonts/GPU/Vulkan/EGL/libraries/tools; no XWayland fallback |
@@ -40,7 +40,16 @@ Extract into a new owned directory; retain root launcher/manifest/executable lay
 - The patched winit source retains its Cargo manifest, Apache-2.0 LICENSE, change notices and parent provenance files. Its bundled keyboard SVGs also retain **CC-BY-SA-4.0 attribution**; the crate license is not an all-assets license certificate.
 - Excludes npm runtime, browser/Python/Office/model sidecars, credentials/profiles/history, ordinary evidence/Cargo cache/targets. The dedicated App vendor tree is recursively selected: keep it free of private data and build leftovers. Filename/ownership/bounds checks are not complete secret detection.
 - Rust license inventory covers **registry** metadata's lockfile/target superset; `source=None` path dependencies are excluded, with their notices retained in bundled native sources. Not exact linked closure/legal certification. External runtime/Office licensing remains separate.
-- To package an approved frozen build, supply **both** `--source-root ABS_NATIVE_SNAPSHOT` and `--native-binary ABS_VERIFIED_BINARY` to the builder, alongside `--output` and `--rust-metadata`. Sources come from that snapshot's app/Core/transport; launcher, notices and instructions come from the packaging checkout. Selection/copy hashes must stay unchanged. This is not a reproducible-build or authenticity certificate.
+- The builder is `xtask package`; it copies the compiled `dsh-launch` binary as the archive's `./launch`, so the extracted package needs no Python. From a warmed cache:
+
+  ```sh
+  cargo build --locked --release --manifest-path app/Cargo.toml --bin dsh-native-app
+  cargo build --locked --release --manifest-path tools/xtask/Cargo.toml --bin dsh-launch
+  cargo metadata --locked --offline --format-version 1 --manifest-path app/Cargo.toml > /tmp/native-metadata.json
+  cargo run --quiet --manifest-path tools/xtask/Cargo.toml --locked -- package     --output app/evidence/development-package-NEW     --rust-metadata /tmp/native-metadata.json     --launcher tools/xtask/target/release/dsh-launch
+  ```
+
+- To package an approved frozen build, add **both** `--source-root ABS_NATIVE_SNAPSHOT` and `--native-binary ABS_VERIFIED_BINARY`. Sources come from that snapshot's app/Core/transport; launcher, notices and instructions come from the packaging checkout. Selection/copy hashes must stay unchanged. This is not a reproducible-build or authenticity certificate.
 
 ## Relocated keyless qualification
 

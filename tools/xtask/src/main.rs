@@ -8,6 +8,7 @@ commands:
   verify        Serial headless checks: doctor, clippy, lint, examples, test, all
   format-debt   First-party Rust formatting-debt ratchet
   archive       Verify and extract an own development archive
+  package       Build the external-runtime development archive
   bench         Prototype benchmark measurement (run, analyze)
   idle          Sample owned idle resources over a longer window
   history       Measure or compare the controlled-frame history workload
@@ -21,6 +22,7 @@ fn main() -> ExitCode {
         Some("verify") => dsh_xtask::verify::run(&arguments[1..]),
         Some("format-debt") => dsh_xtask::fmtdebt::run(&arguments[1..]),
         Some("archive") => dsh_xtask::archive::run(&arguments[1..]),
+        Some("package") => dsh_xtask::launcher::package_run(&arguments[1..], None),
         Some("bench") => dsh_xtask::bench::run(&arguments[1..]),
         Some("idle") => dsh_xtask::idle::run(&arguments[1..]),
         Some("history") => dsh_xtask::history::run(&arguments[1..]),
