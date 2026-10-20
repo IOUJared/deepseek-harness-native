@@ -17343,3 +17343,23 @@ same title row, same two boundary lines, same SHELL/TERMINALS/OUTPUT sections.
 | app, fixture | **0** | **1581 passed**, 1 ignored |
 | app, default | **0** | **1525 passed**, 1 ignored |
 | app bin | — | **21** warnings (22 with the summary line) |
+
+### Round 631 — `terminal_output`, the second builder
+
+**The change.** The scrollable box that draws the screen's lines and its cursor is now `terminal_output()`,
+and `terminal_view` calls it the way it calls `terminal_header()`. The block moved verbatim — the extraction
+is an index splice, not a rewrite — with a local `column![]` that it returns, so its layout is untouched.
+
+**Frame.** `shots/355-output-split.png` — identical to round 354: same OUTPUT label, same box, same cursor
+block on the line after the last output row.
+
+**One warning, caught and fixed.** The extracted builder needs `DISPLAY_BYTES` in its own scope, and the
+import it replaced in `terminal_view` then became unused (22 → 23 warnings). Both are 21 real again.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1581 passed**, 1 ignored |
+| app, default | **0** | **1525 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |

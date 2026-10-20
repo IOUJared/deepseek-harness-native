@@ -19494,8 +19494,95 @@ impl App {
         .into()
     }
 
+    /// The panel's output: the scrollable box that draws the screen's lines and its cursor. Second
+    /// of the three builders the round-572 split names.
+    fn terminal_output(&self) -> Element<'_, Message> {
+        use crate::terminal::DISPLAY_BYTES;
+        let mut body = column![];
+        // One rich-text line per screen row: a shell's colours are part of what it printed.
+        let paint = self.terminal.output().display_paint(DISPLAY_BYTES);
+        let cursor = paint.cursor;
+        let rows = paint.rows;
+        let mut lines = column![].spacing(0);
+        if rows.is_empty() {
+            lines = lines.push(label("(no output yet)".to_owned(), TEXT).size(11));
+        }
+        for (row, runs) in rows.into_iter().enumerate() {
+            // The screen knows where the cursor is; a block there is what makes the panel read
+            // as a terminal rather than a log. A runless row still gets one: a prompt sits on it.
+            let at = cursor
+                .filter(|(cursor_row, _)| *cursor_row == row)
+                .map(|(_, column)| column);
+            let mut column = 0usize;
+            let mut placed = false;
+            let mut cut: Vec<(String, Option<u8>, bool, Option<u8>)> = Vec::new();
+            for (text, ink, underline, background) in runs {
+                let length = text.chars().count();
+                match at {
+                    Some(at) if column < at && at < column + length => {
+                        let offset = text
+                            .char_indices()
+                            .nth(at - column)
+                            .map(|(index, _)| index)
+                            .unwrap_or(text.len());
+                        cut.push((text[..offset].to_owned(), ink, underline, background));
+                        cut.push(("\u{2588}".to_owned(), Some(15), false, Some(0)));
+                        cut.push((text[offset..].to_owned(), ink, underline, background));
+                        placed = true;
+                    }
+                    Some(at) if at == column + length => {
+                        cut.push((text, ink, underline, background));
+                        cut.push(("\u{2588}".to_owned(), Some(15), false, Some(0)));
+                        placed = true;
+                    }
+                    _ => cut.push((text, ink, underline, background)),
+                }
+                column += length;
+            }
+            if !placed && at.is_some_and(|at| at >= column) {
+                cut.push(("\u{2588}".to_owned(), Some(15), false, Some(0)));
+            }
+            let spans: Vec<iced::widget::text::Span<'_, (), iced::Font>> = cut
+                .into_iter()
+                .map(|(text, ink, underline, background)| {
+                    let span = match ink {
+                        Some(index) => span::<(), iced::Font>(text).color(design::ansi_ink(index)),
+                        None => span::<(), iced::Font>(text).color(TEXT),
+                    };
+                    let span = span.underline(underline);
+                    match background {
+                        Some(index) => span.background(design::ansi_ink(index)),
+                        None => span,
+                    }
+                })
+                .collect();
+            lines = lines.push(rich_text(spans).size(11));
+        }
+        body = body.push(
+            container(
+                scrollable(container(lines).width(Length::Fill))
+                    .direction(design::scrollbar())
+                    .style(design::scrollable_style),
+            )
+            // A fixed 240px box. `Length::Fill` was tried in round 567 and collapsed to the
+            // content: the panel's body is a shrink column inside a scrollable, so a Fill child
+            // has no height to take. Filling the pane needs the body restructured, not a
+            // different length here.
+            // The reference's terminal fills its pane. The panel's body is one scrollable column,
+            // so a Fill child collapses (rounds 567-570); a share of the window with a floor and a
+            // ceiling is the honest approximation until the three-region rewrite lands.
+            .height(Length::Fixed(Self::terminal_output_height(
+                self.window_size.height,
+            )))
+            .width(Length::Fill)
+            .padding(8)
+            .style(|_| design::card(OVERLAY, design::RADIUS_MD)),
+        );
+        body.into()
+    }
+
     fn terminal_view(&self) -> Element<'_, Message> {
-        use crate::terminal::{Action, CloseReview, DISPLAY_BYTES, Notice, Review};
+        use crate::terminal::{Action, CloseReview, Notice, Review};
         let ticket = self.terminal.ticket().expect("visible terminal panel");
         let context = self.terminal_context();
         let current = context.view.as_ref().is_some_and(|view| {
@@ -19891,87 +19978,7 @@ impl App {
                     .size(10),
                 );
             }
-            // One rich-text line per screen row: a shell's colours are part of what it printed.
-            let paint = self.terminal.output().display_paint(DISPLAY_BYTES);
-            let cursor = paint.cursor;
-            let rows = paint.rows;
-            let mut lines = column![].spacing(0);
-            if rows.is_empty() {
-                lines = lines.push(label("(no output yet)".to_owned(), TEXT).size(11));
-            }
-            for (row, runs) in rows.into_iter().enumerate() {
-                // The screen knows where the cursor is; a block there is what makes the panel read
-                // as a terminal rather than a log. A runless row still gets one: a prompt sits on it.
-                let at = cursor
-                    .filter(|(cursor_row, _)| *cursor_row == row)
-                    .map(|(_, column)| column);
-                let mut column = 0usize;
-                let mut placed = false;
-                let mut cut: Vec<(String, Option<u8>, bool, Option<u8>)> = Vec::new();
-                for (text, ink, underline, background) in runs {
-                    let length = text.chars().count();
-                    match at {
-                        Some(at) if column < at && at < column + length => {
-                            let offset = text
-                                .char_indices()
-                                .nth(at - column)
-                                .map(|(index, _)| index)
-                                .unwrap_or(text.len());
-                            cut.push((text[..offset].to_owned(), ink, underline, background));
-                            cut.push(("\u{2588}".to_owned(), Some(15), false, Some(0)));
-                            cut.push((text[offset..].to_owned(), ink, underline, background));
-                            placed = true;
-                        }
-                        Some(at) if at == column + length => {
-                            cut.push((text, ink, underline, background));
-                            cut.push(("\u{2588}".to_owned(), Some(15), false, Some(0)));
-                            placed = true;
-                        }
-                        _ => cut.push((text, ink, underline, background)),
-                    }
-                    column += length;
-                }
-                if !placed && at.is_some_and(|at| at >= column) {
-                    cut.push(("\u{2588}".to_owned(), Some(15), false, Some(0)));
-                }
-                let spans: Vec<iced::widget::text::Span<'_, (), iced::Font>> = cut
-                    .into_iter()
-                    .map(|(text, ink, underline, background)| {
-                        let span = match ink {
-                            Some(index) => {
-                                span::<(), iced::Font>(text).color(design::ansi_ink(index))
-                            }
-                            None => span::<(), iced::Font>(text).color(TEXT),
-                        };
-                        let span = span.underline(underline);
-                        match background {
-                            Some(index) => span.background(design::ansi_ink(index)),
-                            None => span,
-                        }
-                    })
-                    .collect();
-                lines = lines.push(rich_text(spans).size(11));
-            }
-            body = body.push(
-                container(
-                    scrollable(container(lines).width(Length::Fill))
-                        .direction(design::scrollbar())
-                        .style(design::scrollable_style),
-                )
-                // A fixed 240px box. `Length::Fill` was tried in round 567 and collapsed to the
-                // content: the panel's body is a shrink column inside a scrollable, so a Fill child
-                // has no height to take. Filling the pane needs the body restructured, not a
-                // different length here.
-                // The reference's terminal fills its pane. The panel's body is one scrollable column,
-                // so a Fill child collapses (rounds 567-570); a share of the window with a floor and a
-                // ceiling is the honest approximation until the three-region rewrite lands.
-                .height(Length::Fixed(Self::terminal_output_height(
-                    self.window_size.height,
-                )))
-                .width(Length::Fill)
-                .padding(8)
-                .style(|_| design::card(OVERLAY, design::RADIUS_MD)),
-            );
+            body = body.push(self.terminal_output());
             let write_enabled = enabled
                 && self.terminal.environment().is_some()
                 // A follow that ended leaves no attachment; offering Write there would refuse for
