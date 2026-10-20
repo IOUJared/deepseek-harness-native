@@ -16876,3 +16876,24 @@ bounded by the screen width.
 | app, fixture | **0** | **1571 passed**, 1 ignored |
 | app, default | **0** | **1515 passed**, 1 ignored |
 | app bin | — | **21** warnings (22 with the summary line) |
+
+### Round 594 — an unbounded grid grows and shrinks instead of losing a row
+
+**The bug.** `insert_lines` inserted at the cursor and then removed the row *below the region's bottom*, so
+before the Host states a height (the grid is unbounded then) an insert silently **dropped the last line**:
+`one/two/three`, `CSI 2;1H`, `CSI L`, `X` rendered `one / X / two` — `three` was gone. `delete_lines` had
+the mirror assumption, refilling the bottom of a grid that has no fixed bottom.
+
+**The fix.** Both operations keep the grid's height only when `rows > 0`; an unbounded grid grows on insert
+and shrinks on delete.
+
+**Test.** `inserting_a_line_before_a_size_arrives_keeps_every_row` — the case above now renders
+`one / X / two / three`. It failed first with `"one\nX\ntwo"`, which is the bug stated exactly.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1571 passed**, 1 ignored |
+| app, default | **0** | **1515 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |

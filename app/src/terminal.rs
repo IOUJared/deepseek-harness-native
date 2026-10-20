@@ -693,7 +693,11 @@ impl Screen {
         for _ in 0..count {
             if row <= bottom {
                 self.grid.insert(row, Vec::new());
-                self.grid.remove(bottom + 1);
+                // The grid keeps its height only once the Host states one; before that it grows, so
+                // an insert must not drop the last row.
+                if self.rows > 0 {
+                    self.grid.remove(bottom + 1);
+                }
             }
         }
         self.column = 0;
@@ -706,7 +710,10 @@ impl Screen {
         for _ in 0..count {
             if row <= bottom {
                 self.grid.remove(row);
-                self.grid.insert(bottom, Vec::new());
+                // A bounded grid refills from the bottom; an unbounded one simply shrinks.
+                if self.rows > 0 {
+                    self.grid.insert(bottom, Vec::new());
+                }
             }
         }
         self.column = 0;
@@ -3332,6 +3339,15 @@ mod tests {
         output.set_size(0, 3);
         output.push("a\nb\u{1b}[1;2r\u{1b}[r\u{1b}[3;1Hc");
         assert_eq!(output.display(DISPLAY_BYTES), "a\nb\nc");
+    }
+
+    #[test]
+    fn inserting_a_line_before_a_size_arrives_keeps_every_row() {
+        // The grid is unbounded until the Host states its height, so an insert must not truncate it to
+        // one row: `truncate(rows.max(1))` did exactly that before this test.
+        let mut output = Output::default();
+        output.push("one\ntwo\nthree\u{1b}[2;1H\u{1b}[LX");
+        assert_eq!(output.display(DISPLAY_BYTES), "one\nX\ntwo\nthree");
     }
 
     #[test]
