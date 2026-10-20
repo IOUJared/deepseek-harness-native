@@ -5420,8 +5420,11 @@ approximated:
 - **Per-turn usage pill** (`TurnUsagePanel.tsx`) — turn tokens/cache with a click-open dialog;
   native's whole-log line is not the per-turn reading.
 
-**Not claimed:** live Host arrival of the `tokenUsage`/`inbox` projections used by the recent
-rounds; they are seeded in the fixtures. This is recorded with each item, not promoted to parity.
+**~~Not claimed~~ — settled in round 542.** Live Host arrival of the `tokenUsage` and `inbox`
+projections (and ten more keys native's chat reads) is now observed against the composed alpha Host by
+`scripts/qualify-client-projections.py`: the registry snapshot publishes all twelve, and a blank
+session carries them with real shapes. The fixtures still seed them; the wire contract behind them is
+no longer an assumption.
 
 ### Round 278 — the per-turn usage label
 
@@ -15488,4 +15491,47 @@ the user's running Host and a schedule changed from another client. Until then t
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-s60ntx_p`) |
 | transport / core / JS | — | unchanged this round (last 60+17+91+7, 115, 419/0) |
 | DP-2 capture | — | none: a behaviour round |
+| app bin | — | **21** warnings |
+
+### Round 542 — every projection native's chat reads is checked against the composed Host
+
+**The gap, as recorded.** Round 278 carried this as a standing "Not claimed": live Host arrival of the
+`tokenUsage`/`inbox` projections was unverified because the fixture seeded them. Round 522's
+`turnOutline` qualifier had in fact already published both keys in its snapshot (19 client-visible
+units) — nobody had connected that evidence to this claim, which is its own failure class: a verified
+fact recorded as unverified hides the work that remains.
+
+**What this round adds.** `scripts/qualify-client-projections.mjs` boots the pinned alpha runtime
+through the app's own fork supervisor (isolated home, base+web profile), creates one blank session and
+reads `ctx.sessionProjections.snapshot(session)` — the same registry read every follow frame and
+control baseline is built from (`packages/api/session-controller/src/control.ts:62-82`) — then checks
+the twelve keys native's chat consumes against a named table: `turnOutline` (rail marks and previews),
+`tokenUsage` (usage pill and statistics dialog), `inbox` (queued-message classification),
+`contextPressure`, `contextBreakdown`, `modelSelection`, `plan`, `todos`, `subagent`, `userQuestions`,
+`title`, `sessionStats`. `scripts/qualify-client-projections.py` runs it through the existing
+pidfd-owned runner and validates the report.
+
+**Result — passed.** `app/evidence/client-projections-20261019-195516/result.json`: status `passed`,
+exit 0, source unchanged, cleanup complete. Facts: `registryPresent`, `allNamedKeysPublished`,
+`blankSessionShapes` all true, `missing` empty, **19** client-visible units published, and the blank
+session's shapes are real (`turnOutline` an empty list, `tokenUsage` an object or null rather than
+absent).
+
+**Scope, stated exactly.** This is a Host-side composition and snapshot check, not a native transport or
+GUI run: it proves the keys are published for a session, not that the mux delivered them to Rust in a
+live session (the transport's projection retention is unit-tested). No model, catalog or credential path
+is started — `modelPromptsRequested` and `catalogRequested` are false. No frame: nothing visual changed.
+
+**Battery (round 542).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1547 passed**, 1 ignored |
+| app, default | **0** | **1491 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed (`verification-ld13gogq`, unchanged sources) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-s60ntx_p`, unchanged sources) |
+| Host qualifier | **0** | `app/evidence/client-projections-20261019-195516/result.json`, `status: passed` |
+| transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
+| DP-2 capture | — | none: a verification round |
 | app bin | — | **21** warnings |
