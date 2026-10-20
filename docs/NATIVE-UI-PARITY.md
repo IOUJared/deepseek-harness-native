@@ -16782,3 +16782,25 @@ committed; the single case became this regression test, and the other nine shape
 | app, default | **0** | **1514 passed**, 1 ignored |
 | app bin | — | **21** warnings (22 with the summary line) |
 | `xtask verify --suite all` | **—** | not re-run this round; the last full battery was 18/19 with `wayland-drops` hardware-only |
+
+### Round 590 — the tab fix through the real battery, and one migration gap it exposed
+
+**The battery, re-run after the fix** (`verification-2f80397c4220`): **16 of 18 checks passed**, and the two
+failures are both outside the app code.
+
+| check | result |
+| --- | --- |
+| format-debt, core/transport/app/xtask clippy, core, core-transport, transport, app, app-public, layout_smoke, scroll_app_smoke, xtask-guards, bridge, script-guards, benchmark-guards, app-guards | passed |
+| binary-freshness | passed **after** rebuilding both artifacts it compares — `app/target/release/dsh-native-app` **and** `app/target/release/examples/layout_smoke`; the first run failed because only the bin was rebuilt |
+| **wayland-drops** | failed — the private-seat harness needs a real seat (hardware-only, as recorded) |
+| **release-guards** | failed — **`.github/scripts` no longer exists**, but `tools/xtask/src/verify.rs:334` still runs `python3 -m unittest discover -s .github/scripts -p 'test_*.py'` |
+
+**The migration gap, for the port's owner.** The release family's Python guards were deleted with the
+directory, and the discovery entry that runs them was left behind, so the battery now fails on a missing
+directory rather than on a guard. The fix belongs to the port: either port those guards to `cargo test`
+and drop the `release-guards` entry (the same move `app-guards` already made), or restore the directory.
+I have not edited `tools/xtask` — it is your in-flight work and the choice is a design one.
+
+**What the fix itself proved:** the tab clamp is green in fixture (**1570**) and default (**1514**), and
+`binary-freshness` passing after rebuilding both artifacts is the guard doing its job — a stale example
+binary is not "fresh".
