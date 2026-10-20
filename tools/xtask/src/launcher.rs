@@ -333,6 +333,62 @@ pub fn probe_node(env: &BTreeMap<String, String>, node: Option<&Path>) -> Result
     parse_node_version(&output.stdout)
 }
 
+/// Whether a native data directory is new or an owned one we may reuse.
+#[derive(Debug, PartialEq, Eq)]
+pub enum State {
+    New,
+    Owned,
+}
+
+fn owned_directory(path: &Path) -> Result<bool, String> {
+    use std::os::unix::fs::MetadataExt;
+    let info =
+        std::fs::symlink_metadata(path).map_err(|_| "Native data parent must already exist")?;
+    Ok(info.is_dir() && info.uid() == unsafe { libc::geteuid() } && info.mode() & 0o777 == 0o700)
+}
+
+/// Refuse any directory or marker this launcher did not create.
+pub fn inspect_state(data: &Path, marker: &serde_json::Value) -> Result<State, String> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let info = match std::fs::symlink_metadata(data) {
+        Ok(info) => info,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let parent = data
+                .parent()
+                .ok_or("Native data parent must already exist")?;
+            if !parent.is_dir() {
+                return Err("Native data parent must already exist".into());
+            }
+            return Ok(State::New);
+        }
+        Err(_) => return Err("Existing native data directory is not private and owned".into()),
+    };
+    if !info.is_dir()
+        || info.uid() != unsafe { libc::geteuid() }
+        || info.permissions().mode() & 0o777 != 0o700
+    {
+        return Err("Existing native data directory is not private and owned".into());
+    }
+    let marker_path = data.join(".native-development.json");
+    let marker_info = std::fs::symlink_metadata(&marker_path)
+        .map_err(|_| "Refusing to adopt or migrate an unknown native data directory")?;
+    let recorded = private_read(&marker_path, 1024)
+        .ok()
+        .and_then(|body| serde_json::from_slice::<serde_json::Value>(&body).ok());
+    if !marker_info.is_file()
+        || marker_info.uid() != unsafe { libc::geteuid() }
+        || marker_info.permissions().mode() & 0o777 != 0o600
+        || recorded.as_ref() != Some(marker)
+    {
+        return Err("Refusing to adopt or migrate an unknown native data directory".into());
+    }
+    let host = data.join("host");
+    if std::fs::symlink_metadata(&host).is_ok() && !owned_directory(&host)? {
+        return Err("Native Host directory is not private and owned".into());
+    }
+    Ok(State::Owned)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -508,5 +564,55 @@ mod package_tests {
         fs::rename(&manifest, &elsewhere).unwrap();
         std::os::unix::fs::symlink(&elsewhere, &manifest).unwrap();
         assert!(private_read(&manifest, 65536).is_err());
+    }
+}
+
+#[cfg(test)]
+mod state_tests {
+    use super::*;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn marker() -> serde_json::Value {
+        serde_json::json!({"application": APP, "layout": 1, "runtimeVersion": VERSION, "nativeSha256": "a".repeat(64)})
+    }
+
+    fn data_dir() -> PathBuf {
+        let base = crate::tempdir::make_temp_dir(&std::env::temp_dir(), "launcher-state-").unwrap();
+        let data = base.join("native-container");
+        fs::create_dir(&data).unwrap();
+        fs::set_permissions(&data, fs::Permissions::from_mode(0o700)).unwrap();
+        let marker_path = data.join(".native-development.json");
+        fs::write(&marker_path, serde_json::to_vec(&marker()).unwrap()).unwrap();
+        fs::set_permissions(&marker_path, fs::Permissions::from_mode(0o600)).unwrap();
+        data
+    }
+
+    #[test]
+    fn a_new_directory_is_created_and_an_owned_one_is_reused() {
+        let base = crate::tempdir::make_temp_dir(&std::env::temp_dir(), "launcher-new-").unwrap();
+        assert_eq!(
+            inspect_state(&base.join("native-container"), &marker()).unwrap(),
+            State::New
+        );
+        let data = data_dir();
+        assert_eq!(inspect_state(&data, &marker()).unwrap(), State::Owned);
+        // A host directory must keep the same ownership rules.
+        fs::create_dir(data.join("host")).unwrap();
+        fs::set_permissions(data.join("host"), fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(inspect_state(&data, &marker()).is_err());
+        // A public data directory, a wrong marker and an unknown marker are refused.
+        let data = data_dir();
+        fs::set_permissions(&data, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(inspect_state(&data, &marker()).is_err());
+        let data = data_dir();
+        fs::write(
+            data.join(".native-development.json"),
+            b"{\"application\":\"other\"}",
+        )
+        .unwrap();
+        assert!(inspect_state(&data, &marker()).is_err());
+        // A missing parent is refused rather than creating a tree.
+        assert!(inspect_state(&data.join("gone/child"), &marker()).is_err());
     }
 }
