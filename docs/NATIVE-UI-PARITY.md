@@ -17154,3 +17154,21 @@ failures are the known non-app ones.
 save/restore in both spellings, scrollback erase, bold cancellation) did not disturb clippy, the format
 ratchet, either app suite, the transport, core, or the examples — and `binary-freshness` passes because both
 artifacts were rebuilt before the run rather than after.
+
+### Round 613 — the hostile-input guard now covers the sequences the screen gained
+
+**Why.** Rounds 605–610 added six sequence families (`CSI N X`, `CSI N S`/`T`, `ESC 7`/`8`, `CSI ? 1048 h`/`l`,
+`CSI 3 J`, `SGR 22`). The thirteen-case harness predates all of them, so their count and addressing shapes
+were not under the bounded-join guarantee that caught the original hang.
+
+**The change.** Two cases added — `CSI 999999999 X`/`S`/`T` with absurd counts, and the save/restore,
+scrollback-erase and bold-cancel family combined — for **fifteen** cases, each still running in its own
+thread with a two-second join.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1580 passed**, 1 ignored |
+| app, default | **0** | **1524 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |

@@ -3417,7 +3417,7 @@ mod tests {
         // The screen is fed bytes from the Host, so every sequence is untrusted. Each case runs in its
         // own thread with a bounded join: a non-terminating input fails this test instead of hanging
         // the suite — which is exactly how round 588's tab loop was found.
-        let cases: [&str; 13] = [
+        let cases: [&str; 15] = [
             "\u{1b}[",
             "\u{1b}",
             "\u{1b}[?",
@@ -3429,6 +3429,10 @@ mod tests {
             "\u{1b}[38;5;200mcolour\u{1b}[0m",
             "\r\u{8}\t\u{7f}ok",
             "\u{1b}[1;999999999HX\u{1b}[999999999GX\u{1b}[999999999CX",
+            // The erase/scroll/save family added in rounds 605-610, with absurd counts where a count
+            // is parsed.
+            "\u{1b}[999999999X\u{1b}[999999999S\u{1b}[999999999T",
+            "\u{1b}7\u{1b}8\u{1b}[?1048h\u{1b}[?1048l\u{1b}[3J\u{1b}[22m",
             "\u{1b}[999999999L\u{1b}[999999999M",
             "\u{1b}[999999999P\u{1b}[999999999@",
         ];
