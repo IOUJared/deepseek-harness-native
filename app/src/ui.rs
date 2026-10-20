@@ -19882,13 +19882,49 @@ impl App {
                 );
             }
             // One rich-text line per screen row: a shell's colours are part of what it printed.
-            let rows = self.terminal.output().display_styled(DISPLAY_BYTES);
+            let paint = self.terminal.output().display_paint(DISPLAY_BYTES);
+            let cursor = paint.cursor;
+            let rows = paint.rows;
             let mut lines = column![].spacing(0);
             if rows.is_empty() {
                 lines = lines.push(label("(no output yet)".to_owned(), TEXT).size(11));
             }
-            for runs in rows {
-                let spans: Vec<iced::widget::text::Span<'_, (), iced::Font>> = runs
+            for (row, runs) in rows.into_iter().enumerate() {
+                // The screen knows where the cursor is; a block there is what makes the panel read
+                // as a terminal rather than a log. A runless row still gets one: a prompt sits on it.
+                let at = cursor
+                    .filter(|(cursor_row, _)| *cursor_row == row)
+                    .map(|(_, column)| column);
+                let mut column = 0usize;
+                let mut placed = false;
+                let mut cut: Vec<(String, Option<u8>, bool, Option<u8>)> = Vec::new();
+                for (text, ink, underline, background) in runs {
+                    let length = text.chars().count();
+                    match at {
+                        Some(at) if column < at && at < column + length => {
+                            let offset = text
+                                .char_indices()
+                                .nth(at - column)
+                                .map(|(index, _)| index)
+                                .unwrap_or(text.len());
+                            cut.push((text[..offset].to_owned(), ink, underline, background));
+                            cut.push(("\u{2588}".to_owned(), Some(15), false, Some(0)));
+                            cut.push((text[offset..].to_owned(), ink, underline, background));
+                            placed = true;
+                        }
+                        Some(at) if at == column + length => {
+                            cut.push((text, ink, underline, background));
+                            cut.push(("\u{2588}".to_owned(), Some(15), false, Some(0)));
+                            placed = true;
+                        }
+                        _ => cut.push((text, ink, underline, background)),
+                    }
+                    column += length;
+                }
+                if !placed && at.is_some_and(|at| at >= column) {
+                    cut.push(("\u{2588}".to_owned(), Some(15), false, Some(0)));
+                }
+                let spans: Vec<iced::widget::text::Span<'_, (), iced::Font>> = cut
                     .into_iter()
                     .map(|(text, ink, underline, background)| {
                         let span = match ink {

@@ -17278,3 +17278,30 @@ function called from the terminal section of `body`, not for the span-builder pa
 there. Everything else in this feature is proved; only that seam is unknown.
 
 Both files reverted; `cargo check` **21** warnings (22 with the summary line), default suite **1524 passed**.
+
+### Round 626 — the cursor is painted, and the frame shows it
+
+**The seam, found.** `ui.rs` has exactly one `for runs in rows` builder (line 19890, inside `terminal_view`
+at 19463) — so my patches *did* land in the right place. The reason seven attempts painted nothing was the
+**dual call**: the panel took `rows` from `display_styled` (which trims the trailing blank row) and the index
+from `paint_cursor` (which keeps it), so the cursor's row index never existed in the list being drawn.
+
+**The change.** `display_paint(max_bytes) -> ScreenPaint { rows, cursor }` is now the **single source**: the
+rows include the cursor's own runless row, and the index is computed in the same pass. `display_styled`
+delegates and trims the trailing blanks for text, so all fourteen display tests keep their output. The
+render's blank-row pass stops at the cursor's row, and the retain pass keeps that row while adjusting the
+index for any blank row it drops above.
+
+**Test.** `the_paint_reports_where_the_cursor_sits_in_the_rows_it_draws` — `"ab"` → `cursor == Some((0, 2))`
+with one row; after a newline → `Some((1, 0))` with **two** rows, while `display_styled` still returns one.
+
+**Frame.** `shots/353-terminal-cursor.png` — the block is visible on the row after the last output line.
+Evidence archived under `app/evidence/terminal-cursor-20261020/`.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1581 passed**, 1 ignored |
+| app, default | **0** | **1524 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |

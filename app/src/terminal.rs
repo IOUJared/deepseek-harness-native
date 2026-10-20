@@ -1028,6 +1028,14 @@ impl Screen {
 }
 
 /// A bounded, sanitized plain-text view of Host terminal output.
+/// What one paint draws: the rows and the cursor's place among them, from one pass so the index cannot
+/// disagree with the list it points into.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ScreenPaint {
+    pub rows: Vec<Vec<(String, Option<u8>, bool, Option<u8>)>>,
+    pub cursor: Option<(usize, usize)>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Output {
     chunks: Vec<String>,
@@ -1090,10 +1098,24 @@ impl Output {
     }
     /// The screen as coloured runs, one per line: `(text, ANSI colour)` where `None` is the panel's
     /// own ink. This is what the panel draws; [`Self::display`] is the same text without colour.
+    #[allow(dead_code)] // the tests read the rows through this; the panel paints `display_paint`.
     pub fn display_styled(
         &self,
         max_bytes: usize,
     ) -> Vec<Vec<(String, Option<u8>, bool, Option<u8>)>> {
+        // Text display drops the trailing blank rows the paint keeps for the cursor's row.
+        let mut rows = self.display_paint(max_bytes).rows;
+        while rows
+            .last()
+            .is_some_and(|runs| runs.iter().all(|(text, ..)| text.trim().is_empty()))
+        {
+            rows.pop();
+        }
+        rows
+    }
+    /// The rows a paint draws, with the cursor's own (possibly runless) row kept, and where the cursor
+    /// sits among them. One source for both, so the painter cannot index into a different list.
+    pub fn display_paint(&self, max_bytes: usize) -> ScreenPaint {
         let mut lines: Vec<Vec<(String, Option<u8>, bool, Option<u8>)>> = Vec::new();
         for line in self.screen.history.iter().chain(self.screen.grid.iter()) {
             let mut runs: Vec<(String, Option<u8>, bool, Option<u8>)> = Vec::new();
@@ -1116,15 +1138,31 @@ impl Output {
             }
             lines.push(runs);
         }
-        // Collapse the cleared rows below the cursor the same way `display` does.
-        while lines
-            .last()
-            .is_some_and(|runs| runs.iter().all(|(text, ..)| text.trim().is_empty()))
+        // Collapse the cleared rows below the cursor, but never the cursor's own: a prompt sits on a
+        // runless line and the paint needs that row to exist.
+        let cursor_row = self.screen.history.len() + self.screen.row;
+        while lines.len() > cursor_row + 1
+            && lines
+                .last()
+                .is_some_and(|runs| runs.iter().all(|(text, ..)| text.trim().is_empty()))
         {
             lines.pop();
         }
         let single = lines.len() == 1;
-        lines.retain(|runs| !runs.is_empty() || single);
+        let mut adjusted_cursor = cursor_row;
+        let mut kept_rows: Vec<Vec<(String, Option<u8>, bool, Option<u8>)>> = Vec::new();
+        for (index, runs) in lines.into_iter().enumerate() {
+            if runs.is_empty() && index != cursor_row && !single {
+                if index < cursor_row {
+                    adjusted_cursor = adjusted_cursor.saturating_sub(1);
+                }
+                continue;
+            }
+            kept_rows.push(runs);
+        }
+        lines = kept_rows;
+        let cursor_row = adjusted_cursor;
+        let rows_before_trim = lines.len();
         let mut used = 0usize;
         let mut kept: Vec<Vec<(String, Option<u8>, bool, Option<u8>)>> = Vec::new();
         for runs in lines.into_iter().rev() {
@@ -1141,7 +1179,12 @@ impl Output {
         if kept.len() > RENDERED_ROWS {
             kept.drain(..kept.len() - RENDERED_ROWS);
         }
-        kept
+        let removed = rows_before_trim.saturating_sub(kept.len());
+        let cursor = cursor_row
+            .checked_sub(removed)
+            .filter(|row| *row < kept.len())
+            .map(|row| (row, self.screen.column));
+        ScreenPaint { rows: kept, cursor }
     }
     /// The screen as plain text, newest lines kept: the tests read this, the panel draws the
     /// styled runs from [`Self::display_styled`].
@@ -3229,6 +3272,22 @@ mod tests {
             !terminal.shells_failed(),
             "an answered read clears the flag"
         );
+    }
+
+    #[test]
+    fn the_paint_reports_where_the_cursor_sits_in_the_rows_it_draws() {
+        let mut output = Output::default();
+        output.push("ab");
+        let paint = output.display_paint(DISPLAY_BYTES);
+        assert_eq!(paint.cursor, Some((0, 2)));
+        assert_eq!(paint.rows.len(), 1);
+        // A prompt on a fresh line keeps its row, and the paint counts it.
+        output.push("\n");
+        let paint = output.display_paint(DISPLAY_BYTES);
+        assert_eq!(paint.cursor, Some((1, 0)));
+        assert_eq!(paint.rows.len(), 2);
+        // The text view still trims that trailing blank row.
+        assert_eq!(output.display_styled(DISPLAY_BYTES).len(), 1);
     }
 
     #[test]
