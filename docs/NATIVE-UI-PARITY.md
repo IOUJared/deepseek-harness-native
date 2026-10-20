@@ -17507,3 +17507,19 @@ than round 638 stated, and it needs no fixture work unless a writable-control pr
 
 **Rule restated, for the third time in this session:** read the **whole** capture before concluding an element
 is missing — a crop can invent a regression exactly as a green suite can hide one.
+
+### Round 640 — the footer's frame coverage is complete for every stable state
+
+**What the whole capture shows.** `shots/356-footer-split.png` (`terminal-panel`) renders the footer with the
+input field, the `Write` button and `Attached; the Host's first frame confirms input control. An older
+attachment becomes read-only.` — the attached state, Write correctly dimmed because the field is empty.
+`shots/357-panel-readonly.png` renders the same footer in the control-elsewhere state with `Take control`.
+
+**So the coverage is:** (a) attached with an empty input — framed; (b) control held elsewhere — framed. The
+only unframed variation is `Write` becoming pressable once the field holds text, which is a **transient input
+state**: the rules cover those by test, not by frame ("transient states are test-covered only and stated as
+such"), and the enabling condition lives in `terminal.rs` with its own tests.
+
+**Closing the round-638 debt.** There is no fixture work owed here. The earlier "no footer in any frame" claim
+was a crop, and the "enabled path unframed" caveat was the same kind of overstatement; both are corrected, and
+the footer split stands as framed in two states.
