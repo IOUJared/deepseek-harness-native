@@ -1048,6 +1048,7 @@ impl Fixture {
             let kind = match &command {
                 worker::Command::StageFile(_) => "StageFile",
                 worker::Command::DiscardFile(_) => "DiscardFile",
+                worker::Command::SessionFeedbackRecord { .. } => "SessionFeedbackRecord",
                 worker::Command::PromptFile { .. } => "PromptFile",
                 worker::Command::Account(_) => "Account",
                 worker::Command::Codex(_) => "Codex",

@@ -110,6 +110,12 @@ pub enum Command {
         note: Option<String>,
         category: Option<String>,
     },
+    /// Record one Session-level remark through `sessionFeedback/record`.
+    SessionFeedbackRecord {
+        session: dsh_native_transport::dto::SessionId,
+        text: Option<String>,
+        category: Option<String>,
+    },
     /// Remove one message's feedback.
     FeedbackDelete {
         session: dsh_native_transport::dto::SessionId,
@@ -308,6 +314,11 @@ pub enum Event {
         session: dsh_native_transport::dto::SessionId,
         message_id: String,
         result: Result<dsh_native_transport::dto::MessageFeedbackPutOutcome, String>,
+    },
+    /// The answer to a session-level remark: recorded, no live session, or a named refusal.
+    SessionFeedbackRecorded {
+        session: dsh_native_transport::dto::SessionId,
+        result: Result<dsh_native_transport::SessionFeedbackOutcome, String>,
     },
     FeedbackDeleted {
         session: dsh_native_transport::dto::SessionId,
@@ -1025,6 +1036,10 @@ fn rejected(command: Command) -> Event {
         } => Event::FeedbackWritten {
             session,
             message_id,
+            result: Err(error),
+        },
+        Command::SessionFeedbackRecord { session, .. } => Event::SessionFeedbackRecorded {
+            session,
             result: Err(error),
         },
         Command::FeedbackDelete {
@@ -2716,6 +2731,10 @@ async fn run(
                         result:client.message_feedback_put(&session,&message_id,&rating,if_version.as_deref(),note.as_deref(),category.as_deref()).await.map_err(|error|format!("Feedback: {error}")),
                         session,
                         message_id,
+                    },
+                    Command::SessionFeedbackRecord{session,text,category}=>Event::SessionFeedbackRecorded{
+                        result:client.session_feedback_record(&session,text.as_deref(),category.as_deref()).await.map_err(|error|format!("Session feedback: {error}")),
+                        session,
                     },
                     Command::FeedbackDelete{session,message_id,version}=>Event::FeedbackDeleted{
                         result:client.message_feedback_delete(&session,&message_id,&version).await.map_err(|error|format!("Feedback: {error}")),

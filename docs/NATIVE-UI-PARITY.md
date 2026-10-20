@@ -17806,3 +17806,37 @@ across two different `message_id` types is the same hazard as a stale anchor.
 
 **Step two, next round:** `Message::SessionFeedbackOpen`, the header entry point, the `SessionFeedbackRecord`
 command and its event — landed together so the dialog never exists without its caller.
+
+### Round 649 — step two: the session remark has an entry point and a reply
+
+**The change, in the order it was verified.** Worker leg first (`Command::SessionFeedbackRecord`,
+`Event::SessionFeedbackRecorded`, its failure arm and the transport call), compiled alone; then the UI:
+`Message::SessionFeedbackOpen` opening a session draft with no rating and no version, a `Feedback` ghost button
+in the header's utilities cluster beside `More ▾`, and the submit arm dispatching the record instead of
+parking the draft.
+
+**The reply is a proper union.** `Recorded` closes the dialog and says so in the status; `SessionMissing` keeps
+the draft with "This session is no longer live on the Host."; `Refused(code)` keeps it with
+`Feedback refused: code`; a transport error keeps it with the error. A reply for a **different** session is
+ignored rather than adopted — the draft belongs to the panel's current session (`dialog.ts:99-107`).
+
+**Test.** `a_session_remark_opens_the_same_dialog_and_records_without_a_rating` — opens, submits one
+`SessionFeedbackRecord` with the trimmed note and the chosen category, parks with `submitting`, keeps the draft
+on `SessionMissing` with its reason, and closes on `Recorded`.
+
+**Two things the build caught.** The update match yields `()`, so the open arm needs `return Task::none();`
+rather than a bare expression; and `examples/layout_smoke.rs` inspects every `Command` variant exhaustively, so
+it now names `SessionFeedbackRecord` — the example is a gate, not a decoration.
+
+**Frame.** `shots/358-session-feedback.png` — the header shows `Feedback` beside `More ▾`. The dialog itself is
+not framed: it opens on a press, so its surface is the per-message dialog already covered (rounds 640's
+two states), and this round says that rather than implying a new frame.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1590 passed**, 1 ignored |
+| app, default | **0** | **1534 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |
+| `layout_smoke` | — | builds with the new variant named |

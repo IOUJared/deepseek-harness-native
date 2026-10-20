@@ -381,6 +381,8 @@ pub enum Message {
     FeedbackNote(String),
     /// Submits the open feedback dialog.
     FeedbackSubmit,
+    /// Opens the shared feedback dialog for the whole session rather than one message.
+    SessionFeedbackOpen,
     /// Cancels the open feedback dialog.
     FeedbackCancel,
     /// Opens the one-shot date calendar.
@@ -4913,6 +4915,21 @@ impl App {
                 self.feedback_dialog = None;
                 self.feedback_note = None;
             }
+            Message::SessionFeedbackOpen => {
+                // Same surface as a message's feedback, session scope: no rating and no version, and a
+                // second press replaces the draft rather than stacking one (`FeedbackDialog.tsx:62-65`).
+                self.feedback_dialog = Some(FeedbackDraft {
+                    message_id: None,
+                    rating: String::new(),
+                    category: None,
+                    note: String::new(),
+                    submitting: false,
+                    error: None,
+                    capped: false,
+                });
+                self.feedback_note = Some(iced::widget::text_editor::Content::with_text(""));
+                return Task::none();
+            }
             Message::FeedbackSubmit => {
                 // The dialog is not consumed: a refusal or a transport failure must leave the typed note
                 // and category in place so the user can correct and resubmit (`dialog.ts:99-107`).
@@ -4939,10 +4956,10 @@ impl App {
                     ..draft.clone()
                 });
                 let Some(message_id) = draft.message_id.clone() else {
-                    // The session-level dispatch lands with its entry point in the next commit.
-                    self.feedback_dialog = Some(FeedbackDraft {
-                        submitting: false,
-                        ..draft
+                    self.command(worker::Command::SessionFeedbackRecord {
+                        session,
+                        text: (!note.is_empty()).then_some(note),
+                        category: draft.category,
                     });
                     return Task::none();
                 };
@@ -6740,6 +6757,41 @@ impl App {
                     self.status = error;
                 }
             },
+            Event::SessionFeedbackRecorded { session, result } => {
+                // A reply for a session the panel has since left is stale: the draft belongs to the
+                // current one (`dialog.ts:99-107` keeps a failed draft, never adopts another's).
+                if self.selected.as_ref() != Some(&session) {
+                    return Task::none();
+                }
+                match result {
+                    Ok(dsh_native_transport::SessionFeedbackOutcome::Recorded) => {
+                        self.feedback_dialog = None;
+                        self.feedback_note = None;
+                        self.status = "Session feedback recorded.".into();
+                    }
+                    Ok(dsh_native_transport::SessionFeedbackOutcome::SessionMissing) => {
+                        if let Some(draft) = &mut self.feedback_dialog {
+                            draft.submitting = false;
+                            draft.error =
+                                Some("This session is no longer live on the Host.".into());
+                        }
+                    }
+                    Ok(dsh_native_transport::SessionFeedbackOutcome::Refused(code)) => {
+                        if let Some(draft) = &mut self.feedback_dialog {
+                            draft.submitting = false;
+                            draft.error = Some(format!("Feedback refused: {code}"));
+                        }
+                    }
+                    Err(error) => {
+                        if let Some(draft) = &mut self.feedback_dialog {
+                            draft.submitting = false;
+                            draft.error = Some(error.clone());
+                        }
+                        self.status = error;
+                    }
+                }
+                return Task::none();
+            }
             Event::FeedbackWritten {
                 session,
                 message_id,
@@ -10918,6 +10970,14 @@ impl App {
         actions = actions.push(Space::new().width(Length::Fill));
         // The utilities cluster sits right of the free space, in its own order: the reminder chip at
         // -5, the overflow control at 0 (`ui-schedule/src/client/index.ts:213-215`).
+        if self.selected.is_some() {
+            actions = actions.push(
+                button(label("Feedback", MUTED).size(12))
+                    .on_press(Message::SessionFeedbackOpen)
+                    .style(design::ghost)
+                    .padding([7, 10]),
+            );
+        }
         if let Some(reminders) = self.reminders_action() {
             actions = actions.push(reminders);
         }
@@ -25185,6 +25245,55 @@ mod tests {
             draft.error
         );
     }
+    #[test]
+    fn a_session_remark_opens_the_same_dialog_and_records_without_a_rating() {
+        use dsh_native_transport::SessionFeedbackOutcome;
+        let (mut app, mut receiver) = managed_app();
+        let _ = app.update(Message::SessionFeedbackOpen);
+        let draft = app.feedback_dialog.as_ref().expect("the dialog opens");
+        assert_eq!(draft.message_id, None);
+        assert!(draft.rating.is_empty());
+        let _ = app.update(Message::FeedbackCategory(
+            "security-privacy-permission".into(),
+        ));
+        let _ = app.update(Message::FeedbackNote("PUBLIC session note".into()));
+        let _ = app.update(Message::FeedbackSubmit);
+        let mut records = 0;
+        while let Ok(command) = receiver.try_recv() {
+            if let Command::SessionFeedbackRecord { text, category, .. } = command {
+                assert_eq!(text.as_deref(), Some("PUBLIC session note"));
+                assert_eq!(category.as_deref(), Some("security-privacy-permission"));
+                records += 1;
+            }
+        }
+        assert_eq!(
+            records, 1,
+            "the session remark is one request, not a message write"
+        );
+        assert!(
+            app.feedback_dialog
+                .as_ref()
+                .is_some_and(|draft| draft.submitting)
+        );
+        // A recorded reply closes the dialog; a missing session keeps the draft with its reason.
+        let session = app.selected.clone().expect("a selected session");
+        let _ = app.update(Message::Worker(Event::SessionFeedbackRecorded {
+            session: session.clone(),
+            result: Ok(SessionFeedbackOutcome::SessionMissing),
+        }));
+        assert!(
+            app.feedback_dialog
+                .as_ref()
+                .and_then(|draft| draft.error.as_deref())
+                .is_some_and(|error| error.contains("no longer live"))
+        );
+        let _ = app.update(Message::Worker(Event::SessionFeedbackRecorded {
+            session,
+            result: Ok(SessionFeedbackOutcome::Recorded),
+        }));
+        assert!(app.feedback_dialog.is_none());
+    }
+
     #[test]
     fn feedback_puts_toggles_and_adopts_the_host_value() {
         use dsh_native_transport::dto::{MessageFeedbackItem, MessageFeedbackPutOutcome};
