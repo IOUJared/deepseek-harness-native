@@ -213,6 +213,7 @@ enum Endpoint {
     FeedbackList,
     FeedbackPut,
     FeedbackDelete,
+    SessionFeedbackRecord,
     PickDirectory,
     ListDirectory,
 }
@@ -245,6 +246,9 @@ impl Endpoint {
             Self::FeedbackList => "messageFeedback/list",
             Self::FeedbackPut => "messageFeedback/put",
             Self::FeedbackDelete => "messageFeedback/delete",
+            // The web UI's session-level remark: `sessionFeedback.record`
+            // (`packages/feedback/command-feedback/src/types.ts:45-69`).
+            Self::SessionFeedbackRecord => "sessionFeedback/record",
             Self::PickDirectory => "directoryPicker/pick",
             Self::ListDirectory => "directoryPicker/list",
             Self::Page => "session/page",
@@ -958,6 +962,36 @@ impl NativeClient {
             .invoke(Endpoint::FeedbackPut, json!({"request": request}))
             .await?;
         Ok(feedback_put_outcome(&value))
+    }
+    /// Record one Session-level remark, the contract the web UI's feedback dialog posts: `sessionId`
+    /// plus an optional trimmed `text` and an optional `category` from the Host's fixed taxonomy
+    /// (`packages/feedback/command-feedback/src/types.ts:45-53`). The remark becomes a `feedback/record`
+    /// session event; it never enters model context.
+    pub async fn session_feedback_record(
+        &self,
+        session_id: &SessionId,
+        text: Option<&str>,
+        category: Option<&str>,
+    ) -> Result<SessionFeedbackOutcome> {
+        let text = text.map(str::trim).filter(|text| !text.is_empty());
+        if text.is_some_and(|text| text.len() > 4096)
+            || category.is_some_and(|category| !SESSION_FEEDBACK_CATEGORIES.contains(&category))
+        {
+            return Err(Error::InvalidDto);
+        }
+        // Absent, not `null`: a blank remark still records that the human asked for a review.
+        let mut request = serde_json::Map::new();
+        request.insert("sessionId".into(), json!(session_id.as_str()));
+        if let Some(text) = text {
+            request.insert("text".into(), json!(text));
+        }
+        if let Some(category) = category {
+            request.insert("category".into(), json!(category));
+        }
+        let value: Value = self
+            .invoke(Endpoint::SessionFeedbackRecord, json!({"request": request}))
+            .await?;
+        Ok(session_feedback_outcome(&value))
     }
     /// Delete feedback for one message after a version check.
     pub async fn message_feedback_delete(
@@ -2561,6 +2595,49 @@ fn feedback_items(value: &Value) -> Option<Vec<MessageFeedbackItem>> {
     }
     Some(items)
 }
+/// The Host's fixed feedback taxonomy (`FeedbackCategory` in the web UI's types).
+pub const SESSION_FEEDBACK_CATEGORIES: [&str; 7] = [
+    "task-result",
+    "instruction-following",
+    "product-interaction",
+    "service-stability",
+    "resource-cost",
+    "security-privacy-permission",
+    "other",
+];
+
+/// What the Host said about a session-level remark.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SessionFeedbackOutcome {
+    /// Appended to the session log; delivery follows the session's own schedule.
+    Recorded,
+    /// No live session carries that id.
+    SessionMissing,
+    /// A refusal the panel shows verbatim rather than reinterpreting.
+    Refused(String),
+}
+
+fn session_feedback_outcome(value: &Value) -> SessionFeedbackOutcome {
+    match value.get("ok").and_then(Value::as_bool) {
+        Some(true) => match value.get("value").and_then(|value| value.get("recorded")) {
+            Some(Value::Bool(true)) => SessionFeedbackOutcome::Recorded,
+            _ => SessionFeedbackOutcome::Refused("invalid-reply".into()),
+        },
+        Some(false) => {
+            let code = value
+                .get("error")
+                .and_then(|error| error.get("code"))
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            match code {
+                "session-not-found" => SessionFeedbackOutcome::SessionMissing,
+                other => SessionFeedbackOutcome::Refused(other.to_owned()),
+            }
+        }
+        None => SessionFeedbackOutcome::Refused("invalid-reply".into()),
+    }
+}
+
 fn feedback_put_outcome(value: &Value) -> MessageFeedbackPutOutcome {
     match value.get("ok").and_then(Value::as_bool) {
         Some(true) => match value.get("value").and_then(feedback_item) {
@@ -2600,6 +2677,40 @@ mod feedback_tests {
             "messageId":"PUBLIC-message","rating":"positive","version":"v1",
             "createdAt":1,"updatedAt":2
         })
+    }
+
+    #[test]
+    fn a_session_remark_parses_the_recorded_and_missing_union() {
+        assert_eq!(
+            super::session_feedback_outcome(
+                &serde_json::json!({"ok":true,"value":{"recorded":true}})
+            ),
+            super::SessionFeedbackOutcome::Recorded
+        );
+        assert_eq!(
+            super::session_feedback_outcome(&serde_json::json!({
+                "ok":false,"error":{"code":"session-not-found","sessionId":"PUBLIC"}
+            })),
+            super::SessionFeedbackOutcome::SessionMissing
+        );
+        // An `ok: true` without the postcondition is a refusal, not a silent success.
+        assert_eq!(
+            super::session_feedback_outcome(&serde_json::json!({"ok":true,"value":{}})),
+            super::SessionFeedbackOutcome::Refused("invalid-reply".into())
+        );
+        assert_eq!(
+            super::session_feedback_outcome(
+                &serde_json::json!({"ok":false,"error":{"code":"forbidden"}})
+            ),
+            super::SessionFeedbackOutcome::Refused("forbidden".into())
+        );
+        assert_eq!(
+            super::session_feedback_outcome(&serde_json::json!({})),
+            super::SessionFeedbackOutcome::Refused("invalid-reply".into())
+        );
+        // The taxonomy is the Host's fixed seven; a made-up category is rejected at the boundary.
+        assert_eq!(super::SESSION_FEEDBACK_CATEGORIES.len(), 7);
+        assert!(super::SESSION_FEEDBACK_CATEGORIES.contains(&"security-privacy-permission"));
     }
 
     #[test]

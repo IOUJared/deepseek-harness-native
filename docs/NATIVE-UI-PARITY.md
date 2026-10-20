@@ -17711,3 +17711,24 @@ the seven categories as the chip row, and a test pinning `recorded: true` and th
 **Nothing guessed:** the path the native BFF uses is `/api/<remote>/<method>`, matching the transport's
 existing per-message feedback routes; the next round confirms it against the Host and lands the call with its
 tests.
+
+### Round 645 — the session-feedback call exists on the wire
+
+**The transport side is done.** `sessionFeedback/record` is now an `Endpoint` beside the per-message feedback
+routes, with `session_feedback_record(session_id, text, category)`:
+
+- `text` is trimmed and blank becomes **absent** — a submission with no remark still records that the human
+  asked for a review, which is what the reference's dialog does;
+- `category` must come from the Host's fixed seven (`SESSION_FEEDBACK_CATEGORIES`), anything else is
+  `Error::InvalidDto` at the boundary rather than a round-trip rejection;
+- the reply parses into `SessionFeedbackOutcome::{Recorded, SessionMissing, Refused(code)}`, so an `ok: true`
+  without `recorded: true` is a **refusal**, not a silent success.
+
+**Test.** `a_session_remark_parses_the_recorded_and_missing_union` — recorded, `session-not-found`, `ok: true`
+with no postcondition, an unknown error code, an empty object, and the taxonomy length.
+
+**Measured.** transport **7 passed**, app default **1533 passed** / 1 ignored, transport **0** warnings.
+
+**Still to do, next round:** the session-level dialog itself — the seven category chips and the note field
+reusing the per-message feedback surface, its submit calling this method, the recorded/session-not-found
+toasts, and a DP-2 frame of the dialog.
