@@ -17117,3 +17117,23 @@ renders nothing after `CSI 3 J` + `CSI 2 J`, while `CSI 2 J` alone leaves `old /
 | app, fixture | **0** | **1579 passed**, 1 ignored |
 | app, default | **0** | **1523 passed**, 1 ignored |
 | app bin | — | **21** warnings (22 with the summary line) |
+
+### Round 610 — the cursor-save private mode shares the escape path
+
+**The gap.** `CSI ? 1048 h`/`l` — the private-mode spelling of `ESC 7`/`ESC 8` that some programs prefer when
+they bracket a redraw — was consumed silently, so those programs came back to the wrong column even after
+round 607 taught the terminal to save one.
+
+**The change.** The mode form writes and reads the same `saved_cursor` slot as the escape form, so the two
+spellings cannot drift apart.
+
+**Test.** `the_cursor_mode_saves_and_restores_like_escape_seven` — `ab`, `?1048h`, `cd`, `?1048l`, `X`
+renders `abXd`, the same result as the escape spelling.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1580 passed**, 1 ignored |
+| app, default | **0** | **1524 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |

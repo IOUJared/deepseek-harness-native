@@ -841,6 +841,26 @@ impl Screen {
                                 let enter = final_byte == Some('h');
                                 self.alternate_screen(enter)
                             }
+                            // `CSI ? 1048 h`/`l` save and restore the cursor, the mode form of `ESC 7`/`ESC 8`.
+                            Some('h') if private && numbers.contains(&1048) => {
+                                self.saved_cursor = Some((
+                                    self.row,
+                                    self.column,
+                                    self.ink,
+                                    self.underline,
+                                    self.paper,
+                                ));
+                            }
+                            Some('l') if private && numbers.contains(&1048) => {
+                                if let Some((row, column, ink, underline, paper)) =
+                                    self.saved_cursor
+                                {
+                                    self.place(row, column);
+                                    self.ink = ink;
+                                    self.underline = underline;
+                                    self.paper = paper;
+                                }
+                            }
                             // `DECAWM`: autowrap on or off.
                             Some('h') if private && numbers.contains(&7) => self.wrap = true,
                             Some('l') if private && numbers.contains(&7) => self.wrap = false,
@@ -3286,6 +3306,16 @@ mod tests {
                 ("two".to_owned(), None, true, None),
             ]
         );
+    }
+
+    #[test]
+    fn the_cursor_mode_saves_and_restores_like_escape_seven() {
+        // `CSI ? 1048 h`/`l` is the private-mode spelling of `ESC 7`/`ESC 8`, used by programs that
+        // bracket a redraw with one pair of sequences.
+        let mut output = Output::default();
+        output.set_size(0, 3);
+        output.push("ab\u{1b}[?1048hcd\u{1b}[?1048lX");
+        assert_eq!(output.display(DISPLAY_BYTES), "abXd");
     }
 
     #[test]
