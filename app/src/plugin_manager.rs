@@ -56,6 +56,12 @@ pub enum Action {
     ConfirmInstall,
     /// Ask the Host to stop the installation in flight.
     CancelRunningInstall,
+    /// Arm the script-approval retry for the failed install's pending packages.
+    AskApprove,
+    /// Leave the armed approval without running anything.
+    CancelApprove,
+    /// Approve the pending package scripts and retry the same spec.
+    ConfirmApprove,
 }
 
 #[derive(Default)]
@@ -97,6 +103,9 @@ pub struct Manager {
     installing: bool,
     /// The request id this install was started with, kept until its result is known.
     install_request: Option<String>,
+    /// The failed install's pending package scripts, and the approval review armed for them.
+    pending_builds: Vec<String>,
+    approve_confirm: bool,
 }
 
 impl Manager {
@@ -303,6 +312,50 @@ impl Manager {
         self.installing = true;
         self.install_request = Some(request_id.to_owned());
     }
+    pub fn ask_approve(&mut self) {
+        if !self.installing && !self.pending_builds.is_empty() {
+            self.approve_confirm = true;
+            self.notice = None;
+        }
+    }
+    pub fn cancel_approve(&mut self) {
+        self.approve_confirm = false;
+    }
+    /// Take the armed approval into flight: the same spec with the pending names and a fresh id.
+    pub fn confirm_approve(&mut self) -> Option<(String, Option<String>, String, Vec<String>)> {
+        if self.installing || !self.approve_confirm || self.pending_builds.is_empty() {
+            return None;
+        }
+        let spec = self.spec.trim().to_owned();
+        if spec.is_empty() {
+            return None;
+        }
+        self.approve_confirm = false;
+        self.installing = true;
+        self.install_request = Some(next_install_request());
+        self.notice = None;
+        Some((
+            spec,
+            self.registry(),
+            self.install_request.clone()?,
+            self.pending_builds.clone(),
+        ))
+    }
+    #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
+    pub fn pending_builds(&self) -> &[String] {
+        &self.pending_builds
+    }
+    #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
+    pub fn approve_armed(&self) -> bool {
+        self.approve_confirm
+    }
+    /// Seed a failed install's pending scripts for a public fixture: no Host run exists behind it.
+    #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
+    pub fn seed_pending_builds(&mut self, pending: Vec<String>) {
+        self.pending_builds = pending;
+        self.installing = false;
+        self.install_request = None;
+    }
     /// The request id whose result is still unknown, for a recovery read.
     pub fn install_request(&self) -> Option<String> {
         self.install_request.clone()
@@ -390,6 +443,7 @@ impl Manager {
                         == dsh_native_transport::plugin::PluginApplication::RestartRequired =>
             {
                 self.install_request = None;
+                self.pending_builds.clear();
                 let installed = change.bundle.as_deref().unwrap_or(change.target.as_str());
                 let version = change
                     .version
@@ -413,6 +467,7 @@ impl Manager {
             }
             Ok(change) => {
                 self.install_request = None;
+                self.pending_builds = change.pending_builds.clone();
                 let mut notice = format!(
                     "The Host did not install the spec{}.",
                     change
@@ -866,13 +921,64 @@ impl Manager {
                             ]
                             .spacing(2),
                         );
-                    } else {
+                    } else if self.pending_builds.is_empty() {
+                        // After a failed attempt the pending scripts own the action: a plain
+                        // install would only fail the same way.
                         card = card.push(
                             button(label("Install…", TEXT).size(11))
                                 .padding([3, 8])
                                 .style(design::ghost)
                                 .on_press(Message::PluginManager(Action::AskInstall)),
                         );
+                    }
+                    if !self.pending_builds.is_empty() && !self.installing {
+                        card = card.push(
+                            label(
+                                format!(
+                                    "The Host has not run these package scripts: {}.",
+                                    short(&self.pending_builds.join(", "), 120)
+                                ),
+                                DANGER,
+                            )
+                            .size(10)
+                            .width(Length::Fill),
+                        );
+                        if self.approve_confirm {
+                            card = card.push(
+                                iced::widget::column![
+                                    label(
+                                        "Run these package scripts? They execute on the Host \
+                                         with the Host's authority.",
+                                        TEXT,
+                                    )
+                                    .size(10)
+                                    .width(Length::Fill),
+                                    iced::widget::row![
+                                        button(label("Cancel", MUTED).size(10))
+                                            .padding([2, 6])
+                                            .style(design::ghost)
+                                            .on_press(Message::PluginManager(
+                                                Action::CancelApprove
+                                            )),
+                                        button(label("Approve and retry", design::ACCENT).size(10))
+                                            .padding([2, 6])
+                                            .style(design::ghost)
+                                            .on_press(Message::PluginManager(
+                                                Action::ConfirmApprove
+                                            )),
+                                    ]
+                                    .spacing(6),
+                                ]
+                                .spacing(2),
+                            );
+                        } else {
+                            card = card.push(
+                                button(label("Approve scripts and retry…", MUTED).size(10))
+                                    .padding([2, 6])
+                                    .style(design::ghost)
+                                    .on_press(Message::PluginManager(Action::AskApprove)),
+                            );
+                        }
                     }
                     body = body.push(
                         container(card)

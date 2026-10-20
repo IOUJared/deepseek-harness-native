@@ -1451,6 +1451,7 @@ impl NativeClient {
         spec: &str,
         registry: Option<&str>,
         request_id: &str,
+        approved_builds: &[String],
     ) -> Result<crate::plugin::PluginChange> {
         let spec = spec.trim();
         if spec.is_empty()
@@ -1463,9 +1464,19 @@ impl NativeClient {
         if registry.is_some_and(|registry| registry.is_empty() || registry.len() > 2048) {
             return Err(Error::InvalidDto);
         }
+        if approved_builds.len() > 64
+            || approved_builds.iter().any(|name| {
+                name.is_empty() || name.len() > 256 || name.chars().any(char::is_control)
+            })
+        {
+            return Err(Error::InvalidDto);
+        }
         let mut options = serde_json::Map::new();
         options.insert("enabled".into(), json!(false));
         options.insert("requestId".into(), json!(request_id));
+        if !approved_builds.is_empty() {
+            options.insert("approvedBuilds".into(), json!(approved_builds));
+        }
         if let Some(registry) = registry {
             options.insert("registry".into(), json!(registry));
         }

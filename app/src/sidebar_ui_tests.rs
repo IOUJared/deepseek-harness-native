@@ -1601,6 +1601,7 @@ fn installing_the_inspected_spec_needs_confirm_and_reports_the_hosts_answer() {
         spec,
         registry,
         request_id,
+        approved_builds: _,
     } = queue.try_recv().expect("one install")
     else {
         panic!("only the install expected")
@@ -1760,4 +1761,94 @@ fn a_lost_install_reply_is_recovered_and_the_run_cancels() {
         Ok(Command::PluginManagerPlugins)
     ));
     assert!(app.plugin_manager.install_request().is_none());
+}
+
+#[test]
+fn approving_pending_scripts_retries_the_same_spec_with_a_fresh_request() {
+    use super::plugin_manager::Action as Manager;
+    use dsh_native_transport::plugin::{PluginApplication, PluginChange, PluginInspection};
+    let (mut app, mut queue) = app();
+    app.plugin_manager.seed(true, Vec::new());
+    app.plugin_manager.seed_rows(Vec::new());
+    drop(app.update(Message::PluginManager(Manager::EditSpec(
+        "@PUBLIC/pkg".into(),
+    ))));
+    drop(app.update(Message::PluginManager(Manager::Inspect)));
+    let _ = queue.try_recv();
+    drop(app.update(Message::Worker(Event::PluginInspected(Ok(
+        PluginInspection::Accepted {
+            kind: "registry".into(),
+            name: Some("@PUBLIC/pkg".into()),
+            version: Some("1.0.0".into()),
+            description: None,
+            bundle: Some(true),
+            registry: None,
+            host: None,
+        },
+    )))));
+    drop(app.update(Message::PluginManager(Manager::AskInstall)));
+    drop(app.update(Message::PluginManager(Manager::ConfirmInstall)));
+    let Command::PluginInstall { request_id, .. } = queue.try_recv().expect("one install") else {
+        panic!("only the install expected")
+    };
+    // The failed attempt leaves the Host's pending package names on the card.
+    drop(app.update(Message::Worker(Event::PluginInstallSettled(Ok(
+        PluginChange {
+            changed: false,
+            application: PluginApplication::Failed,
+            target: "@PUBLIC/pkg".into(),
+            enabled: None,
+            error: Some("operation-error".into()),
+            bundle: None,
+            version: None,
+            pending_builds: vec!["PUBLIC-native".into()],
+            approved_builds: Vec::new(),
+        },
+    )))));
+    assert!(matches!(queue.try_recv(), Ok(Command::PluginManagerRead)));
+    assert!(matches!(
+        queue.try_recv(),
+        Ok(Command::PluginManagerPlugins)
+    ));
+    assert_eq!(app.plugin_manager.pending_builds(), ["PUBLIC-native"]);
+    // Arming and cancelling an approval run nothing.
+    drop(app.update(Message::PluginManager(Manager::AskApprove)));
+    assert!(app.plugin_manager.approve_armed());
+    assert!(queue.try_recv().is_err());
+    drop(app.update(Message::PluginManager(Manager::CancelApprove)));
+    drop(app.update(Message::PluginManager(Manager::ConfirmApprove)));
+    assert!(queue.try_recv().is_err());
+    // Confirm retries the same spec with the pending names and a fresh request id.
+    drop(app.update(Message::PluginManager(Manager::AskApprove)));
+    drop(app.update(Message::PluginManager(Manager::ConfirmApprove)));
+    let Command::PluginInstall {
+        spec,
+        request_id: retried,
+        approved_builds,
+        ..
+    } = queue.try_recv().expect("retry")
+    else {
+        panic!("only the retry expected")
+    };
+    assert_eq!(spec, "@PUBLIC/pkg");
+    assert_eq!(approved_builds, ["PUBLIC-native"]);
+    assert_ne!(retried, request_id);
+    // A second Confirm while the retry runs is ignored.
+    drop(app.update(Message::PluginManager(Manager::ConfirmApprove)));
+    assert!(queue.try_recv().is_err());
+    // A successful retry clears the pending names.
+    drop(app.update(Message::Worker(Event::PluginInstallSettled(Ok(
+        PluginChange {
+            changed: true,
+            application: PluginApplication::Applied,
+            target: "@PUBLIC/pkg".into(),
+            enabled: Some(false),
+            error: None,
+            bundle: Some("PUBLIC-bundle".into()),
+            version: Some("1.0.0".into()),
+            pending_builds: Vec::new(),
+            approved_builds: vec!["PUBLIC-native".into()],
+        },
+    )))));
+    assert!(app.plugin_manager.pending_builds().is_empty());
 }

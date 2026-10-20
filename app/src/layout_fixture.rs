@@ -154,6 +154,7 @@ pub const PRESETS: &[&str] = &[
     "plugin-manager-row-confirm",
     "plugin-manager-install",
     "plugin-manager-installing",
+    "plugin-manager-approve",
     "changes-card",
     "changes-diff",
     "changes-split",
@@ -381,7 +382,8 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "plugin-manager-inspect"
         | "plugin-manager-row-confirm"
         | "plugin-manager-install"
-        | "plugin-manager-installing" => Some((Size::new(1040.0, 760.0), 1.0)),
+        | "plugin-manager-installing"
+        | "plugin-manager-approve" => Some((Size::new(1040.0, 760.0), 1.0)),
         "skill-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "command-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "process-group-closed" | "process-group-open" => Some((Size::new(1040.0, 760.0), 1.0)),
@@ -1560,7 +1562,7 @@ pub fn build(
         "blank": !matches!(preset, "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" | "conversation" | "chat-density" | "chat-markdown" | "chat-thoughts" | "thoughts-preview" | "chat-thoughts-markdown" | "chat-table" | "reminders" | "reminders-delete" | "session-schedule-mark" | "session-hover" | "open-in-app" | "plugin-manager"
             | "plugin-manager-confirm" | "plugin-manager-remove" | "plugin-manager-inspect"
             | "plugin-manager-row-confirm" | "plugin-manager-install"
-            | "plugin-manager-installing")
+            | "plugin-manager-installing" | "plugin-manager-approve")
             && !preset.starts_with("tool-activity"),
 
         "cwd":"/PUBLIC-layout-fixture/workspace",
@@ -1907,6 +1909,7 @@ pub fn build(
             | "plugin-manager-row-confirm"
             | "plugin-manager-install"
             | "plugin-manager-installing"
+            | "plugin-manager-approve"
             | "subagent-catalog"
             | "subagent-catalog-error"
             | "subagent-readonly"
@@ -3179,6 +3182,7 @@ pub fn build(
         || preset == "plugin-manager-row-confirm"
         || preset == "plugin-manager-install"
         || preset == "plugin-manager-installing"
+        || preset == "plugin-manager-approve"
     {
         // The Host's bundle list as the read route returns it: no installation or switch happened.
         app.plugin_manager.seed(
@@ -3275,6 +3279,7 @@ pub fn build(
     if preset == "plugin-manager-inspect"
         || preset == "plugin-manager-install"
         || preset == "plugin-manager-installing"
+        || preset == "plugin-manager-approve"
     {
         // The registry order the Add-plugin form offers, with the second registry chosen.
         app.plugin_manager
@@ -3306,6 +3311,12 @@ pub fn build(
     if preset == "plugin-manager-installing" {
         // An install whose reply has not returned; the fixture has no Host run behind it.
         app.plugin_manager.seed_installing("native-fixture-1");
+    }
+    if preset == "plugin-manager-approve" {
+        // A failed install whose package scripts still await approval, with the review armed.
+        app.plugin_manager
+            .seed_pending_builds(vec!["PUBLIC-native-addon".into()]);
+        app.plugin_manager.ask_approve();
     }
     drop(app.update(Message::Resized(size)));
 
@@ -5587,6 +5598,12 @@ mod tests {
                     app.plugin_manager.install_request().as_deref(),
                     Some("native-fixture-1")
                 );
+                assert!(receiver.try_recv().is_err());
+            }
+            if preset == "plugin-manager-approve" {
+                // The frame shows the pending scripts and the armed approval; nothing ran.
+                assert_eq!(app.plugin_manager.pending_builds(), ["PUBLIC-native-addon"]);
+                assert!(app.plugin_manager.approve_armed());
                 assert!(receiver.try_recv().is_err());
             }
             if preset == "plugin-manager-inspect"

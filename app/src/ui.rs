@@ -6475,12 +6475,29 @@ impl App {
                                 spec,
                                 registry,
                                 request_id,
+                                approved_builds: Vec::new(),
                             });
                         }
                     }
                     plugin_manager::Action::CancelRunningInstall => {
                         if let Some(request_id) = self.plugin_manager.install_request() {
                             self.command(worker::Command::PluginCancelInstall { request_id });
+                        }
+                    }
+                    plugin_manager::Action::AskApprove => self.plugin_manager.ask_approve(),
+                    plugin_manager::Action::CancelApprove => {
+                        self.plugin_manager.cancel_approve();
+                    }
+                    plugin_manager::Action::ConfirmApprove => {
+                        if let Some((spec, registry, request_id, approved_builds)) =
+                            self.plugin_manager.confirm_approve()
+                        {
+                            self.command(worker::Command::PluginInstall {
+                                spec,
+                                registry,
+                                request_id,
+                                approved_builds,
+                            });
                         }
                     }
                 }

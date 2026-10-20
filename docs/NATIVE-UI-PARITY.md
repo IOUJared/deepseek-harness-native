@@ -6430,7 +6430,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Workspace browser: grouped/animated rows, drag order, per-row menus | difference: workspace filter + navigation sheet |
 | Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory; the app's Host serves browse, so Browse… falls back to the in-app list and `pick` reports unavailable) |
 | Open in app: workspace opener | cloned (round 671): the header split button lists the Host's nameable installed apps, launches the Session's workspace through the two plain Host routes, and remembers the choice; app icons stay text glyphs rather than fetched PNGs |
-| Plugin manager: installed bundles | More → Plugins (rounds 674–681) shows the Host's profile availability and its bundles with version, enabled/installed/optional state, the rows each bundle declares with their live entry state, and read-only reasons; it switches a readable bundle or one of its live rows on or off, uninstalls a removable one and installs an inspected spec, each through its own explicit Confirm, inspects a typed install spec into an accepted preview or a refusal against the chosen registry, and can cancel or recover an installation by its request id; install progress/log chunks and build-script approval remain unbuilt |
+| Plugin manager: installed bundles | More → Plugins (rounds 674–682) shows the Host's profile availability and its bundles with version, enabled/installed/optional state, the rows each bundle declares with their live entry state, and read-only reasons; it switches a readable bundle or one of its live rows on or off, uninstalls a removable one and installs an inspected spec, each through its own explicit Confirm, inspects a typed install spec into an accepted preview or a refusal against the chosen registry, cancels or recovers an installation by its request id, and approves a failed install's pending package scripts before retrying; install progress/log chunks remain unbuilt |
 | Workflow-run surface | cloned (folded `tool-workflow/*` card, five run states including the round-525 `Interrupted` for a stoppless run in a closed turn; a closed step alone does not interrupt, a named limit) |
 | Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, **reviewed resize (round 540)**, shell discovery with a remembered preference, output bounds, and **a native screen emulator core** (rounds 552–559: redraw, erase, addressing, insert/delete, ANSI colours, wide glyphs, wrapping, scrollback, alternate screen; a combining mark composes onto its base cell, round 669). The screen protocol is complete; the docked tabs ship in the panel above the output (round 673), re-following on a switch instead of holding `terminal/retain` streams, and the reference's automatic fit-to-pane stays a deliberate difference — recorded in `docs/NATIVE-TERMINAL.md`. |
 | Dockkit layout presets | difference: native fixed layout with its own preferences |
@@ -15877,7 +15877,7 @@ real warnings; the full battery is **17/17 (`verification-526912410ae0`).** The 
 
 | item | what exists | what the next round series needs |
 | --- | --- | --- |
-| Plugin manager: install progress and build-script approval | installs carry a request id, a lost reply is recovered through `waitForInstall`, and `cancelInstall` states cancelled/too-late/not-running (round 681) | the `plugin-manager/install-state` progress stream and pnpm log chunks, and approving pending package scripts (`installBundle` `approvedBuilds`); the manager page shows no live attempt log |
+| Plugin manager: install progress | installs carry a request id, a lost reply is recovered through `waitForInstall`, `cancelInstall` states its answer, and pending scripts are approved and retried (rounds 681–682) | the `plugin-manager/install-state` progress stream and pnpm log chunks; the manager page shows no live attempt log or per-registry attempt badge |
 | The right-Sidebar review/task/document tabs | the full-page details panel is native's own surface | **deliberate difference**, recorded here rather than built silently |
 
 ### Named deliberate differences (not gaps)
@@ -18913,3 +18913,47 @@ by the Host as an opaque map key, not validated as a UUID.
 | app bin | — | **21** warnings (22 with the summary line) |
 | layout_smoke | — | **17** warnings |
 | battery | **passed** | **17 checks, 0 failing** (`verification-b2f048e40c21`) |
+
+### Round 682 — a failed install's package scripts are approved and retried
+
+**The gap.** The Host can refuse an install because package scripts await explicit approval; the
+reference lists those names on the failed screen and retries the same spec with them approved
+(`manager-store.ts:975-990`, `installBundle` `approvedBuilds` at `types.d.ts:129-136`). Round 681 only
+said approval was not offered.
+
+**The wire.** `installBundle` options now accept `approvedBuilds`, bounded to 64 names of at most 256
+printable characters. The reply's `pendingBuilds`/`approvedBuilds` were already projected.
+
+**The page.** A failed install stores the pending names; the accepted card shows them in the danger ink
+(`The Host has not run these package scripts: …`) and replaces the plain `Install…` with
+`Approve scripts and retry…` — a plain install would fail the same way. The press arms the risk
+question (`Run these package scripts? They execute on the Host with the Host's authority.`) with
+Cancel/Approve; Confirm re-sends the **same spec** with the pending names and a fresh request id, then
+follows the existing settle/recover/cancel paths. A successful retry clears the pending names.
+
+**The frame found the stale action.** The first capture still offered `Install…` beside the approval
+prompt; the plain action is now hidden while scripts are pending.
+
+**Tests.** `approving_pending_scripts_retries_the_same_spec_with_a_fresh_request` (failed settlement
+stores names, arm/cancel run nothing, Confirm sends the same spec with the pending names and a distinct
+id, the in-flight refusal, a successful retry clears them); `plugin-manager-approve` is pinned with the
+armed approval and no queued command.
+
+**Frame.** `shots/380-plugin-manager-approve.png` (1040×760, new `plugin-manager-approve` preset): the
+failed `@PUBLIC/voice-kit` card lists `PUBLIC-native-addon` as unrun and shows the armed approval with
+Cancel/Approve and retry, no plain install beside it.
+
+**Still unbuilt.** The `plugin-manager/install-state` progress stream and pnpm log chunks. No live Host
+was read.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| format | **0** | `cargo fmt` applied; format-debt 0 files, 0 hunks |
+| app, fixture | **0** | **1614 passed**, 1 ignored |
+| app, default | **0** | **1558 passed**, 1 ignored |
+| transport | **0** | 70 + 17 + 91 + 7 passed |
+| app bin | — | **21** warnings (22 with the summary line) |
+| layout_smoke | — | **17** warnings |
+| battery | **passed** | **17 checks, 0 failing** (`verification-0ce31d2a4168`) |

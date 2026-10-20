@@ -88,6 +88,8 @@ pub enum Command {
         spec: String,
         registry: Option<String>,
         request_id: String,
+        /// Pending package scripts the person approved for this attempt; empty on a first install.
+        approved_builds: Vec<String>,
     },
     /// The active installation's result for one request id; a recovery read, not a retry.
     PluginWaitForInstall {
@@ -2863,8 +2865,8 @@ async fn run(
                     Command::PluginCancelInstall{request_id}=>Event::PluginInstallCancelAsked(
                         client.plugin_manager_cancel_install(&request_id).await.map_err(|error|format!("Plugins: {error}"))
                     ),
-                    Command::PluginInstall{spec,registry,request_id}=>Event::PluginInstallSettled(
-                        client.plugin_manager_install(&spec,registry.as_deref(),&request_id).await.map_err(|error|format!("Plugins: {error}"))
+                    Command::PluginInstall{spec,registry,request_id,approved_builds}=>Event::PluginInstallSettled(
+                        client.plugin_manager_install(&spec,registry.as_deref(),&request_id,&approved_builds).await.map_err(|error|format!("Plugins: {error}"))
                     ),
                     Command::PluginEntryEnabled{entry_id,enabled}=>Event::PluginEntryChanged{
                         result:client.plugin_manager_set_plugin_enabled(&entry_id,enabled).await.map_err(|error|format!("Plugins: {error}")),
