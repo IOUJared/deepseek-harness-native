@@ -44,10 +44,10 @@ two columns, a glyph past the last column wraps, the bottom row scrolls into scr
 and `CSI ? 1049 h`/`l` swaps to the alternate screen a full-screen program draws in and restores the
 shell on exit, and `CSI t;b r` sets a scroll region whose rows scroll alone while the rows above and
 below stay put (round 561), and `CSI ? 7 h`/`l` turns autowrap on or off, so a program that overwrites
-its own last column keeps that column instead of wrapping (round 562). What it still does not do:
-**background colours** — a combining mark takes no column of its own and is dropped (one character per
-cell cannot compose it), and `SGR 4`/`21`/`24` underline a run (round 564), but a specific background
-colour does not render. The panel is a monochrome-per-cell renderer of that
+its own last column keeps that column instead of wrapping (round 562), `SGR 4`/`21`/`24` underline a run
+(round 564), and `SGR 40`–`47`/`100`–`107`/`49` paint a cell's background through the same palette
+(round 565). The one remaining limitation is a *text* one rather than a protocol one: a combining mark
+takes no column of its own and is dropped, because one character per cell cannot compose it. The panel is a monochrome-per-cell renderer of that
 screen, not a second emulator.
 
 Resize is a reviewed control in the panel (round 540) rather than the reference's automatic fit-to-pane:

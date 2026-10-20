@@ -372,6 +372,8 @@ struct Screen {
     ink: Option<u8>,
     /// SGR `4` for the cells written next.
     underline: bool,
+    /// SGR `40`–`47`/`100`–`107` for the cells written next.
+    paper: Option<u8>,
     /// The screen a full-screen program switched away from, restored when it leaves the alternate
     /// screen (`CSI ? 1049 h`/`l`): without it a `vim` session would scribble over the shell history
     /// and the history would not come back.
@@ -387,6 +389,7 @@ struct Saved {
     column: usize,
     ink: Option<u8>,
     underline: bool,
+    paper: Option<u8>,
 }
 
 /// One screen cell: a character and the colour it was written with.
@@ -394,8 +397,10 @@ struct Saved {
 struct Cell {
     character: char,
     ink: Option<u8>,
-    /// SGR `4`: drawn with an underline, the one attribute the panel can paint besides colour.
+    /// SGR `4`: drawn with an underline.
     underline: bool,
+    /// SGR `40`–`47`/`100`–`107`: the cell's background, or none for the panel's own.
+    background: Option<u8>,
     /// The second column of a wide character: it draws nothing of its own, so a CJK glyph keeps its
     /// two-column width without the line collecting a phantom space.
     continuation: bool,
@@ -407,6 +412,7 @@ impl Cell {
             character: ' ',
             ink: None,
             underline: false,
+            background: None,
             continuation: false,
         }
     }
@@ -480,6 +486,7 @@ impl Screen {
             dropped: 0,
             ink: None,
             underline: false,
+            paper: None,
             alternate: None,
         }
     }
@@ -558,6 +565,7 @@ impl Screen {
         if width == 0 {
             return;
         }
+        let paper = self.paper;
         if self.wrap && self.cols > 0 && self.column + width > self.cols {
             self.newline();
         }
@@ -573,6 +581,7 @@ impl Screen {
             character,
             ink,
             underline: self.underline,
+            background: paper,
             continuation: false,
         };
         let line = self.line();
@@ -585,6 +594,7 @@ impl Screen {
                 character: ' ',
                 ink,
                 underline: cell.underline,
+                background: paper,
                 continuation: true,
             };
         }
@@ -651,11 +661,13 @@ impl Screen {
                 column: self.column,
                 ink: self.ink,
                 underline: self.underline,
+                paper: self.paper,
             }));
             self.row = 0;
             self.column = 0;
             self.ink = None;
             self.underline = false;
+            self.paper = None;
         } else if let Some(saved) = self.alternate.take() {
             self.history = saved.history;
             self.grid = saved.grid;
@@ -663,6 +675,7 @@ impl Screen {
             self.column = saved.column;
             self.ink = saved.ink;
             self.underline = saved.underline;
+            self.paper = saved.paper;
         }
     }
     /// Insert `count` blank rows at the cursor, pushing the rows below down; the grid keeps its
@@ -787,6 +800,7 @@ impl Screen {
                                         0 => {
                                             self.ink = None;
                                             self.underline = false;
+                                            self.paper = None;
                                         }
                                         // Bold brightens the base colour, the way a terminal's
                                         // bold attribute is drawn.
@@ -796,6 +810,9 @@ impl Screen {
                                         // Underline on, double underline (drawn as on), and off.
                                         4 | 21 => self.underline = true,
                                         24 => self.underline = false,
+                                        40..=47 => self.paper = Some((code - 40) as u8),
+                                        100..=107 => self.paper = Some((code - 100 + 8) as u8),
+                                        49 => self.paper = None,
                                         39 => self.ink = None,
                                         22 => {}
                                         30..=37 => self.ink = Some((code - 30) as u8),
@@ -948,18 +965,28 @@ impl Output {
     }
     /// The screen as coloured runs, one per line: `(text, ANSI colour)` where `None` is the panel's
     /// own ink. This is what the panel draws; [`Self::display`] is the same text without colour.
-    pub fn display_styled(&self, max_bytes: usize) -> Vec<Vec<(String, Option<u8>, bool)>> {
-        let mut lines: Vec<Vec<(String, Option<u8>, bool)>> = Vec::new();
+    pub fn display_styled(
+        &self,
+        max_bytes: usize,
+    ) -> Vec<Vec<(String, Option<u8>, bool, Option<u8>)>> {
+        let mut lines: Vec<Vec<(String, Option<u8>, bool, Option<u8>)>> = Vec::new();
         for line in self.screen.history.iter().chain(self.screen.grid.iter()) {
-            let mut runs: Vec<(String, Option<u8>, bool)> = Vec::new();
+            let mut runs: Vec<(String, Option<u8>, bool, Option<u8>)> = Vec::new();
             for cell in line.iter().filter(|cell| !cell.continuation) {
                 match runs.last_mut() {
-                    Some((text, ink, underline))
-                        if *ink == cell.ink && *underline == cell.underline =>
+                    Some((text, ink, underline, background))
+                        if *ink == cell.ink
+                            && *underline == cell.underline
+                            && *background == cell.background =>
                     {
                         text.push(cell.character)
                     }
-                    _ => runs.push((cell.character.to_string(), cell.ink, cell.underline)),
+                    _ => runs.push((
+                        cell.character.to_string(),
+                        cell.ink,
+                        cell.underline,
+                        cell.background,
+                    )),
                 }
             }
             lines.push(runs);
@@ -967,16 +994,16 @@ impl Output {
         // Collapse the cleared rows below the cursor the same way `display` does.
         while lines
             .last()
-            .is_some_and(|runs| runs.iter().all(|(text, _, _)| text.trim().is_empty()))
+            .is_some_and(|runs| runs.iter().all(|(text, ..)| text.trim().is_empty()))
         {
             lines.pop();
         }
         let single = lines.len() == 1;
         lines.retain(|runs| !runs.is_empty() || single);
         let mut used = 0usize;
-        let mut kept: Vec<Vec<(String, Option<u8>, bool)>> = Vec::new();
+        let mut kept: Vec<Vec<(String, Option<u8>, bool, Option<u8>)>> = Vec::new();
         for runs in lines.into_iter().rev() {
-            let size: usize = runs.iter().map(|(text, _, _)| text.len()).sum::<usize>() + 1;
+            let size: usize = runs.iter().map(|(text, ..)| text.len()).sum::<usize>() + 1;
             if used + size > max_bytes && !kept.is_empty() {
                 break;
             }
@@ -3075,6 +3102,32 @@ mod tests {
     }
 
     #[test]
+    fn a_background_colour_is_painted_and_reset() {
+        let mut output = Output::default();
+        output.push("plain \u{1b}[41mred paper\u{1b}[49m plain\n");
+        let runs = output.display_styled(DISPLAY_BYTES);
+        assert_eq!(
+            runs[0],
+            vec![
+                ("plain ".to_owned(), None, false, None),
+                ("red paper".to_owned(), None, false, Some(1)),
+                (" plain".to_owned(), None, false, None),
+            ]
+        );
+        // A bright background is the second eight, and `0` clears it with the rest.
+        let mut output = Output::default();
+        output.push("\u{1b}[104;4mblue\u{1b}[0m plain\n");
+        let runs = output.display_styled(DISPLAY_BYTES);
+        assert_eq!(
+            runs[0],
+            vec![
+                ("blue".to_owned(), None, true, Some(12)),
+                (" plain".to_owned(), None, false, None),
+            ]
+        );
+    }
+
+    #[test]
     fn underline_is_a_paintable_attribute_and_resets_with_the_rest() {
         let mut output = Output::default();
         output.push("plain \u{1b}[4munder\u{1b}[24m plain\n");
@@ -3082,9 +3135,9 @@ mod tests {
         assert_eq!(
             runs[0],
             vec![
-                ("plain ".to_owned(), None, false),
-                ("under".to_owned(), None, true),
-                (" plain".to_owned(), None, false),
+                ("plain ".to_owned(), None, false, None),
+                ("under".to_owned(), None, true, None),
+                (" plain".to_owned(), None, false, None),
             ]
         );
         // `0` clears it with the colour, and a double underline draws as one.
@@ -3094,9 +3147,9 @@ mod tests {
         assert_eq!(
             runs[0],
             vec![
-                ("red".to_owned(), Some(1), true),
-                (" plain ".to_owned(), None, false),
-                ("two".to_owned(), None, true),
+                ("red".to_owned(), Some(1), true, None),
+                (" plain ".to_owned(), None, false, None),
+                ("two".to_owned(), None, true, None),
             ]
         );
     }
@@ -3241,7 +3294,7 @@ mod tests {
         let mut output = Output::default();
         output.push("a\u{4f60}b");
         let runs = output.display_styled(DISPLAY_BYTES);
-        let text: String = runs[0].iter().map(|(text, _, _)| text.as_str()).collect();
+        let text: String = runs[0].iter().map(|(text, ..)| text.as_str()).collect();
         assert_eq!(text, "a\u{4f60}b");
         // A wide glyph at the end of a written line still occupies its two columns.
         let mut output = Output::default();
@@ -3258,9 +3311,9 @@ mod tests {
         assert_eq!(
             runs[0],
             vec![
-                ("plain ".to_owned(), None, false),
-                ("PASS".to_owned(), Some(2), false),
-                (" plain".to_owned(), None, false),
+                ("plain ".to_owned(), None, false, None),
+                ("PASS".to_owned(), Some(2), false, None),
+                (" plain".to_owned(), None, false, None),
             ]
         );
         // A bright colour is the second eight: `90`+ is index 8+, and bold brightens a base colour.
@@ -3270,8 +3323,8 @@ mod tests {
         assert_eq!(
             runs[0],
             vec![
-                ("bright".to_owned(), Some(9), false),
-                ("bold".to_owned(), Some(10), false),
+                ("bright".to_owned(), Some(9), false, None),
+                ("bold".to_owned(), Some(10), false, None),
             ]
         );
         // An unwritten tail keeps the default ink, and a reset returns to it.
@@ -3281,8 +3334,8 @@ mod tests {
         assert_eq!(
             runs[0],
             vec![
-                ("red".to_owned(), Some(1), false),
-                (" back".to_owned(), None, false),
+                ("red".to_owned(), Some(1), false, None),
+                (" back".to_owned(), None, false, None),
             ]
         );
     }

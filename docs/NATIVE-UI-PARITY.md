@@ -6430,7 +6430,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Workspace browser: grouped/animated rows, drag order, per-row menus | difference: workspace filter + navigation sheet |
 | Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory; the app's Host serves browse, so Browse… falls back to the in-app list and `pick` reports unavailable) |
 | Workflow-run surface | cloned (folded `tool-workflow/*` card, five run states including the round-525 `Interrupted` for a stoppless run in a closed turn; a closed step alone does not interrupt, a named limit) |
-| Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, **reviewed resize (round 540)**, shell discovery with a remembered preference, output bounds, and **a native screen emulator core** (rounds 552–559: redraw, erase, addressing, insert/delete, ANSI colours, wide glyphs, wrapping, scrollback, alternate screen). Still unbuilt: background colours, the reference's automatic fit-to-pane, `terminal/retain` and a docked multi-terminal tab — recorded in `docs/NATIVE-TERMINAL.md`. |
+| Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, **reviewed resize (round 540)**, shell discovery with a remembered preference, output bounds, and **a native screen emulator core** (rounds 552–559: redraw, erase, addressing, insert/delete, ANSI colours, wide glyphs, wrapping, scrollback, alternate screen). The screen protocol is complete; what remains is not a sequence but a capability: the reference's automatic fit-to-pane, `terminal/retain` and a docked multi-terminal tab — recorded in `docs/NATIVE-TERMINAL.md`. |
 | Dockkit layout presets | difference: native fixed layout with its own preferences |
 | Locales (zh/en) | difference: English-only |
 
@@ -15853,7 +15853,7 @@ next round start.
 
 | item | what exists | what the next round series needs |
 | --- | --- | --- |
-| The terminal screen | **built as a native emulator core** in rounds 552–561 (grid sized by the Host, redraw, erase, addressing, insert/delete, SGR colours, two-column wide glyphs, wrapping and autowrap off, 2,000-line scrollback, alternate screen, scroll regions); output still bounded to 400 chunks/128 KiB and every mutating action reviewed | background colours; nothing here needs a dependency decision any more |
+| The terminal screen | **built as a native emulator core** in rounds 552–561 (grid sized by the Host, redraw, erase, addressing, insert/delete, SGR colours, two-column wide glyphs, wrapping and autowrap off, 2,000-line scrollback, alternate screen, scroll regions); output still bounded to 400 chunks/128 KiB and every mutating action reviewed | the reference's automatic fit-to-pane (native resize is a reviewed control), `terminal/retain` and the docked tab strip; the screen protocol itself is complete |
 | `terminal/retain` and a docked multi-terminal tab | the panel's own slice; retain exists in the Host for holding tabs open | a right-docked tab strip first, because retain only means something with tabs |
 | Schedules: sidebar marks, hover cards, turn cards, right-Sidebar tab | the page, history, edits, pickers, the header chip and the live reload | per-session schedule counts from the Host (`sessionListMetadata` does not carry them), then the marks |
 | The right-Sidebar review tab | the deliverables sheet is a native surface | a deliberate second layout decision, recorded as such rather than built silently |
@@ -16326,4 +16326,42 @@ failed because `0` cleared only the colour: the test is what found the missing r
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-hyo8ylhf`) |
 | transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
 | DP-2 capture | — | `shots/345-terminal-underline.png`, `status: passed`, 1200x900 |
+| app bin | — | **21** warnings |
+
+### Round 565 — background colours complete the screen protocol
+
+**The gap.** `SGR 40`–`47`/`100`–`107` is how a test reporter paints a failing row, how a diff colours a
+removed line and how a shell highlights a selection. It was consumed with the other attributes, so those
+rows arrived with only their text colour.
+
+**The change.** A cell carries a `background` index beside its ink and underline, and the screen tracks
+the current paper through `SGR 40`–`47` (base eight), `100`–`107` (bright eight) and `49` (default); `0`
+clears it with the rest. The alternate screen saves and restores it, `display_styled` groups runs by ink,
+underline **and** background, and the panel maps the background onto `Span::background` through the same
+`design::ansi_ink` palette. A probe first confirmed `Span::background` exists in the pinned iced 0.14 —
+worth doing before widening sixteen test expectations.
+
+**Tests.** `a_background_colour_is_painted_and_reset` — `41` between plain text, `49` restoring the
+default, `104;4` carrying a bright background and an underline, and `0` clearing both. The other twelve
+run-tuple expectations were widened mechanically.
+
+**Frame.** `shots/346-terminal-background.png` (1200x900, new `terminal-background` preset): a `cargo
+test` summary whose `FAILED` row sits on the danger background and whose `ok` row sits on the foam one.
+
+**What this closes.** With this round the screen applies every attribute family the reference's emulator
+does — colour, underline, background — and the remaining terminal gaps are capabilities rather than
+protocol: automatic fit-to-pane (native resize is a reviewed control), `terminal/retain`, and the docked
+tab strip.
+
+**Battery (round 565).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1567 passed**, 1 ignored |
+| app, default | **0** | **1511 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-mpit0tzj`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-c2tjnv56`) |
+| transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
+| DP-2 capture | — | `shots/346-terminal-background.png`, `status: passed`, 1200x900 |
 | app bin | — | **21** warnings |

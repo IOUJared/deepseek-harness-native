@@ -19878,14 +19878,18 @@ impl App {
             for runs in rows {
                 let spans: Vec<iced::widget::text::Span<'_, (), iced::Font>> = runs
                     .into_iter()
-                    .map(|(text, ink, underline)| {
+                    .map(|(text, ink, underline, background)| {
                         let span = match ink {
                             Some(index) => {
                                 span::<(), iced::Font>(text).color(design::ansi_ink(index))
                             }
                             None => span::<(), iced::Font>(text).color(TEXT),
                         };
-                        span.underline(underline)
+                        let span = span.underline(underline);
+                        match background {
+                            Some(index) => span.background(design::ansi_ink(index)),
+                            None => span,
+                        }
                     })
                     .collect();
                 lines = lines.push(rich_text(spans).size(11));
