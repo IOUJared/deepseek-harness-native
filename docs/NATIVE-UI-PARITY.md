@@ -17320,3 +17320,26 @@ with the cursor paint in the release binaries.
 **What the cursor change did not disturb:** the fourteen display tests (the paint keeps the cursor's runless
 row, `display_styled` still trims it), the 400-row cap (`one_paint_renders_only_the_newest_rows_it_can_show`
 still passes), and the transport, core and examples.
+
+### Round 630 — the panel split starts: `terminal_header`
+
+**The change.** The panel's header — the title row with its Close button, and the two lines that bound what
+the shell can do — is now its own builder, `terminal_header()`, and `terminal_view` opens with
+`column![self.terminal_header(), …]`. This is the first of the three builders the round-572 note specifies
+(`terminal_header`, `terminal_output`, `terminal_footer`); the other two are untouched.
+
+**Why it took three attempts.** `Ticket` is a private import in `crate::terminal`, so the header cannot take
+one as a parameter — it calls `self.terminal.ticket()` itself. `column!` accepts an `Element` directly, so the
+call must not be dereferenced. And the first patch's anchors went stale after `cargo fmt` reformatted the
+region, which is the round-585 hazard again: **re-read the formatted text before the second patch**.
+
+**Frame.** `shots/354-header-split.png` — the panel is unchanged from round 353 apart from the cursor block:
+same title row, same two boundary lines, same SHELL/TERMINALS/OUTPUT sections.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1581 passed**, 1 ignored |
+| app, default | **0** | **1525 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |

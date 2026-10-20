@@ -19460,22 +19460,18 @@ impl App {
     /// Client-only terminal panel. It renders exactly what the Host confirmed: the
     /// list, shell profiles and limits from read ACKs, the ACK-created terminal, and
     /// bounded frames from the owned follow. Opening it spawns no local shell.
-    fn terminal_view(&self) -> Element<'_, Message> {
-        use crate::terminal::{Action, CloseReview, DISPLAY_BYTES, Notice, Review};
+    /// The panel's header: the title row and the two lines that bound what the shell can do. First of the
+    /// three builders the round-572 split calls for (`terminal_header`, `terminal_output`,
+    /// `terminal_footer`), extracted so the panel's shape can be read without the whole body.
+    fn terminal_header(&self) -> Element<'_, Message> {
+        use crate::terminal::{Action, DISPLAY_BYTES};
         let ticket = self.terminal.ticket().expect("visible terminal panel");
-        let context = self.terminal_context();
-        let current = context.view.as_ref().is_some_and(|view| {
-            view.epoch == ticket.epoch
-                && view.generation == ticket.generation
-                && view.target == ticket.target
-        });
-        let enabled = context.allowed && current && !self.terminal.busy();
-        let mut body = column![
+        column![
             row![
                 label("Terminal", TEXT).size(22).width(Length::Fill),
                 button("Close")
                     .style(design::ghost)
-                    .on_press(Message::Terminal(Action::Dismiss(ticket.clone())))
+                    .on_press(Message::Terminal(Action::Dismiss(ticket)))
             ]
             .spacing(10),
             label(
@@ -19494,7 +19490,21 @@ impl App {
             )
             .size(11),
         ]
-        .spacing(10);
+        .spacing(8)
+        .into()
+    }
+
+    fn terminal_view(&self) -> Element<'_, Message> {
+        use crate::terminal::{Action, CloseReview, DISPLAY_BYTES, Notice, Review};
+        let ticket = self.terminal.ticket().expect("visible terminal panel");
+        let context = self.terminal_context();
+        let current = context.view.as_ref().is_some_and(|view| {
+            view.epoch == ticket.epoch
+                && view.generation == ticket.generation
+                && view.target == ticket.target
+        });
+        let enabled = context.allowed && current && !self.terminal.busy();
+        let mut body = column![self.terminal_header(),].spacing(10);
         match self.terminal.environment() {
             Some(environment) => {
                 body = body.push(
