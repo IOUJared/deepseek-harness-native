@@ -282,6 +282,12 @@ pub struct PluginChange {
     pub enabled: Option<bool>,
     /// The Host's management error code; its diagnostic never reaches the app.
     pub error: Option<String>,
+    /// The bundle an installation added, and its manifest version.
+    pub bundle: Option<String>,
+    pub version: Option<String>,
+    /// Exact package names whose scripts await explicit approval, and those already approved.
+    pub pending_builds: Vec<String>,
+    pub approved_builds: Vec<String>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PluginApplication {
@@ -300,6 +306,12 @@ struct WireChange {
     target: String,
     enabled: Option<bool>,
     error: Option<WireManagementError>,
+    bundle: Option<String>,
+    version: Option<String>,
+    #[serde(default)]
+    pending_builds: Vec<String>,
+    #[serde(default)]
+    approved_builds: Vec<String>,
 }
 pub(crate) fn project_change(value: Value) -> Result<PluginChange> {
     bounded(&value)?;
@@ -326,12 +338,27 @@ pub(crate) fn project_change(value: Value) -> Result<PluginChange> {
                 .ok_or(Error::InvalidDto)
         })
         .transpose()?;
+    let optional = |value: Option<String>, max: usize| -> Result<Option<String>> {
+        value
+            .map(|value| text(&value, max).then_some(value).ok_or(Error::InvalidDto))
+            .transpose()
+    };
+    let names = |values: Vec<String>| -> Result<Vec<String>> {
+        if values.len() > 64 || values.iter().any(|name| !text(name, 256)) {
+            return Err(Error::InvalidDto);
+        }
+        Ok(values)
+    };
     Ok(PluginChange {
         changed: wire.changed,
         application,
         target: wire.target,
         enabled: wire.enabled,
         error,
+        bundle: optional(wire.bundle, 512)?,
+        version: optional(wire.version, 128)?,
+        pending_builds: names(wire.pending_builds)?,
+        approved_builds: names(wire.approved_builds)?,
     })
 }
 
@@ -1352,7 +1379,11 @@ mod tests {
             "stage": "enable",
             "target": "@PUBLIC/bundle",
             "enabled": true,
-            "error": {"code": "operation-error", "diagnostic": "PRIVATE-SENTINEL"}
+            "error": {"code": "operation-error", "diagnostic": "PRIVATE-SENTINEL"},
+            "bundle": "PUBLIC-bundle",
+            "version": "2.0.0",
+            "pendingBuilds": ["PUBLIC-native"],
+            "approvedBuilds": []
         }))
         .unwrap();
         assert!(change.changed);
@@ -1360,6 +1391,10 @@ mod tests {
         assert_eq!(change.target, "@PUBLIC/bundle");
         assert_eq!(change.enabled, Some(true));
         assert_eq!(change.error.as_deref(), Some("operation-error"));
+        assert_eq!(change.bundle.as_deref(), Some("PUBLIC-bundle"));
+        assert_eq!(change.version.as_deref(), Some("2.0.0"));
+        assert_eq!(change.pending_builds, vec!["PUBLIC-native".to_owned()]);
+        assert!(change.approved_builds.is_empty());
         assert!(!format!("{change:?}").contains("PRIVATE"));
         for bad in [
             json!({}),

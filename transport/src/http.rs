@@ -186,6 +186,7 @@ enum Endpoint {
     PluginInspect,
     PluginRegistries,
     PluginEntryEnabled,
+    PluginInstall,
     PluginManagerPlugins,
     AgentPresetSelect,
     JobKill,
@@ -275,6 +276,7 @@ impl Endpoint {
             Self::PluginInspect => "pluginManager/inspect",
             Self::PluginRegistries => "pluginManager/registries",
             Self::PluginEntryEnabled => "pluginManager/setPluginEnabled",
+            Self::PluginInstall => "pluginManager/installBundle",
             Self::PluginManagerPlugins => "pluginManager/listPlugins",
             Self::AgentPresetSelect => "agentPresets/select",
             Self::JobKill => "job/kill",
@@ -1435,6 +1437,35 @@ impl NativeClient {
             self.invoke(Endpoint::PluginManagerPlugins, json!({}))
                 .await?,
         )
+    }
+    /// Install one inspected spec into the profile (`pluginManager/installBundle`,
+    /// `manager-store.ts:901-916`). The reference passes `enabled: false` and enables the installed
+    /// bundle separately; no request id is sent here, so this call offers no cancellation or
+    /// recovery and a lost reply must be treated as unknown.
+    pub async fn plugin_manager_install(
+        &self,
+        spec: &str,
+        registry: Option<&str>,
+    ) -> Result<crate::plugin::PluginChange> {
+        let spec = spec.trim();
+        if spec.is_empty() || spec.len() > 2048 || spec.chars().any(char::is_control) {
+            return Err(Error::InvalidDto);
+        }
+        if registry.is_some_and(|registry| registry.is_empty() || registry.len() > 2048) {
+            return Err(Error::InvalidDto);
+        }
+        let mut options = serde_json::Map::new();
+        options.insert("enabled".into(), json!(false));
+        if let Some(registry) = registry {
+            options.insert("registry".into(), json!(registry));
+        }
+        let value = self
+            .invoke(
+                Endpoint::PluginInstall,
+                json!({"spec": spec, "options": options}),
+            )
+            .await?;
+        crate::plugin::project_change(value)
     }
     /// Project private redacted config and Schemastery graphs before publishing any DTO.
     pub async fn plugin_settings(&self) -> Result<crate::plugin::SettingsDescribeValue> {

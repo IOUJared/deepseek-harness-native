@@ -6430,7 +6430,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Workspace browser: grouped/animated rows, drag order, per-row menus | difference: workspace filter + navigation sheet |
 | Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory; the app's Host serves browse, so Browse… falls back to the in-app list and `pick` reports unavailable) |
 | Open in app: workspace opener | cloned (round 671): the header split button lists the Host's nameable installed apps, launches the Session's workspace through the two plain Host routes, and remembers the choice; app icons stay text glyphs rather than fetched PNGs |
-| Plugin manager: installed bundles | More → Plugins (rounds 674–679) shows the Host's profile availability and its bundles with version, enabled/installed/optional state, the rows each bundle declares with their live entry state, and read-only reasons; it switches a readable bundle or one of its live rows on or off and uninstalls a removable one, each through its own explicit Confirm, and inspects a typed install spec into an accepted preview or a refusal, asking the registry the form chose; install and version exemptions remain unbuilt |
+| Plugin manager: installed bundles | More → Plugins (rounds 674–680) shows the Host's profile availability and its bundles with version, enabled/installed/optional state, the rows each bundle declares with their live entry state, and read-only reasons; it switches a readable bundle or one of its live rows on or off, uninstalls a removable one and installs an inspected spec, each through its own explicit Confirm, and inspects a typed install spec into an accepted preview or a refusal, asking the registry the form chose; install progress/cancel/recovery and build-script approval remain unbuilt |
 | Workflow-run surface | cloned (folded `tool-workflow/*` card, five run states including the round-525 `Interrupted` for a stoppless run in a closed turn; a closed step alone does not interrupt, a named limit) |
 | Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, **reviewed resize (round 540)**, shell discovery with a remembered preference, output bounds, and **a native screen emulator core** (rounds 552–559: redraw, erase, addressing, insert/delete, ANSI colours, wide glyphs, wrapping, scrollback, alternate screen; a combining mark composes onto its base cell, round 669). The screen protocol is complete; the docked tabs ship in the panel above the output (round 673), re-following on a switch instead of holding `terminal/retain` streams, and the reference's automatic fit-to-pane stays a deliberate difference — recorded in `docs/NATIVE-TERMINAL.md`. |
 | Dockkit layout presets | difference: native fixed layout with its own preferences |
@@ -15877,7 +15877,7 @@ real warnings; the full battery is **17/17 (`verification-526912410ae0`).** The 
 
 | item | what exists | what the next round series needs |
 | --- | --- | --- |
-| Plugin manager: install and version exemptions | the page lists bundles and their rows, switches a bundle or row on/off, uninstalls a removable bundle, inspects a spec and chooses the registry it asks (rounds 674–679) | install a bundle and approve version exemptions (`pluginManager/{installBundle,listVersionExemptions,setVersionExemption,waitForInstall,cancelInstall}`); installation has longer-running stages and needs the same tickets plus indeterminate-outcome handling |
+| Plugin manager: install progress, cancellation and build-script approval | installing an inspected spec with one explicit Confirm and a re-read on settlement (round 680) | the install request id and progress stream, `waitForInstall` recovery, `cancelInstall`, and approving the pending package scripts (`installBundle` with `requestId`/`approvedBuilds`, `waitForInstall`, `cancelInstall`); a dropped reply currently has no recovery beyond the stated unknown result |
 | The right-Sidebar review/task/document tabs | the full-page details panel is native's own surface | **deliberate difference**, recorded here rather than built silently |
 
 ### Named deliberate differences (not gaps)
@@ -18817,3 +18817,52 @@ exemptions. No live Host was read.
 | app bin | — | **21** warnings (22 with the summary line) |
 | layout_smoke | — | **17** warnings |
 | battery | **passed** | **17 checks, 0 failing** (`verification-2ea7dc4c6231`) |
+
+### Round 680 — an inspected spec installs after one explicit confirmation
+
+**The gap.** Rounds 674–679 could read a spec but never install it. The reference installs the inspected
+spec with `installBundle(spec, {enabled: false, requestId, registry})` (`manager-store.ts:901-916`),
+then enables the new bundle separately and reports the `ChangeResult`'s install fields
+(`bundle`, `version`, `pendingBuilds`, `approvedBuilds`, `application`).
+
+**The wire.** `pluginManager/installBundle` is an `Endpoint` taking `{spec, options:{enabled:false,
+registry?}}`. `PluginChange` now carries the bundle, manifest version, pending build names and approved
+build names (each bounded, the arrays capped at 64). No request id is sent, so this call offers no
+cancellation or recovery — a dropped reply is reported as unknown, never retried.
+
+**The page.** The accepted preview gains `Install…`; the press arms a confirmation that names what the
+Host will do (`Install this spec? The Host runs pnpm in the profile; scripts run only with the profile's
+approval.`). Confirm sends one install, a second Confirm while it runs is ignored, and the settlement
+states `Installed …` with the restart sentence, the failure with its code (and, when the Host lists
+pending builds, that script approval is not offered here), or `Installation result unavailable … check
+the plugin list.` The bundles and live rows are then re-read.
+
+**The frame found stale copy and layout.** The intro still claimed installing was unavailable, and the
+long install sentence widened the column until the right edge sat under the scrollbar; the intro now
+covers installation and the prompt wraps within the pane. The extra content makes the page scroll — the
+third bundle sits below the fold at 760px — which is the reference behaviour for a long manager page.
+
+**Tests.** `a_plugin_change_projects_its_application_and_hides_the_diagnostic` extended for the install
+fields, and `installing_the_inspected_spec_needs_confirm_and_reports_the_hosts_answer` (ask, cancel, one
+`PluginInstall`, the in-flight refusal, the success re-read of bundles and rows, the failed re-read);
+`plugin-manager-install` is pinned with the armed install and no queued command.
+
+**Frame.** `shots/378-plugin-manager-install.png` (1040×760, new `plugin-manager-install` preset): the
+accepted `@PUBLIC/voice-kit` card, the armed install sentence and Cancel/Install, the registry marked,
+and the bundle/row list below with its scrollbar.
+
+**Still unbuilt.** The install request id and progress stream, `waitForInstall` recovery,
+`cancelInstall`, and per-package build approval. Version exemptions have no client surface in the
+reference (they are Host tools), so they are not a UI gap. No live Host was read.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| format | **0** | `cargo fmt` applied; format-debt 0 files, 0 hunks |
+| app, fixture | **0** | **1612 passed**, 1 ignored |
+| app, default | **0** | **1556 passed**, 1 ignored |
+| transport | **0** | 69 + 17 + 91 + 7 passed |
+| app bin | — | **21** warnings (22 with the summary line) |
+| layout_smoke | — | **17** warnings |
+| battery | **passed** | **17 checks, 0 failing** (`verification-e46eb6d2f38e`) |

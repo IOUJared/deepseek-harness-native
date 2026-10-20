@@ -6463,6 +6463,15 @@ impl App {
                             self.command(worker::Command::PluginEntryEnabled { entry_id, enabled });
                         }
                     }
+                    plugin_manager::Action::AskInstall => self.plugin_manager.ask_install(),
+                    plugin_manager::Action::CancelInstall => {
+                        self.plugin_manager.cancel_install();
+                    }
+                    plugin_manager::Action::ConfirmInstall => {
+                        if let Some((spec, registry)) = self.plugin_manager.confirm_install() {
+                            self.command(worker::Command::PluginInstall { spec, registry });
+                        }
+                    }
                 }
             }
             // A disclosure with no visible composer has nothing to expand, and an
@@ -7127,6 +7136,13 @@ impl App {
             }
             Event::PluginManagerLoaded(result) => {
                 self.plugin_manager.settled(result);
+            }
+            Event::PluginInstallSettled(result) => {
+                if self.plugin_manager.install_settled(result) {
+                    // The Host's list is authoritative after an install; read bundles and rows.
+                    self.command(worker::Command::PluginManagerRead);
+                    self.command(worker::Command::PluginManagerPlugins);
+                }
             }
             Event::PluginManagerPluginsLoaded(result) => {
                 self.plugin_manager.rows_settled(result);

@@ -152,6 +152,7 @@ pub const PRESETS: &[&str] = &[
     "plugin-manager-remove",
     "plugin-manager-inspect",
     "plugin-manager-row-confirm",
+    "plugin-manager-install",
     "changes-card",
     "changes-diff",
     "changes-split",
@@ -377,7 +378,8 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "plugin-manager-confirm"
         | "plugin-manager-remove"
         | "plugin-manager-inspect"
-        | "plugin-manager-row-confirm" => Some((Size::new(1040.0, 760.0), 1.0)),
+        | "plugin-manager-row-confirm"
+        | "plugin-manager-install" => Some((Size::new(1040.0, 760.0), 1.0)),
         "skill-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "command-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "process-group-closed" | "process-group-open" => Some((Size::new(1040.0, 760.0), 1.0)),
@@ -1555,7 +1557,7 @@ pub fn build(
         // list and the chat fixtures both depend on this flag.
         "blank": !matches!(preset, "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" | "conversation" | "chat-density" | "chat-markdown" | "chat-thoughts" | "thoughts-preview" | "chat-thoughts-markdown" | "chat-table" | "reminders" | "reminders-delete" | "session-schedule-mark" | "session-hover" | "open-in-app" | "plugin-manager"
             | "plugin-manager-confirm" | "plugin-manager-remove" | "plugin-manager-inspect"
-            | "plugin-manager-row-confirm")
+            | "plugin-manager-row-confirm" | "plugin-manager-install")
             && !preset.starts_with("tool-activity"),
 
         "cwd":"/PUBLIC-layout-fixture/workspace",
@@ -1900,6 +1902,7 @@ pub fn build(
             | "plugin-manager-remove"
             | "plugin-manager-inspect"
             | "plugin-manager-row-confirm"
+            | "plugin-manager-install"
             | "subagent-catalog"
             | "subagent-catalog-error"
             | "subagent-readonly"
@@ -3170,6 +3173,7 @@ pub fn build(
         || preset == "plugin-manager-remove"
         || preset == "plugin-manager-inspect"
         || preset == "plugin-manager-row-confirm"
+        || preset == "plugin-manager-install"
     {
         // The Host's bundle list as the read route returns it: no installation or switch happened.
         app.plugin_manager.seed(
@@ -3263,7 +3267,7 @@ pub fn build(
         app.plugin_manager
             .seed_row_confirm("include:base-tools", false);
     }
-    if preset == "plugin-manager-inspect" {
+    if preset == "plugin-manager-inspect" || preset == "plugin-manager-install" {
         // The registry order the Add-plugin form offers, with the second registry chosen.
         app.plugin_manager
             .seed_registries(dsh_native_transport::plugin::PluginRegistries {
@@ -3286,6 +3290,10 @@ pub fn build(
                 host: None,
             },
         );
+    }
+    if preset == "plugin-manager-install" {
+        // The armed install a press on `Install…` reaches; the frame sends nothing.
+        app.plugin_manager.seed_install_confirm();
     }
     drop(app.update(Message::Resized(size)));
 
@@ -5555,7 +5563,12 @@ mod tests {
                 assert_eq!(app.plugin_manager.remove_armed(), Some("dsh-bundle-base"));
                 assert!(receiver.try_recv().is_err());
             }
-            if preset == "plugin-manager-inspect" {
+            if preset == "plugin-manager-install" {
+                // The frame shows the armed install; no write was queued.
+                assert!(app.plugin_manager.install_armed());
+                assert!(receiver.try_recv().is_err());
+            }
+            if preset == "plugin-manager-inspect" || preset == "plugin-manager-install" {
                 // The frame shows the accepted preview and the chosen registry, and queued nothing.
                 assert!(app.plugin_manager.inspection().is_some());
                 assert!(app.plugin_manager.registries().is_some());

@@ -83,6 +83,11 @@ pub enum Command {
         entry_id: String,
         enabled: bool,
     },
+    /// Install one inspected spec after the page's confirmation.
+    PluginInstall {
+        spec: String,
+        registry: Option<String>,
+    },
     /// Re-read the session roster, whose summaries carry the projections a subagent catalog is built
     /// from. The reference refreshes a child's projection when its chevron is pressed
     /// (`SubagentHeaderLineage.tsx:554-561`); this is the same read, whole-roster.
@@ -447,6 +452,8 @@ pub enum Event {
         enabled: bool,
         result: Result<dsh_native_transport::plugin::PluginChange, String>,
     },
+    /// One installation's settlement; the page re-reads the list from the Host after it.
+    PluginInstallSettled(Result<dsh_native_transport::plugin::PluginChange, String>),
     PluginsLoaded {
         ticket: crate::plugins::ReadTicket,
         result: Result<crate::plugins::Snapshot, crate::plugins::ReadFailure>,
@@ -1227,6 +1234,7 @@ fn rejected(command: Command) -> Event {
             enabled,
             result: Err(error),
         },
+        Command::PluginInstall { .. } => Event::PluginInstallSettled(Err(error)),
         Command::PluginsRead(ticket) => Event::PluginsLoaded {
             ticket,
             result: Err(crate::plugins::ReadFailure::Unavailable),
@@ -2834,6 +2842,9 @@ async fn run(
                         result:client.open_workspace_path(&path).await.map_err(|error|format!("Open path: {error}")),
                         path,
                     },
+                    Command::PluginInstall{spec,registry}=>Event::PluginInstallSettled(
+                        client.plugin_manager_install(&spec,registry.as_deref()).await.map_err(|error|format!("Plugins: {error}"))
+                    ),
                     Command::PluginEntryEnabled{entry_id,enabled}=>Event::PluginEntryChanged{
                         result:client.plugin_manager_set_plugin_enabled(&entry_id,enabled).await.map_err(|error|format!("Plugins: {error}")),
                         entry_id,

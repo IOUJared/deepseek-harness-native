@@ -22,20 +22,21 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > (pinned `c6044cc50b`). Cite it as `file:line` in code comments and round notes.
 >
 > ### Last five rounds, so the next session starts oriented
-> - 675: **a bundle switches on/off through review → Confirm**, one write, the Host's application /
->   restart / failure copy, then a re-read; frame `373`.
 > - 676: **a removable bundle uninstalls through its own confirmation**; frame `374`.
 > - 677: **a typed install spec is inspected** into an accepted preview or a refusal; frame `375`.
 > - 678: **the Add-plugin form reads the registry order and inspects against the chosen registry**;
 >   frame `376`.
 > - 679: **each bundle's declared rows are listed** with live state, and one row switches through its
 >   own Confirm; frame `377`.
+> - 680: **an inspected spec installs** after one explicit Confirm, reporting the Host's bundle,
+>   version, restart/failure and pending builds, then re-reading bundles and rows; frame `378`.
 >
-> **Current remainder:** the plugin manager's install (stages, build approvals, cancellation, the
-> install request id) and version exemptions. Blocked on the user: the canvas-dial dependency approval
-> (context meter stays a text reading) and the deferred live `schedule/changed` observation. Baselines:
-> fixture **1611** / default **1555**, 21 warnings, battery 17/17
-> (`verification-2ea7dc4c6231`).
+> **Current remainder:** the plugin manager's install request id and progress stream, `waitForInstall`
+> recovery, `cancelInstall` and per-package build approval. Version exemptions have no client surface
+> in the reference (Host tools), so they are not a UI gap. Blocked on the user: the canvas-dial
+> dependency approval (context meter stays a text reading) and the deferred live `schedule/changed`
+> observation. Baselines: fixture **1612** / default **1556**, 21 warnings, battery 17/17
+> (`verification-e46eb6d2f38e`).
 
 ---
 

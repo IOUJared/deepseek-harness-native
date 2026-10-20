@@ -1279,6 +1279,10 @@ fn switching_a_plugin_bundle_needs_confirm_sends_one_write_and_rereads_the_list(
             target: "PUBLIC-bundle".into(),
             enabled: Some(false),
             error: None,
+            bundle: None,
+            version: None,
+            pending_builds: Vec::new(),
+            approved_builds: Vec::new(),
         }),
     })));
     assert!(matches!(queue.try_recv(), Ok(Command::PluginManagerRead)));
@@ -1297,6 +1301,10 @@ fn switching_a_plugin_bundle_needs_confirm_sends_one_write_and_rereads_the_list(
             target: "PUBLIC-bundle".into(),
             enabled: None,
             error: Some("operation-error".into()),
+            bundle: None,
+            version: None,
+            pending_builds: Vec::new(),
+            approved_builds: Vec::new(),
         }),
     })));
     assert!(matches!(queue.try_recv(), Ok(Command::PluginManagerRead)));
@@ -1351,6 +1359,10 @@ fn uninstalling_a_bundle_needs_confirm_and_sends_one_destructive_write() {
             target: "PUBLIC-bundle".into(),
             enabled: None,
             error: None,
+            bundle: None,
+            version: None,
+            pending_builds: Vec::new(),
+            approved_builds: Vec::new(),
         }),
     })));
     assert!(matches!(queue.try_recv(), Ok(Command::PluginManagerRead)));
@@ -1538,8 +1550,101 @@ fn switching_a_plugin_row_needs_confirm_and_sends_one_write() {
             target: "include:tools".into(),
             enabled: Some(false),
             error: None,
+            bundle: None,
+            version: None,
+            pending_builds: Vec::new(),
+            approved_builds: Vec::new(),
         }),
     })));
+    assert!(matches!(
+        queue.try_recv(),
+        Ok(Command::PluginManagerPlugins)
+    ));
+}
+
+#[test]
+fn installing_the_inspected_spec_needs_confirm_and_reports_the_hosts_answer() {
+    use super::plugin_manager::Action as Manager;
+    use dsh_native_transport::plugin::{PluginApplication, PluginChange, PluginInspection};
+    let (mut app, mut queue) = app();
+    app.plugin_manager.seed(true, Vec::new());
+    app.plugin_manager.seed_rows(Vec::new());
+    drop(app.update(Message::PluginManager(Manager::EditSpec(
+        "@PUBLIC/pkg".into(),
+    ))));
+    drop(app.update(Message::PluginManager(Manager::Inspect)));
+    assert!(matches!(
+        queue.try_recv(),
+        Ok(Command::PluginInspect { .. })
+    ));
+    drop(app.update(Message::Worker(Event::PluginInspected(Ok(
+        PluginInspection::Accepted {
+            kind: "registry".into(),
+            name: Some("@PUBLIC/pkg".into()),
+            version: Some("1.0.0".into()),
+            description: None,
+            bundle: Some(true),
+            registry: None,
+            host: None,
+        },
+    )))));
+    // Arming and cancelling send nothing.
+    drop(app.update(Message::PluginManager(Manager::AskInstall)));
+    assert!(queue.try_recv().is_err());
+    drop(app.update(Message::PluginManager(Manager::CancelInstall)));
+    drop(app.update(Message::PluginManager(Manager::ConfirmInstall)));
+    assert!(queue.try_recv().is_err());
+    // A confirmed install sends exactly one call with the inspected spec.
+    drop(app.update(Message::PluginManager(Manager::AskInstall)));
+    drop(app.update(Message::PluginManager(Manager::ConfirmInstall)));
+    let Command::PluginInstall { spec, registry } = queue.try_recv().expect("one install") else {
+        panic!("only the install expected")
+    };
+    assert_eq!(spec, "@PUBLIC/pkg");
+    assert_eq!(registry, None);
+    // A second Confirm while the install runs is ignored.
+    drop(app.update(Message::PluginManager(Manager::ConfirmInstall)));
+    assert!(queue.try_recv().is_err());
+    // A restart-required success re-reads bundles and rows.
+    drop(app.update(Message::Worker(Event::PluginInstallSettled(Ok(
+        PluginChange {
+            changed: true,
+            application: PluginApplication::RestartRequired,
+            target: "@PUBLIC/pkg".into(),
+            enabled: Some(false),
+            error: None,
+            bundle: Some("PUBLIC-bundle".into()),
+            version: Some("1.0.0".into()),
+            pending_builds: Vec::new(),
+            approved_builds: Vec::new(),
+        },
+    )))));
+    assert!(matches!(queue.try_recv(), Ok(Command::PluginManagerRead)));
+    assert!(matches!(
+        queue.try_recv(),
+        Ok(Command::PluginManagerPlugins)
+    ));
+    // A failed install still re-reads the Host's list and reports the wait for script approval.
+    drop(app.update(Message::PluginManager(Manager::AskInstall)));
+    drop(app.update(Message::PluginManager(Manager::ConfirmInstall)));
+    assert!(matches!(
+        queue.try_recv(),
+        Ok(Command::PluginInstall { .. })
+    ));
+    drop(app.update(Message::Worker(Event::PluginInstallSettled(Ok(
+        PluginChange {
+            changed: false,
+            application: PluginApplication::Failed,
+            target: "@PUBLIC/pkg".into(),
+            enabled: None,
+            error: Some("operation-error".into()),
+            bundle: None,
+            version: None,
+            pending_builds: vec!["PUBLIC-native".into()],
+            approved_builds: Vec::new(),
+        },
+    )))));
+    assert!(matches!(queue.try_recv(), Ok(Command::PluginManagerRead)));
     assert!(matches!(
         queue.try_recv(),
         Ok(Command::PluginManagerPlugins)

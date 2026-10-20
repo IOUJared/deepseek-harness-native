@@ -48,6 +48,12 @@ pub enum Action {
     CancelRow,
     /// Send the armed row switch; one explicit attempt.
     ConfirmRow,
+    /// Arm the install review for the inspected spec; nothing is installed.
+    AskInstall,
+    /// Leave the armed install without writing.
+    CancelInstall,
+    /// Send the armed install; one explicit attempt.
+    ConfirmInstall,
 }
 
 #[derive(Default)]
@@ -84,6 +90,9 @@ pub struct Manager {
     rows_loaded: bool,
     row_confirm: Option<(String, bool)>,
     row_pending: Option<(String, bool)>,
+    /// The install review armed by the accepted preview, and the install in flight.
+    install_confirm: bool,
+    installing: bool,
 }
 
 impl Manager {
@@ -250,6 +259,107 @@ impl Manager {
                 ));
             }
         }
+    }
+    pub fn ask_install(&mut self) {
+        if !self.installing
+            && matches!(
+                self.inspection,
+                Some(dsh_native_transport::plugin::PluginInspection::Accepted { .. })
+            )
+        {
+            self.install_confirm = true;
+            self.notice = None;
+        }
+    }
+    pub fn cancel_install(&mut self) {
+        self.install_confirm = false;
+    }
+    /// Take the armed install into flight; the caller sends it once.
+    pub fn confirm_install(&mut self) -> Option<(String, Option<String>)> {
+        if self.installing || !self.install_confirm {
+            return None;
+        }
+        let spec = self.spec.trim().to_owned();
+        if spec.is_empty() {
+            return None;
+        }
+        self.install_confirm = false;
+        self.installing = true;
+        self.notice = None;
+        Some((spec, self.registry()))
+    }
+    /// Adopt one installation's settlement and say whether the list should be re-read.
+    pub fn install_settled(
+        &mut self,
+        result: Result<dsh_native_transport::plugin::PluginChange, String>,
+    ) -> bool {
+        self.installing = false;
+        match result {
+            Ok(change)
+                if change.application
+                    == dsh_native_transport::plugin::PluginApplication::Applied
+                    || change.application
+                        == dsh_native_transport::plugin::PluginApplication::RestartRequired =>
+            {
+                let installed = change.bundle.as_deref().unwrap_or(change.target.as_str());
+                let version = change
+                    .version
+                    .as_deref()
+                    .map(|version| format!(" {version}"))
+                    .unwrap_or_default();
+                let restart = change.application
+                    == dsh_native_transport::plugin::PluginApplication::RestartRequired;
+                self.notice = Some((
+                    format!(
+                        "Installed {installed}{version}.{}",
+                        if restart {
+                            " It takes effect at the next start."
+                        } else {
+                            ""
+                        }
+                    ),
+                    false,
+                ));
+                true
+            }
+            Ok(change) => {
+                let mut notice = format!(
+                    "The Host did not install the spec{}.",
+                    change
+                        .error
+                        .as_deref()
+                        .map(|code| format!(" ({code})"))
+                        .unwrap_or_default()
+                );
+                if !change.pending_builds.is_empty() {
+                    // The reference offers per-package script approval; this page does not yet.
+                    notice.push_str(&format!(
+                        " Awaiting script approval for {}; approving is not offered here.",
+                        short(&change.pending_builds.join(", "), 120)
+                    ));
+                }
+                self.notice = Some((notice, true));
+                true
+            }
+            Err(error) => {
+                self.notice = Some((
+                    format!(
+                        "Installation result unavailable ({}); check the plugin list.",
+                        short(&error, 80)
+                    ),
+                    true,
+                ));
+                true
+            }
+        }
+    }
+    #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
+    pub fn install_armed(&self) -> bool {
+        self.install_confirm
+    }
+    #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
+    pub fn seed_install_confirm(&mut self) {
+        self.install_confirm = true;
     }
     pub fn ask_row(&mut self, entry_id: String, enabled: bool) {
         if self.row_pending.is_none() {
@@ -495,11 +605,12 @@ impl Manager {
             ]
             .align_y(iced::Alignment::Center),
             label(
-                "Installed bundles and their profile state. Switching or uninstalling a bundle \
-                 takes its own explicit confirmation; installing a package is not offered here.",
+                "Installed bundles and their profile state. Switching, uninstalling or installing \
+                 a package takes its own explicit confirmation.",
                 MUTED,
             )
-            .size(12),
+            .size(12)
+            .width(Length::Fill),
             button(if self.loading {
                 "Reading…"
             } else {
@@ -627,13 +738,40 @@ impl Manager {
                     if let Some(host) = host {
                         card = card.push(label(format!("Host {host}"), MUTED).size(10));
                     }
-                    card = card.push(
-                        label(
-                            "Installing is not offered here yet; this only read the spec.",
-                            MUTED,
-                        )
-                        .size(10),
-                    );
+                    if self.installing {
+                        card = card.push(label("Installing…", MUTED).size(10));
+                    } else if self.install_confirm {
+                        card = card.push(
+                            iced::widget::column![
+                                label(
+                                    "Install this spec? The Host runs pnpm in the profile; \
+                                     scripts run only with the profile's approval.",
+                                    MUTED,
+                                )
+                                .size(10)
+                                .width(Length::Fill),
+                                iced::widget::row![
+                                    button(label("Cancel", MUTED).size(11))
+                                        .padding([3, 8])
+                                        .style(design::ghost)
+                                        .on_press(Message::PluginManager(Action::CancelInstall)),
+                                    button(label("Install", design::ACCENT).size(11))
+                                        .padding([3, 8])
+                                        .style(design::ghost)
+                                        .on_press(Message::PluginManager(Action::ConfirmInstall)),
+                                ]
+                                .spacing(6),
+                            ]
+                            .spacing(2),
+                        );
+                    } else {
+                        card = card.push(
+                            button(label("Install…", TEXT).size(11))
+                                .padding([3, 8])
+                                .style(design::ghost)
+                                .on_press(Message::PluginManager(Action::AskInstall)),
+                        );
+                    }
                     body = body.push(
                         container(card)
                             .padding([8, 10])
