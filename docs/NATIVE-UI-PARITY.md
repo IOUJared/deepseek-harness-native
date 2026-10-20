@@ -17217,3 +17217,23 @@ raises the warning count by one (22 real). The version that ships needs `#[allow
 `display_styled` with a comment naming the tests, or the tests should read `display_paint().rows`.
 
 Both files are reverted to `f3ac579`; `cargo check` measures **21** warnings (22 with the summary line).
+
+### Round 621 — the recipe's first step fails, which is the point
+
+**What was tried.** Step 1 of the cursor recipe (`NATIVE-TERMINAL.md`): `paint_cursor(max_bytes)` sharing one
+render pass with `display_styled`, and the test that must pass before any panel work —
+`the_paint_reports_where_the_cursor_sits_in_the_rows_it_draws`: `"ab"` with the cursor at column 2 expects
+`Some((0, 2))`.
+
+**What happened.** The **first** assertion returned `None`. So the index arithmetic is wrong in the simplest
+possible case, before any trimming or capping is involved — the step the recipe exists to catch. Four
+earlier rounds wired the panel around exactly this and produced no block for that reason, which is now
+proven rather than assumed.
+
+**What the next attempt should look at first.** For one row of `"ab"` with the cursor at `(0, 2)`, the only
+inputs are `history.len()` (0), `grid.len()` (1), `screen.row` (0), `screen.column` (2), `rows_before_trim`
+and `kept.len()`. Three of those six cannot produce `None`; the suspects are `rows_before_trim` being taken
+at the wrong point relative to the byte-budget loop, or `kept` being rebuilt after the cursor arithmetic.
+Print those six values in the failing test before changing anything.
+
+`app/src/terminal.rs` is reverted; `cargo check` measures **21** warnings (22 with the summary line).
