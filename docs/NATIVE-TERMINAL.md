@@ -46,8 +46,14 @@ shell on exit, and `CSI t;b r` sets a scroll region whose rows scroll alone whil
 below stay put (round 561), and `CSI ? 7 h`/`l` turns autowrap on or off, so a program that overwrites
 its own last column keeps that column instead of wrapping (round 562), `SGR 4`/`21`/`24` underline a run
 (round 564), and `SGR 40`–`47`/`100`–`107`/`49` paint a cell's background through the same palette
-(round 565). The one remaining limitation is a *text* one rather than a protocol one: a combining mark
-takes no column of its own and is dropped, because one character per cell cannot compose it. The panel is a monochrome-per-cell renderer of that
+(round 565). Since then the protocol gained the sequences a TUI leans on: erase-character (`CSI N X`,
+round 605), scroll up/down (`CSI N S`/`T`, round 606), cursor save/restore in both spellings (`ESC 7`/`8`
+and `CSI ? 1048 h`/`l`, rounds 607 and 610), scrollback erase (`CSI 3 J`, round 609) and bold cancellation
+returning a colour to its base half (`SGR 22`, round 608).
+
+What is still absent is **not** protocol: a combining mark takes no column of its own and is dropped (one
+character per cell cannot compose it), and the panel does not draw the terminal's **cursor** — the screen
+knows where it is, but nothing paints a block there yet. The panel is a monochrome-per-cell renderer of that
 screen, not a second emulator.
 
 **The output does not fill the pane, and here is exactly why (rounds 567–568).** The panel is one
