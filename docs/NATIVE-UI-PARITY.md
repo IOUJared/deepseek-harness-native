@@ -16714,3 +16714,21 @@ round.
 | `xtask verify --suite all` | **1 of 19 failed** | only `wayland-drops`, the hardware-only harness (`verification-ba5c7b18c831`) |
 | app, fixture / default | **0** | **1569** / **1513 passed**, 1 ignored each (round 575, unchanged) |
 | app bin | — | **21** warnings |
+
+### Round 585 — the extraction attempt, and the hazard that broke it
+
+**What was tried.** The first step of round 572's rewrite: extract `terminal_output` as its own method by
+cutting the rich-text block out of `terminal_view`. The block was cut cleanly, but reconciling the
+`container(container(...))` wrapper used a *global* text replacement for the scrollable's closing
+parenthesis — and that pattern also occurred in `jobs_panel_view`, which broke the file's delimiters.
+`cargo fmt` reported the mismatched brace at line 11457, not in the terminal panel at all.
+
+**Recovered, not patched.** `git checkout -- app/src/ui.rs` restored the committed file; `cargo check`
+measures **21** warnings (22 with the summary line) and the tree is clean. The extraction was *not*
+re-applied with a narrower edit, because the remaining budget could not also verify the result with a
+frame — and a half-extracted builder is exactly the half-restructured panel rounds 569–570 warned about.
+
+**The lesson, which belongs to the rewrite.** The extraction must be done with *anchored* edits (the exact
+block boundaries), never a global replace on a short pattern like `).direction(...)`: this file has
+several near-identical widget chains, and a global pattern will hit a neighbour. The three-builder
+rewrite should be executed as its own round, from the round-572 specification, with the frame matrix.
