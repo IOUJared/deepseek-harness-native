@@ -16967,3 +16967,13 @@ the third column rather than `"X"` at the first.
 | app, fixture | **0** | **1574 passed**, 1 ignored |
 | app, default | **0** | **1518 passed**, 1 ignored |
 | app bin | — | **21** warnings (22 with the summary line) |
+
+**Follow-up to round 599, stated plainly.** The commit that changed `CSI 2 J` landed while both suites were
+**red**: round 553's erase test asserted `PUBLIC $ ` after `2J` alone, which is exactly the bug the change
+removed — the prompt only returns to the top-left if the program sends `CSI H` too. Rather than revert a
+correct fix to keep a wrong assertion green, the old test now sends `2J` **and** `H` and says why in a
+comment, and the new test pins the preserved-cursor behaviour. Both suites are green again: fixture
+**1574**, default **1518**.
+
+The process lesson is the useful part: the commit should not have run after a failing suite. The command
+chained `cat >>` with `git commit` without `&&`, so the red run did not stop it.

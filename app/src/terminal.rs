@@ -3544,7 +3544,9 @@ mod tests {
         // `clear` is `ESC [ 2 J` (plus a home): the display empties instead of keeping the history.
         let mut output = Output::default();
         output.push("one\ntwo\nthree\n");
-        output.push("\u{1b}[2JPUBLIC $ ");
+        // `clear` sends home as well: `CSI 2 J` empties the display and leaves the cursor, so the
+        // prompt only returns to the top-left with `CSI H` (round 599).
+        output.push("\u{1b}[2J\u{1b}[HPUBLIC $ ");
         assert_eq!(output.display(DISPLAY_BYTES), "PUBLIC $ ");
         // `ESC [ K` erases from the cursor to the end of its line, leaving the prefix.
         let mut output = Output::default();
