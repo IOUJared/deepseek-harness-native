@@ -5,6 +5,7 @@
 //! per-mode component run. No Host, model, login or desktop setting is touched.
 pub mod app;
 pub mod composed;
+pub mod composed_files;
 pub mod control;
 pub mod layout;
 pub mod node;
@@ -531,6 +532,7 @@ pub fn run(arguments: &[String]) -> i32 {
         "native-file-prompt" => prompt::run(&root, &output),
         "upload-uncertainty" => uncertainty::run(&root, &output, &fail_at),
         "composed-settings" => composed::run(&root, &output, scale),
+        "composed-files" => composed_files::run(&root, &output, scale),
         "lazy-account" => composed::lazy_account(&root, &output),
         "control" => control::run(&root.join("app")),
         "submenus" => layout::submenus(&root.join("app")),

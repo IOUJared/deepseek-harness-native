@@ -30,7 +30,7 @@ const ZERO_COUNTS: [&str; 7] = [
 
 /// A counter group with the exact key set: the fixed counters equal `n`, the
 /// generation counters zero.
-fn counts(value: &Value, n: i64) -> bool {
+pub(super) fn counts(value: &Value, n: i64) -> bool {
     value.as_object().is_some_and(|object| {
         object
             .keys()
