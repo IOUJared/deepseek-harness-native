@@ -10,6 +10,7 @@ pub mod layout;
 pub mod node;
 pub mod scroll;
 pub mod stage;
+pub mod uncertainty;
 pub mod upload;
 
 use crate::compositor::{Facts, window_facts};
@@ -456,6 +457,7 @@ pub fn run(arguments: &[String]) -> i32 {
     let mut seconds: u32 = 10;
     let mut screenshot = false;
     let mut sdk = false;
+    let mut fail_at = String::from("none");
     let mut arguments = arguments[1..].iter();
     while let Some(argument) = arguments.next() {
         let parsed: Result<(), String> = (|| match argument.as_str() {
@@ -488,6 +490,13 @@ pub fn run(arguments: &[String]) -> i32 {
                 sdk = true;
                 Ok(())
             }
+            "--fail-at" => {
+                fail_at = arguments.next().ok_or("--fail-at needs a value")?.clone();
+                if !matches!(fail_at.as_str(), "none" | "ack-held" | "store-held") {
+                    return Err("--fail-at must be none, ack-held or store-held".into());
+                }
+                Ok(())
+            }
             other => Err(format!("unexpected argument: {other}")),
         })();
         if let Err(message) = parsed {
@@ -518,6 +527,7 @@ pub fn run(arguments: &[String]) -> i32 {
         "turn-outline" => node::turn_outline(&root, &output),
         "file-upload" => upload::run(&root, &output),
         "native-file-stage" => stage::run(&root, &output),
+        "upload-uncertainty" => uncertainty::run(&root, &output, &fail_at),
         "composed-settings" => composed::run(&root, &output, scale),
         "lazy-account" => composed::lazy_account(&root, &output),
         "control" => control::run(&root.join("app")),
