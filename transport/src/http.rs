@@ -183,6 +183,7 @@ enum Endpoint {
     PluginBundles,
     PluginBundleEnabled,
     PluginBundleRemove,
+    PluginInspect,
     AgentPresetSelect,
     JobKill,
     PluginSettings,
@@ -268,6 +269,7 @@ impl Endpoint {
             Self::PluginBundles => "pluginManager/listBundles",
             Self::PluginBundleEnabled => "pluginManager/setBundleEnabled",
             Self::PluginBundleRemove => "pluginManager/removeBundle",
+            Self::PluginInspect => "pluginManager/inspect",
             Self::AgentPresetSelect => "agentPresets/select",
             Self::JobKill => "job/kill",
             Self::PluginSettings => "settings/describe",
@@ -1371,6 +1373,32 @@ impl NativeClient {
             .invoke(Endpoint::PluginBundleRemove, json!({"name": name}))
             .await?;
         crate::plugin::project_change(value)
+    }
+    /// Read what one typed install spec names, before installing anything
+    /// (`pluginManager/inspect`, `manager-store.ts:870-890`). A refusal is a normal reply, not an error.
+    pub async fn plugin_manager_inspect(
+        &self,
+        spec: &str,
+        registry: Option<&str>,
+    ) -> Result<crate::plugin::PluginInspection> {
+        let spec = spec.trim();
+        if spec.is_empty() || spec.len() > 2048 || spec.chars().any(char::is_control) {
+            return Err(Error::InvalidDto);
+        }
+        if registry.is_some_and(|registry| registry.is_empty() || registry.len() > 2048) {
+            return Err(Error::InvalidDto);
+        }
+        let options = match registry {
+            Some(registry) => json!({"registry": registry}),
+            None => json!({}),
+        };
+        let value = self
+            .invoke(
+                Endpoint::PluginInspect,
+                json!({"spec": spec, "options": options}),
+            )
+            .await?;
+        crate::plugin::project_inspection(value)
     }
     /// Project private redacted config and Schemastery graphs before publishing any DTO.
     pub async fn plugin_settings(&self) -> Result<crate::plugin::SettingsDescribeValue> {

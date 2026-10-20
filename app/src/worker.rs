@@ -68,6 +68,10 @@ pub enum Command {
     PluginRemove {
         name: String,
     },
+    /// Read what one typed install spec names, before installing anything.
+    PluginInspect {
+        spec: String,
+    },
     /// Re-read the session roster, whose summaries carry the projections a subagent catalog is built
     /// from. The reference refreshes a child's projection when its chevron is pressed
     /// (`SubagentHeaderLineage.tsx:554-561`); this is the same read, whole-roster.
@@ -420,6 +424,8 @@ pub enum Event {
         name: String,
         result: Result<dsh_native_transport::plugin::PluginChange, String>,
     },
+    /// One install-spec inspection's answer: accepted preview or a normal refusal.
+    PluginInspected(Result<dsh_native_transport::plugin::PluginInspection, String>),
     PluginsLoaded {
         ticket: crate::plugins::ReadTicket,
         result: Result<crate::plugins::Snapshot, crate::plugins::ReadFailure>,
@@ -1192,6 +1198,7 @@ fn rejected(command: Command) -> Event {
             name,
             result: Err(error),
         },
+        Command::PluginInspect { .. } => Event::PluginInspected(Err(error)),
         Command::PluginsRead(ticket) => Event::PluginsLoaded {
             ticket,
             result: Err(crate::plugins::ReadFailure::Unavailable),
@@ -2799,6 +2806,9 @@ async fn run(
                         result:client.open_workspace_path(&path).await.map_err(|error|format!("Open path: {error}")),
                         path,
                     },
+                    Command::PluginInspect{spec}=>Event::PluginInspected(
+                        client.plugin_manager_inspect(&spec,None).await.map_err(|error|format!("Plugins: {error}"))
+                    ),
                     Command::PluginRemove{name}=>Event::PluginRemoved{
                         result:client.plugin_manager_remove_bundle(&name).await.map_err(|error|format!("Plugins: {error}")),
                         name,

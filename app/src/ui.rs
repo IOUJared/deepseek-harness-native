@@ -6432,6 +6432,14 @@ impl App {
                             self.command(worker::Command::PluginRemove { name });
                         }
                     }
+                    plugin_manager::Action::EditSpec(text) => {
+                        self.plugin_manager.edit_spec(text);
+                    }
+                    plugin_manager::Action::Inspect => {
+                        if let Some(spec) = self.plugin_manager.begin_inspect() {
+                            self.command(worker::Command::PluginInspect { spec });
+                        }
+                    }
                 }
             }
             // A disclosure with no visible composer has nothing to expand, and an
@@ -7096,6 +7104,9 @@ impl App {
             }
             Event::PluginManagerLoaded(result) => {
                 self.plugin_manager.settled(result);
+            }
+            Event::PluginInspected(result) => {
+                self.plugin_manager.inspected(result);
             }
             Event::PluginRemoved { name, result } => {
                 let reread = self.plugin_manager.removed(name, result);

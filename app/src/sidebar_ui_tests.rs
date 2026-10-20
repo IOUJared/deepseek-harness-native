@@ -1348,3 +1348,62 @@ fn uninstalling_a_bundle_needs_confirm_and_sends_one_destructive_write() {
     })));
     assert!(matches!(queue.try_recv(), Ok(Command::PluginManagerRead)));
 }
+
+#[test]
+fn inspecting_an_install_spec_sends_one_read_and_shows_the_answer() {
+    use super::plugin_manager::Action as Manager;
+    use dsh_native_transport::plugin::PluginInspection;
+    let (mut app, mut queue) = app();
+    app.plugin_manager.seed(true, Vec::new());
+    // A blank spec sends no read.
+    drop(app.update(Message::PluginManager(Manager::Inspect)));
+    assert!(queue.try_recv().is_err());
+    // The typed spec is trimmed for the Host and read exactly once.
+    drop(app.update(Message::PluginManager(Manager::EditSpec(
+        "  @PUBLIC/pkg  ".into(),
+    ))));
+    drop(app.update(Message::PluginManager(Manager::Inspect)));
+    let Command::PluginInspect { spec } = queue.try_recv().expect("one inspect") else {
+        panic!("only the spec inspection expected")
+    };
+    assert_eq!(spec, "@PUBLIC/pkg");
+    // A second press while the read is in flight sends nothing.
+    drop(app.update(Message::PluginManager(Manager::Inspect)));
+    assert!(queue.try_recv().is_err());
+    // An accepted answer is the preview; nothing is installed by it.
+    drop(app.update(Message::Worker(Event::PluginInspected(Ok(
+        PluginInspection::Accepted {
+            kind: "registry".into(),
+            name: Some("@PUBLIC/pkg".into()),
+            version: Some("1.0.0".into()),
+            description: Some("PUBLIC package".into()),
+            bundle: Some(true),
+            registry: Some("https://PUBLIC.invalid".into()),
+            host: None,
+        },
+    )))));
+    assert!(matches!(
+        app.plugin_manager.inspection(),
+        Some(PluginInspection::Accepted {
+            bundle: Some(true),
+            ..
+        })
+    ));
+    // A refusal is a normal answer, and it replaces the preview.
+    drop(app.update(Message::PluginManager(Manager::Inspect)));
+    assert!(matches!(
+        queue.try_recv(),
+        Ok(Command::PluginInspect { .. })
+    ));
+    drop(app.update(Message::Worker(Event::PluginInspected(Ok(
+        PluginInspection::Refused {
+            problem: "not-found".into(),
+            reason: "PUBLIC registry said no".into(),
+            registries: 2,
+        },
+    )))));
+    assert!(matches!(
+        app.plugin_manager.inspection(),
+        Some(PluginInspection::Refused { problem, .. }) if problem == "not-found"
+    ));
+}

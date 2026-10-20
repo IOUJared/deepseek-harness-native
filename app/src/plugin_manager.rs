@@ -8,7 +8,7 @@
 use crate::design;
 use crate::ui::{DANGER, MUTED, TEXT, label, short};
 use dsh_native_transport::plugin::PluginBundle;
-use iced::widget::{button, column, container, scrollable};
+use iced::widget::{button, column, container, scrollable, text_input};
 use iced::{Element, Length};
 
 /// What the page asks the App to do.
@@ -33,6 +33,10 @@ pub enum Action {
     CancelRemove,
     /// Send the armed removal; one explicit destructive attempt.
     ConfirmRemove,
+    /// Edit the typed install spec. Never sends.
+    EditSpec(String),
+    /// Inspect the typed spec; nothing is installed.
+    Inspect,
 }
 
 #[derive(Default)]
@@ -55,6 +59,10 @@ pub struct Manager {
     remove_confirm: Option<String>,
     /// The removal in flight.
     remove_pending: Option<String>,
+    /// The install spec being typed, and its last inspection.
+    spec: String,
+    inspecting: bool,
+    inspection: Option<dsh_native_transport::plugin::PluginInspection>,
 }
 
 impl Manager {
@@ -200,6 +208,56 @@ impl Manager {
             }
         }
     }
+    pub fn edit_spec(&mut self, text: String) {
+        self.spec = text;
+        self.notice = None;
+    }
+    /// Start one inspect read for the typed spec. Nothing is installed and a blank spec sends nothing.
+    pub fn begin_inspect(&mut self) -> Option<String> {
+        let spec = self.spec.trim().to_owned();
+        if spec.is_empty() || self.inspecting {
+            return None;
+        }
+        self.inspecting = true;
+        self.inspection = None;
+        self.notice = None;
+        Some(spec)
+    }
+    pub fn inspected(
+        &mut self,
+        result: Result<dsh_native_transport::plugin::PluginInspection, String>,
+    ) {
+        self.inspecting = false;
+        match result {
+            Ok(inspection) => self.inspection = Some(inspection),
+            Err(error) => {
+                self.inspection = None;
+                self.notice = Some((
+                    format!("Could not inspect the spec: {}", short(&error, 80)),
+                    true,
+                ));
+            }
+        }
+    }
+    #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
+    pub fn spec(&self) -> &str {
+        &self.spec
+    }
+    #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
+    pub fn inspection(&self) -> Option<&dsh_native_transport::plugin::PluginInspection> {
+        self.inspection.as_ref()
+    }
+    /// Seed a settled inspection for a public fixture: no Host was asked.
+    #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
+    pub fn seed_inspection(
+        &mut self,
+        spec: &str,
+        inspection: dsh_native_transport::plugin::PluginInspection,
+    ) {
+        self.spec = spec.to_owned();
+        self.inspecting = false;
+        self.inspection = Some(inspection);
+    }
     /// The armed removal, for the fixture and its pinning test.
     #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
     pub fn remove_armed(&self) -> Option<&str> {
@@ -276,8 +334,112 @@ impl Manager {
             .padding([8, 12])
             .style(design::ghost)
             .on_press_maybe((!self.loading).then_some(Message::PluginManager(Action::Refresh))),
+            label("Add plugin", TEXT).size(13),
+            iced::widget::row![
+                text_input(
+                    "Package name, local path, git URL or tarball",
+                    self.spec.as_str()
+                )
+                .padding(8)
+                .size(12)
+                .style(design::field)
+                .width(Length::Fill)
+                .on_input(move |text| Message::PluginManager(Action::EditSpec(text))),
+                button(if self.inspecting {
+                    "Reading…"
+                } else {
+                    "Inspect"
+                })
+                .padding([8, 12])
+                .style(design::ghost)
+                .on_press_maybe(
+                    (!self.inspecting).then_some(Message::PluginManager(Action::Inspect))
+                ),
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center),
         ]
         .spacing(12);
+        if let Some(inspection) = &self.inspection {
+            match inspection {
+                dsh_native_transport::plugin::PluginInspection::Accepted {
+                    kind,
+                    name,
+                    version,
+                    description,
+                    bundle,
+                    registry,
+                    host,
+                } => {
+                    let identity = match (name.as_deref(), version.as_deref()) {
+                        (Some(name), Some(version)) => format!("{name} · {version}"),
+                        (Some(name), None) => name.to_owned(),
+                        _ => "Unnamed spec".to_owned(),
+                    };
+                    let mut card = column![
+                        label(short(&identity, 100), TEXT).size(13),
+                        label(
+                            format!(
+                                "{kind}{}",
+                                match bundle {
+                                    Some(true) => " · declares a bundle patch",
+                                    Some(false) => " · no bundle patch",
+                                    None => " · bundle unknown",
+                                }
+                            ),
+                            MUTED,
+                        )
+                        .size(11),
+                    ]
+                    .spacing(2);
+                    if let Some(description) = description {
+                        card = card.push(label(short(description, 200), MUTED).size(11));
+                    }
+                    if let Some(registry) = registry {
+                        card = card.push(label(format!("Registry {registry}"), MUTED).size(10));
+                    }
+                    if let Some(host) = host {
+                        card = card.push(label(format!("Host {host}"), MUTED).size(10));
+                    }
+                    card = card.push(
+                        label(
+                            "Installing is not offered here yet; this only read the spec.",
+                            MUTED,
+                        )
+                        .size(10),
+                    );
+                    body = body.push(
+                        container(card)
+                            .padding([8, 10])
+                            .width(Length::Fill)
+                            .style(|_| design::card(design::OVERLAY, design::RADIUS_SM)),
+                    );
+                }
+                dsh_native_transport::plugin::PluginInspection::Refused {
+                    problem,
+                    reason,
+                    registries,
+                } => {
+                    body = body.push(
+                        label(
+                            format!(
+                                "Could not inspect the spec ({problem}): {}{}",
+                                short(reason, 200),
+                                if *registries > 1 {
+                                    format!(" · {registries} registries asked")
+                                } else {
+                                    String::new()
+                                }
+                            ),
+                            DANGER,
+                        )
+                        .size(12),
+                    );
+                }
+            }
+        } else if self.inspecting {
+            body = body.push(label("Reading the spec…", MUTED).size(11));
+        }
         if let Some((notice, danger)) = &self.notice {
             body = body
                 .push(label(notice.clone(), if *danger { DANGER } else { design::FOAM }).size(12));

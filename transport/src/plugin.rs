@@ -72,6 +72,102 @@ pub struct PluginBundle {
     pub error: Option<String>,
 }
 /// What one plugin-manager write settled as (`boot/plugin-manager/lib/types/types.d.ts:98-125`).
+/// What a typed install spec names, read before installing anything
+/// (`boot/plugin-manager/lib/types/types.d.ts:143-171`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PluginInspection {
+    Accepted {
+        kind: String,
+        name: Option<String>,
+        version: Option<String>,
+        description: Option<String>,
+        /// `null` in the wire means the spec's form does not say.
+        bundle: Option<bool>,
+        registry: Option<String>,
+        host: Option<String>,
+    },
+    Refused {
+        problem: String,
+        reason: String,
+        /// How many registries were asked before the refusal.
+        registries: usize,
+    },
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WireInspection {
+    status: String,
+    kind: Option<String>,
+    name: Option<String>,
+    version: Option<String>,
+    description: Option<String>,
+    bundle: Option<bool>,
+    registry: Option<String>,
+    host: Option<String>,
+    problem: Option<String>,
+    reason: Option<String>,
+    #[serde(default)]
+    registries: Vec<Value>,
+}
+pub(crate) fn project_inspection(value: Value) -> Result<PluginInspection> {
+    bounded(&value)?;
+    let wire: WireInspection = serde_json::from_value(value).map_err(|_| Error::InvalidDto)?;
+    let optional = |value: Option<String>, max: usize| -> Result<Option<String>> {
+        value
+            .map(|text| {
+                crate::plugin::text(&text, max)
+                    .then_some(text)
+                    .ok_or(Error::InvalidDto)
+            })
+            .transpose()
+    };
+    match wire.status.as_str() {
+        "accepted" => {
+            let kind = wire.kind.ok_or(Error::InvalidDto)?;
+            if !matches!(kind.as_str(), "registry" | "path" | "git" | "tarball") {
+                return Err(Error::InvalidDto);
+            }
+            Ok(PluginInspection::Accepted {
+                kind,
+                name: optional(wire.name, 512)?,
+                version: optional(wire.version, 128)?,
+                description: optional(wire.description, MAX_TEXT)?,
+                bundle: wire.bundle,
+                registry: optional(wire.registry, 2048)?,
+                host: optional(wire.host, 512)?,
+            })
+        }
+        "refused" => {
+            let problem = wire.problem.ok_or(Error::InvalidDto)?;
+            if !matches!(
+                problem.as_str(),
+                "invalid-spec"
+                    | "already-installed"
+                    | "not-found"
+                    | "not-a-package"
+                    | "not-a-bundle"
+                    | "network"
+                    | "unknown"
+            ) {
+                return Err(Error::InvalidDto);
+            }
+            if wire.registries.len() > 16 {
+                return Err(Error::Oversize);
+            }
+            let reason = wire.reason.ok_or(Error::InvalidDto)?;
+            if !text(&reason, MAX_TEXT) {
+                return Err(Error::InvalidDto);
+            }
+            Ok(PluginInspection::Refused {
+                problem,
+                reason,
+                registries: wire.registries.len(),
+            })
+        }
+        _ => Err(Error::InvalidDto),
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PluginChange {
     pub changed: bool,
@@ -983,6 +1079,70 @@ mod tests {
             json!([{"name":"a","enabled":true,"installed":true},{"name":"a","enabled":false,"installed":false}]),
         ] {
             assert!(project_bundles(bad.clone()).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn an_install_spec_inspection_projects_both_answers() {
+        match project_inspection(json!({
+            "status": "accepted",
+            "kind": "registry",
+            "name": "@PUBLIC/pkg",
+            "version": "1.2.3",
+            "description": "PUBLIC package",
+            "bundle": true,
+            "registry": "https://PUBLIC.invalid",
+            "host": null
+        }))
+        .unwrap()
+        {
+            PluginInspection::Accepted {
+                kind,
+                name,
+                version,
+                description,
+                bundle,
+                registry,
+                host,
+            } => {
+                assert_eq!(kind, "registry");
+                assert_eq!(name.as_deref(), Some("@PUBLIC/pkg"));
+                assert_eq!(version.as_deref(), Some("1.2.3"));
+                assert_eq!(description.as_deref(), Some("PUBLIC package"));
+                assert_eq!(bundle, Some(true));
+                assert_eq!(registry.as_deref(), Some("https://PUBLIC.invalid"));
+                assert_eq!(host, None);
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        match project_inspection(json!({
+            "status": "refused",
+            "problem": "not-found",
+            "reason": "PUBLIC registry said no",
+            "registries": ["https://a", "https://b"]
+        }))
+        .unwrap()
+        {
+            PluginInspection::Refused {
+                problem,
+                reason,
+                registries,
+            } => {
+                assert_eq!(problem, "not-found");
+                assert_eq!(reason, "PUBLIC registry said no");
+                assert_eq!(registries, 2);
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        for bad in [
+            json!({}),
+            json!({"status": "other"}),
+            json!({"status": "accepted"}),
+            json!({"status": "accepted", "kind": "other"}),
+            json!({"status": "refused", "problem": "other", "reason": "x"}),
+            json!({"status": "refused", "problem": "not-found"}),
+        ] {
+            assert!(project_inspection(bad.clone()).is_err(), "{bad}");
         }
     }
 

@@ -150,6 +150,7 @@ pub const PRESETS: &[&str] = &[
     "plugin-manager",
     "plugin-manager-confirm",
     "plugin-manager-remove",
+    "plugin-manager-inspect",
     "changes-card",
     "changes-diff",
     "changes-split",
@@ -371,9 +372,10 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "settings-shortcuts" => Some((Size::new(1040.0, 900.0), 1.0)),
         "turn-error" | "turn-max-tokens" | "quota-toast" => Some((Size::new(1040.0, 620.0), 1.0)),
         "schedule-create" | "schedule-create-deleted" => Some((Size::new(1040.0, 700.0), 1.0)),
-        "plugin-manager" | "plugin-manager-confirm" | "plugin-manager-remove" => {
-            Some((Size::new(1040.0, 760.0), 1.0))
-        }
+        "plugin-manager"
+        | "plugin-manager-confirm"
+        | "plugin-manager-remove"
+        | "plugin-manager-inspect" => Some((Size::new(1040.0, 760.0), 1.0)),
         "skill-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "command-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "process-group-closed" | "process-group-open" => Some((Size::new(1040.0, 760.0), 1.0)),
@@ -1550,7 +1552,7 @@ pub fn build(
         // A preset that carries a transcript is not a blank session; the reference's own row
         // list and the chat fixtures both depend on this flag.
         "blank": !matches!(preset, "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" | "conversation" | "chat-density" | "chat-markdown" | "chat-thoughts" | "thoughts-preview" | "chat-thoughts-markdown" | "chat-table" | "reminders" | "reminders-delete" | "session-schedule-mark" | "session-hover" | "open-in-app" | "plugin-manager"
-            | "plugin-manager-confirm" | "plugin-manager-remove")
+            | "plugin-manager-confirm" | "plugin-manager-remove" | "plugin-manager-inspect")
             && !preset.starts_with("tool-activity"),
 
         "cwd":"/PUBLIC-layout-fixture/workspace",
@@ -1893,6 +1895,7 @@ pub fn build(
             | "plugin-manager"
             | "plugin-manager-confirm"
             | "plugin-manager-remove"
+            | "plugin-manager-inspect"
             | "subagent-catalog"
             | "subagent-catalog-error"
             | "subagent-readonly"
@@ -3161,6 +3164,7 @@ pub fn build(
     if preset == "plugin-manager"
         || preset == "plugin-manager-confirm"
         || preset == "plugin-manager-remove"
+        || preset == "plugin-manager-inspect"
     {
         // The Host's bundle list as the read route returns it: no installation or switch happened.
         app.plugin_manager.seed(
@@ -3215,6 +3219,21 @@ pub fn build(
     if preset == "plugin-manager-remove" {
         // The armed uninstall a press on `Uninstall…` reaches; nothing is sent by the frame.
         app.plugin_manager.seed_remove("dsh-bundle-base");
+    }
+    if preset == "plugin-manager-inspect" {
+        // The accepted preview an inspect answers with; nothing is installed by it.
+        app.plugin_manager.seed_inspection(
+            "@PUBLIC/voice-kit",
+            dsh_native_transport::plugin::PluginInspection::Accepted {
+                kind: "registry".into(),
+                name: Some("@PUBLIC/voice-kit".into()),
+                version: Some("2.1.0".into()),
+                description: Some("Optional speech tools bundled as a plugin.".into()),
+                bundle: Some(true),
+                registry: Some("https://registry.npmjs.org".into()),
+                host: None,
+            },
+        );
     }
     drop(app.update(Message::Resized(size)));
 
@@ -5482,6 +5501,11 @@ mod tests {
             if preset == "plugin-manager-remove" {
                 // The frame shows the armed uninstall; no destructive command was queued.
                 assert_eq!(app.plugin_manager.remove_armed(), Some("dsh-bundle-base"));
+                assert!(receiver.try_recv().is_err());
+            }
+            if preset == "plugin-manager-inspect" {
+                // The frame shows the accepted preview, and the spec read queued nothing.
+                assert!(app.plugin_manager.inspection().is_some());
                 assert!(receiver.try_recv().is_err());
             }
             if preset == "terminal-tabs" {
