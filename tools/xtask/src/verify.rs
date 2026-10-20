@@ -331,7 +331,6 @@ fn tests(root: &Path, offline: bool) -> Vec<Check> {
     // (the history guards are `xtask history` tests), so it needs no discovery.
     for (name, directory, pattern) in [
         ("script-guards", "scripts", "test_*.py"),
-        ("benchmark-guards", "benchmarks", "test_*.py"),
         ("release-guards", ".github/scripts", "test_*.py"),
     ] {
         checks.push(Check {

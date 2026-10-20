@@ -52,7 +52,8 @@ file is the stage map; it is deleted with the last Python file.
 imports its process-metrics helpers, so the module cannot be deleted until the
 qualification family is ported. Its CLI duplicate is `xtask bench run`; do not
 change `run.py`'s measurement rules in the meantime, or the two drift. Its guard
-(`benchmarks/test_runner.py`) therefore stays in `benchmark-guards`.
+(`benchmarks/test_runner.py`) was deleted once its cases were covered by the Rust
+`proc` and `bench` tests; the `benchmarks` guard check is retired.
 
 Deliberate differences, all measured against the Python originals:
 
@@ -128,7 +129,7 @@ Deliberate differences, all measured against the Python originals:
 | `scripts/test_*` | 11 | 2,365 | Rust tests next to the qualifiers; rewrite each guard's subject, never copy it verbatim. `app/` has no Python left |
 | `.github/scripts/*` | 4 | 387 | `xtask package` / `xtask publish`; `tar` + `flate2` are already dependencies, `gh` stays a child process |
 | `development-launcher.py` | 1 | 356 | **Shipped** as `launch.py` in the development package: a Rust `dsh-native-launch` binary replaces it, so the archive stops requiring Python 3.11+; update the archive verifier and install docs together |
-| `benchmarks/run.py` + `test_runner.py` | 2 | 417 | Deleted with the qualification family, whose scripts import the library; `xtask bench run` is already the replacement |
+| `benchmarks/run.py` | 1 | 330 | Deleted with the qualification family, whose scripts import the library; `xtask bench run` is already the replacement and `test_runner.py` is already deleted |
 
 Also outstanding, outside `*.py`: `core/src/process_tests.rs` spawns `/usr/bin/python3`
 as a forked fake-process tree for supervisor containment. It needs a small Rust
