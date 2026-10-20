@@ -29,7 +29,7 @@ Same three 8-second blank-session runs (identity-checked warm window 3.28 s, one
 | Endpoint CPU, % one core | 1.22% | 0.00% | 0.00% |
 | Owned processes | 2 | 2 | 2 |
 
-Longer window, same binary, three fresh 60-second blank sessions (`scripts/measure-native-idle.py`):
+Longer window, same binary, three fresh 60-second blank sessions (`tools/xtask idle`):
 
 | Metric (median of 3) | Value |
 |---|---:|

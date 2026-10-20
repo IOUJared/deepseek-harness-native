@@ -325,6 +325,9 @@ fn tests(root: &Path, offline: bool) -> Vec<Check> {
     });
     // These four still discover the Python guards they have not replaced yet;
     // each owner moves to a `cargo test` command as its family is ported.
+    // `benchmarks/test_runner.py` guards `benchmarks/run.py`, which the
+    // qualification scripts still import as their metrics library; it moves to
+    // `xtask-guards` when that family is ported.
     for (name, directory, pattern) in [
         ("script-guards", "scripts", "test_*.py"),
         ("benchmark-guards", "benchmarks", "test_*.py"),

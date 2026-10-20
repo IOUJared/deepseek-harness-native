@@ -7,6 +7,8 @@ usage: xtask <command>
 commands:
   verify        Serial headless checks: doctor, clippy, lint, examples, test, all
   format-debt   First-party Rust formatting-debt ratchet
+  bench         Prototype benchmark measurement (run, analyze)
+  idle          Sample owned idle resources over a longer window
   help          This message
 ";
 
@@ -15,6 +17,8 @@ fn main() -> ExitCode {
     let code = match arguments.first().map(String::as_str) {
         Some("verify") => dsh_xtask::verify::run(&arguments[1..]),
         Some("format-debt") => dsh_xtask::fmtdebt::run(&arguments[1..]),
+        Some("bench") => dsh_xtask::bench::run(&arguments[1..]),
+        Some("idle") => dsh_xtask::idle::run(&arguments[1..]),
         Some("help" | "--help" | "-h") | None => {
             print!("{USAGE}");
             0
