@@ -188,6 +188,32 @@ pub fn relative(instant_millis: i64, now_millis: i64) -> String {
     }
 }
 
+/// The reference's compact sidebar hover time: `now`, `5min ago`, `2h ago`, `3d ago`, `2mo ago`,
+/// `1y ago` (`ui-primitives/src/relative-time.ts:25-36`, `ui-workspace/src/client/locales.ts:237-243`).
+/// A future instant clamps to `now`, as the reference's `Math.max(0, now - at)` does.
+pub fn ago(updated_millis: i64, now_millis: i64) -> String {
+    const MINUTE: i64 = 60_000;
+    const HOUR: i64 = 60 * MINUTE;
+    const DAY: i64 = 24 * HOUR;
+    let diff = (now_millis - updated_millis).max(0);
+    if diff < MINUTE {
+        return "now".to_owned();
+    }
+    if diff < HOUR {
+        return format!("{}min ago", diff / MINUTE);
+    }
+    if diff < DAY {
+        return format!("{}h ago", diff / HOUR);
+    }
+    if diff < 30 * DAY {
+        return format!("{}d ago", diff / DAY);
+    }
+    if diff < 365 * DAY {
+        return format!("{}mo ago", diff / (30 * DAY));
+    }
+    format!("{}y ago", diff / (365 * DAY))
+}
+
 /// The schedules rows' own rendering: a stored instant as local text, falling back to the stored
 /// string when it cannot be read, so nothing is ever silently blank.
 pub fn local_or_stored(text: &str) -> String {
@@ -270,6 +296,21 @@ mod clock_tests {
             hour,
             minute,
         }
+    }
+
+    #[test]
+    fn a_hover_time_reads_now_and_each_coarse_unit() {
+        let now = 1_800_000_000_000i64;
+        assert_eq!(ago(now, now), "now");
+        assert_eq!(ago(now - 59_999, now), "now");
+        assert_eq!(ago(now - 60_000, now), "1min ago");
+        assert_eq!(ago(now - 5 * 60_000, now), "5min ago");
+        assert_eq!(ago(now - 60 * 60_000, now), "1h ago");
+        assert_eq!(ago(now - 3 * 24 * 60 * 60_000, now), "3d ago");
+        assert_eq!(ago(now - 60 * 24 * 60 * 60_000, now), "2mo ago");
+        assert_eq!(ago(now - 400 * 24 * 60 * 60_000, now), "1y ago");
+        // A clock that moved backwards reads as `now`, never as a negative age.
+        assert_eq!(ago(now + 60_000, now), "now");
     }
 
     #[test]

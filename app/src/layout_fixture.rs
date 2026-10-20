@@ -143,6 +143,7 @@ pub const PRESETS: &[&str] = &[
     "reminders",
     "reminders-delete",
     "session-schedule-mark",
+    "session-hover",
     "mcp",
     "changes-card",
     "changes-diff",
@@ -450,7 +451,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "effort-submenu-tiny" => Some((Size::new(608.0, 448.0), 1.25)),
         // The sidebar's session rows and their scheduled-task seats need the expanded sidebar; a
         // 760px frame draws its compact rail instead, where rows are not drawn at all.
-        "session-schedule-mark" => Some((Size::new(1040.0, 700.0), 1.0)),
+        "session-schedule-mark" | "session-hover" => Some((Size::new(1040.0, 700.0), 1.0)),
         "narrow-welcome"
         | "menu"
         | "navigation"
@@ -1532,7 +1533,7 @@ pub fn build(
         "running":preset.starts_with("working-") || matches!(preset, "menu" | "navigation" | "navigation-tiny"),
         // A preset that carries a transcript is not a blank session; the reference's own row
         // list and the chat fixtures both depend on this flag.
-        "blank": !matches!(preset, "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" | "conversation" | "chat-density" | "chat-markdown" | "chat-thoughts" | "thoughts-preview" | "chat-thoughts-markdown" | "chat-table" | "reminders" | "reminders-delete" | "session-schedule-mark")
+        "blank": !matches!(preset, "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" | "conversation" | "chat-density" | "chat-markdown" | "chat-thoughts" | "thoughts-preview" | "chat-thoughts-markdown" | "chat-table" | "reminders" | "reminders-delete" | "session-schedule-mark" | "session-hover")
             && !preset.starts_with("tool-activity"),
 
         "cwd":"/PUBLIC-layout-fixture/workspace",
@@ -1870,6 +1871,7 @@ pub fn build(
             | "reminders"
             | "reminders-delete"
             | "session-schedule-mark"
+            | "session-hover"
             | "subagent-catalog"
             | "subagent-catalog-error"
             | "subagent-readonly"
@@ -2653,7 +2655,10 @@ pub fn build(
         }
     }
 
-    if preset.starts_with("reminders") || preset == "session-schedule-mark" {
+    if preset.starts_with("reminders")
+        || preset == "session-schedule-mark"
+        || preset == "session-hover"
+    {
         // The header's reminder chip and its popover over the conversation it belongs to: the open
         // Session's own live tasks, ordered overdue first (`ScheduleCatalogAction.tsx:141-192`,
         // `schedule-format.ts:442-458`). One inactive task and one other Session's live task sit in
@@ -2728,6 +2733,21 @@ pub fn build(
         );
         // The mark preset frames the sidebar rows alone: the same catalog, with the popover shut.
         app.reminders_open = preset.starts_with("reminders");
+        if preset == "session-hover" {
+            // A third active task, so the card's two-row section proves its omitted count, and the
+            // open state the 800ms dwell reaches (the pointer-driven path is unit-tested).
+            app.schedules.push(item(
+                "PUBLIC-hover-third",
+                "PUBLIC third reminder",
+                "daily",
+                &session,
+                "active",
+                Some("2026-12-03T08:00:00Z"),
+                serde_json::json!({"prompt":"PUBLIC third instruction","time":"08:00:00","timeZone":"UTC"}),
+            ));
+            app.session_hover = Some(session.clone());
+            app.session_hover_open = Some(session.clone());
+        }
         if preset == "reminders-delete" {
             // A delete armed from the popover states what it takes before the button that does it.
             app.schedule_delete = Some((session.clone(), "PUBLIC-reminder-overdue".into()));
@@ -5231,6 +5251,20 @@ mod tests {
                     app.session_schedule_mark(&review, None).is_none(),
                     "a row without an active task carries no mark"
                 );
+            }
+            if preset == "session-hover" {
+                // The card the dwell would open, with two ordered task rows and the third counted.
+                let selected = app.selected.clone().expect("a selected row");
+                assert_eq!(app.session_hover_open.as_ref(), Some(&selected));
+                let now = crate::ui::time_text::parse_instant("2026-10-20T00:00:00Z")
+                    .expect("a fixed clock");
+                let (shown, omitted) = crate::reducer::schedule_card::hover_tasks(
+                    app.schedules.iter(),
+                    &selected,
+                    now,
+                );
+                assert_eq!(shown.len(), 2);
+                assert_eq!(omitted, 1, "the third active task is counted, not dropped");
             }
             if preset == "permission-chip" {
                 // The chip is drawn only from the recorded preset, and the record

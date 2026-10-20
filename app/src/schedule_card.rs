@@ -299,6 +299,27 @@ pub fn is_open_reminder(
     &item.session_id == session && Filter::Enabled.admits(&item.status)
 }
 
+/// The Session-row hover card's task section: the two ordered active tasks the reference shows and
+/// the count it omits (`ui-schedule/src/client/SessionScheduleHover.tsx:26, 66-91`).
+pub fn hover_tasks<'a>(
+    items: impl IntoIterator<Item = &'a dsh_native_transport::dto::ScheduleCatalogItem>,
+    session: &dsh_native_transport::dto::SessionId,
+    now: i64,
+) -> (
+    Vec<&'a dsh_native_transport::dto::ScheduleCatalogItem>,
+    usize,
+) {
+    const SHOWN: usize = 2;
+    let ordered = order_reminders(
+        items
+            .into_iter()
+            .filter(|item| is_open_reminder(item, session)),
+        now,
+    );
+    let omitted = ordered.len().saturating_sub(SHOWN);
+    (ordered.into_iter().take(SHOWN).collect(), omitted)
+}
+
 /// One Session's active reminders, ordered as the header popover lists them
 /// (`ScheduleCatalogAction.tsx:70`, `schedule-format.ts:442-458`): an overdue target first, then
 /// ascending next-run, keeping the catalog's own order where two targets are equal.

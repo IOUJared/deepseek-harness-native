@@ -1010,3 +1010,119 @@ fn a_session_row_marks_only_its_own_active_scheduled_tasks() {
     app.completion_unread.insert(id("a"));
     assert!(app.session_schedule_mark(&row, None).is_none());
 }
+
+#[test]
+fn hovering_a_session_row_opens_its_card_after_the_delay_and_a_grace_close_lets_the_pointer_cross()
+{
+    let (mut app, _queue) = app();
+    let session = id("a");
+    // Crossing the row arms the dwell; nothing is open yet.
+    drop(app.update(Message::SessionRowHover {
+        session: session.clone(),
+        entered: true,
+    }));
+    assert_eq!(app.session_hover.as_ref(), Some(&session));
+    assert!(
+        app.session_hover_open.is_none(),
+        "a crossing cursor does not flash a preview"
+    );
+    // The 800ms dwell elapsing while the pointer is still there opens it.
+    drop(app.update(Message::SessionRowHoverExpired(session.clone())));
+    assert_eq!(app.session_hover_open.as_ref(), Some(&session));
+    // Leaving arms the 200ms grace instead of closing at once, so the pointer can cross the gap.
+    drop(app.update(Message::SessionRowHover {
+        session: session.clone(),
+        entered: false,
+    }));
+    assert_eq!(
+        app.session_hover_open.as_ref(),
+        Some(&session),
+        "the grace keeps the card while the pointer crosses"
+    );
+    // A pointer resting on the card cancels that close.
+    drop(app.update(Message::SessionHoverCard {
+        session: session.clone(),
+        entered: true,
+    }));
+    drop(app.update(Message::SessionRowHoverGrace(session.clone())));
+    assert_eq!(
+        app.session_hover_open.as_ref(),
+        Some(&session),
+        "resting on the card keeps it"
+    );
+    // Leaving the card re-arms the grace, and an elapsed grace closes it.
+    drop(app.update(Message::SessionHoverCard {
+        session: session.clone(),
+        entered: false,
+    }));
+    drop(app.update(Message::SessionRowHoverGrace(session.clone())));
+    assert!(app.session_hover_open.is_none());
+    // A stale expiry for a row the pointer already left never opens a card.
+    drop(app.update(Message::SessionRowHover {
+        session: session.clone(),
+        entered: true,
+    }));
+    drop(app.update(Message::SessionRowHover {
+        session: session.clone(),
+        entered: false,
+    }));
+    drop(app.update(Message::SessionRowHoverExpired(session.clone())));
+    assert!(app.session_hover_open.is_none());
+}
+
+#[test]
+fn the_hover_card_shows_two_ordered_active_tasks_and_counts_the_rest() {
+    use dsh_native_transport::dto::ScheduleCatalogItem;
+    let (mut app, _queue) = app();
+    let item =
+        |schedule: &str, session: &str, status: &str, at: Option<&str>| ScheduleCatalogItem {
+            id: schedule.into(),
+            title: schedule.into(),
+            kind: "daily".into(),
+            session_id: id(session),
+            status: status.into(),
+            scheduled_at: at.map(str::to_owned),
+            last_delivery: None,
+            record: serde_json::Map::new(),
+        };
+    app.schedules = vec![
+        item(
+            "PUBLIC-hover-later",
+            "a",
+            "active",
+            Some("2026-12-02T08:00:00Z"),
+        ),
+        item(
+            "PUBLIC-hover-overdue",
+            "a",
+            "active",
+            Some("2026-10-16T09:00:00Z"),
+        ),
+        item(
+            "PUBLIC-hover-next",
+            "a",
+            "active",
+            Some("2026-12-01T17:30:00Z"),
+        ),
+        item("PUBLIC-hover-paused", "a", "inactive", None),
+        item("PUBLIC-hover-elsewhere", "b", "active", None),
+    ];
+    let now = super::time_text::parse_instant("2026-10-20T00:00:00Z").expect("a fixed clock");
+    let (shown, omitted) =
+        crate::reducer::schedule_card::hover_tasks(app.schedules.iter(), &id("a"), now);
+    assert_eq!(
+        shown
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect::<Vec<_>>(),
+        ["PUBLIC-hover-overdue", "PUBLIC-hover-next"],
+        "overdue first, then the soonest next run"
+    );
+    assert_eq!(omitted, 1, "the third active task is counted, not dropped");
+    // The inactive task and another Session's task never enter this row's section.
+    let (elsewhere, omitted) =
+        crate::reducer::schedule_card::hover_tasks(app.schedules.iter(), &id("b"), now);
+    assert_eq!(elsewhere.len(), 1);
+    assert_eq!(elsewhere[0].id, "PUBLIC-hover-elsewhere");
+    assert_eq!(omitted, 0);
+}

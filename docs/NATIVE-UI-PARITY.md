@@ -6415,7 +6415,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | --- | --- |
 | Chat: renderer, thoughts, turn triggers, copy/branch/edit/fork | cloned (search is a native addition: the reference has no conversation Find bar and leaves text search to the browser's own find, exposing collapsed subtrees to it through `hidden="until-found"`) (markdown: tables, footnotes, math, strikethrough, task items, literal raw HTML, headings/rules/tables/fenced blocks inside a container, quote-and-list nesting in either order, and a nested image's alt folded into the outer run — no plain Markdown construct falls back to text since round 538; math draws its source, since no native typesetter exists, and a task item draws a box glyph where the reference draws a disabled input — see the renderer note below) |
 | Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the slash menu groups its two sources as the reference does (`Commands`, then `Skills`), states `Loading…` while the advertisement is in flight and shows a command's argument hint under the draft (the reference draws it inside the editor), draws the `@` menu's directory breadcrumb trail (round 546) and labels a subagent child's row `Subagents` apart from `Sessions` (round 547), though the references register no separate subagent trigger source, files are chosen one at a time through a path field, no image thumbnails in the rail, and a send awaiting admission is stated by the composer's own banner (with Check, Review and Stop-original) rather than as a queue row;  steering the whole queue is a `Steer all` control on the strip (the reference triggers it from an empty draft); and these deliberate differences: the reference inverts its submission policy on Cmd/Ctrl+Enter (`view-binding.ts:120-130`), while native keeps Ctrl+Enter a plain send alias by the user's explicit confirmation (`docs/SESSION-PROMPT.md`); and native's goal bar states a running goal's controls where the reference adds `hint.goal`/`hint.goal.active` ghost copy beside the draft) |
-| Sidebar: sessions, search, pin/archive/trash, workspace filter, navigation sheet | cloned (time-grouped list, not the grouped browser) |
+| Sidebar: sessions, search, pin/archive/trash, workspace filter, navigation sheet | cloned (time-grouped list, not the grouped browser; the row hover preview is round 666) |
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
 | Schedules: page, history, edits, pickers, and the Session header's reminder chip with its popover (count, rule, next run, per-row delete; round 503) | cloned (the sidebar row's active-task clock is round 664; no hover cards, turn cards or right-Sidebar tab; the chip states its count as words where the web is icon-only, and its rows' names open the page where the web opens its right-Sidebar tab). A read-only audit of this surface found work still open, recorded in round 417: rows now state their rule, `Enabled`/`Inactive`, and their next-run and delivery instants as local text with a relative next-run form; the page has status tabs (All/Enabled/Inactive), a search field, next-time ordering, the reference's empty-state variants and its retention disclosure, and its `New` action, and a deletion outcome stated on the page where the reference shows a shell toast, and a linked-session control that opens the creating session (with the reference's archived/unavailable sentences when it cannot); the `schedule/changed` notification reloads an open catalog (round 541: `root()`'s Emit arm, unit-tested, with the Host's emission source-confirmed; its live arrival on a real session is still unobserved), while native's own reads remain on open, Refresh and after its own writes; a failed history read retries in place |
 | Goals, plan mode, permissions, approvals/questions, jobs, subagents, session log | cloned |
@@ -15863,7 +15863,7 @@ is the one-line leftover from the finished port stage. Nothing else in this repo
 | --- | --- | --- |
 | The terminal screen | **complete as a native emulator core** (rounds 552–565): grid sized by the Host, redraw, erase, addressing, insert/delete, SGR colour, underline and background, two-column wide glyphs, combining marks take no column, wrapping and autowrap off, 2,000-line scrollback, alternate screen, scroll regions; output bounded to 400 chunks/128 KiB and 400 rendered rows, and every mutating action reviewed | **the panel, not the screen**: a true fill and a pinned footer at short heights need the three-builder rewrite specified in round 572; the reference's automatic fit-to-pane stays a deliberate difference (resize is a reviewed control), and `terminal/retain` + a docked tab strip remain unbuilt |
 | `terminal/retain` and a docked multi-terminal tab | the panel's own slice; retain exists in the Host for holding tabs open | a right-docked tab strip first, because retain only means something with tabs |
-| Schedules: sidebar marks, hover cards, turn cards, right-Sidebar tab | the page, history, edits, pickers, the header chip, the live reload, and (round 664) the sidebar row's active-task clock | the hover card's task rows, schedule turn cards and the right-Sidebar tab. The marks were **not** blocked on `sessionListMetadata`: the reference projects the one `schedule/catalog` read that native already makes for the header (`session-schedule-state.ts:5-10, 73-82`) |
+| Schedules: sidebar marks, row hover card, turn cards, right-Sidebar tab | the page, history, edits, pickers, the header chip, the live reload, the sidebar row's active-task clock (round 664) and its row hover card with the task section (round 666) | schedule turn cards and the right-Sidebar tab. The marks were **not** blocked on `sessionListMetadata`: the reference projects the one `schedule/catalog` read that native already makes for the header (`session-schedule-state.ts:5-10, 73-82`) |
 | The right-Sidebar review tab | the deliverables sheet is a native surface | a deliberate second layout decision, recorded as such rather than built silently |
 
 ### Named deliberate differences (not gaps)
@@ -18187,3 +18187,61 @@ the surviving bubble text.
 | transport | **0** | 62 + 17 + 91 + 7 passed |
 | app bin | — | **21** warnings (22 with the summary line) |
 | battery | **passed** | **17 checks, 0 failing** (`verification-0d8e22f518bc`) |
+
+### Round 666 — a Session row previews on hover
+
+**The gap.** A sidebar row clips its title to 28 characters and had no way to read more without opening
+it. The reference opens a compact preview after an 800ms dwell (`ui-workspace/src/client/rows/Rows.tsx:693-698`,
+`ui-primitives/src/HoverCard.tsx:240-300`): the full title, a compact age, the Session's active tasks
+and its status lines, in a 244px card eight pixels past the row (`HoverCard.tsx:205-207`,
+`HoverCard.module.css:6-16`). The card's task section is the one the round-664 catalog read already
+feeds (`ui-schedule/src/client/SessionScheduleHover.tsx:26, 49-96`).
+
+**The placement, and why it is a new overlay.** `anchored_popup::beside` lays the card past the row's
+right edge inside the window's eight-pixel margin, and — unlike the menu popups — it never captures
+input outside the card: a capturing overlay would end the row's hover the instant the card opened.
+Cursor movement is still forwarded so the card's own `mouse_area` can cancel the pointer grace, and
+its interaction is `None` so Iced does not withdraw the base cursor. A 200ms grace
+(`ui-primitives/src/pointer-grace.ts:8`) lets the pointer cross the eight-pixel gap between row and
+card.
+
+**The change.** Hover state (`session_hover`, `session_hover_open`, `session_hover_on_card`), an 800ms
+dwell and 200ms grace, each row wrapped in a `mouse_area`, and the card itself: full title,
+`time_text::ago` (`now` / `5min ago` / `2h ago` / `3d ago` / `2mo ago` / `1y ago`), two ordered active
+tasks plus `N more` (`schedule_card::hover_tasks`), and the row's pending/subagent/working/completed
+lines.
+
+**Why it took three frames.** The first frame put the card *inside* the 260px sidebar: a row's overlay
+is reached through a `scrollable`, which hands its descendants the list's own visible strip as the
+overlay viewport, so `row.right + 8` clamped back to x=8. Placing against the `bounds` handed to
+`Overlay::layout` fixed the position and made the card vanish: Iced re-instantiates the overlay for
+drawing without re-running `layout`, so the draw instance still carried the scrollable's viewport and
+clipped the card away at x=256. Both draw and update now derive the window from their own layout root,
+and `layout` uses the same one. **The suite was green through both failures; the frames found them.**
+
+**Tests.** `hovering_a_session_row_opens_its_card_after_the_delay_and_a_grace_close_lets_the_pointer_cross`
+(dwell, grace, card-rest cancels, stale expiry ignored),
+`the_hover_card_shows_two_ordered_active_tasks_and_counts_the_rest` (overdue first, the third counted,
+another Session's task and an inactive one excluded), `a_hover_time_reads_now_and_each_coarse_unit`,
+`a_hover_card_sits_eight_pixels_beside_its_row_and_clamps_both_edges`, and the `session-hover` preset
+pinned in `presets_render_actual_app_without_queued_effects`.
+
+**Frame.** `shots/365-session-hover.png` (1040×700, new `session-hover` preset): the card beside the
+selected row with the full untruncated title, `56y ago` (the fixture's synthetic 1970 timestamp), two
+task rows — `Daily at 09:00 (UTC) · 2026-10-16 04:00 4 days overdue` and the weekly one — and `1 more`.
+
+**Deliberate limits.** The card is a preview, not a control: it has no title-copy action, no text
+selection and no shadow; it omits the reference's resting `Idle` line because native's rows never state
+idle either; its surface is `OVERLAY` rather than the reference's fixed `#2C2C2E`. Workspace rows keep
+no preview.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| format | **0** | `cargo fmt` applied; format-debt 0 files, 0 hunks |
+| app, fixture | **0** | **1599 passed**, 1 ignored |
+| app, default | **0** | **1543 passed**, 1 ignored |
+| transport | **0** | 62 + 17 + 91 + 7 passed |
+| app bin | — | **21** warnings (22 with the summary line) |
+| battery | **passed** | **17 checks, 0 failing** (`verification-d09682e31370`) |

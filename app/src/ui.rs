@@ -497,6 +497,20 @@ pub enum Message {
     SubagentHover(bool),
     /// The hover delay elapsed while the pointer was still on the trigger.
     SubagentHoverExpired,
+    /// The pointer entered or left one Session's sidebar row.
+    SessionRowHover {
+        session: SessionId,
+        entered: bool,
+    },
+    /// The 800ms hover dwell elapsed while the pointer was still on that row.
+    SessionRowHoverExpired(SessionId),
+    /// The 200ms grace elapsed after the pointer left that row or its preview card.
+    SessionRowHoverGrace(SessionId),
+    /// The pointer entered or left an open row's preview card.
+    SessionHoverCard {
+        session: SessionId,
+        entered: bool,
+    },
     /// The guide's `Copied` confirmation has been shown for its second.
     GuideCopyExpired,
     /// Copy one job's command to the clipboard.
@@ -1770,6 +1784,12 @@ pub struct App {
     /// The pointer is on the subagent catalog's trigger, so a pending hover delay still counts
     /// (`SubagentHeaderLineage.tsx:520-538`).
     subagent_hovered: bool,
+    /// The Session row the pointer rests on, the row whose preview has dwelt open, and whether the
+    /// pointer is on that preview itself (`HoverCard.tsx:240-300`: an 800ms dwell, then a 200ms grace
+    /// so the pointer can cross the eight-pixel gap).
+    session_hover: Option<SessionId>,
+    session_hover_open: Option<SessionId>,
+    session_hover_on_card: bool,
     /// The read-only More → Work records panel is open.
     work_open: bool,
     /// The More → Terminal panel is open. The Host owns every shell; the app is a client.
@@ -2063,6 +2083,9 @@ impl App {
                 editor_menu: false,
                 subagent_menu: false,
                 subagent_hovered: false,
+                session_hover: None,
+                session_hover_open: None,
+                session_hover_on_card: false,
                 changes_hover: None,
                 context_breakdown_open: false,
                 changes_preview: None,
@@ -4560,6 +4583,67 @@ impl App {
             {
                 self.subagent_menu = true;
             }
+            Message::SessionRowHover { session, entered } if self.layout_controls_enabled() => {
+                if entered {
+                    self.session_hover = Some(session.clone());
+                    self.session_hover_on_card = false;
+                    if self.session_hover_open.as_ref() != Some(&session) {
+                        self.session_hover_open = None;
+                        // The reference's sidebar card waits 800ms (`Rows.tsx:696`), so a cursor
+                        // crossing the list never flashes a preview.
+                        return Task::perform(
+                            async move {
+                                tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+                            },
+                            move |()| Message::SessionRowHoverExpired(session),
+                        );
+                    }
+                } else {
+                    if self.session_hover.as_ref() == Some(&session) {
+                        self.session_hover = None;
+                    }
+                    if self.session_hover_open.as_ref() == Some(&session)
+                        && !self.session_hover_on_card
+                    {
+                        // A pointer-dismissed card closes after the reference's 200ms grace, not at
+                        // once: the gap between the row and the card is eight pixels of travel.
+                        return Task::perform(
+                            async move {
+                                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                            },
+                            move |()| Message::SessionRowHoverGrace(session),
+                        );
+                    }
+                }
+            }
+            Message::SessionRowHoverExpired(session) => {
+                if self.session_hover.as_ref() == Some(&session)
+                    && self.session_hover_open.is_none()
+                {
+                    self.session_hover_open = Some(session);
+                }
+            }
+            Message::SessionRowHoverGrace(session) => {
+                if self.session_hover_open.as_ref() == Some(&session)
+                    && self.session_hover.as_ref() != Some(&session)
+                    && !self.session_hover_on_card
+                {
+                    self.session_hover_open = None;
+                }
+            }
+            Message::SessionHoverCard { session, entered } => {
+                if self.session_hover_open.as_ref() == Some(&session) {
+                    self.session_hover_on_card = entered;
+                    if !entered && self.session_hover.as_ref() != Some(&session) {
+                        return Task::perform(
+                            async move {
+                                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                            },
+                            move |()| Message::SessionRowHoverGrace(session),
+                        );
+                    }
+                }
+            }
             Message::ToggleSubagentMenu(open) if self.layout_controls_enabled() => {
                 if open {
                     self.subagent_menu = true;
@@ -5752,6 +5836,9 @@ impl App {
             }
             Message::Select(id) if self.ready && self.pending.is_empty() => {
                 self.text_selection = None;
+                self.session_hover = None;
+                self.session_hover_open = None;
+                self.session_hover_on_card = false;
                 self.choose(id)
             }
             Message::Workspace(id) => {
@@ -14669,7 +14756,9 @@ impl App {
             if self.management.registry.pinned(&session.session_id) {
                 content = content.push(label("•", design::FOAM).size(10));
             }
-            list = list.push(
+            // The row is a hover target as a whole: its preview must appear for the menu cell too,
+            // and the card is laid beside the row's own bounds (`Rows.tsx:693-698`).
+            let entry: Element<'_, Message> = iced::widget::mouse_area(
                 row![
                     button(content)
                         .on_press_maybe(
@@ -14699,7 +14788,22 @@ impl App {
                 ]
                 .spacing(6)
                 .align_y(iced::Alignment::Center),
-            );
+            )
+            .on_enter(Message::SessionRowHover {
+                session: session.session_id.clone(),
+                entered: true,
+            })
+            .on_exit(Message::SessionRowHover {
+                session: session.session_id.clone(),
+                entered: false,
+            })
+            .into();
+            let entry = if self.session_hover_open.as_ref() == Some(&session.session_id) {
+                anchored_popup::beside(entry, Some(self.session_hover_card(&session)))
+            } else {
+                entry
+            };
+            list = list.push(entry);
         }
         if self.sidebar_organization.failure().is_some() {
             list = list
@@ -14807,6 +14911,117 @@ impl App {
         ]
         .spacing(0)
         .height(Length::Fill)
+        .into()
+    }
+    /// The Session row's hover preview: the full title, the reference's compact age, up to two
+    /// active tasks and the row's trailing statuses (`ui-workspace/src/client/rows/Rows.tsx:422-462`).
+    /// The card is 244px wide with a 12px/16px pad, placed eight pixels beside the row
+    /// (`ui-primitives/src/HoverCard.tsx:205-207`, `HoverCard.module.css:6-16`); its task section is
+    /// `ui-schedule/src/client/SessionScheduleHover.tsx:49-96`.
+    fn session_hover_card(&self, session: &SessionSummary) -> Element<'_, Message> {
+        let now = now_millis() as i64;
+        let mut body = column![label(self.session_title(session), TEXT).size(13)]
+            .spacing(4)
+            .width(Length::Fill);
+        // The row's trailing cell hides the time before the first prompt; the card does the same
+        // (`Rows.tsx:439-441`).
+        if !session.blank {
+            body = body.push(label(time_text::ago(session.updated_at, now), MUTED).size(12));
+        }
+        let (tasks, omitted) = crate::reducer::schedule_card::hover_tasks(
+            self.schedules.iter(),
+            &session.session_id,
+            now,
+        );
+        if !tasks.is_empty() {
+            let mut section = column![].spacing(6).width(Length::Fill);
+            for item in &tasks {
+                let frequency =
+                    crate::reducer::schedule_card::frequency_from(&item.record, &item.kind)
+                        .unwrap_or_default();
+                let timing = match item
+                    .scheduled_at
+                    .as_deref()
+                    .and_then(time_text::parse_instant)
+                {
+                    Some(instant) => format!(
+                        "{frequency} · {} {}",
+                        item.scheduled_at
+                            .as_deref()
+                            .map(time_text::local_or_stored)
+                            .unwrap_or_default(),
+                        time_text::relative(instant, now)
+                    ),
+                    None => frequency,
+                };
+                section = section.push(
+                    row![
+                        label("◷", MUTED).size(12),
+                        column![
+                            label(item.title.as_str(), TEXT).size(12),
+                            label(timing, MUTED).size(12),
+                        ]
+                        .spacing(2)
+                        .width(Length::Fill),
+                    ]
+                    .spacing(8)
+                    .align_y(iced::Alignment::Start),
+                );
+            }
+            if omitted > 0 {
+                section = section.push(label(format!("{omitted} more"), MUTED).size(12));
+            }
+            body = body.push(section);
+        }
+        let pending = self.decisions.pending_label();
+        if let Some(status) = pending {
+            body = body.push(label(status, design::GOLD).size(12));
+        }
+        let running_children = self.running_subagent_count(&session.session_id);
+        if running_children > 0 {
+            body = body.push(
+                label(
+                    subagent_catalog::count_description(running_children, running_children),
+                    design::FOAM,
+                )
+                .size(12),
+            );
+        }
+        if let Some(status) = self.working_label(session).filter(|_| pending.is_none()) {
+            body = body.push(
+                label(
+                    status,
+                    if self.running_status_live() {
+                        design::FOAM
+                    } else {
+                        MUTED
+                    },
+                )
+                .size(12),
+            );
+        }
+        if !session.running
+            && pending.is_none()
+            && self.completion_unread.contains(&session.session_id)
+        {
+            body = body.push(label("Completed", MUTED).size(12));
+        }
+        // The card is a preview, not a menu: its own hover keeps the grace close cancelled while the
+        // pointer rests on it (`HoverCard.tsx:260-299`).
+        iced::widget::mouse_area(
+            container(body)
+                .width(244)
+                .padding([12, 16])
+                .style(|_| design::card(design::OVERLAY, design::RADIUS_LG)),
+        )
+        .on_enter(Message::SessionHoverCard {
+            session: session.session_id.clone(),
+            entered: true,
+        })
+        .on_exit(Message::SessionHoverCard {
+            session: session.session_id.clone(),
+            entered: false,
+        })
         .into()
     }
     /// One Session row's scheduled-task mark: the reference's leading clock seat
