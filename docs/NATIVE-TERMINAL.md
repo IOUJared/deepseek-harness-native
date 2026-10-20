@@ -143,3 +143,27 @@ the cursor, leaving the rest of the row (`erasing_to_the_cursor_keeps_the_text_a
 harness runs each hostile shape in its own thread with a two-second join
 (`adversarial_escape_input_terminates_and_renders`), so a new non-terminating input fails a test instead of
 hanging the suite — which is how the tab loop was found.
+
+### Painting the cursor — the recipe, after four failed attempts
+
+Four rounds (616–619) tried to paint the cursor and none survived the DP-2 frame, so the plan is written
+down instead of the code. The failures narrowed it to this:
+
+1. **Prove the index first, in a test, before touching the panel.** `display_styled` gains a sibling
+   `display_paint(max_bytes) -> ScreenPaint { rows, cursor }`; the cursor index is computed *inside* the
+   renderer, after the trailing trim and the `RENDERED_ROWS` cap, as
+   `(history.len() + grid_row) − (rows_before_trim − rows_kept)`. The test that must pass before anything
+   else: push `"ab"`, place the cursor at `(0, 1)`, and assert `cursor == Some((0, 1))`; then push a newline
+   and assert the cursor is on the *trailing* row. If that test cannot be made to pass, the panel work is
+   wasted — which is exactly what happened four times.
+2. **`display_styled` then becomes test-only** (the panel reads `display_paint`), which adds one dead-code
+   warning. Either mark it `#[allow(dead_code)]` naming the tests, or move the tests to `display_paint().rows`.
+   A 22nd warning is a contract break, not a detail.
+3. **An empty row still needs a block.** A prompt sits on a line with no runs to split, so the painter must
+   append the block when `at >= column` and nothing was placed.
+4. **Then, and only then, a frame.** The fixture must put the cursor somewhere a cell exists — after a
+   partial line, not only after a newline — or the capture proves nothing either way.
+
+The block itself is a `\u{2588}` span at the cursor cell with the panel's ink and paper swapped
+(`Some(15)` on `Some(0)` in the ANSI numbering the panel already understands), so no new painting machinery
+is needed.
