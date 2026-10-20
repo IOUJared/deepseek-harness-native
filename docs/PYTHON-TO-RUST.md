@@ -88,6 +88,11 @@ Deliberate differences, all measured against the Python originals:
   duplicate JSON keys refused at any depth), and the two-phase orchestration with a
   frozen artifact, source digests and a 170 s deadline. `draft-interruption` imports
   it, so both Python files are deleted together once interruption is ported.
+- The draft-interruption **validators** are ported (`interruption`): nine checkout
+  points with the document expected at each, hold/recover/crash report shapes,
+  the latch-until-owned-kill crash gate, and the rule that a graceful phase may not
+  borrow the crash phase's external cleanup. Its campaign orchestration and command
+  wiring remain.
 - The `qualify` module now owns `prepare` and the isolated child environment, and
   `xtask qualify app` can run the root workflow, but `scripts/qualify-native-app.py`
   still exists for its 18 dependents and keeps its own copies of those helpers.
