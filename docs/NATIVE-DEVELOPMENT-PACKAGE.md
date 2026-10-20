@@ -20,10 +20,10 @@ Extract into a new owned directory; retain root launcher/manifest/executable lay
 | Interpreter | Fixed `/usr/bin/node`; optional trusted `--node /absolute/node-executable`, no PATH/fallback |
 
 ```sh
-./launch.py --workspace /absolute/existing/workspace \
+./launch --workspace /absolute/existing/workspace \
   --runtime /absolute/isolated-alpha-fork/apps/cli --check
 
-./launch.py --workspace /absolute/existing/workspace \
+./launch --workspace /absolute/existing/workspace \
   --runtime /absolute/isolated-alpha-fork/apps/cli
 ```
 
@@ -45,7 +45,7 @@ Extract into a new owned directory; retain root launcher/manifest/executable lay
 ## Relocated keyless qualification
 
 ```sh
-./launch.py --runtime /absolute/isolated-alpha-fork/apps/cli \
+./launch --runtime /absolute/isolated-alpha-fork/apps/cli \
   --workspace /absolute/owned-empty-0700-workspace \
   --user-home /absolute/owned-empty-0700-user-home \
   --data-home /absolute/new-private-native-container \

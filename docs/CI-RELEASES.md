@@ -29,7 +29,7 @@ Read-only permissions apply to checks. Only the successful main-push publishing 
 
 ## Downloads
 
-Assets are uploaded to a draft, downloaded and verified before publication. Interrupted drafts can resume; published downloads are never overwritten. Each prerelease contains a GNU/Linux executable archive and SHA-256 checksum. Inside: exact-commit source snapshot, build metadata, measured glibc symbol requirements/dynamic dependencies, MIT license and Rust dependency license inventory. [Packager](<../.github/scripts/package_release.py>) uses that runner's Cargo registry, not a local developer cache.
+Assets are uploaded to a draft, downloaded and verified before publication. Interrupted drafts can resume; published downloads are never overwritten. Each prerelease contains a GNU/Linux executable archive and SHA-256 checksum. Inside: exact-commit source snapshot, build metadata, measured glibc symbol requirements/dynamic dependencies, MIT license and Rust dependency license inventory. [Packager](<../tools/xtask/src/release.rs>) uses that runner's Cargo registry, not a local developer cache.
 
 The compatible `0.2.1-alpha.1` backend, Node, profiles and credentials are **not included**. Rendering still requires native Wayland, GPU drivers, xkbcommon and system fonts. These are development downloads—not an installer, self-contained runtime, AppImage, general Linux portability claim or finished Windows/macOS release. Headless CI does not verify rendering, physical input, accessibility, real accounts or model behavior.
 

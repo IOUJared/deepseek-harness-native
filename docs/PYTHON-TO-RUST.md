@@ -128,7 +128,9 @@ Deliberate differences, all measured against the Python originals:
   session the port could not claim. The Python library stays until its last
   consumer is ported, so the two runners are a named, temporary duplication.
 
-| Development package | `scripts/build-development-package.py` (in progress) | Bounded snapshot copy, the native qualification gate, canonical native input checks, the bounded native source selection/inventory and the Cargo license inventory, and `build` (payload, manifest, README, licenses, evidence, native sources, deterministic tar.gz, `build.json`) are ported in `launcher`; the archive now ships the Rust launcher as `launch`, so `package_release` and the docs must be updated with it |
+| Development package | `scripts/build-development-package.py` (in progress) | Fully ported in `launcher` (snapshot copy, native selection and inventory, license inventory, the whole `build`); the Python file stays only because `qualify-development-package.py` imports it |
+
+| Release packaging | `.github/scripts/package_release.py`, `publish_release.py` + guards | Deleted: `xtask release package` assembles the assets and `xtask release publish` runs the draft→verify→publish flow; the CI workflow calls them and the packager link now points at `release.rs` |
 
 ## Remaining
 
@@ -136,9 +138,7 @@ Deliberate differences, all measured against the Python originals:
 |---|---|---|---|
 | `scripts/qualify-*` | 10 | 2,241 | `xtask qualify <name>`; the assertions are already Rust examples writing `result.json` |
 | `scripts/test_*` | 10 | 2,228 | Rust tests next to the qualifiers; rewrite each guard's subject, never copy it verbatim. `app/` has no Python left |
-| `.github/scripts/*` | 4 | 387 | `xtask package` / `xtask publish`; `tar` + `flate2` are already dependencies, `gh` stays a child process |
-| Release packaging | `.github/scripts/package_release.py` (in progress) | `launcher` (identity, ELF report) and `release` (assembly and the draft→verify→publish step) are ported; the CI workflow still calls the Python scripts |
-| `development-launcher.py` | 1 | 356 | **Shipped** as `launch.py` in the development package: a Rust `dsh-native-launch` binary replaces it, so the archive stops requiring Python 3.11+; update the archive verifier and install docs together. Port in progress in `launcher`: absolute paths, overlap, environment allow-list, state marker, the Node 26 line, the bounded binary digest, manifest/glibc/binary validation and the Node probe, state inspection, state acquisition, `plan` and the shipped entry point are ported as `xtask launch`; the archive still ships `launch.py` until `build-development-package`/`package_release` are ported |
+| `development-launcher.py` | 1 | 356 | Ported as `xtask launch` (plan, state acquisition, entry point) and shipped in the archive as `launch`; the Python file stays only because `qualify-development-package.py` imports it as a library |
 | `benchmarks/run.py` | 1 | 330 | Deleted with the qualification family, whose scripts import the library; `xtask bench run` is already the replacement and `test_runner.py` is already deleted |
 
 Also outstanding, outside `*.py`: `core/src/process_tests.rs` spawns `/usr/bin/python3`

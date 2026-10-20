@@ -107,7 +107,8 @@ jobs:
         run: |
           # The license inventory includes all locked targets, including non-Linux sources.
           cargo fetch --locked --manifest-path app/Cargo.toml
-          python3 -B .github/scripts/package_release.py --binary app/target/release/dsh-native-app --output release-output
+          cargo run --quiet --manifest-path tools/xtask/Cargo.toml --locked -- \
+            release package --binary app/target/release/dsh-native-app --output release-output
       - name: Retain release assets for the publishing job
         if: steps.package.outputs.tag != ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -145,5 +146,9 @@ jobs:
       - name: Verify downloaded assets
         working-directory: release-output
         run: sha256sum --check SHA256SUMS
+      - name: Select the tested Rust version
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
       - name: Publish verified draft assets, or verify a completed rerun
-        run: python3 -B .github/scripts/publish_release.py
+        run: cargo run --quiet --manifest-path tools/xtask/Cargo.toml --locked -- release publish
