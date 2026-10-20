@@ -17172,3 +17172,24 @@ thread with a two-second join.
 | app, fixture | **0** | **1580 passed**, 1 ignored |
 | app, default | **0** | **1524 passed**, 1 ignored |
 | app bin | — | **21** warnings (22 with the summary line) |
+
+### Round 616 — the cursor paint, and the one design change it needs
+
+**What was tried.** `Output::cursor_cell(max_bytes)` mapping the screen's cursor into the rows
+`display_styled` renders, and a span split in `terminal_view` that paints a block glyph with swapped ink
+and background at that cell. Both compiled; both suites stayed green at fixture **1580** / default **1524**.
+
+**What the frame showed.** `shots/353-terminal-cursor.png` — **no block**, twice: the fixture's cursor sits
+on the blank line after the last output row, and that row is *trimmed* by the render, so `cursor_cell`
+found nothing to paint.
+
+**The design conclusion (this is the useful part).** Row arithmetic done *outside* `display_styled` cannot
+find the cursor reliably: the renderer trims trailing blank rows (and, under the byte budget or the 400-row
+paint cap, front rows too), so an independently computed index disagrees with what is drawn. Making the
+trailing row survive — the second attempt — fixed the trim but not the index, because the trim count then
+includes every blank row *below* the cursor inside the grid.
+
+**The fix the next round should make:** have `display_styled` return the cursor's own `(row, column)` in its
+result (a small struct with `rows` and `cursor`), and let the panel paint from that. One function signature
+instead of two independent coordinate systems. Both files are reverted to `aa298ce`; nothing of this
+attempt is committed beyond this note.
