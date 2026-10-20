@@ -63,8 +63,9 @@ pub struct PluginBundle {
     /// Ships with the installation and may be switched on, never removed.
     pub optional: bool,
     pub removable: bool,
-    /// Rows the bundle's patch inserts, and built-in rows it changes.
-    pub rows: usize,
+    /// The rows the bundle's patch inserts, in declaration order.
+    pub rows: Vec<PluginBundleRow>,
+    /// How many built-in rows it changes.
     pub overrides: usize,
     /// The Host's management reason, when the bundle is not addressable.
     pub read_only_reason: Option<String>,
@@ -72,6 +73,65 @@ pub struct PluginBundle {
     pub error: Option<String>,
 }
 /// What one plugin-manager write settled as (`boot/plugin-manager/lib/types/types.d.ts:98-125`).
+/// One live profile entry with its management availability (`types.d.ts:25-33`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PluginRow {
+    pub entry_id: String,
+    pub module_name: String,
+    pub enabled: bool,
+    pub fiber_phase: FiberPhase,
+    /// Present when the profile can address this entry.
+    pub patch_id: Option<String>,
+    /// Present instead of `patch_id` when the Host cannot address it.
+    pub read_only_reason: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WirePluginRow {
+    entry_id: String,
+    module_name: String,
+    enabled: bool,
+    #[serde(deserialize_with = "wire_phase")]
+    fiber_phase: Option<FiberPhase>,
+    patch_id: Option<String>,
+    read_only_reason: Option<String>,
+}
+pub(crate) fn project_plugin_rows(value: Value) -> Result<Vec<PluginRow>> {
+    bounded(&value)?;
+    let wire: Vec<WirePluginRow> = serde_json::from_value(value).map_err(|_| Error::InvalidDto)?;
+    if wire.len() > MAX_ROWS {
+        return Err(Error::Oversize);
+    }
+    let mut ids = HashSet::new();
+    wire.into_iter()
+        .map(|row| {
+            if !text(&row.entry_id, 512)
+                || !text(&row.module_name, 512)
+                || !ids.insert(row.entry_id.clone())
+            {
+                return Err(Error::InvalidDto);
+            }
+            let optional = |value: Option<String>, max: usize| -> Result<Option<String>> {
+                value
+                    .map(|text_value| {
+                        text(&text_value, max)
+                            .then_some(text_value)
+                            .ok_or(Error::InvalidDto)
+                    })
+                    .transpose()
+            };
+            Ok(PluginRow {
+                entry_id: row.entry_id,
+                module_name: row.module_name,
+                enabled: row.enabled,
+                fiber_phase: row.fiber_phase.unwrap_or(FiberPhase::Absent),
+                patch_id: optional(row.patch_id, 512)?,
+                read_only_reason: optional(row.read_only_reason, 128)?,
+            })
+        })
+        .collect()
+}
+
 /// The registries the manager asks, in order (`boot/plugin-manager/lib/types/types.d.ts:78-84`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PluginRegistries {
@@ -275,6 +335,22 @@ pub(crate) fn project_change(value: Value) -> Result<PluginChange> {
     })
 }
 
+/// One row a bundle's patch declares, with its live entry when exactly one carries it
+/// (`types.d.ts:35-42`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PluginBundleRow {
+    pub row_id: String,
+    pub module_name: String,
+    /// The Loader entry carrying the row; absent when the bundle is disabled.
+    pub entry_id: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WireBundleRow {
+    row_id: String,
+    module_name: String,
+    entry_id: Option<String>,
+}
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct WireBundle {
@@ -288,7 +364,7 @@ struct WireBundle {
     #[serde(default)]
     removable: bool,
     #[serde(default)]
-    rows: Vec<Value>,
+    rows: Vec<WireBundleRow>,
     #[serde(default)]
     overrides: Vec<Value>,
     read_only_reason: Option<String>,
@@ -334,6 +410,24 @@ pub(crate) fn project_bundles(value: Value) -> Result<Vec<PluginBundle>> {
             if b.rows.len() > MAX_ROWS || b.overrides.len() > MAX_ROWS {
                 return Err(Error::Oversize);
             }
+            let rows = b
+                .rows
+                .into_iter()
+                .map(|row| {
+                    if !text(&row.row_id, 512) || !text(&row.module_name, 512) {
+                        return Err(Error::InvalidDto);
+                    }
+                    let entry_id = row
+                        .entry_id
+                        .map(|entry| text(&entry, 512).then_some(entry).ok_or(Error::InvalidDto))
+                        .transpose()?;
+                    Ok(PluginBundleRow {
+                        row_id: row.row_id,
+                        module_name: row.module_name,
+                        entry_id,
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
             Ok(PluginBundle {
                 name: b.name,
                 version,
@@ -342,7 +436,7 @@ pub(crate) fn project_bundles(value: Value) -> Result<Vec<PluginBundle>> {
                 installed: b.installed,
                 optional: b.optional,
                 removable: b.removable,
-                rows: b.rows.len(),
+                rows,
                 overrides: b.overrides.len(),
                 read_only_reason,
                 error,
@@ -1107,13 +1201,18 @@ mod tests {
         assert_eq!(bundles[0].name, "@PUBLIC/bundle");
         assert_eq!(bundles[0].version.as_deref(), Some("1.2.3"));
         assert_eq!(bundles[0].description.as_deref(), Some("PUBLIC bundle"));
-        assert_eq!((bundles[0].rows, bundles[0].overrides), (1, 1));
+        assert_eq!((bundles[0].rows.len(), bundles[0].overrides), (1, 1));
+        assert_eq!(bundles[0].rows[0].row_id, "a");
+        assert_eq!(bundles[0].rows[0].module_name, "m");
+        assert_eq!(bundles[0].rows[0].entry_id, None);
         assert!(bundles[0].removable);
         assert_eq!(
             bundles[1].read_only_reason.as_deref(),
             Some("management-required")
         );
         assert_eq!(bundles[1].error.as_deref(), Some("incompatible-version"));
+        assert_eq!(bundles[1].rows.len(), 2);
+        assert_eq!(bundles[1].rows[1].row_id, "z");
         assert!(!format!("{bundles:?}").contains("PRIVATE"));
         for bad in [
             json!({}),
@@ -1123,6 +1222,35 @@ mod tests {
             json!([{"name":"a","enabled":true,"installed":true},{"name":"a","enabled":false,"installed":false}]),
         ] {
             assert!(project_bundles(bad.clone()).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn plugin_rows_project_addressability_and_refuse_duplicates() {
+        let rows = project_plugin_rows(json!([
+            {"entryId": "include:a", "moduleName": "module-a", "enabled": true,
+             "fiberPhase": "active", "patchId": "patch-a"},
+            {"entryId": "include:b", "moduleName": "module-b", "enabled": false,
+             "fiberPhase": null, "readOnlyReason": "management-required"}
+        ]))
+        .unwrap();
+        assert_eq!(rows[0].entry_id, "include:a");
+        assert!(rows[0].enabled);
+        assert_eq!(rows[0].fiber_phase, FiberPhase::Active);
+        assert_eq!(rows[0].patch_id.as_deref(), Some("patch-a"));
+        assert_eq!(rows[0].read_only_reason, None);
+        assert_eq!(rows[1].patch_id, None);
+        assert_eq!(
+            rows[1].read_only_reason.as_deref(),
+            Some("management-required")
+        );
+        for bad in [
+            json!([{"entryId": "a", "moduleName": "m", "enabled": true, "fiberPhase": "bogus"}]),
+            json!([{"entryId": "", "moduleName": "m", "enabled": true, "fiberPhase": null}]),
+            json!([{"entryId": "a", "moduleName": "m", "enabled": true, "fiberPhase": null},
+                   {"entryId": "a", "moduleName": "n", "enabled": false, "fiberPhase": null}]),
+        ] {
+            assert!(project_plugin_rows(bad.clone()).is_err(), "{bad}");
         }
     }
 

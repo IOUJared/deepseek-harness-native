@@ -39,6 +39,15 @@ pub enum Action {
     Inspect,
     /// Choose the registry the inspect asks first; `None` is the Host's configured default.
     SelectRegistry(Option<String>),
+    /// Arm the review for one live plugin row; nothing is sent.
+    AskRow {
+        entry_id: String,
+        enabled: bool,
+    },
+    /// Leave the armed row review without writing.
+    CancelRow,
+    /// Send the armed row switch; one explicit attempt.
+    ConfirmRow,
 }
 
 #[derive(Default)]
@@ -70,6 +79,11 @@ pub struct Manager {
     registries_loading: bool,
     registries_loaded: bool,
     registry: Option<String>,
+    /// The live profile entries, joined to the rows each bundle declares.
+    rows: Vec<dsh_native_transport::plugin::PluginRow>,
+    rows_loaded: bool,
+    row_confirm: Option<(String, bool)>,
+    row_pending: Option<(String, bool)>,
 }
 
 impl Manager {
@@ -214,6 +228,113 @@ impl Manager {
                 true
             }
         }
+    }
+    pub fn begin_rows(&mut self) -> bool {
+        if self.rows_loaded {
+            return false;
+        }
+        self.rows_loaded = true;
+        true
+    }
+    pub fn rows_settled(
+        &mut self,
+        result: Result<Vec<dsh_native_transport::plugin::PluginRow>, String>,
+    ) {
+        match result {
+            Ok(rows) => self.rows = rows,
+            Err(error) => {
+                self.rows.clear();
+                self.notice = Some((
+                    format!("Could not read the plugin rows: {}", short(&error, 80)),
+                    true,
+                ));
+            }
+        }
+    }
+    pub fn ask_row(&mut self, entry_id: String, enabled: bool) {
+        if self.row_pending.is_none() {
+            self.row_confirm = Some((entry_id, enabled));
+            self.notice = None;
+        }
+    }
+    pub fn cancel_row(&mut self) {
+        self.row_confirm = None;
+    }
+    pub fn confirm_row(&mut self) -> Option<(String, bool)> {
+        if self.row_pending.is_some() {
+            return None;
+        }
+        let (entry_id, enabled) = self.row_confirm.take()?;
+        self.row_pending = Some((entry_id.clone(), enabled));
+        self.notice = None;
+        Some((entry_id, enabled))
+    }
+    /// Adopt one row switch's settlement and say whether the rows should be re-read.
+    pub fn row_changed(
+        &mut self,
+        entry_id: String,
+        enabled: bool,
+        result: Result<dsh_native_transport::plugin::PluginChange, String>,
+    ) -> bool {
+        self.row_pending = None;
+        self.row_confirm = None;
+        match result {
+            Ok(change) => {
+                self.notice = Some(match change.application {
+                    dsh_native_transport::plugin::PluginApplication::Applied => (
+                        format!(
+                            "{} {entry_id}.",
+                            if enabled { "Enabled" } else { "Disabled" }
+                        ),
+                        false,
+                    ),
+                    dsh_native_transport::plugin::PluginApplication::RestartRequired => (
+                        "Change saved. It takes effect at the next start.".to_owned(),
+                        false,
+                    ),
+                    dsh_native_transport::plugin::PluginApplication::Cancelled => {
+                        (format!("The change to {entry_id} was cancelled."), false)
+                    }
+                    dsh_native_transport::plugin::PluginApplication::Overridden
+                    | dsh_native_transport::plugin::PluginApplication::Failed => {
+                        let code = change
+                            .error
+                            .as_deref()
+                            .map(|code| format!(" ({code})"))
+                            .unwrap_or_default();
+                        (format!("The Host did not change {entry_id}{code}."), true)
+                    }
+                });
+                true
+            }
+            Err(error) => {
+                self.notice = Some((
+                    format!("Could not change {entry_id}: {}", short(&error, 80)),
+                    true,
+                ));
+                true
+            }
+        }
+    }
+    #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
+    pub fn rows(&self) -> &[dsh_native_transport::plugin::PluginRow] {
+        &self.rows
+    }
+    #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
+    pub fn seed_rows(&mut self, rows: Vec<dsh_native_transport::plugin::PluginRow>) {
+        self.rows = rows;
+        self.rows_loaded = true;
+    }
+    /// The armed row review, for the fixture and its pinning test.
+    #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
+    pub fn row_armed(&self) -> Option<(&str, bool)> {
+        self.row_confirm
+            .as_ref()
+            .map(|(entry, enabled)| (entry.as_str(), *enabled))
+    }
+    #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
+    pub fn seed_row_confirm(&mut self, entry_id: &str, enabled: bool) {
+        self.row_confirm = Some((entry_id.to_owned(), enabled));
     }
     pub fn select_registry(&mut self, registry: Option<String>) {
         self.registry = registry;
@@ -604,7 +725,7 @@ impl Manager {
                 }
                 let detail = format!(
                     "{} rows{}",
-                    bundle.rows,
+                    bundle.rows.len(),
                     if bundle.overrides > 0 {
                         format!(" · {} overrides", bundle.overrides)
                     } else {
@@ -629,6 +750,105 @@ impl Manager {
                     )
                     .size(10),
                 );
+                // The rows the bundle declares, each joined to its live entry so its own switch
+                // can be offered (`BundleRowInfo`, `types.d.ts:35-42`).
+                if !bundle.rows.is_empty() {
+                    let mut list = column![].spacing(2);
+                    for declared in bundle.rows.iter().take(6) {
+                        let live = declared
+                            .entry_id
+                            .as_deref()
+                            .and_then(|entry| self.rows.iter().find(|row| row.entry_id == entry));
+                        let mut line = iced::widget::row![
+                            label(
+                                format!(
+                                    "{} · {}",
+                                    short(&declared.module_name, 28),
+                                    short(&declared.row_id, 28)
+                                ),
+                                MUTED,
+                            )
+                            .size(10)
+                            .width(Length::Fill),
+                            label(
+                                match live {
+                                    Some(live) => format!(
+                                        "{} · {:?}",
+                                        if live.enabled { "enabled" } else { "disabled" },
+                                        live.fiber_phase
+                                    ),
+                                    None => "no live entry".to_owned(),
+                                },
+                                MUTED,
+                            )
+                            .size(10),
+                        ]
+                        .spacing(6)
+                        .align_y(iced::Alignment::Center);
+                        if let Some(live) = live.filter(|live| {
+                            live.patch_id.is_some() && live.read_only_reason.is_none()
+                        }) {
+                            let wanted = !live.enabled;
+                            let entry = live.entry_id.clone();
+                            let pending = self
+                                .row_pending
+                                .as_ref()
+                                .is_some_and(|(pending, _)| pending == &entry);
+                            let asking = self
+                                .row_confirm
+                                .as_ref()
+                                .is_some_and(|(asking, _)| asking == &entry);
+                            if pending {
+                                line = line.push(label("Changing…", MUTED).size(10));
+                            } else if asking {
+                                line = line.push(
+                                    iced::widget::row![
+                                        label(
+                                            format!(
+                                                "{} for the next start?",
+                                                if wanted { "Enable" } else { "Disable" }
+                                            ),
+                                            TEXT
+                                        )
+                                        .size(10),
+                                        button(label("Cancel", MUTED).size(10))
+                                            .padding([2, 6])
+                                            .style(design::ghost)
+                                            .on_press(Message::PluginManager(Action::CancelRow)),
+                                        button(label("Confirm", design::ACCENT).size(10))
+                                            .padding([2, 6])
+                                            .style(design::ghost)
+                                            .on_press(Message::PluginManager(Action::ConfirmRow)),
+                                    ]
+                                    .spacing(4)
+                                    .align_y(iced::Alignment::Center),
+                                );
+                            } else {
+                                line = line.push(
+                                    button(
+                                        label(if wanted { "Enable" } else { "Disable" }, TEXT)
+                                            .size(10),
+                                    )
+                                    .padding([2, 6])
+                                    .style(design::ghost)
+                                    .on_press(
+                                        Message::PluginManager(Action::AskRow {
+                                            entry_id: entry,
+                                            enabled: wanted,
+                                        }),
+                                    ),
+                                );
+                            }
+                        }
+                        list = list.push(line);
+                    }
+                    if bundle.rows.len() > 6 {
+                        list = list.push(
+                            label(format!("… {} more rows", bundle.rows.len() - 6), MUTED).size(10),
+                        );
+                    }
+                    row = row.push(list);
+                }
                 // Enable/disable is a Host write: the control arms an explicit review and sends
                 // only Confirm. A bundle the Host marks read-only offers no control.
                 if self.management_available && bundle.read_only_reason.is_none() {

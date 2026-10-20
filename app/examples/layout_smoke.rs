@@ -1060,6 +1060,8 @@ impl Fixture {
                 worker::Command::PluginRemove { .. } => "PluginRemove",
                 worker::Command::PluginInspect { .. } => "PluginInspect",
                 worker::Command::PluginRegistries => "PluginRegistries",
+                worker::Command::PluginManagerPlugins => "PluginManagerPlugins",
+                worker::Command::PluginEntryEnabled { .. } => "PluginEntryEnabled",
                 worker::Command::PermissionCatalogRead => "PermissionCatalogRead",
                 worker::Command::AgentPresetsRead => "AgentPresetsRead",
                 worker::Command::AgentPresetSelect { .. } => "AgentPresetSelect",

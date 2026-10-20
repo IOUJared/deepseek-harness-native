@@ -1187,7 +1187,12 @@ fn the_plugin_manager_reads_once_and_adopts_the_hosts_profile_answer() {
     assert!(matches!(queue.try_recv(), Ok(Command::PluginManagerRead)));
     // The same first open also asks for the registry order the form offers, once.
     assert!(matches!(queue.try_recv(), Ok(Command::PluginRegistries)));
-    // Opening again while both reads have settled queues nothing; Refresh is the explicit read.
+    // And once for the live rows the bundles declare.
+    assert!(matches!(
+        queue.try_recv(),
+        Ok(Command::PluginManagerPlugins)
+    ));
+    // Opening again while the reads have settled queues nothing; Refresh is the explicit read.
     drop(app.update(Message::PluginManager(Manager::Open)));
     assert!(queue.try_recv().is_err());
     // A deployment without a manageable profile is its own answer, not an empty bundle list.
@@ -1206,7 +1211,7 @@ fn the_plugin_manager_reads_once_and_adopts_the_hosts_profile_answer() {
         installed: true,
         optional: false,
         removable: true,
-        rows: 1,
+        rows: Vec::new(),
         overrides: 0,
         read_only_reason: None,
         error: None,
@@ -1234,7 +1239,7 @@ fn switching_a_plugin_bundle_needs_confirm_sends_one_write_and_rereads_the_list(
         installed: true,
         optional: false,
         removable: true,
-        rows: 1,
+        rows: Vec::new(),
         overrides: 0,
         read_only_reason: None,
         error: None,
@@ -1310,7 +1315,7 @@ fn uninstalling_a_bundle_needs_confirm_and_sends_one_destructive_write() {
         installed: true,
         optional: false,
         removable: true,
-        rows: 1,
+        rows: Vec::new(),
         overrides: 0,
         read_only_reason: None,
         error: None,
@@ -1420,7 +1425,11 @@ fn the_add_plugin_form_reads_the_registry_order_once_and_inspects_with_the_choic
     drop(app.update(Message::PluginManager(Manager::Open)));
     assert!(matches!(queue.try_recv(), Ok(Command::PluginManagerRead)));
     assert!(matches!(queue.try_recv(), Ok(Command::PluginRegistries)));
-    // Opening again asks for neither a second manager read nor a second registry read.
+    assert!(matches!(
+        queue.try_recv(),
+        Ok(Command::PluginManagerPlugins)
+    ));
+    // Opening again asks for none of the three reads a second time.
     drop(app.update(Message::PluginManager(Manager::Open)));
     assert!(queue.try_recv().is_err());
     drop(app.update(Message::Worker(Event::PluginRegistriesLoaded(Ok(
@@ -1461,5 +1470,78 @@ fn the_add_plugin_form_reads_the_registry_order_once_and_inspects_with_the_choic
     assert!(matches!(
         app.plugin_manager.inspection(),
         Some(PluginInspection::Accepted { .. })
+    ));
+}
+
+#[test]
+fn switching_a_plugin_row_needs_confirm_and_sends_one_write() {
+    use super::plugin_manager::Action as Manager;
+    use dsh_native_transport::plugin::{FiberPhase, PluginApplication, PluginChange, PluginRow};
+    let (mut app, mut queue) = app();
+    let bundle = dsh_native_transport::plugin::PluginBundle {
+        name: "PUBLIC-bundle".into(),
+        version: None,
+        description: None,
+        enabled: true,
+        installed: true,
+        optional: false,
+        removable: true,
+        rows: vec![dsh_native_transport::plugin::PluginBundleRow {
+            row_id: "tools".into(),
+            module_name: "PUBLIC-bundle/tools".into(),
+            entry_id: Some("include:tools".into()),
+        }],
+        overrides: 0,
+        read_only_reason: None,
+        error: None,
+    };
+    app.plugin_manager.seed(true, vec![bundle]);
+    app.plugin_manager.seed_rows(vec![PluginRow {
+        entry_id: "include:tools".into(),
+        module_name: "PUBLIC-bundle/tools".into(),
+        enabled: true,
+        fiber_phase: FiberPhase::Active,
+        patch_id: Some("patch-tools".into()),
+        read_only_reason: None,
+    }]);
+    // Arming sends nothing.
+    drop(app.update(Message::PluginManager(Manager::AskRow {
+        entry_id: "include:tools".into(),
+        enabled: false,
+    })));
+    assert!(queue.try_recv().is_err());
+    // Cancel sends nothing; a confirmed review sends exactly one row write.
+    drop(app.update(Message::PluginManager(Manager::CancelRow)));
+    drop(app.update(Message::PluginManager(Manager::ConfirmRow)));
+    assert!(queue.try_recv().is_err());
+    drop(app.update(Message::PluginManager(Manager::AskRow {
+        entry_id: "include:tools".into(),
+        enabled: false,
+    })));
+    drop(app.update(Message::PluginManager(Manager::ConfirmRow)));
+    let Command::PluginEntryEnabled { entry_id, enabled } =
+        queue.try_recv().expect("one row write")
+    else {
+        panic!("only the row switch expected")
+    };
+    assert_eq!((entry_id.as_str(), enabled), ("include:tools", false));
+    // A second Confirm while the first is in flight is ignored.
+    drop(app.update(Message::PluginManager(Manager::ConfirmRow)));
+    assert!(queue.try_recv().is_err());
+    // The settlement re-reads the live rows, not the bundles.
+    drop(app.update(Message::Worker(Event::PluginEntryChanged {
+        entry_id: "include:tools".into(),
+        enabled: false,
+        result: Ok(PluginChange {
+            changed: true,
+            application: PluginApplication::Applied,
+            target: "include:tools".into(),
+            enabled: Some(false),
+            error: None,
+        }),
+    })));
+    assert!(matches!(
+        queue.try_recv(),
+        Ok(Command::PluginManagerPlugins)
     ));
 }

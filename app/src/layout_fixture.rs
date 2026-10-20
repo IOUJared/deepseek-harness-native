@@ -151,6 +151,7 @@ pub const PRESETS: &[&str] = &[
     "plugin-manager-confirm",
     "plugin-manager-remove",
     "plugin-manager-inspect",
+    "plugin-manager-row-confirm",
     "changes-card",
     "changes-diff",
     "changes-split",
@@ -375,7 +376,8 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "plugin-manager"
         | "plugin-manager-confirm"
         | "plugin-manager-remove"
-        | "plugin-manager-inspect" => Some((Size::new(1040.0, 760.0), 1.0)),
+        | "plugin-manager-inspect"
+        | "plugin-manager-row-confirm" => Some((Size::new(1040.0, 760.0), 1.0)),
         "skill-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "command-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "process-group-closed" | "process-group-open" => Some((Size::new(1040.0, 760.0), 1.0)),
@@ -1552,7 +1554,8 @@ pub fn build(
         // A preset that carries a transcript is not a blank session; the reference's own row
         // list and the chat fixtures both depend on this flag.
         "blank": !matches!(preset, "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" | "conversation" | "chat-density" | "chat-markdown" | "chat-thoughts" | "thoughts-preview" | "chat-thoughts-markdown" | "chat-table" | "reminders" | "reminders-delete" | "session-schedule-mark" | "session-hover" | "open-in-app" | "plugin-manager"
-            | "plugin-manager-confirm" | "plugin-manager-remove" | "plugin-manager-inspect")
+            | "plugin-manager-confirm" | "plugin-manager-remove" | "plugin-manager-inspect"
+            | "plugin-manager-row-confirm")
             && !preset.starts_with("tool-activity"),
 
         "cwd":"/PUBLIC-layout-fixture/workspace",
@@ -1896,6 +1899,7 @@ pub fn build(
             | "plugin-manager-confirm"
             | "plugin-manager-remove"
             | "plugin-manager-inspect"
+            | "plugin-manager-row-confirm"
             | "subagent-catalog"
             | "subagent-catalog-error"
             | "subagent-readonly"
@@ -3165,6 +3169,7 @@ pub fn build(
         || preset == "plugin-manager-confirm"
         || preset == "plugin-manager-remove"
         || preset == "plugin-manager-inspect"
+        || preset == "plugin-manager-row-confirm"
     {
         // The Host's bundle list as the read route returns it: no installation or switch happened.
         app.plugin_manager.seed(
@@ -3178,7 +3183,18 @@ pub fn build(
                     installed: true,
                     optional: false,
                     removable: true,
-                    rows: 14,
+                    rows: vec![
+                        dsh_native_transport::plugin::PluginBundleRow {
+                            row_id: "base-tools".into(),
+                            module_name: "dsh-bundle-base/tools".into(),
+                            entry_id: Some("include:base-tools".into()),
+                        },
+                        dsh_native_transport::plugin::PluginBundleRow {
+                            row_id: "base-files".into(),
+                            module_name: "dsh-bundle-base/files".into(),
+                            entry_id: Some("include:base-files".into()),
+                        },
+                    ],
                     overrides: 2,
                     read_only_reason: None,
                     error: None,
@@ -3191,7 +3207,11 @@ pub fn build(
                     installed: false,
                     optional: true,
                     removable: false,
-                    rows: 3,
+                    rows: vec![dsh_native_transport::plugin::PluginBundleRow {
+                        row_id: "voice-input".into(),
+                        module_name: "dsh-bundle-voice/input".into(),
+                        entry_id: None,
+                    }],
                     overrides: 0,
                     read_only_reason: None,
                     error: None,
@@ -3204,7 +3224,7 @@ pub fn build(
                     installed: true,
                     optional: false,
                     removable: true,
-                    rows: 0,
+                    rows: Vec::new(),
                     overrides: 0,
                     read_only_reason: Some("management-required".into()),
                     error: Some("incompatible-version".into()),
@@ -3212,6 +3232,24 @@ pub fn build(
             ],
         );
     }
+    app.plugin_manager.seed_rows(vec![
+        dsh_native_transport::plugin::PluginRow {
+            entry_id: "include:base-tools".into(),
+            module_name: "dsh-bundle-base/tools".into(),
+            enabled: true,
+            fiber_phase: dsh_native_transport::plugin::FiberPhase::Active,
+            patch_id: Some("patch-base-tools".into()),
+            read_only_reason: None,
+        },
+        dsh_native_transport::plugin::PluginRow {
+            entry_id: "include:base-files".into(),
+            module_name: "dsh-bundle-base/files".into(),
+            enabled: false,
+            fiber_phase: dsh_native_transport::plugin::FiberPhase::Absent,
+            patch_id: Some("patch-base-files".into()),
+            read_only_reason: None,
+        },
+    ]);
     if preset == "plugin-manager-confirm" {
         // The armed review a press on `Enable` reaches; nothing is sent by the frame.
         app.plugin_manager.seed_confirm("dsh-bundle-voice", true);
@@ -3219,6 +3257,11 @@ pub fn build(
     if preset == "plugin-manager-remove" {
         // The armed uninstall a press on `Uninstall…` reaches; nothing is sent by the frame.
         app.plugin_manager.seed_remove("dsh-bundle-base");
+    }
+    if preset == "plugin-manager-row-confirm" {
+        // The armed row switch a press on `Disable` reaches; nothing is sent by the frame.
+        app.plugin_manager
+            .seed_row_confirm("include:base-tools", false);
     }
     if preset == "plugin-manager-inspect" {
         // The registry order the Add-plugin form offers, with the second registry chosen.
@@ -5519,6 +5562,14 @@ mod tests {
                 assert_eq!(
                     app.plugin_manager.registry().as_deref(),
                     Some("https://registry.example.internal")
+                );
+                assert!(receiver.try_recv().is_err());
+            }
+            if preset == "plugin-manager-row-confirm" {
+                // The frame shows the armed row switch; no write was queued.
+                assert_eq!(
+                    app.plugin_manager.row_armed(),
+                    Some(("include:base-tools", false))
                 );
                 assert!(receiver.try_recv().is_err());
             }

@@ -6411,11 +6411,16 @@ impl App {
                         if self.plugin_manager.begin_registries() {
                             self.command(worker::Command::PluginRegistries);
                         }
+                        if self.plugin_manager.begin_rows() {
+                            self.command(worker::Command::PluginManagerPlugins);
+                        }
                     }
                     plugin_manager::Action::Refresh => {
                         if self.plugin_manager.begin() {
                             self.command(worker::Command::PluginManagerRead);
                         }
+                        // A refresh re-reads the live rows too; the Host owns both answers.
+                        self.command(worker::Command::PluginManagerPlugins);
                     }
                     plugin_manager::Action::AskBundle { name, enabled } => {
                         self.plugin_manager.ask(name, enabled);
@@ -6448,6 +6453,15 @@ impl App {
                     }
                     plugin_manager::Action::SelectRegistry(registry) => {
                         self.plugin_manager.select_registry(registry);
+                    }
+                    plugin_manager::Action::AskRow { entry_id, enabled } => {
+                        self.plugin_manager.ask_row(entry_id, enabled);
+                    }
+                    plugin_manager::Action::CancelRow => self.plugin_manager.cancel_row(),
+                    plugin_manager::Action::ConfirmRow => {
+                        if let Some((entry_id, enabled)) = self.plugin_manager.confirm_row() {
+                            self.command(worker::Command::PluginEntryEnabled { entry_id, enabled });
+                        }
                     }
                 }
             }
@@ -7113,6 +7127,19 @@ impl App {
             }
             Event::PluginManagerLoaded(result) => {
                 self.plugin_manager.settled(result);
+            }
+            Event::PluginManagerPluginsLoaded(result) => {
+                self.plugin_manager.rows_settled(result);
+            }
+            Event::PluginEntryChanged {
+                entry_id,
+                enabled,
+                result,
+            } => {
+                let reread = self.plugin_manager.row_changed(entry_id, enabled, result);
+                if reread {
+                    self.command(worker::Command::PluginManagerPlugins);
+                }
             }
             Event::PluginRegistriesLoaded(result) => {
                 self.plugin_manager.registries_settled(result);

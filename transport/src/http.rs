@@ -185,6 +185,8 @@ enum Endpoint {
     PluginBundleRemove,
     PluginInspect,
     PluginRegistries,
+    PluginEntryEnabled,
+    PluginManagerPlugins,
     AgentPresetSelect,
     JobKill,
     PluginSettings,
@@ -272,6 +274,8 @@ impl Endpoint {
             Self::PluginBundleRemove => "pluginManager/removeBundle",
             Self::PluginInspect => "pluginManager/inspect",
             Self::PluginRegistries => "pluginManager/registries",
+            Self::PluginEntryEnabled => "pluginManager/setPluginEnabled",
+            Self::PluginManagerPlugins => "pluginManager/listPlugins",
             Self::AgentPresetSelect => "agentPresets/select",
             Self::JobKill => "job/kill",
             Self::PluginSettings => "settings/describe",
@@ -1405,6 +1409,32 @@ impl NativeClient {
     /// The registries an inspect or install would ask, in order (`pluginManager/registries`).
     pub async fn plugin_manager_registries(&self) -> Result<crate::plugin::PluginRegistries> {
         crate::plugin::project_registries(self.invoke(Endpoint::PluginRegistries, json!({})).await?)
+    }
+    /// Switch one live plugin row on or off (`pluginManager/setPluginEnabled`, `manager-store.ts:646-652`).
+    /// A Host write like the bundle switch; the caller owns the confirmation and the single attempt.
+    pub async fn plugin_manager_set_plugin_enabled(
+        &self,
+        entry_id: &str,
+        enabled: bool,
+    ) -> Result<crate::plugin::PluginChange> {
+        if entry_id.is_empty() || entry_id.len() > 512 || entry_id.chars().any(char::is_control) {
+            return Err(Error::InvalidDto);
+        }
+        let value = self
+            .invoke(
+                Endpoint::PluginEntryEnabled,
+                json!({"id": entry_id, "enabled": enabled}),
+            )
+            .await?;
+        crate::plugin::project_change(value)
+    }
+    /// The live profile entries the manager lists, with their patch ids
+    /// (`pluginManager/listPlugins`, `manager-store.ts:793-795`).
+    pub async fn plugin_manager_plugins(&self) -> Result<Vec<crate::plugin::PluginRow>> {
+        crate::plugin::project_plugin_rows(
+            self.invoke(Endpoint::PluginManagerPlugins, json!({}))
+                .await?,
+        )
     }
     /// Project private redacted config and Schemastery graphs before publishing any DTO.
     pub async fn plugin_settings(&self) -> Result<crate::plugin::SettingsDescribeValue> {
