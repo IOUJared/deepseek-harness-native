@@ -17077,3 +17077,23 @@ than deleting what it wrote; the corrected line says so.
 | app, fixture | **0** | **1577 passed**, 1 ignored |
 | app, default | **0** | **1521 passed**, 1 ignored |
 | app bin | — | **21** warnings (22 with the summary line) |
+
+### Round 608 — cancelling bold returns the colour to its base half
+
+**The gap.** `SGR 1` brightens the current colour (base `32` becomes bright `10`), and `SGR 22` — cancel
+bold — was a no-op, so a program that toggled bold off kept the bright ink. `cargo`'s "bold heading, then
+plain detail" output stayed bright all the way down.
+
+**The change.** `22` maps the ink back to its base half (`ink % 8`), which is exactly what the `1` mapping
+does in reverse.
+
+**Test.** `cancelling_bold_returns_the_colour_to_its_base_half` — `ESC [ 32;1 m bold`, `ESC [ 22 m base`
+yields `(bold, 10)` then `(base, 2)`.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1578 passed**, 1 ignored |
+| app, default | **0** | **1522 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |

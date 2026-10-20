@@ -891,7 +891,9 @@ impl Screen {
                                         100..=107 => self.paper = Some((code - 100 + 8) as u8),
                                         49 => self.paper = None,
                                         39 => self.ink = None,
-                                        22 => {}
+                                        // Bold brightened the base colour, so cancelling bold returns
+                                        // it to the base half rather than leaving it bright.
+                                        22 => self.ink = self.ink.map(|ink| ink % 8),
                                         30..=37 => self.ink = Some((code - 30) as u8),
                                         90..=97 => self.ink = Some((code - 90 + 8) as u8),
                                         // Background and every other attribute are not drawn.
@@ -3280,6 +3282,22 @@ mod tests {
                 ("red".to_owned(), Some(1), true, None),
                 (" plain ".to_owned(), None, false, None),
                 ("two".to_owned(), None, true, None),
+            ]
+        );
+    }
+
+    #[test]
+    fn cancelling_bold_returns_the_colour_to_its_base_half() {
+        // `1` brightens the current colour and `22` cancels the attribute, so the ink goes back to the
+        // base eight instead of staying bright.
+        let mut output = Output::default();
+        output.push("\u{1b}[32;1mbold\u{1b}[22mbase\n");
+        let runs = output.display_styled(DISPLAY_BYTES);
+        assert_eq!(
+            runs[0],
+            vec![
+                ("bold".to_owned(), Some(10), false, None),
+                ("base".to_owned(), Some(2), false, None),
             ]
         );
     }
