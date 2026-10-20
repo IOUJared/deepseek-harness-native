@@ -34,12 +34,16 @@ until the definition of done below is true.
 
 ## Current state (verify, do not trust)
 
-HEAD `f72a4f5`, tree clean, ~430 local commits ahead of origin, nothing pushed. Captures archived
-through `shots/231-steer-all.png`. Working gates at that commit: app fixture **1409 passed / 1
-ignored**, app default **1394 / 1**, transport **56 + 17 + 91 + 7**, core `--lib` **115**, JS **419
-pass / 0 fail**, format debt **0 files / 0 hunks**, `--suite clippy` and `--suite examples` passed. The
-app **bin** carries 21 pre-existing dead-code warnings: record the count, never claim it
-warning-free.
+This file is a *template*: the figures below are the state of the round that last refreshed it, not a
+promise about today. At that refresh: captures archived through `shots/350-terminal-short.png`, app
+fixture **1569 passed / 1 ignored**, app default **1513 / 1**, and the app **bin** carrying 21
+pre-existing dead-code warnings — record the count, never claim it warning-free.
+
+**The gates are Rust now.** `scripts/verify-native.py` and `scripts/format-debt.py` were deleted in the
+Python→Rust migration; run `scripts/check.sh` or `cargo run -p xtask --locked -- verify --suite all`
+plus `cargo run -p xtask --locked -- format-debt`. The full battery is 19 checks and includes
+`binary-freshness` (rebuild the release binary when sources moved) and `wayland-drops` (needs a real
+seat, so it fails in a headless run — recorded as hardware-only, not a regression).
 
 Two recorded environment facts, not defects to "fix": `--suite test` fails `binary-freshness` when a
 present `app/target/release/dsh-native-app` predates the sources (do not rebuild to silence it — record
