@@ -12,6 +12,9 @@ const MAX_TEXT_BYTES: usize = 512;
 /// One complete task rule, narrowed from the result.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Task {
+    /// The created task's identity, so the card can be reconciled against the catalog
+    /// (`ScheduleCreateCard.tsx:55-58`).
+    pub id: String,
     pub title: String,
     /// The reference's localized frequency line, e.g. `Daily at 17:30 (UTC)`.
     pub frequency: String,
@@ -44,6 +47,44 @@ impl std::fmt::Debug for Card {
             )
             .field("fallback_bytes", &self.fallback.as_ref().map(String::len))
             .finish()
+    }
+}
+
+/// One created-task card's presentation against the authoritative catalog.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CardState {
+    pub title: String,
+    /// The rule line, or `Deleted`; `None` when the result never narrowed to a task.
+    pub line: Option<String>,
+    /// The raw result text, drawn only when no task could be narrowed.
+    pub fallback: Option<String>,
+    /// The task is known gone, so the card states it rather than an out-of-date rule.
+    pub deleted: bool,
+}
+
+/// Reconcile one created-task card against the shared catalog the way the reference does
+/// (`ScheduleCreateCard.tsx:55-78`, `ScheduleTurnCard.tsx:73-99`): a settled catalog that no longer
+/// holds the task states `Deleted` (`task-manager-locales.ts:141`), a task still present supplies its
+/// current title and rule, and the recorded result stands until an authoritative read has settled.
+pub fn card_state(
+    card: &Card,
+    current: Option<&dsh_native_transport::dto::ScheduleCatalogItem>,
+    settled: bool,
+) -> CardState {
+    let deleted = card.task.is_some() && settled && current.is_none();
+    let title = current.map_or_else(|| card.title.clone(), |item| item.title.clone());
+    let line = if deleted {
+        Some("Deleted".to_owned())
+    } else if let Some(item) = current {
+        frequency_from(&item.record, &item.kind).or_else(|| card.frequency())
+    } else {
+        card.frequency()
+    };
+    CardState {
+        title,
+        line,
+        fallback: card.fallback.clone(),
+        deleted,
     }
 }
 
@@ -175,7 +216,6 @@ pub fn frequency_from(
 /// Narrow one complete task from the result JSON, or `None`.
 pub fn narrow(value: &Value) -> Option<Task> {
     let id = value["id"].as_str().filter(|id| !id.is_empty())?;
-    let _ = id;
     let prompt = value["prompt"]
         .as_str()
         .filter(|prompt| !prompt.is_empty())?;
@@ -219,6 +259,7 @@ pub fn narrow(value: &Value) -> Option<Task> {
         _ => return None,
     };
     Some(Task {
+        id: crate::reducer::bounded(id, MAX_TEXT_BYTES),
         title: crate::reducer::bounded(title, MAX_TEXT_BYTES),
         frequency,
     })
@@ -572,6 +613,50 @@ mod filter_tests {
             Some("daily text")
         ));
         assert!(!Filter::matches("nightly", "PUBLIC", None));
+    }
+
+    #[test]
+    fn a_created_task_card_states_a_deletion_only_after_the_catalog_settles() {
+        let value = serde_json::json!({
+            "id": "PUBLIC-schedule-1",
+            "title": "PUBLIC weekly fixture reminder",
+            "prompt": "PUBLIC instruction",
+            "scheduledAt": "2026-09-01T09:00:00.000Z",
+            "kind": "weekly",
+            "time": "09:00",
+            "timeZone": "UTC",
+            "weekdays": [1, 5]
+        });
+        let task = narrow(&value).expect("a complete task");
+        assert_eq!(task.id, "PUBLIC-schedule-1");
+        let card = Card {
+            task: Some(task),
+            title: "PUBLIC weekly fixture reminder".to_owned(),
+            fallback: None,
+        };
+        // Before any read settles, the recorded rule stands even though the catalog is empty.
+        let state = card_state(&card, None, false);
+        assert!(!state.deleted);
+        assert_eq!(
+            state.line.as_deref(),
+            Some("Weekly on Mon, Fri at 09:00 (UTC)")
+        );
+        // A settled catalog that no longer holds the task states the deletion, not a stale rule.
+        let state = card_state(&card, None, true);
+        assert!(state.deleted);
+        assert_eq!(state.line.as_deref(), Some("Deleted"));
+        // A task still present supplies its current title and rule.
+        let mut current = reminder("PUBLIC-schedule-1", "PUBLIC-session", "active", None);
+        current
+            .record
+            .insert("time".into(), serde_json::json!("17:30"));
+        current
+            .record
+            .insert("timeZone".into(), serde_json::json!("UTC"));
+        let state = card_state(&card, Some(&current), true);
+        assert!(!state.deleted);
+        assert_eq!(state.title, "PUBLIC PUBLIC-schedule-1");
+        assert_eq!(state.line.as_deref(), Some("Daily at 17:30 (UTC)"));
     }
 
     fn reminder(

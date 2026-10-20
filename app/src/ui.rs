@@ -1541,6 +1541,10 @@ pub struct App {
     schedules: Vec<dsh_native_transport::dto::ScheduleCatalogItem>,
     schedules_loading: bool,
     schedules_error: Option<String>,
+    /// Whether a schedule catalog read has ever succeeded. A created-task card may state that its
+    /// task is gone only against such a read, never against the first empty snapshot
+    /// (`ScheduleTurnCard.tsx:73-99`).
+    schedules_settled: bool,
     /// The header's reminder popover is open (`ScheduleCatalogAction.tsx:42`).
     reminders_open: bool,
     /// The task whose delete waits for a second press: (session binding, id).
@@ -2027,6 +2031,7 @@ impl App {
                 schedules: Vec::new(),
                 schedules_loading: false,
                 schedules_error: None,
+                schedules_settled: false,
                 reminders_open: false,
                 schedule_delete: None,
                 schedule_busy: None,
@@ -7032,6 +7037,7 @@ impl App {
                     Ok(items) => {
                         self.schedules = items;
                         self.schedules_error = None;
+                        self.schedules_settled = true;
                     }
                     Err(error) => self.schedules_error = Some(error),
                 }
@@ -17444,10 +17450,19 @@ impl App {
         card: &crate::reducer::schedule_card::Card,
     ) -> Element<'static, Message> {
         let line = design::CODE_LINE + self.content_delta_secondary();
+        // The card follows its task once the catalog has settled: a deleted task states `Deleted`
+        // instead of its stale rule, and a present one supplies its current title and rule
+        // (`ScheduleCreateCard.tsx:55-78`).
+        let current = card
+            .task
+            .as_ref()
+            .and_then(|task| self.schedules.iter().find(|item| item.id == task.id));
+        let state =
+            crate::reducer::schedule_card::card_state(card, current, self.schedules_settled);
         let mut body = column![
             row![
                 label("◷", MUTED).size(12),
-                label(short(&card.title, 120), TEXT).size(12),
+                label(short(&state.title, 120), TEXT).size(12),
                 Space::new().width(Length::Fill),
             ]
             .spacing(7)
@@ -17455,10 +17470,10 @@ impl App {
             .height(line),
         ]
         .spacing(2);
-        if let Some(frequency) = card.frequency() {
+        if let Some(frequency) = state.line {
             body = body.push(label(frequency, MUTED).size(design::CODE_FONT));
         }
-        if let Some(fallback) = &card.fallback {
+        if let Some(fallback) = &state.fallback {
             body = body.push(label(short(fallback, 200), MUTED).size(design::CODE_FONT));
         }
         container(body)

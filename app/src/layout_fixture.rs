@@ -231,6 +231,7 @@ pub const PRESETS: &[&str] = &[
     "quota-toast",
     "turn-max-tokens",
     "schedule-create",
+    "schedule-create-deleted",
     "skill-row",
     "command-row",
     "manual-compaction",
@@ -362,7 +363,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "stats-dialog" => Some((Size::new(1040.0, 760.0), 1.0)),
         "settings-shortcuts" => Some((Size::new(1040.0, 900.0), 1.0)),
         "turn-error" | "turn-max-tokens" | "quota-toast" => Some((Size::new(1040.0, 620.0), 1.0)),
-        "schedule-create" => Some((Size::new(1040.0, 700.0), 1.0)),
+        "schedule-create" | "schedule-create-deleted" => Some((Size::new(1040.0, 700.0), 1.0)),
         "skill-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "command-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "process-group-closed" | "process-group-open" => Some((Size::new(1040.0, 760.0), 1.0)),
@@ -1780,7 +1781,7 @@ pub fn build(
         public_command_records()
     } else if preset == "skill-row" {
         public_skill_records()
-    } else if preset == "schedule-create" {
+    } else if preset == "schedule-create" || preset == "schedule-create-deleted" {
         public_schedule_create_records()
     } else if preset == "turn-error" {
         public_turn_error_records(json!({"kind":"error","error":{
@@ -3097,6 +3098,20 @@ pub fn build(
         // own state: one click's worth, set before the frame rather than pressed during it.
         app.turn_process_open.insert(1);
     }
+    if preset == "schedule-create" || preset == "schedule-create-deleted" {
+        // The call's own seat is folded until the reader opens it, so the card needs the seat's
+        // open state before the frame rather than a press during it.
+        let keys: Vec<u64> = {
+            let rows: Vec<_> = app.transcript.display_rows(false).collect();
+            app.process_seats(&rows)
+                .values()
+                .map(|seat| seat.key)
+                .collect()
+        };
+        for key in keys {
+            app.process_group_open.insert(key, true);
+        }
+    }
     if preset == "tool-activity-open" {
         // A seat is folded until the reader opens it, so the expanded state needs its own
         // state: one click's worth, set before the frame rather than pressed during it.
@@ -3681,6 +3696,31 @@ pub fn build(
                 .expect("the skill row's label");
             assert_eq!(summary.title, "Skill · skill");
             assert_eq!(summary.target.as_deref(), Some("impeccable-rust"));
+            drop(app.update(Message::ToggleActivity {
+                generation: app.generation,
+                key: 1,
+            }));
+            assert!(app.activity_expanded.contains(&1));
+        }
+        "schedule-create-deleted" => {
+            // The authoritative catalog settled without the task this call created, so the card
+            // states the deletion instead of the rule it was created with
+            // (`ScheduleCreateCard.tsx:55-78`).
+            app.schedules_settled = true;
+            app.schedules = Vec::new();
+            let card = app
+                .transcript
+                .activity(1, app.path_roots())
+                .and_then(|activity| activity.schedule)
+                .expect("the created-task card");
+            assert_eq!(
+                card.task.as_ref().map(|task| task.id.as_str()),
+                Some("PUBLIC-schedule-1"),
+                "the card keeps the task identity it created"
+            );
+            let state = crate::reducer::schedule_card::card_state(&card, None, true);
+            assert!(state.deleted);
+            assert_eq!(state.line.as_deref(), Some("Deleted"));
             drop(app.update(Message::ToggleActivity {
                 generation: app.generation,
                 key: 1,
@@ -5251,6 +5291,17 @@ mod tests {
                     app.session_schedule_mark(&review, None).is_none(),
                     "a row without an active task carries no mark"
                 );
+            }
+            if preset == "schedule-create-deleted" {
+                // The stripped row still owns its card, and the card states the deletion.
+                let card = app
+                    .transcript
+                    .activity(1, app.path_roots())
+                    .and_then(|activity| activity.schedule)
+                    .expect("the created-task card");
+                let state = crate::reducer::schedule_card::card_state(&card, None, true);
+                assert!(state.deleted);
+                assert_eq!(state.title, "PUBLIC weekly fixture reminder");
             }
             if preset == "session-hover" {
                 // The card the dwell would open, with two ordered task rows and the third counted.

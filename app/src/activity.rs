@@ -1511,6 +1511,7 @@ mod card_debug_tests {
             }),
             schedule: Some(crate::reducer::schedule_card::Card {
                 task: Some(crate::reducer::schedule_card::Task {
+                    id: "PRIVATE-SCHEDULE".into(),
                     title: "PRIVATE-TASK".into(),
                     frequency: "Once".into(),
                 }),

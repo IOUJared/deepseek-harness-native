@@ -6421,7 +6421,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Goals, plan mode, permissions, approvals/questions, jobs, subagents, session log | cloned |
 | Tool rows: one row per call with the folded result, relative path, `+N −N`, and the structured cards — diff, read, terminal, search, web, ask-user | cloned (no per-tool glyphs — the reference's SVGs have no DejaVu equivalent); each run of step activity sits under a process-group seat whose live label, running detail, folding and grouping follow the **Work details** preference — Compact / Standard / Detailed / Verbose, chosen in Settings → General and persisted locally), and a settled turn folds its whole process behind one `Completed in …` / `Stopped` / `Failed` control with a hairline and the reference's 16px rung (rounds 513–514) |
 | Reasoning disclosure wording | difference: native says `Thoughts` where the reference says `Thought for a while` (`message.turnProcess.thoughtForAWhile`), by the user's stated preference for the shorter label; a settled row still previews its first line under the `settledReasoningPreview` policy |
-| Model-retry row, command row (a manual `/compact` folded into one marker), turn duration, failure and output-limit rows, card Copy control, created-task (`schedule_create`) card, skill row | cloned (the skill row has no `Inspect` action: native has no right Sidebar to open it in) |
+| Model-retry row, command row (a manual `/compact` folded into one marker), turn duration, failure and output-limit rows, card Copy control, created-task (`schedule_create`) card, skill row | cloned (the created-task card now reconciles with the settled catalog: `Deleted` after its task goes, and the current title/rule while it is present — round 667) (the skill row has no `Inspect` action: native has no right Sidebar to open it in) |
 | Composer usage pill: tokens, cache hit, speed, turn/step counts, and the Host's session-statistics dialog | cloned |
 | Deliverables: summary, file list, per-file diff rows with both gutters, wrapping and a side-by-side layout (round 505), desktop open | cloned (rounds 475–491, 505; no right-Sidebar review tab) |
 | Message feedback: ratings, categories, note, refusal/limit states | cloned (rounds 492–497); the rating controls are words rather than thumb icons, and a session-level dialog needs a Host route native lacks |
@@ -18245,3 +18245,45 @@ no preview.
 | transport | **0** | 62 + 17 + 91 + 7 passed |
 | app bin | — | **21** warnings (22 with the summary line) |
 | battery | **passed** | **17 checks, 0 failing** (`verification-d09682e31370`) |
+
+### Round 667 — a created-task card follows its task
+
+**The gap.** The `schedule_create` card was drawn from the recorded result alone, so a task deleted
+after its creation kept advertising its old rule forever. The reference reconciles the card with the
+authoritative catalog (`ui-schedule/src/client/ScheduleCreateCard.tsx:55-78`,
+`ScheduleTurnCard.tsx:73-99`): once a read has settled, a missing id states **Deleted**
+(`task-manager-locales.ts:141`) where the rule would be, and a present one supplies its **current**
+title and rule instead of the recorded ones.
+
+**The change.** The narrowed `Task` keeps the created task's `id`; `schedule_card::card_state(card,
+current, settled)` returns the presentation (title, rule line, fallback, `deleted`), and the App now
+tracks `schedules_settled` so an empty first snapshot is never read as a deletion. The card looks its
+task up in the same one `schedule/catalog` read the reminder chip and the row marks already use.
+
+**The frame found a second defect.** The `schedule-create` preset had never shown its card: the call's
+own seat starts folded, and both its model assertion and its capture predated anything that opened it.
+Both `schedule-create` and the new `schedule-create-deleted` preset now open the seat before the frame.
+
+**Test.** `a_created_task_card_states_a_deletion_only_after_the_catalog_settles` — the recorded rule
+stands before a read settles, `Deleted` after a settled catalog loses the id, and a present task's
+current title and rule replace the recorded ones; the `schedule-create-deleted` preset is pinned in
+`presets_render_actual_app_without_queued_effects`.
+
+**Frame.** `shots/366-schedule-created-deleted.png` (1040×700, new `schedule-create-deleted` preset):
+the opened call seat carries the card, `PUBLIC weekly fixture reminder` over `Deleted`.
+
+**Still open on this surface.** The reference also re-renders every created-task card at the **turn
+tail** (`ScheduleTurnCard.tsx:107-127`), so it survives the process fold; native still draws it only
+inside the call's seat. The card's `Open` action and detail navigation stay absent with the right
+Sidebar (a recorded deliberate difference).
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| format | **0** | `cargo fmt` applied; format-debt 0 files, 0 hunks |
+| app, fixture | **0** | **1600 passed**, 1 ignored |
+| app, default | **0** | **1544 passed**, 1 ignored |
+| transport | **0** | 62 + 17 + 91 + 7 passed |
+| app bin | — | **21** warnings (22 with the summary line) |
+| battery | **passed** | **17 checks, 0 failing** (`verification-c7eb3fc09a12`) |
