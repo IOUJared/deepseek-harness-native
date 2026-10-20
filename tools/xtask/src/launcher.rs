@@ -129,6 +129,210 @@ pub fn selected_node(value: Option<&str>) -> Result<PathBuf, String> {
     Ok(node)
 }
 
+/// Read a bounded package file without following a final symlink.
+pub fn private_read(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
+    use std::os::unix::ffi::OsStrExt;
+    let c_path = std::ffi::CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| "Unexpected package file")?;
+    // Safe: a NUL-terminated path and constant flags; the descriptor is closed below.
+    let fd = unsafe {
+        libc::open(
+            c_path.as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return Err("Unexpected package file".into());
+    }
+    let mut info: libc::stat = unsafe { std::mem::zeroed() };
+    // Safe: a live descriptor and a valid out-parameter.
+    if unsafe { libc::fstat(fd, &mut info) } != 0
+        || info.st_mode & libc::S_IFMT != libc::S_IFREG
+        || info.st_size as u64 > limit
+    {
+        unsafe { libc::close(fd) };
+        return Err("Unexpected package file".into());
+    }
+    use std::os::unix::io::FromRawFd;
+    let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
+    let mut data = Vec::new();
+    std::io::Read::read_to_end(&mut file, &mut data).map_err(|error| error.to_string())?;
+    if data.len() as u64 > limit || data.len() as u64 != info.st_size as u64 {
+        return Err("Package file changed or exceeded its bound".into());
+    }
+    Ok(data)
+}
+
+/// Stream the native binary under a bound and reject a replaced or modified file.
+pub fn binary_digest(path: &Path) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    use std::os::unix::ffi::OsStrExt;
+    let c_path = std::ffi::CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| "Unexpected native binary")?;
+    // Safe: a NUL-terminated path and constant flags; the descriptor is closed below.
+    let fd = unsafe {
+        libc::open(
+            c_path.as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return Err("Unexpected native binary".into());
+    }
+    let mut before: libc::stat = unsafe { std::mem::zeroed() };
+    // Safe: a live descriptor and a valid out-parameter.
+    if unsafe { libc::fstat(fd, &mut before) } != 0
+        || before.st_mode & libc::S_IFMT != libc::S_IFREG
+        || before.st_size <= 0
+        || before.st_size as u64 > MAX_BINARY
+    {
+        unsafe { libc::close(fd) };
+        return Err("Unexpected native binary".into());
+    }
+    use std::os::unix::io::FromRawFd;
+    let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
+    let mut digest = Sha256::new();
+    let mut count = 0u64;
+    let mut buffer = [0u8; 1024 * 1024];
+    loop {
+        let read =
+            std::io::Read::read(&mut file, &mut buffer).map_err(|error| error.to_string())?;
+        if read == 0 {
+            break;
+        }
+        count += read as u64;
+        if count > MAX_BINARY {
+            return Err("Native binary exceeded its bound".into());
+        }
+        digest.update(&buffer[..read]);
+    }
+    let mut after: libc::stat = unsafe { std::mem::zeroed() };
+    // Safe: a live descriptor and a valid out-parameter.
+    if unsafe { libc::fstat(fd, &mut after) } != 0
+        || count != before.st_size as u64
+        || (
+            before.st_dev,
+            before.st_ino,
+            before.st_size,
+            before.st_mtime,
+            before.st_mtime_nsec,
+            before.st_ctime,
+            before.st_ctime_nsec,
+        ) != (
+            after.st_dev,
+            after.st_ino,
+            after.st_size,
+            after.st_mtime,
+            after.st_mtime_nsec,
+            after.st_ctime,
+            after.st_ctime_nsec,
+        )
+    {
+        return Err("Native binary changed during validation".into());
+    }
+    Ok(format!("{:x}", digest.finalize()))
+}
+
+/// The running glibc as a comparable version tuple.
+fn libc_version() -> Option<Vec<u64>> {
+    // Safe: the returned pointer is a static NUL-terminated string for the process.
+    let raw = unsafe { libc::gnu_get_libc_version() };
+    if raw.is_null() {
+        return None;
+    }
+    // Safe: the pointer is a valid NUL-terminated string owned by libc.
+    let text = unsafe { std::ffi::CStr::from_ptr(raw) }.to_str().ok()?;
+    parse_version(text)
+}
+
+fn parse_version(text: &str) -> Option<Vec<u64>> {
+    text.split('.')
+        .map(|part| part.parse::<u64>().ok())
+        .collect::<Option<Vec<u64>>>()
+}
+
+/// Validate the package manifest and return it with the native binary path.
+pub fn package(root: &Path) -> Result<(serde_json::Value, PathBuf), String> {
+    let data = private_read(&root.join("development-manifest.json"), 65536)?;
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&data).map_err(|_| "Unsupported development package")?;
+    if manifest["application"].as_str() != Some(APP)
+        || manifest["runtimeVersion"].as_str() != Some(VERSION)
+        || std::env::consts::OS != "linux"
+        || std::env::consts::ARCH != "x86_64"
+        || manifest["architecture"].as_str() != Some("x86_64")
+        || manifest["runtimeMode"].as_str() != Some("external-explicit")
+    {
+        return Err("Unsupported development package".into());
+    }
+    let Some(minimum) = manifest["minimumGlibc"].as_str().and_then(parse_version) else {
+        return Err("System glibc is older than this development build".into());
+    };
+    match libc_version() {
+        Some(actual) if actual >= minimum => {}
+        _ => return Err("System glibc is older than this development build".into()),
+    }
+    let Some(digest) = manifest["nativeSha256"].as_str() else {
+        return Err("Invalid package identity".into());
+    };
+    if digest.len() != 64
+        || !digest
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err("Invalid package identity".into());
+    }
+    let binary = root.join("bin/dsh-native-app");
+    if binary_digest(&binary)? != digest {
+        return Err("Native binary does not match package manifest".into());
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let executable = std::fs::metadata(&binary)
+        .map(|info| info.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false);
+    if !executable {
+        return Err("Native binary is not executable".into());
+    }
+    Ok((manifest, binary))
+}
+
+/// Run `<node> --version` under a five-second bound and parse its single line.
+pub fn probe_node(env: &BTreeMap<String, String>, node: Option<&Path>) -> Result<String, String> {
+    use std::process::{Command, Stdio};
+    let node = node
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("/usr/bin/node"));
+    let mut child = Command::new(&node)
+        .arg("--version")
+        .env_clear()
+        .envs(env)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|_| "This development build requires Node version 26")?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            _ => {
+                let _ = child.kill();
+                return Err("This development build requires Node version 26".into());
+            }
+        }
+    }
+    let output = child
+        .wait_with_output()
+        .map_err(|_| "This development build requires Node version 26")?;
+    if output.stdout.len() > 32 || output.stderr.len() > 1024 {
+        return Err("This development build requires Node version 26".into());
+    }
+    parse_node_version(&output.stdout)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,5 +417,96 @@ mod tests {
         assert_eq!(marker["layout"], 1);
         assert_eq!(marker["runtimeVersion"], VERSION);
         assert_eq!(marker["nativeSha256"], "a".repeat(64));
+    }
+}
+
+#[cfg(test)]
+mod package_tests {
+    use super::*;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn fixture() -> (PathBuf, serde_json::Value) {
+        let base = crate::tempdir::make_temp_dir(&std::env::temp_dir(), "launcher-").unwrap();
+        let bin = base.as_path().join("bin/dsh-native-app");
+        fs::create_dir_all(bin.parent().unwrap()).unwrap();
+        fs::write(&bin, b"PUBLIC native binary").unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        let digest = binary_digest(&bin).unwrap();
+        let manifest = serde_json::json!({
+            "application": APP, "runtimeVersion": VERSION, "architecture": "x86_64",
+            "runtimeMode": "external-explicit", "minimumGlibc": "2.0",
+            "nativeSha256": digest,
+        });
+        fs::write(
+            base.as_path().join("development-manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        fs::set_permissions(
+            base.as_path().join("development-manifest.json"),
+            fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+        (base, manifest)
+    }
+
+    #[test]
+    fn a_matching_manifest_and_binary_are_accepted_and_mismatches_refused() {
+        let (base, _) = fixture();
+        let (manifest, binary) = package(base.as_path()).expect("a valid package");
+        assert_eq!(manifest["application"], APP);
+        assert_eq!(binary, base.as_path().join("bin/dsh-native-app"));
+        // A binary that does not match the manifest digest is refused.
+        fs::write(binary.as_path(), b"tampered").unwrap();
+        assert_eq!(
+            package(base.as_path()).unwrap_err(),
+            "Native binary does not match package manifest"
+        );
+        // A non-executable binary is refused.
+        let (base, _) = fixture();
+        fs::set_permissions(
+            base.as_path().join("bin/dsh-native-app"),
+            fs::Permissions::from_mode(0o644),
+        )
+        .unwrap();
+        assert_eq!(
+            package(base.as_path()).unwrap_err(),
+            "Native binary is not executable"
+        );
+        // A wrong application, a malformed digest and an unsupported mode are refused.
+        for (key, value, expected) in [
+            (
+                "application",
+                serde_json::json!("other.app"),
+                "Unsupported development package",
+            ),
+            (
+                "runtimeMode",
+                serde_json::json!("installed"),
+                "Unsupported development package",
+            ),
+            (
+                "nativeSha256",
+                serde_json::json!("XYZ"),
+                "Invalid package identity",
+            ),
+        ] {
+            let (base, mut manifest) = fixture();
+            manifest[key] = value;
+            fs::write(
+                base.as_path().join("development-manifest.json"),
+                serde_json::to_vec(&manifest).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(package(base.as_path()).unwrap_err(), expected, "{key}");
+        }
+        // private_read refuses a symlinked manifest.
+        let (base, _) = fixture();
+        let manifest = base.as_path().join("development-manifest.json");
+        let elsewhere = base.as_path().join("elsewhere.json");
+        fs::rename(&manifest, &elsewhere).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, &manifest).unwrap();
+        assert!(private_read(&manifest, 65536).is_err());
     }
 }
