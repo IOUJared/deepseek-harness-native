@@ -16994,3 +16994,18 @@ chained `cat >>` with `git commit` without `&&`, so the red run did not stop it.
 **The rule this round re-learned:** `binary-freshness` compares **both** `app/target/release/dsh-native-app`
 and `app/target/release/examples/layout_smoke`, and it checks them against the sources — so any round that
 touches `app/src` ends with two release builds, not one.
+
+### Round 602 — the `release-guards` failure is a stale entry, not an open stage
+
+**Correcting rounds 590 and 600.** Both notes said `release-guards` was "awaiting the port's decision". The
+stage map says otherwise: `docs/PYTHON-TO-RUST.md:132` records the release packaging family as **ported** —
+"Deleted: `xtask release package` assembles the assets and `xtask release publish` runs the
+draft→verify→publish flow; the CI workflow calls them". So the Python guards went with their stage, and the
+discovery entry that still runs them is a **leftover from a finished stage**, not a stage in progress:
+
+`tools/xtask/src/verify.rs:334` — `("release-guards", ".github/scripts", "test_*.py")` — points at a
+directory the port deleted.
+
+**The one-line fix belongs to `tools/xtask`, so it stays unapplied here.** Removing that entry (as
+`app-guards` already did when its family was ported) turns the battery from 16/18 into 17/18, leaving
+`wayland-drops` as the only failure — the hardware-only check.
