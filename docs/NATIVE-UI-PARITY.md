@@ -17363,3 +17363,23 @@ import it replaced in `terminal_view` then became unused (22 → 23 warnings). B
 | app, fixture | **0** | **1581 passed**, 1 ignored |
 | app, default | **0** | **1525 passed**, 1 ignored |
 | app bin | — | **21** warnings (22 with the summary line) |
+
+### Round 632 — the footer splice swallowed a function boundary, and was reverted
+
+**What was tried.** `terminal_footer()` — the input row, its Write/Resume controls, the control-elsewhere
+prompt and the notice line — extracted from `terminal_view` by index splice, with the panel's `enabled` and
+`ticket` recomputed inside the new builder because both are view-local.
+
+**Why it failed.** The end marker `body.into()\n    }\n` matched a **later** function's tail, not
+`terminal_view`'s, so the splice swallowed the end of `terminal_view` and the head of `mcp_view` — `cargo
+check` reported "non-item in item list" and "`self` parameter is only allowed in associated functions". The
+splice technique that worked for `terminal_output` (round 631) is only safe when **both** markers are
+verified to belong to the same function.
+
+**The rule for the next attempt.** Bound the slice by *both* ends explicitly — find `fn terminal_view(`, then
+the next `\n    fn ` after it as the end — instead of a marker that repeats elsewhere in a 26k-line file. And
+because the footer contains `if` blocks and a `match`, its extraction should move the whole slice verbatim
+(the round-631 method) rather than be rewritten.
+
+**State.** Reverted to `c283639`; `cargo check` **21** real warnings (22 with the summary line), default suite
+**1525 passed**. Header and output builders remain extracted and shipped.
