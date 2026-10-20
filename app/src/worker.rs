@@ -57,6 +57,8 @@ pub enum Command {
     Codex(crate::codex::Effect),
     Export(crate::exporter::Submission),
     PluginsRead(crate::plugins::ReadTicket),
+    /// Read the plugin manager's profile availability and installed bundles. Read-only.
+    PluginManagerRead,
     /// Re-read the session roster, whose summaries carry the projections a subagent catalog is built
     /// from. The reference refreshes a child's projection when its chevron is pressed
     /// (`SubagentHeaderLineage.tsx:554-561`); this is the same read, whole-roster.
@@ -395,6 +397,9 @@ pub enum Event {
         receipt: crate::exporter::Receipt,
         outcome: crate::exporter::Outcome,
     },
+    /// The plugin manager's read: the Host's profile availability and, when manageable, its
+    /// bundles. `Ok((false, []))` is the reference's own unavailable answer, not an empty profile.
+    PluginManagerLoaded(Result<(bool, Vec<dsh_native_transport::plugin::PluginBundle>), String>),
     PluginsLoaded {
         ticket: crate::plugins::ReadTicket,
         result: Result<crate::plugins::Snapshot, crate::plugins::ReadFailure>,
@@ -1157,6 +1162,7 @@ fn rejected(command: Command) -> Event {
                 outcome: crate::exporter::Outcome::NotSent,
             }
         }
+        Command::PluginManagerRead => Event::PluginManagerLoaded(Err(error)),
         Command::PluginsRead(ticket) => Event::PluginsLoaded {
             ticket,
             result: Err(crate::plugins::ReadFailure::Unavailable),
@@ -2764,6 +2770,12 @@ async fn run(
                         result:client.open_workspace_path(&path).await.map_err(|error|format!("Open path: {error}")),
                         path,
                     },
+                    Command::PluginManagerRead=>Event::PluginManagerLoaded(async{
+                        let inventory=client.plugin_inventory().await.map_err(|error|format!("Plugins: {error}"))?;
+                        if !inventory.management_available{return Ok((false,Vec::new()));}
+                        let bundles=client.plugin_manager_bundles().await.map_err(|error|format!("Plugins: {error}"))?;
+                        Ok((true,bundles))
+                    }.await),
                     Command::OpenInAppApps=>Event::OpenInAppApps(
                         client.open_in_app_apps().await.map_err(|error|format!("Open in app: {error}")),
                     ),

@@ -1055,6 +1055,7 @@ impl Fixture {
                 worker::Command::Cloudflare(_) => "Cloudflare",
                 worker::Command::Export(_) => "Export",
                 worker::Command::PluginsRead(_) => "PluginsRead",
+                worker::Command::PluginManagerRead => "PluginManagerRead",
                 worker::Command::PermissionCatalogRead => "PermissionCatalogRead",
                 worker::Command::AgentPresetsRead => "AgentPresetsRead",
                 worker::Command::AgentPresetSelect { .. } => "AgentPresetSelect",
