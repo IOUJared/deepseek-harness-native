@@ -32,6 +32,7 @@ cargo build --locked --release -j2
 | More | Manage, export and information |
 | Enter / Ctrl+Enter | Send non-whitespace text; file-only drafts require Send button |
 | Shift+Enter | Newline |
+| Drag / Ctrl+C | Select message text inside one block and copy it; paste into the composer |
 | Ctrl+F | Find in loaded messages, with native highlights |
 | Ctrl+B / Escape | Toggle navigation / close auxiliary views |
 

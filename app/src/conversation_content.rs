@@ -270,7 +270,7 @@ impl Prepared {
     /// one, so only this module's tests read it.
     #[cfg(test)]
     pub fn view(&self, width: f32, expanded: bool) -> Element<'static, Message> {
-        self.view_search(width, expanded, "", None, None)
+        self.view_search(width, expanded, "", None, None, &Fields::for_row(1, None))
     }
     /// `preview` is the first line of settled reasoning, shown beside the disclosure title when the
     /// work-details mode enables it (`settledReasoningPreview`, `presentation-policy.ts:21`).
@@ -281,6 +281,7 @@ impl Prepared {
         query: &str,
         preview: Option<&str>,
         copied: Option<usize>,
+        fields: &Fields<'_>,
     ) -> Element<'static, Message> {
         let width = bounded_width(width);
         let mut body = Column::new().width(Length::Fill);
@@ -318,6 +319,7 @@ impl Prepared {
                         self.delta,
                         self.delta_secondary,
                         Ladder::Compact,
+                        fields,
                     ))
                     .style(|_| container::Style {
                         text_color: Some(MUTED),
@@ -330,6 +332,7 @@ impl Prepared {
                         self.reasoning_size().round() as u32,
                         design::compact_line(self.delta_secondary),
                         MUTED,
+                        fields,
                     ),
                 };
                 body = body.push(
@@ -378,6 +381,7 @@ impl Prepared {
                 self.delta,
                 self.delta_secondary,
                 Ladder::Body,
+                fields,
             ));
         } else {
             body = body.push(plain_view(
@@ -386,6 +390,7 @@ impl Prepared {
                 self.body_size().round() as u32,
                 design::body_line(self.delta),
                 TEXT,
+                fields,
             ));
         }
         body.into()
@@ -488,7 +493,70 @@ impl Cache {
     }
 }
 
-type Run = native::Span<'static, (), Font>;
+pub(crate) type Run = native::Span<'static, (), Font>;
+
+/// The drawn runs, shared with the selection wrapper: it must shape exactly what the
+/// text widget draws, and `Rc<Vec<Run>>` gives the pair one owned copy.
+#[derive(Clone)]
+struct SelectedRuns(Rc<Vec<Run>>);
+
+impl AsRef<[Run]> for SelectedRuns {
+    fn as_ref(&self) -> &[Run] {
+        &self.0
+    }
+}
+
+/// Where one row's selectable blocks sit while the row is being built.
+///
+/// A row numbers its blocks in the order it draws them, and the record key keeps those
+/// numbers stable when the transcript scrolls or a row above changes height: the view
+/// only builds the visible rows, so a selection remembered by ordinal alone would move
+/// to whichever block later took that ordinal.
+pub(crate) struct Fields<'a> {
+    row: u64,
+    next: Cell<u16>,
+    selection: Option<&'a super::text_selection::Selection>,
+}
+
+impl<'a> Fields<'a> {
+    pub(crate) fn for_row(
+        row: u64,
+        selection: Option<&'a super::text_selection::Selection>,
+    ) -> Self {
+        Self {
+            row,
+            next: Cell::new(0),
+            selection,
+        }
+    }
+    /// The block's number inside the row, claimed even by blocks that draw no
+    /// selectable text, so the numbering follows the document rather than the
+    /// selection feature.
+    pub(crate) fn claim(&self) -> u16 {
+        let block = self.next.get();
+        self.next.set(block.saturating_add(1));
+        block
+    }
+    pub(crate) fn piece_of(&self, block: u16) -> super::text_selection::Piece {
+        super::text_selection::Piece {
+            row: self.row,
+            block,
+        }
+    }
+}
+
+/// The paragraph a block draws, shaped from the same spans, so the pointer can be
+/// hit-tested against it (`text_selection::Field`).
+pub(crate) fn geometry(
+    parts: &[Run],
+    width: f32,
+    size: u32,
+    line: native::LineHeight,
+    font: Font,
+    wrap: bool,
+) -> Paragraph {
+    paragraph(parts, width, size as f32, line, font, !wrap)
+}
 
 /// `max().min()` rather than `clamp`: `f32::clamp` propagates NaN, while this
 /// form answers a finite 1.0 for a non-finite width, which is what keeps a
@@ -616,14 +684,29 @@ pub fn plain_view(
     size: u32,
     line: native::LineHeight,
     color: iced::Color,
+    fields: &Fields<'_>,
 ) -> Element<'static, Message> {
-    rich_text(marked(vec![span(source.to_owned()).color(color)], query))
+    let block = fields.claim();
+    let runs = std::rc::Rc::new(super::text_selection::highlighted(
+        marked(vec![span(source.to_owned()).color(color)], query),
+        fields.selection,
+        fields.piece_of(block),
+    ));
+    let content = rich_text(SelectedRuns(runs.clone()))
         .font(FONT)
         .size(size)
         .line_height(line)
         .wrapping(text::Wrapping::Word)
-        .width(Length::Fill)
-        .into()
+        .width(Length::Fill);
+    super::text_selection::field(
+        content.into(),
+        runs,
+        fields.piece_of(block),
+        size,
+        line,
+        FONT,
+        true,
+    )
 }
 
 /// Measured height of a tool row's recorded body, shown inline when expanded.
@@ -854,7 +937,7 @@ fn table_row(
         row = row.push(
             container(
                 Column::new()
-                    .push(inline_view(cell, size, line, query))
+                    .push(inline_view(cell, size, line, query, None))
                     .push(
                         container(Space::new().height(1))
                             .width(Length::Fill)
@@ -906,14 +989,31 @@ fn inline_view(
     size: u32,
     line: native::LineHeight,
     query: &str,
+    field: Option<(&Fields<'_>, u16)>,
 ) -> Element<'static, Message> {
-    rich_text(marked(inline_runs(parts), query))
+    let mut runs = marked(inline_runs(parts), query);
+    if let Some((fields, block)) = field {
+        runs = super::text_selection::highlighted(runs, fields.selection, fields.piece_of(block));
+    }
+    let runs = std::rc::Rc::new(runs);
+    let content = rich_text(SelectedRuns(runs.clone()))
         .font(FONT)
         .size(size)
         .line_height(line)
         .wrapping(text::Wrapping::Word)
-        .width(Length::Fill)
-        .into()
+        .width(Length::Fill);
+    match field {
+        Some((fields, block)) => super::text_selection::field(
+            content.into(),
+            runs,
+            fields.piece_of(block),
+            size,
+            line,
+            FONT,
+            true,
+        ),
+        None => content.into(),
+    }
 }
 fn heading_size(level: u8) -> u32 {
     design::heading_size(level).round() as u32
@@ -1495,6 +1595,7 @@ fn document_view(
     delta: f32,
     delta_secondary: f32,
     ladder: Ladder,
+    fields: &Fields<'_>,
 ) -> Element<'static, Message> {
     let text_size = ladder.size(delta, delta_secondary);
     let text_line = ladder.line(delta, delta_secondary);
@@ -1503,6 +1604,7 @@ fn document_view(
     let mut body = Column::new().width(Length::Fill);
     for (index, block) in document.blocks.iter().enumerate() {
         let continuation = continues_quote(&document.blocks, index);
+        let block_id = fields.claim();
         let content: Element<'static, Message> = match block {
             formatted::Block::Paragraph {
                 spans,
@@ -1574,6 +1676,7 @@ fn document_view(
                     text_size.round() as u32,
                     text_line,
                     query,
+                    Some((fields, block_id)),
                 )))
                 .into()
             }
@@ -1587,13 +1690,20 @@ fn document_view(
                 let text: Element<'static, Message> = if ladder == Ladder::Compact {
                     // `font: inherit; font-weight: 600` — the body's size, bold.
                     let bold = compact_heading_spans(spans);
-                    inline_view(&bold, text_size.round() as u32, text_line, query)
+                    inline_view(
+                        &bold,
+                        text_size.round() as u32,
+                        text_line,
+                        query,
+                        Some((fields, block_id)),
+                    )
                 } else {
                     inline_view(
                         spans,
                         (heading_size(*level) as f32 + delta).round() as u32,
                         design::body_line(delta),
                         query,
+                        Some((fields, block_id)),
                     )
                 };
                 // A heading keeps its containers' rule and indent, exactly like a paragraph
@@ -1663,15 +1773,31 @@ fn document_view(
                     tokens
                 };
                 let wrapped = wrap.wrapped(index);
-                let code = rich_text(marked(tokens, query))
+                let code_size = (design::CODE_FONT as f32 + delta_secondary).round() as u32;
+                let code_line = design::code_line(delta_secondary);
+                let runs = std::rc::Rc::new(super::text_selection::highlighted(
+                    marked(tokens, query),
+                    fields.selection,
+                    fields.piece_of(block_id),
+                ));
+                let code = rich_text(SelectedRuns(runs.clone()))
                     .font(MONO)
-                    .size((design::CODE_FONT as f32 + delta_secondary).round() as u32)
-                    .line_height(design::code_line(delta_secondary))
+                    .size(code_size)
+                    .line_height(code_line)
                     .wrapping(if wrapped {
                         text::Wrapping::Word
                     } else {
                         text::Wrapping::None
                     });
+                let code = super::text_selection::field(
+                    code.into(),
+                    runs,
+                    fields.piece_of(block_id),
+                    code_size,
+                    code_line,
+                    MONO,
+                    wrapped,
+                );
                 // A wrapped card measures the text it will wrap; an unwrapped one keeps one line's
                 // height and scrolls sideways (`CodeCard.module.css:113-134`).
                 let height = plain_height(
@@ -2096,7 +2222,7 @@ mod tests {
         let code = p.code(1).unwrap().to_owned();
         let height = p.body_height(320.0, true);
         for query in ["PUBLIC", "42", "absent", ""] {
-            let _ = p.view_search(320.0, true, query, None, None);
+            let _ = p.view_search(320.0, true, query, None, None, &Fields::for_row(1, None));
             assert!(p.answer == answer);
             assert!(p.code(1) == Some(code.as_str()));
             assert_eq!(p.ticket, ticket);

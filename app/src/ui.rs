@@ -93,6 +93,9 @@ mod chat_flow_ui_tests;
 pub(crate) mod chat_usage;
 #[path = "command_menu.rs"]
 mod command_menu;
+#[cfg(test)]
+#[path = "command_menu_ui_tests.rs"]
+mod command_menu_ui_tests;
 /// Where the context window went.
 #[path = "context_breakdown.rs"]
 pub mod context_breakdown;
@@ -165,6 +168,11 @@ pub mod terminal_keys;
 #[cfg(test)]
 #[path = "terminal_ui_tests.rs"]
 mod terminal_ui_tests;
+#[path = "text_selection.rs"]
+mod text_selection;
+#[cfg(test)]
+#[path = "text_selection_ui_tests.rs"]
+mod text_selection_ui_tests;
 /// Local wall-clock text for recorded instants.
 #[path = "time_text.rs"]
 pub mod time_text;
@@ -469,6 +477,8 @@ pub enum Message {
     SubagentCrumbMenu(SessionId),
     /// One edit to the feedback dialog's note field.
     FeedbackNoteEdit(iced::widget::text_editor::Action),
+    /// A drag selection in the conversation text, or `None` when it was cleared.
+    TextSelect(Option<text_selection::Selection>),
     /// The pointer entered or left one changed-file row.
     ChangesHover(Option<(u64, usize)>),
     /// The hover delay elapsed while the pointer was still on that row.
@@ -1604,6 +1614,9 @@ pub struct App {
     transcript: Transcript,
     follow_ready: bool,
     editor: text_editor::Content,
+    /// The live drag selection over the conversation, if any. It is not the composer's
+    /// selection: that one belongs to `text_editor`, this one to the rendered transcript.
+    text_selection: Option<text_selection::Selection>,
     /// The shell's editable context menu, and the editor-owned history its Undo and
     /// Redo entries drive (`apps/desktop/src/main.ts:1018`).
     editor_menu: bool,
@@ -2022,6 +2035,7 @@ impl App {
                 transcript: Transcript::new(0),
                 follow_ready: false,
                 editor: text_editor::Content::new(),
+                text_selection: None,
                 editor_menu: false,
                 subagent_menu: false,
                 subagent_hovered: false,
@@ -5444,6 +5458,12 @@ impl App {
                     }
                 }
             }
+            // The transcript's own selection. A cleared drag (or a press that starts a
+            // new one) arrives as `None`, so a stale copy buffer cannot outlive the
+            // highlight the user sees.
+            Message::TextSelect(selection) => {
+                self.text_selection = selection;
+            }
             Message::Editor(action)
                 if !self.model_controls.is_open() && self.composer_visible() =>
             {
@@ -5592,7 +5612,12 @@ impl App {
             }
             // A press that belongs to the composer but not to a control in it.
             // Nothing to change, and focus is the whole point.
-            Message::ComposerFocus => return Self::focus_composer(),
+            Message::ComposerFocus => {
+                // Reaching for the composer ends a transcript selection, as a press in a
+                // browser's text field does.
+                self.text_selection = None;
+                return Self::focus_composer();
+            }
             // A command line that still has a menu open consumes Enter as
             // "accept", so the first Enter never sends a half-typed command.
             Message::KeyboardSend if self.reference_menu_open() => {
@@ -5678,7 +5703,10 @@ impl App {
                     session: self.selected.clone().unwrap(),
                 });
             }
-            Message::Select(id) if self.ready && self.pending.is_empty() => self.choose(id),
+            Message::Select(id) if self.ready && self.pending.is_empty() => {
+                self.text_selection = None;
+                self.choose(id)
+            }
             Message::Workspace(id) => {
                 self.workspace = id;
             }
@@ -8332,6 +8360,29 @@ impl App {
         }
         Some(Task::none())
     }
+    /// Ctrl/Cmd+C over a transcript drag selection. `None` means the press is not this
+    /// route's, and the key chain decides as it did before: the composer's own focused
+    /// field still owns copy when the user is typing.
+    fn transcript_copy(
+        &self,
+        key: &keyboard::Key,
+        modifiers: keyboard::Modifiers,
+    ) -> Option<Task<Message>> {
+        if !modifiers.command() || modifiers.alt() || modifiers.shift() {
+            return None;
+        }
+        let keyboard::Key::Character(character) = key else {
+            return None;
+        };
+        if !character.eq_ignore_ascii_case("c") {
+            return None;
+        }
+        let selection = self
+            .text_selection
+            .as_ref()
+            .filter(|selection| !selection.text.is_empty())?;
+        Some(self.write_clipboard(selection.text.clone()))
+    }
     /// The live key chain. Order is the contract: an armed capture changes what the next press
     /// means; a focused field's own links keep copy and paste; the global trigger is fixed; then
     /// the stored bindings decide, and a key no current binding holds does nothing rather than
@@ -8463,6 +8514,12 @@ impl App {
             self.settings.capture_error = None;
             self.persist_keybindings();
             return Task::none();
+        }
+        // A transcript drag selection is not a text field, so no widget claims Ctrl+C and
+        // the press reaches this chain. Copying it here matches the reference, where the
+        // same drag is the browser's own selection (`Ctrl+C` over rendered text).
+        if let Some(copied) = self.transcript_copy(&key, modifiers) {
+            return copied;
         }
         // A running turn's two-press Escape wins over the close command while the conversation
         // surface is visible; the first press is consumed exactly as the reference consumes it.
@@ -13604,9 +13661,14 @@ impl App {
         metadata = metadata
             .push(Space::new().width(Length::Fill))
             .push(label(hint, MUTED).size(10));
-        let mut shell = column![];
+        // Every block that can appear above the card is collected here and laid out in
+        // `composer_shell`'s one fixed slot. Pushing these as siblings of the card moved
+        // the card to a different index whenever one appeared, and Iced discards a
+        // child's state when its slot is reconciled with a different widget — which is
+        // how the completion menu used to take the editor's focus away as it opened.
+        let mut above: Vec<Element<'_, Message>> = Vec::new();
         if let Some(todos) = self.todo_dock() {
-            shell = shell.push(todos);
+            push_above(&mut above, todos);
         }
         if self.drop_hover {
             // The reference draws a drop overlay over the composer while a file hovers it
@@ -13623,7 +13685,8 @@ impl App {
                 "Files and images cannot be added right now".to_owned()
             };
             let ink = if allowed { ACCENT } else { DANGER };
-            shell = shell.push(
+            push_above(
+                &mut above,
                 container(label(copy, if allowed { TEXT } else { DANGER }).size(11))
                     .padding([8, 12])
                     .width(Length::Fill)
@@ -13639,17 +13702,18 @@ impl App {
             );
         }
         if let Some(goal) = self.goal_bar() {
-            shell = shell.push(goal);
+            push_above(&mut above, goal);
         }
         if let Some(dock) = self.queue_dock() {
-            shell = shell.push(dock);
+            push_above(&mut above, dock);
         }
         // The completion menu sits directly above the card, so it reads as an
         // extension of the composer rather than a floating panel.
         if self.completion().is_none() && self.awaiting_advertisement() {
             // The advertisement is still in flight: the menu states that rather than staying
             // invisible, so a slash never looks like a dead key.
-            shell = shell.push(
+            push_above(
+                &mut above,
                 container(label("Loading…", MUTED).size(10))
                     .padding([6, 11])
                     .width(Length::Fill)
@@ -13709,7 +13773,8 @@ impl App {
                     on_press: Message::CommandMenuPick(candidate.name.clone()),
                 }));
             }
-            shell = shell.push(
+            push_above(
+                &mut above,
                 container(rows)
                     .padding(4)
                     .width(Length::Fill)
@@ -13821,7 +13886,8 @@ impl App {
                     on_press: Message::ReferencePick(candidate.mention.clone(), "session".into()),
                 }));
             }
-            shell = shell.push(
+            push_above(
+                &mut above,
                 container(rows)
                     .padding(4)
                     .width(Length::Fill)
@@ -13840,7 +13906,10 @@ impl App {
                         .wrapping(iced::widget::text::Wrapping::Word),
                 );
             }
-            shell = shell.push(container(detail).padding([0, 8]).width(Length::Fill));
+            push_above(
+                &mut above,
+                container(detail).padding([0, 8]).width(Length::Fill),
+            );
         }
         // The strip between the card and the lane edge belongs to the composer
         // too; only the controls inside it publish, so a press on the gap keeps
@@ -13851,13 +13920,28 @@ impl App {
                 .into(),
             on_press: Message::ComposerFocus,
         });
-        shell = shell.push(card).push(metadata);
+        // The blocks above keep their own rhythm, and the gap under the last of them
+        // lives inside the slot, so an empty slot takes no space at all.
+        let above: Element<'_, Message> = if above.is_empty() {
+            column![].into()
+        } else {
+            Column::with_children(above)
+                .spacing(design::COMPOSER_DOCK_GAP)
+                .padding(iced::Padding {
+                    top: 0.0,
+                    right: 0.0,
+                    bottom: design::COMPOSER_DOCK_GAP,
+                    left: 0.0,
+                })
+                .into()
+        };
+        let shell = composer_shell(above, card, metadata, design::COMPOSER_DOCK_GAP);
         // The web caps the composer card at the content width + 32px inside the
         // seat's own 16px side padding, so the card overhangs the transcript by
         // 16px per side and its dock strip sits 4px under it
         // (`ConversationRoot.module.css:388`, `InputBar.module.css:9-20`).
         container(
-            container(shell.spacing(design::COMPOSER_DOCK_GAP))
+            container(shell)
                 .max_width(self.chat_cap() + design::COMPOSER_CARD_OVERHANG)
                 .width(Length::Fill),
         )
@@ -17370,6 +17454,11 @@ impl App {
         let turn_gaps = self.turn_gaps(&rendered);
         for index in range.clone() {
             let record = rendered[index];
+            // One numbering per row, shared by the reply's blocks and the bubble's text.
+            // The record key keeps a block's piece stable across scrolling, where only
+            // the visible rows are built.
+            let fields =
+                conversation_content::Fields::for_row(record.key, self.text_selection.as_ref());
             // An open turn keeps its control line in the first member's box.
             let turn_control: Option<Element<'_, Message>> = folds
                 .values()
@@ -17859,6 +17948,7 @@ impl App {
                         self.active_search(),
                         preview.as_deref(),
                         self.copied_code(record.key),
+                        &fields,
                     ))
                     // The reference's rows have no inset of their own: the message column is
                     // the only box they sit in (`ChatView.module.css:54-59`), and an unboxed
@@ -17876,6 +17966,7 @@ impl App {
                                 self.active_search(),
                                 preview.as_deref(),
                                 self.copied_code(record.key),
+                                &fields,
                             )
                         } else {
                             let source = if self.search_expands_user(record) {
@@ -17897,6 +17988,7 @@ impl App {
                                     design::body_line(self.content_delta())
                                 },
                                 TEXT,
+                                &fields,
                             )
                         };
                     // The assistant's completion row gives its glyph two extra
@@ -21389,6 +21481,38 @@ impl<M: Clone, R: iced::advanced::Renderer> iced::advanced::Widget<M, Theme, R>
             None
         }
     }
+}
+
+/// Lays out the composer so the card always occupies the same slot.
+///
+/// Iced reconciles a column's children by position — `Tree::diff_children` zips the
+/// new children with the trees at the same indexes (`iced_core/src/widget/tree.rs:71`)
+/// — and replaces the tree of any child whose widget tag no longer matches
+/// (`Tree::diff`, same file, line 57). A block pushed above the card therefore moved
+/// the card's subtree to another index, and that replacement is what dropped the text
+/// editor's `State::focus` the moment the completion menu appeared. `above` is one
+/// always-present slot that contributes no pixels while empty and carries the old gaps
+/// when it holds blocks, so the editor's state survives anything appearing over it.
+fn composer_shell<'a, M, T, R>(
+    above: Element<'a, M, T, R>,
+    card: Element<'a, M, T, R>,
+    metadata: Element<'a, M, T, R>,
+    gap: f32,
+) -> Element<'a, M, T, R>
+where
+    M: 'a,
+    T: 'a,
+    R: 'a + iced::advanced::Renderer,
+{
+    column![above, card, Space::new().height(gap), metadata]
+        .spacing(0)
+        .into()
+}
+
+/// Collects one block above the composer card. A `Vec` rather than a `Column` because
+/// whether anything sits above the card has to be known before the slot is built.
+fn push_above<'a>(above: &mut Vec<Element<'a, Message>>, block: impl Into<Element<'a, Message>>) {
+    above.push(block.into());
 }
 
 /// Content that hands an inside mouse press to a caret request.

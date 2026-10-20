@@ -17530,3 +17530,103 @@ such"), and the enabling condition lives in `terminal.rs` with its own tests.
 **Closing the round-638 debt.** There is no fixture work owed here. The earlier "no footer in any frame" claim
 was a crop, and the "enabled path unframed" caveat was the same kind of overstatement; both are corrected, and
 the footer split stands as framed in two states.
+
+### Round 641 — the completion menu no longer takes the composer's caret
+
+**The report.** Typing `/` opened the slash menu, and from then on the chatbox took no more
+keystrokes: the menu appeared to have stolen focus. Reproduced in a real window before touching
+code: a user-side typing probe produced a frame where the draft was `/`, the card had no focus
+ring, and the next characters vanished — the frame after typing `pl` was byte-identical.
+
+**What the widget tree showed.** The composer assembled its blocks above the card as sibling
+children of one `Column`: the todo dock, the drop overlay, the goal bar, the queue dock the
+"Loading…" row, the completion menu, the reference trail and the context detail each pushed
+their own child. Iced reconciles a column positionally — `Tree::diff_children` zips the new
+children with the trees at the same indexes (`iced_core-0.14.0/src/widget/tree.rs:71`) — and
+replaces the tree of any child whose widget tag no longer matches (`Tree::diff`, line 57).
+Opening the menu therefore moved the card's subtree from index 0 to index 1, where it was
+reconciled with another widget's tree and rebuilt; the text editor's `State::focus` went with
+it. The menu had not taken focus: the editor had lost it.
+
+**The fix.** `composer_shell` (`app/src/ui.rs`) lays the card out in one fixed slot, beside one
+always-present `above` slot that collects every block. The blocks keep their own spacing and
+their own trailing gap inside that slot, so an empty slot is zero pixels: the no-menu composer
+band is **pixel-identical** between the old and fixed builds (0 differing pixels of 198,000 in
+`x 300..1200, y 700..920`), and the only pixel difference in the open-menu frame is the focus
+ring that is now correct. `push_above` converts an `Into<Element>` block into the slot so the
+call sites stay a single push.
+
+**Why this took a real window.** The unit proof is `command_menu_ui_tests`, which uses a stand-in
+field with Iced's null renderer, since a rendered composer needs a GPU renderer (the limit
+already recorded in `NATIVE-COMPOSER-CONTROLS.md`). It pins both directions: the old sibling
+shape loses the caret when the row appears, and `composer_shell` keeps it. The frame still has
+the final word — it is what showed the pre-fix ring missing, and it is what proves the slot
+costs no pixels.
+
+**Tests.** `a_block_inserted_as_a_sibling_rebuilds_the_card_and_loses_the_caret`,
+`the_composer_shell_keeps_the_caret_when_a_menu_appears_above_the_card`.
+
+**Still conditional inside the card.** The attachment rail is pushed directly before the editor
+inside the card's own column, so dropping a file while the editor is focused can still rebuild
+that subtree. It is the same class of insertion and is recorded here rather than folded into
+this change, because its gap belongs to the card's rhythm and needs its own pixel pass.
+
+**Gates.** Default **1533 passed / 1 ignored** (baseline 1525 + 8 new), fixture **1589 / 1**,
+release bin **21** warnings, `layout_smoke` **17**, `cargo fmt --manifest-path app/Cargo.toml
+-- --check` clean.
+
+**Frame.** `app/evidence/text-selection-and-focus-545abc5f/composer-focus-before.png`,
+`composer-focus-after.png`, `composer-focus-typing.png`.
+
+### Round 642 — drag selection and copy in the conversation
+
+**What was missing.** The web reference's transcript is browser text: dragging over a message
+selects it and Ctrl+C copies it. Native draws the transcript through shaped rich text, and Iced
+gives only `text_editor` a selection model (`iced_widget-0.14.2/src/text_editor.rs:359`), so
+the conversation had none. The Copy buttons on a message existed; selecting a phrase did not.
+
+**What was added.** `app/src/text_selection.rs` wraps each rendered block in a `Field` that
+hit-tests the pointer against a paragraph shaped from the exact runs the block draws
+(`hit_test` returns a byte offset into the flattened spans), publishes the dragged byte range,
+and re-draws the selection by splitting the spans at the range's boundaries. The owner
+(`App::text_selection`) stores the range and the copied text; `transcript_copy` answers Ctrl+C
+while no field owns the press, and the existing Wayland clipboard path does the write. The
+tint is FOAM at 40%, the native stand-in for the reference's
+`--dsw-alias-bg-document-selection` (blue-500 at 40%, `ui-theme/src/styles/design-platform.css:169`);
+unlike the search gold it leaves each run's own colour. `Fields` numbers a row's blocks by the
+record key, because the transcript builds only the visible rows and an ordinal alone would move
+with scrolling. A press that starts a drag clears the previous selection, and reaching into the
+composer ends it, as a press in a text field does in a browser.
+
+**Why it took a real drag.** The first probe selected from byte zero no matter where it was
+pressed: `Cursor::position_in` already returns block-local coordinates, and the code subtracted
+the bounds again, so the press hit-tested outside the paragraph and answered zero. The
+instrumented drag showed the double subtraction (`point = (-540, -381)`), the fix was one line,
+and `selection-anchor-fixed.png` records the corrected start at the pressed character. The
+shaping was probed separately first: `hit_test`'s `CharOffset` is a byte offset into the
+paragraph's whole text, not a line-relative one (line ends came back cumulative), which is what
+makes copying a byte slice safe without any grapheme bookkeeping.
+
+**Tests.** `a_transcript_drag_is_stored_and_reaching_for_the_composer_clears_it`,
+`ctrl_c_answers_for_a_transcript_selection_and_only_then`,
+`a_new_drag_replaces_the_previous_selection_and_an_empty_one_clears_it`,
+`a_reversed_drag_range_reads_in_text_order`,
+`the_highlight_splits_only_the_selected_bytes_and_only_in_its_own_block`,
+`a_block_number_is_the_rows_own_and_survives_a_hidden_row_above_it`.
+
+**Named limits.** Selection stays inside one block — a drag is clamped to the paragraph it
+started in, so a phrase, a line or a code block copies in one gesture but two paragraphs need
+two. Tables, tool bodies, the reasoning title row and the Details panel are not wrapped.
+Double-click word, triple-click line, shift-click extension, keyboard selection and
+auto-scroll-while-dragging do not exist. Assistant prose, headings and code share the wrapper
+and are unit-tested, but the live window probe could only exercise a user bubble: the isolated
+profile has no provider credential, so its assistant side is the failure row.
+
+**Gates.** Default **1533 passed / 1 ignored**, fixture **1589 / 1**, release bin **21**
+warnings, `layout_smoke` **17**, format check clean. Verified end to end on the shipped release
+binary: drag tint → Ctrl+C → `wl-paste` returned the exact tinted bytes → click composer →
+Ctrl+V put them in the draft.
+
+**Frame.** `app/evidence/text-selection-and-focus-545abc5f/selection-user-bubble.png`,
+`selection-multiline.png`, `selection-pasted.png`, `selection-anchor-fixed.png`,
+`selection-clear-on-composer-press.png`.
