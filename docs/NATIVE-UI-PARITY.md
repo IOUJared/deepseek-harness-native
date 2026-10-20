@@ -15946,3 +15946,47 @@ the "large, unbuilt" list.
 | transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
 | DP-2 capture | — | `shots/339-terminal-clear.png`, `status: passed`, 1200x900 |
 | app bin | — | **21** warnings (the round-552 transform became dead and was deleted; the first measurement caught it at 23) |
+
+### Round 554 — the terminal screen addresses the grid, and a full screen scrolls into history
+
+**The gap.** Rounds 552–553 gave the panel redraw and erase rules, but the screen was still a growing
+line list with a cursor at its end: `ESC [ H` was consumed, not obeyed, so a program that positions
+text — a spinner, a two-column status, a prompt written back at the top — landed everything on one
+line, and a full-screen program grew the list instead of scrolling.
+
+**The change.** `Output`'s screen is now a real grid of `rows` lines (the Host's own count, adopted from
+`terminal/state` frames and on select) plus a scrollback: the bottom row scrolls into history, and
+`ESC [ <r>;<c> H`/`f`, `A`/`B`/`C`/`D`, `G` and `d` move the cursor within the grid, so text is written
+where it is addressed. Erase modes act on the grid at the cursor (`K`, `J`), and `2 J` clears the grid
+while keeping scrollback, as a terminal's buffer does. The render shows history plus the grid, collapsing
+the cleared rows below the cursor, and appends a trailing newline only when the cursor stands on a fresh
+line.
+
+**Tests.** `the_cursor_addresses_the_grid_and_a_full_screen_scrolls_into_history` — four output lines
+into a three-row grid keep their order with the oldest in scrollback; `H` writes at the top instead of
+the end; `1A` + `2G` writes on a chosen row and column; `2 J` clears the grid and keeps both scrolled
+lines. Round 552's redraw and round 553's erase tests still pass against the grid.
+
+**Three wrong expectations, all mine, all corrected by the run:** a two-row screen had already scrolled
+*both* lines by the time `2 J` ran; `2 K` leaves the cursor where it was (so the next character lands at
+that column); and the first render rule dropped the rows below a mid-grid cursor. The frames are what
+settled the last one.
+
+**Frame.** `shots/340-terminal-address.png` (1200x900, new `terminal-address` preset): a `status` line
+then two lines written by `ESC [ 2;1H` and `ESC [ 3;1H`, replacing the two older lines in place.
+
+**Still unbuilt, stated:** no colours or SGR rendering, no alternate screen, no wide-character widths, no
+scroll region — the screen is a monochrome grid of single-column cells.
+
+**Battery (round 554).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1557 passed**, 1 ignored |
+| app, default | **0** | **1501 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-zfmqa8fa`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-8424ukni`) |
+| transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
+| DP-2 capture | — | `shots/340-terminal-address.png`, `status: passed`, 1200x900 |
+| app bin | — | **21** warnings |

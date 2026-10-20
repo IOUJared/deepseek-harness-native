@@ -211,6 +211,7 @@ pub const PRESETS: &[&str] = &[
     "terminal-resize",
     "terminal-progress",
     "terminal-clear",
+    "terminal-address",
     "reference-crumbs",
     "reference-subagents",
     "stats-dialog",
@@ -335,6 +336,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "terminal-resize" => Some((Size::new(1200.0, 900.0), 1.0)),
         "terminal-progress" => Some((Size::new(1200.0, 900.0), 1.0)),
         "terminal-clear" => Some((Size::new(1200.0, 900.0), 1.0)),
+        "terminal-address" => Some((Size::new(1200.0, 900.0), 1.0)),
         "reference-crumbs" => Some((Size::new(1040.0, 620.0), 1.0)),
         "reference-subagents" => Some((Size::new(1040.0, 620.0), 1.0)),
         "stats-dialog" => Some((Size::new(1040.0, 760.0), 1.0)),
@@ -360,6 +362,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "terminal-resize"
         | "terminal-progress"
         | "terminal-clear"
+        | "terminal-address"
         | "collapsed-wide"
         | "title-controls"
         | "title-controls-expanded"
@@ -4475,6 +4478,7 @@ pub fn build(
         || preset == "terminal-resize"
         || preset == "terminal-progress"
         || preset == "terminal-clear"
+        || preset == "terminal-address"
     {
         // The terminal panel with one selected Host terminal and its recorded output. Every frame the
         // panel sees here is one a Host could send; nothing is created or written.
@@ -4540,7 +4544,15 @@ pub fn build(
             .follow()
             .cloned()
             .expect("selecting attaches a follow");
-        let frames: [(i64, &str); 3] = if preset == "terminal-clear" {
+        let frames: [(i64, &str); 3] = if preset == "terminal-address" {
+            // Cursor addressing: the second line is written after the first, not below it, so the
+            // panel must place text on the row the sequence names.
+            [
+                (1, "PUBLIC $ status\nold line one\nold line two\n"),
+                (2, "\u{1b}[2;1Hnew line one\u{1b}[3;1Hnew line two\n"),
+                (3, ""),
+            ]
+        } else if preset == "terminal-clear" {
             // A `clear` mid-stream: the transcript above it goes away and the prompt returns.
             [
                 (1, "PUBLIC $ make test\nstep 1\nstep 2\n"),

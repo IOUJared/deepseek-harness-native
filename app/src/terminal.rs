@@ -347,33 +347,91 @@ pub enum Effect {
 const SCREEN_LINES: usize = 2_000;
 
 /// One screen line, written left to right by a cursor that `\r`, `\b` and the erase sequences move.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct Screen {
-    lines: Vec<Vec<char>>,
+    /// Lines that scrolled off the grid, oldest first: a terminal's scrollback.
+    history: Vec<Vec<char>>,
+    /// The visible grid, exactly `rows` lines once a size is known (one until then).
+    grid: Vec<Vec<char>>,
+    row: usize,
     column: usize,
+    rows: usize,
     dropped: usize,
+}
+impl Default for Screen {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 impl Screen {
     fn new() -> Self {
         Self {
-            lines: vec![Vec::new()],
+            history: Vec::new(),
+            grid: vec![Vec::new()],
+            row: 0,
             column: 0,
+            // No size yet: the grid grows instead of scrolling, so text written before the Host
+            // reports its rows is not scrolled into scrollback and later "cleared".
+            rows: 0,
             dropped: 0,
         }
     }
-    fn line(&mut self) -> &mut Vec<char> {
-        if self.lines.is_empty() {
-            self.lines.push(Vec::new());
+    /// Adopt the Host's row count: the grid becomes that tall, keeping the newest lines.
+    fn set_rows(&mut self, rows: u64) {
+        let rows = usize::try_from(rows).unwrap_or(usize::MAX).clamp(1, 500);
+        // A fresh screen (one empty line) simply becomes `rows` empty lines: nothing above it to
+        // keep, and the cursor stays at the top.
+        if self.grid.len() == 1 && self.grid[0].is_empty() {
+            self.grid = vec![Vec::new(); rows];
+            self.row = 0;
+            self.rows = rows;
+            return;
         }
-        self.lines.last_mut().expect("a line")
+        while self.grid.len() < rows {
+            self.grid.insert(0, Vec::new());
+            // Existing rows keep their text; the cursor follows its own line down.
+            self.row = self.row.saturating_add(1);
+        }
+        while self.grid.len() > rows {
+            self.history.push(self.grid.remove(0));
+            self.row = self.row.saturating_sub(1);
+        }
+        self.row = self.row.min(self.grid.len().saturating_sub(1));
+        self.rows = rows;
+    }
+    fn line(&mut self) -> &mut Vec<char> {
+        if self.grid.is_empty() {
+            self.grid.push(Vec::new());
+            self.row = 0;
+        }
+        let row = self.row.min(self.grid.len() - 1);
+        &mut self.grid[row]
     }
     fn newline(&mut self) {
-        self.lines.push(Vec::new());
-        self.column = 0;
-        while self.lines.len() > SCREEN_LINES {
-            self.lines.remove(0);
-            self.dropped = self.dropped.saturating_add(1);
+        if self.rows == 0 {
+            // Unbounded until a size arrives; the history bound still applies.
+            self.grid.push(Vec::new());
+            self.row = self.grid.len() - 1;
+            while self.grid.len() > SCREEN_LINES {
+                self.grid.remove(0);
+                self.dropped = self.dropped.saturating_add(1);
+                self.row = self.row.saturating_sub(1);
+            }
+            self.column = 0;
+            return;
         }
+        if self.row + 1 < self.grid.len() {
+            self.row += 1;
+        } else {
+            // The bottom row scrolls: the oldest grid line becomes scrollback.
+            self.history.push(self.grid.remove(0));
+            self.grid.push(Vec::new());
+            while self.history.len() > SCREEN_LINES {
+                self.history.remove(0);
+                self.dropped = self.dropped.saturating_add(1);
+            }
+        }
+        self.column = 0;
     }
     /// Write one character at the cursor, overwriting the column it lands on.
     fn put(&mut self, character: char) {
@@ -389,7 +447,7 @@ impl Screen {
         }
         self.column = column + 1;
     }
-    /// Erase in line: 0 truncates at the cursor, 1 blanks up to it, 2 clears the line.
+    /// Erase in line, relative to the cursor row.
     fn erase_line(&mut self, mode: u32) {
         let column = self.column;
         let line = self.line();
@@ -404,27 +462,45 @@ impl Screen {
             _ => line.clear(),
         }
     }
-    /// Erase in display: 0 truncates at the cursor and drops what follows, 1 blanks everything up to
-    /// and including the cursor, 2 clears the whole display.
+    /// Erase in display: 0 blanks from the cursor to the end of the grid, 1 blanks up to the cursor,
+    /// 2 clears the grid. Scrollback survives every mode, as a terminal's does.
     fn erase_display(&mut self, mode: u32) {
         match mode {
             0 => {
                 let column = self.column;
-                if let Some(last) = self.lines.last_mut() {
-                    last.truncate(column);
+                let row = self.row;
+                for line in self.grid.iter_mut().skip(row + 1) {
+                    line.clear();
+                }
+                if let Some(line) = self.grid.get_mut(row) {
+                    line.truncate(column);
                 }
             }
             1 => {
                 let column = self.column;
-                self.lines = vec![vec![' '; column]];
+                let row = self.row;
+                for index in 0..row {
+                    if let Some(line) = self.grid.get_mut(index) {
+                        line.clear();
+                    }
+                }
+                if let Some(line) = self.grid.get_mut(row) {
+                    line.truncate(column);
+                }
             }
             _ => {
-                self.lines = vec![Vec::new()];
+                self.grid = vec![Vec::new(); self.grid.len().max(1)];
+                self.row = 0;
                 self.column = 0;
             }
         }
     }
-    /// Consume one chunk of raw Host bytes, applying the redraw and erase rules.
+    /// Move the cursor within the grid, clamped to it.
+    fn place(&mut self, row: usize, column: usize) {
+        self.row = row.min(self.grid.len().saturating_sub(1));
+        self.column = column;
+    }
+    /// Consume one chunk of raw Host bytes, applying the redraw, erase and addressing rules.
     fn feed(&mut self, data: &str) {
         let mut chars = data.chars().peekable();
         while let Some(character) = chars.next() {
@@ -441,17 +517,42 @@ impl Screen {
                             }
                             params.push(c);
                         }
-                        let mode = params
+                        let private = params.starts_with('?');
+                        let numbers: Vec<u32> = params
+                            .trim_start_matches('?')
                             .split(';')
-                            .next()
                             .filter(|part| !part.is_empty())
-                            .and_then(|part| part.parse().ok())
-                            .unwrap_or(0);
+                            .map(|part| part.parse().unwrap_or(0))
+                            .collect();
+                        let first = numbers.first().copied().unwrap_or(0).max(1) as usize;
+                        let second = numbers.get(1).copied().unwrap_or(0);
                         match final_byte {
-                            Some('K') => self.erase_line(mode),
-                            Some('J') => self.erase_display(mode),
+                            Some('K') if !private => {
+                                self.erase_line(numbers.first().copied().unwrap_or(0))
+                            }
+                            Some('J') if !private => {
+                                self.erase_display(numbers.first().copied().unwrap_or(0))
+                            }
+                            Some('G') if !private => self.column = first - 1,
+                            Some('d') if !private => self.place(first - 1, self.column),
+                            Some('H') | Some('f') if !private => {
+                                let column = second.max(1) as usize - 1;
+                                self.place(first - 1, column);
+                            }
+                            Some('A') if !private => {
+                                self.row = self.row.saturating_sub(first);
+                            }
+                            Some('B') if !private => {
+                                self.row =
+                                    (self.row + first).min(self.grid.len().saturating_sub(1));
+                            }
+                            Some('C') if !private => self.column += first,
+                            Some('D') if !private => {
+                                self.column = self.column.saturating_sub(first)
+                            }
                             // Every other sequence is consumed silently: the panel draws text, not
-                            // a full screen, and a guess would corrupt what it does draw.
+                            // a complete terminal, and a guess would corrupt what it does draw. A
+                            // private `?` mode (alternate screen, cursor visibility) is not text.
                             _ => {}
                         }
                     } else if chars.peek() == Some(&']') {
@@ -484,12 +585,23 @@ impl Screen {
         }
     }
     fn render(&self) -> String {
-        let mut out = String::new();
-        for (index, line) in self.lines.iter().enumerate() {
-            if index > 0 {
-                out.push('\n');
-            }
-            out.extend(line.iter());
+        // The whole screen: what scrolled off, then the grid. Trailing blank rows are the cleared
+        // space below the cursor, so they collapse to one newline rather than a run of them.
+        let mut blocks: Vec<String> = Vec::new();
+        for line in self.history.iter().chain(self.grid.iter()) {
+            blocks.push(line.iter().collect());
+        }
+        let mut trailing = 0;
+        while blocks.last().is_some_and(|line| line.is_empty()) {
+            blocks.pop();
+            trailing += 1;
+        }
+        // A trailing newline is the cursor standing on a fresh line, not merely a cleared row
+        // below the output, so the kept grid rows decide it.
+        let kept_grid = blocks.len().saturating_sub(self.history.len());
+        let mut out = blocks.join("\n");
+        if trailing > 0 && !out.is_empty() && self.row >= kept_grid {
+            out.push('\n');
         }
         out
     }
@@ -508,6 +620,10 @@ pub struct Output {
     truncated: usize,
 }
 impl Output {
+    /// Adopt the Host's row count so the screen scrolls into history instead of growing for ever.
+    pub fn set_rows(&mut self, rows: u64) {
+        self.screen.set_rows(rows);
+    }
     pub fn clear(&mut self) {
         self.chunks.clear();
         self.bytes = 0;
@@ -996,6 +1112,16 @@ impl Terminal {
         self.selected = Some(id.clone());
         self.attachment = Some(attachment.clone());
         self.output.clear();
+        // The Host's own row count sizes the screen for this terminal, so a full-screen program
+        // scrolls into scrollback instead of growing the grid.
+        if let Some(rows) = self
+            .list
+            .iter()
+            .find(|info| info.id == id)
+            .map(|info| info.rows)
+        {
+            self.output.set_rows(rows);
+        }
         let follow = FollowTicket {
             epoch: ticket.epoch,
             generation: ticket.generation,
@@ -1598,6 +1724,9 @@ impl Terminal {
             }
             TerminalFrame::State { info } => {
                 if dsh_native_transport::terminal::validate_info(&info).is_ok() {
+                    if self.selected.as_ref() == Some(&info.id) {
+                        self.output.set_rows(info.rows);
+                    }
                     self.upsert(info);
                     self.control_notice();
                 }
@@ -2618,6 +2747,40 @@ mod tests {
             !terminal.shells_failed(),
             "an answered read clears the flag"
         );
+    }
+
+    #[test]
+    fn the_cursor_addresses_the_grid_and_a_full_screen_scrolls_into_history() {
+        // Four output lines into a three-row grid: the oldest scrolls into scrollback, and the
+        // rendered text still shows everything, in order.
+        let mut output = Output::default();
+        output.set_rows(3);
+        output.push("PUBLIC $ printf 'a\\nb\\nc\\nd\\n'\n");
+        output.push("a\nb\nc\nd\n");
+        let text = output.display(DISPLAY_BYTES);
+        assert!(text.starts_with("PUBLIC $ printf"), "{text}");
+        assert!(text.contains("a\nb\nc\nd"), "{text}");
+        assert!(text.ends_with("d\n"), "{text}");
+        // Home then write: the cursor addresses the top of the grid, not the end of the output.
+        let mut output = Output::default();
+        output.set_rows(4);
+        output.push("one\ntwo\nthree\n");
+        output.push("\u{1b}[HPUBLIC");
+        assert_eq!(output.display(DISPLAY_BYTES), "PUBLIC\ntwo\nthree");
+        // Up and right move within the grid; the write lands on that column of that row.
+        let mut output = Output::default();
+        output.set_rows(4);
+        output.push("abc\ndef\n");
+        output.push("\u{1b}[1A\u{1b}[2GR");
+        assert_eq!(output.display(DISPLAY_BYTES), "abc\ndRf");
+        // `2 J` clears the grid but keeps the scrollback, as a terminal's buffer does.
+        let mut output = Output::default();
+        output.set_rows(2);
+        output.push("old\nnew\nthird\n");
+        assert!(output.display(DISPLAY_BYTES).contains("old"));
+        output.push("\u{1b}[2J");
+        // Both scrolled lines survive and `third` — written into the grid — is gone.
+        assert_eq!(output.display(DISPLAY_BYTES).trim_end(), "old\nnew");
     }
 
     #[test]
