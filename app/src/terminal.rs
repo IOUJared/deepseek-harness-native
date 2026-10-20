@@ -685,6 +685,9 @@ impl Screen {
     /// Insert `count` blank rows at the cursor, pushing the rows below down; the grid keeps its
     /// height, so the bottom rows fall out, as a terminal's do.
     fn insert_lines(&mut self, count: usize) {
+        // A parsed count is bounded by the grid: `CSI 999999999 L` must not insert a billion rows
+        // before the oldest fall off. Real terminals clamp to the screen; so does this.
+        let count = count.min(self.grid.len());
         let row = self.row.min(self.grid.len().saturating_sub(1));
         let bottom = self.bottom.min(self.grid.len().saturating_sub(1));
         for _ in 0..count {
@@ -697,6 +700,7 @@ impl Screen {
     }
     /// Delete `count` rows at the cursor, pulling the rows below up and blanking the bottom.
     fn delete_lines(&mut self, count: usize) {
+        let count = count.min(self.grid.len());
         let row = self.row.min(self.grid.len().saturating_sub(1));
         let bottom = self.bottom.min(self.grid.len().saturating_sub(1));
         for _ in 0..count {
@@ -709,6 +713,8 @@ impl Screen {
     }
     /// Delete `count` characters at the cursor, shifting the rest of the row left and padding the end.
     fn delete_chars(&mut self, count: usize) {
+        // The same bound for characters: a row cannot hold more than its own length (or the width).
+        let count = count.min(self.cols.max(self.line().len()).max(1));
         let column = self.column;
         let line = self.line();
         let end = (column + count).min(line.len());
@@ -716,6 +722,13 @@ impl Screen {
     }
     /// Insert `count` blanks at the cursor, shifting the rest of the row right and dropping overflow.
     fn insert_chars(&mut self, count: usize) {
+        // Bounded by the width when it is known; a screen with no width yet still refuses an absurd
+        // count rather than allocating for it.
+        let count = if self.cols > 0 {
+            count.min(self.cols)
+        } else {
+            count.min(1024)
+        };
         let column = self.column;
         let cols = self.cols;
         let line = self.line();
@@ -3198,7 +3211,7 @@ mod tests {
         // The screen is fed bytes from the Host, so every sequence is untrusted. Each case runs in its
         // own thread with a bounded join: a non-terminating input fails this test instead of hanging
         // the suite — which is exactly how round 588's tab loop was found.
-        let cases: [&str; 10] = [
+        let cases: [&str; 12] = [
             "\u{1b}[",
             "\u{1b}",
             "\u{1b}[?",
@@ -3209,6 +3222,8 @@ mod tests {
             "\u{1b}]0;title\u{7}text",
             "\u{1b}[38;5;200mcolour\u{1b}[0m",
             "\r\u{8}\t\u{7f}ok",
+            "\u{1b}[999999999L\u{1b}[999999999M",
+            "\u{1b}[999999999P\u{1b}[999999999@",
         ];
         for (index, case) in cases.iter().enumerate() {
             let (sender, receiver) = std::sync::mpsc::channel();

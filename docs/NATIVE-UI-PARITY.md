@@ -16828,3 +16828,30 @@ bare control bytes with `0x7f`.
 | app, default | **0** | **1515 passed**, 1 ignored |
 | app bin | — | **21** warnings (22 with the summary line) |
 | `xtask verify --suite all` | — | last run 16/18: `wayland-drops` (hardware) and `release-guards` (`.github/scripts` deleted, discovery entry remains) |
+
+### Round 592 — every count a sequence parses is bounded
+
+**The gap.** The tab loop was not the only operation whose bound came from a parsed number. `CSI 999999999
+L` asked the screen to insert a billion rows (one at a time, each truncating), and `P`/`@` did the same for
+characters — the same shape of defect as round 589's tab, on the same untrusted input.
+
+**The change.** `insert_lines` and `delete_lines` clamp their count to the grid's height; `insert_chars`
+clamps to the Host's column count when it is known and to 1,024 when no size has arrived yet;
+`delete_chars` clamps to the row's own length (or the width). A real terminal clamps to the screen; so does
+this one.
+
+**The guard.** The adversarial test gained the two shapes that would have hung:
+`CSI 999999999 L`/`M` and `CSI 999999999 P`/`@`. Twelve cases now, each still bounded by a two-second join.
+
+**One regression, caught by the suite:** my first `insert_chars` clamp used `cols.max(1)`, which on a
+screen with no width yet (the tests' `cols == 0`) cut a legitimate two-character insert to one — the
+existing `lines_and_characters_are_inserted_and_deleted_at_the_cursor` failed with `"a bc"` against
+`"a  bc"`. The bound now distinguishes "width known" from "width unknown".
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1571 passed**, 1 ignored |
+| app, default | **0** | **1515 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |
