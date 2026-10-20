@@ -19,6 +19,7 @@ pub mod private;
 pub mod prompt;
 pub mod registry;
 pub mod scroll;
+pub mod seat;
 pub mod skill;
 pub mod stage;
 pub mod uncertainty;

@@ -139,6 +139,8 @@ Deliberate differences, all measured against the Python originals:
 
 | Composed usage | `scripts/qualify-composed-usage.py` | Deleted: `xtask qualify composed-usage --scope usage|runtime|accounts` (documents, locks, phase validators, multi-phase durability) with a dependency-free YAML subset reader |
 
+| Private seat | `scripts/qualify-private-native-seat.py` (in progress) | `seat`: the ready/result contracts, the explicit executable digest, the private socket name and path bound, and the short-runtime manifest are ported; the Gamescope spawn and teardown remain and need a headless seat run to verify |
+
 ## Remaining
 
 | Family | Files | Lines | Target |
