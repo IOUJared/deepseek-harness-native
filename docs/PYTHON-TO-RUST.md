@@ -92,8 +92,9 @@ Deliberate differences, all measured against the Python originals:
 - The composed-registry **stage contract** is ported (`registry`): six planned
   transitions with their target slot and pin order, the per-stage follow-up
   evidence, a strictly increasing ticket serial, two distinct retained sessions,
-  and the owned stop. Its PNG writer-profile validator and campaign orchestration
-  remain, so the Python file cannot be deleted yet.
+  and the owned stop. The PNG writer-profile validator is ported too (chunk order,
+  CRCs, one bounded zlib stream, exact row lengths and filter tags, reported-size
+  agreement). Its campaign orchestration remains, so the Python file stays.
 - The draft-interruption qualifier is fully ported (`interruption`): nine
   checkpoints with the document expected at each, hold/recover/crash shapes, the
   latch-until-owned-kill crash gate, and the rule that a graceful phase may not
