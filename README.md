@@ -35,7 +35,7 @@ cargo build --locked --release -j2 --manifest-path deepseek-harness-native/app/C
 
 ## CI and downloads
 
-[GitHub Actions](https://github.com/IOUJared/deepseek-harness-native/actions) checks pushes and pull requests. Calendar development releases use **`year.month.day-rN`**, starting with **`2026.10.10-r1`**, and are published explicitly after combined-source verification; legacy plain-version pushes retain `dev.run` automation. [Downloads](https://github.com/IOUJared/deepseek-harness-native/releases) · [Changelog](<CHANGELOG.md>) · [Release verification](<RELEASES/2026.10.10-r2.md>) · [Policy](<docs/CI-RELEASES.md>). The compatible backend and Node remain separate.
+[GitHub Actions](https://github.com/IOUJared/deepseek-harness-native/actions) checks pushes and pull requests. Calendar development releases use **`year.month.day-rN`**, starting with **`2026.10.10-r1`**, and are published explicitly after combined-source verification; legacy plain-version pushes retain `dev.run` automation. [Downloads](https://github.com/IOUJared/deepseek-harness-native/releases) · [Changelog](<CHANGELOG.md>) · [Release verification](<RELEASES/2026.10.20-r1.md>) · [Policy](<docs/CI-RELEASES.md>). The compatible backend and Node remain separate.
 
 ## Development quality
 

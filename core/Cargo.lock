@@ -172,7 +172,7 @@ dependencies = [
 
 [[package]]
 name = "dsh-native-core"
-version = "2026.10.10-r2"
+version = "2026.10.20-r1"
 dependencies = [
  "dsh-native-transport",
  "libc",
@@ -187,7 +187,7 @@ dependencies = [
 
 [[package]]
 name = "dsh-native-transport"
-version = "2026.10.10-r2"
+version = "2026.10.20-r1"
 dependencies = [
  "base64 0.22.1",
  "cookie",

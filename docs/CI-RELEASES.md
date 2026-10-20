@@ -13,7 +13,7 @@
 
 ## Versions
 
-Calendar [Cargo versions](<../app/Cargo.toml>) use `year.month.day-rN` in America/Chicago; `N` counts that day's explicit releases. `2026.10.10-r1` maps to `v2026.10.10-r1` and `2026.10.10-r2` to `v2026.10.10-r2`, independent of CI run numbers. The release collects reviewed combined agent work, a changelog, matching rebuilt consumers and verified assets; CI does not race or replace these calendar assets. [Changelog](<../CHANGELOG.md>) · [r1 release checks](<../RELEASES/2026.10.10-r1.md>) · [r2 release checks](<../RELEASES/2026.10.10-r2.md>).
+Calendar [Cargo versions](<../app/Cargo.toml>) use `year.month.day-rN` in America/Chicago; `N` counts that day's explicit releases. `2026.10.10-r1` maps to `v2026.10.10-r1`, `2026.10.10-r2` to `v2026.10.10-r2` and `2026.10.20-r1` to `v2026.10.20-r1`, independent of CI run numbers. The release collects reviewed combined agent work, a changelog, matching rebuilt consumers and verified assets; CI does not race or replace these calendar assets. [Changelog](<../CHANGELOG.md>) · [r1 checks](<../RELEASES/2026.10.10-r1.md>) · [r2 checks](<../RELEASES/2026.10.10-r2.md>) · [2026.10.20-r1 checks](<../RELEASES/2026.10.20-r1.md>).
 
 Legacy plain versions retain `v0.1.0-dev.run` automation. Gaps reflect workflow runs; reruns keep their number and verify existing assets. Every release targets its exact tested commit, not a moving branch tip. Automation does not edit manifests or create commit loops.
 

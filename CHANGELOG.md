@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 2026.10.20-r1 — Native Linux development release
+
+October 20, 2026, America/Chicago. First calendar release after `2026.10.10-r2`, collecting the Host terminal panel and its screen protocol, the read-only work panel, MCP server management, Context health/compaction rows and the loop guard, desktop notifications, slash completion, multiple attachments, session rename and fork, the permission, workspace-picker, scroll-fixture and live-Host fixes, the bubble line box, and the composer caret and transcript selection. [Release checks and limits](<RELEASES/2026.10.20-r1.md>).
 
 - [Composer caret](<docs/NATIVE-UI-PARITY.md>): the slash menu no longer takes typing away. The blocks above the composer card were siblings in one column, so opening the menu moved the card to a new index where Iced rebuilt its subtree and dropped the editor's focus; they now share one always-present slot, which is pixel-identical while empty. Two stand-in widget tests pin both the old loss and the fix, and a real window shows `/pl` typed with the menu open and the caret still in the card.
 
