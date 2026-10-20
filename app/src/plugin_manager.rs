@@ -37,6 +37,8 @@ pub enum Action {
     EditSpec(String),
     /// Inspect the typed spec; nothing is installed.
     Inspect,
+    /// Choose the registry the inspect asks first; `None` is the Host's configured default.
+    SelectRegistry(Option<String>),
 }
 
 #[derive(Default)]
@@ -63,6 +65,11 @@ pub struct Manager {
     spec: String,
     inspecting: bool,
     inspection: Option<dsh_native_transport::plugin::PluginInspection>,
+    /// The Host's registry order, read once for the Add-plugin form.
+    registries: Option<dsh_native_transport::plugin::PluginRegistries>,
+    registries_loading: bool,
+    registries_loaded: bool,
+    registry: Option<String>,
 }
 
 impl Manager {
@@ -208,6 +215,52 @@ impl Manager {
             }
         }
     }
+    pub fn select_registry(&mut self, registry: Option<String>) {
+        self.registry = registry;
+        self.notice = None;
+    }
+    /// The registry the next inspect asks first; `None` is the Host's default.
+    pub fn registry(&self) -> Option<String> {
+        self.registry.clone()
+    }
+    /// Start the one registry read the Add-plugin form needs.
+    pub fn begin_registries(&mut self) -> bool {
+        if self.registries_loading || self.registries_loaded {
+            return false;
+        }
+        self.registries_loading = true;
+        true
+    }
+    pub fn registries_settled(
+        &mut self,
+        result: Result<dsh_native_transport::plugin::PluginRegistries, String>,
+    ) {
+        self.registries_loading = false;
+        match result {
+            Ok(registries) => {
+                self.registries = Some(registries);
+                self.registries_loaded = true;
+            }
+            Err(error) => {
+                // The form stays usable with the Host's default registry; the failure is stated.
+                self.notice = Some((
+                    format!("Could not read the registries: {}", short(&error, 80)),
+                    true,
+                ));
+            }
+        }
+    }
+    #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
+    pub fn registries(&self) -> Option<&dsh_native_transport::plugin::PluginRegistries> {
+        self.registries.as_ref()
+    }
+    /// Seed the registry order for a public fixture: no Host was asked.
+    #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
+    pub fn seed_registries(&mut self, registries: dsh_native_transport::plugin::PluginRegistries) {
+        self.registries = Some(registries);
+        self.registries_loaded = true;
+        self.registries_loading = false;
+    }
     pub fn edit_spec(&mut self, text: String) {
         self.spec = text;
         self.notice = None;
@@ -335,6 +388,58 @@ impl Manager {
             .style(design::ghost)
             .on_press_maybe((!self.loading).then_some(Message::PluginManager(Action::Refresh))),
             label("Add plugin", TEXT).size(13),
+            {
+                let mut options: Vec<Option<String>> = vec![None];
+                if let Some(registries) = &self.registries {
+                    for url in registries
+                        .registry
+                        .iter()
+                        .chain(registries.fallback.iter())
+                        .chain(registries.resolved.iter())
+                    {
+                        if !url.is_empty()
+                            && !options.iter().any(|option| option.as_deref() == Some(url))
+                        {
+                            options.push(Some(url.clone()));
+                        }
+                    }
+                }
+                let mut row = iced::widget::row![
+                    label("Registry", MUTED).size(11),
+                    button(
+                        label(
+                            "Default registry",
+                            if self.registry.is_none() { TEXT } else { MUTED }
+                        )
+                        .size(11)
+                    )
+                    .padding([3, 8])
+                    .style(design::ghost)
+                    .on_press(Message::PluginManager(Action::SelectRegistry(None))),
+                ]
+                .spacing(6)
+                .align_y(iced::Alignment::Center);
+                for option in options.into_iter().skip(1).flatten() {
+                    let selected = self.registry.as_deref() == Some(option.as_str());
+                    row = row.push(
+                        button(
+                            label(
+                                if selected {
+                                    format!("● {}", short(&option, 42))
+                                } else {
+                                    short(&option, 42)
+                                },
+                                if selected { TEXT } else { MUTED },
+                            )
+                            .size(11),
+                        )
+                        .padding([3, 8])
+                        .style(design::ghost)
+                        .on_press(Message::PluginManager(Action::SelectRegistry(Some(option)))),
+                    );
+                }
+                row
+            },
             iced::widget::row![
                 text_input(
                     "Package name, local path, git URL or tarball",

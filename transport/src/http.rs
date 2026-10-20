@@ -184,6 +184,7 @@ enum Endpoint {
     PluginBundleEnabled,
     PluginBundleRemove,
     PluginInspect,
+    PluginRegistries,
     AgentPresetSelect,
     JobKill,
     PluginSettings,
@@ -270,6 +271,7 @@ impl Endpoint {
             Self::PluginBundleEnabled => "pluginManager/setBundleEnabled",
             Self::PluginBundleRemove => "pluginManager/removeBundle",
             Self::PluginInspect => "pluginManager/inspect",
+            Self::PluginRegistries => "pluginManager/registries",
             Self::AgentPresetSelect => "agentPresets/select",
             Self::JobKill => "job/kill",
             Self::PluginSettings => "settings/describe",
@@ -1399,6 +1401,10 @@ impl NativeClient {
             )
             .await?;
         crate::plugin::project_inspection(value)
+    }
+    /// The registries an inspect or install would ask, in order (`pluginManager/registries`).
+    pub async fn plugin_manager_registries(&self) -> Result<crate::plugin::PluginRegistries> {
+        crate::plugin::project_registries(self.invoke(Endpoint::PluginRegistries, json!({})).await?)
     }
     /// Project private redacted config and Schemastery graphs before publishing any DTO.
     pub async fn plugin_settings(&self) -> Result<crate::plugin::SettingsDescribeValue> {

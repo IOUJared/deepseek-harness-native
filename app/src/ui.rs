@@ -6408,6 +6408,9 @@ impl App {
                         if !self.plugin_manager.loaded() && self.plugin_manager.begin() {
                             self.command(worker::Command::PluginManagerRead);
                         }
+                        if self.plugin_manager.begin_registries() {
+                            self.command(worker::Command::PluginRegistries);
+                        }
                     }
                     plugin_manager::Action::Refresh => {
                         if self.plugin_manager.begin() {
@@ -6437,8 +6440,14 @@ impl App {
                     }
                     plugin_manager::Action::Inspect => {
                         if let Some(spec) = self.plugin_manager.begin_inspect() {
-                            self.command(worker::Command::PluginInspect { spec });
+                            self.command(worker::Command::PluginInspect {
+                                spec,
+                                registry: self.plugin_manager.registry(),
+                            });
                         }
+                    }
+                    plugin_manager::Action::SelectRegistry(registry) => {
+                        self.plugin_manager.select_registry(registry);
                     }
                 }
             }
@@ -7104,6 +7113,9 @@ impl App {
             }
             Event::PluginManagerLoaded(result) => {
                 self.plugin_manager.settled(result);
+            }
+            Event::PluginRegistriesLoaded(result) => {
+                self.plugin_manager.registries_settled(result);
             }
             Event::PluginInspected(result) => {
                 self.plugin_manager.inspected(result);

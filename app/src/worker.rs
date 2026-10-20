@@ -71,7 +71,11 @@ pub enum Command {
     /// Read what one typed install spec names, before installing anything.
     PluginInspect {
         spec: String,
+        /// The registry the read asks first; `None` is the Host's configured default.
+        registry: Option<String>,
     },
+    /// Read the registries an inspect or install would ask, in order.
+    PluginRegistries,
     /// Re-read the session roster, whose summaries carry the projections a subagent catalog is built
     /// from. The reference refreshes a child's projection when its chevron is pressed
     /// (`SubagentHeaderLineage.tsx:554-561`); this is the same read, whole-roster.
@@ -426,6 +430,8 @@ pub enum Event {
     },
     /// One install-spec inspection's answer: accepted preview or a normal refusal.
     PluginInspected(Result<dsh_native_transport::plugin::PluginInspection, String>),
+    /// The Host's registry order for the Add-plugin form.
+    PluginRegistriesLoaded(Result<dsh_native_transport::plugin::PluginRegistries, String>),
     PluginsLoaded {
         ticket: crate::plugins::ReadTicket,
         result: Result<crate::plugins::Snapshot, crate::plugins::ReadFailure>,
@@ -1199,6 +1205,7 @@ fn rejected(command: Command) -> Event {
             result: Err(error),
         },
         Command::PluginInspect { .. } => Event::PluginInspected(Err(error)),
+        Command::PluginRegistries => Event::PluginRegistriesLoaded(Err(error)),
         Command::PluginsRead(ticket) => Event::PluginsLoaded {
             ticket,
             result: Err(crate::plugins::ReadFailure::Unavailable),
@@ -2806,8 +2813,11 @@ async fn run(
                         result:client.open_workspace_path(&path).await.map_err(|error|format!("Open path: {error}")),
                         path,
                     },
-                    Command::PluginInspect{spec}=>Event::PluginInspected(
-                        client.plugin_manager_inspect(&spec,None).await.map_err(|error|format!("Plugins: {error}"))
+                    Command::PluginRegistries=>Event::PluginRegistriesLoaded(
+                        client.plugin_manager_registries().await.map_err(|error|format!("Plugins: {error}"))
+                    ),
+                    Command::PluginInspect{spec,registry}=>Event::PluginInspected(
+                        client.plugin_manager_inspect(&spec,registry.as_deref()).await.map_err(|error|format!("Plugins: {error}"))
                     ),
                     Command::PluginRemove{name}=>Event::PluginRemoved{
                         result:client.plugin_manager_remove_bundle(&name).await.map_err(|error|format!("Plugins: {error}")),

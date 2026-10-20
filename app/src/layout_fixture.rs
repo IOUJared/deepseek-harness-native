@@ -3221,6 +3221,15 @@ pub fn build(
         app.plugin_manager.seed_remove("dsh-bundle-base");
     }
     if preset == "plugin-manager-inspect" {
+        // The registry order the Add-plugin form offers, with the second registry chosen.
+        app.plugin_manager
+            .seed_registries(dsh_native_transport::plugin::PluginRegistries {
+                registry: Some("https://registry.npmjs.org".into()),
+                fallback: vec!["https://registry.example.internal".into()],
+                resolved: Some("https://registry.npmjs.org".into()),
+            });
+        app.plugin_manager
+            .select_registry(Some("https://registry.example.internal".into()));
         // The accepted preview an inspect answers with; nothing is installed by it.
         app.plugin_manager.seed_inspection(
             "@PUBLIC/voice-kit",
@@ -3230,7 +3239,7 @@ pub fn build(
                 version: Some("2.1.0".into()),
                 description: Some("Optional speech tools bundled as a plugin.".into()),
                 bundle: Some(true),
-                registry: Some("https://registry.npmjs.org".into()),
+                registry: Some("https://registry.example.internal".into()),
                 host: None,
             },
         );
@@ -5504,8 +5513,13 @@ mod tests {
                 assert!(receiver.try_recv().is_err());
             }
             if preset == "plugin-manager-inspect" {
-                // The frame shows the accepted preview, and the spec read queued nothing.
+                // The frame shows the accepted preview and the chosen registry, and queued nothing.
                 assert!(app.plugin_manager.inspection().is_some());
+                assert!(app.plugin_manager.registries().is_some());
+                assert_eq!(
+                    app.plugin_manager.registry().as_deref(),
+                    Some("https://registry.example.internal")
+                );
                 assert!(receiver.try_recv().is_err());
             }
             if preset == "terminal-tabs" {

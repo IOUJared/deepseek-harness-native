@@ -1185,7 +1185,9 @@ fn the_plugin_manager_reads_once_and_adopts_the_hosts_profile_answer() {
     drop(app.update(Message::PluginManager(Manager::Open)));
     assert!(app.plugin_manager.is_open());
     assert!(matches!(queue.try_recv(), Ok(Command::PluginManagerRead)));
-    // Opening again while the read has settled queues nothing; Refresh is the explicit read.
+    // The same first open also asks for the registry order the form offers, once.
+    assert!(matches!(queue.try_recv(), Ok(Command::PluginRegistries)));
+    // Opening again while both reads have settled queues nothing; Refresh is the explicit read.
     drop(app.update(Message::PluginManager(Manager::Open)));
     assert!(queue.try_recv().is_err());
     // A deployment without a manageable profile is its own answer, not an empty bundle list.
@@ -1363,7 +1365,8 @@ fn inspecting_an_install_spec_sends_one_read_and_shows_the_answer() {
         "  @PUBLIC/pkg  ".into(),
     ))));
     drop(app.update(Message::PluginManager(Manager::Inspect)));
-    let Command::PluginInspect { spec } = queue.try_recv().expect("one inspect") else {
+    let Command::PluginInspect { spec, registry: _ } = queue.try_recv().expect("one inspect")
+    else {
         panic!("only the spec inspection expected")
     };
     assert_eq!(spec, "@PUBLIC/pkg");
@@ -1405,5 +1408,58 @@ fn inspecting_an_install_spec_sends_one_read_and_shows_the_answer() {
     assert!(matches!(
         app.plugin_manager.inspection(),
         Some(PluginInspection::Refused { problem, .. }) if problem == "not-found"
+    ));
+}
+
+#[test]
+fn the_add_plugin_form_reads_the_registry_order_once_and_inspects_with_the_choice() {
+    use super::plugin_manager::Action as Manager;
+    use dsh_native_transport::plugin::{PluginInspection, PluginRegistries};
+    let (mut app, mut queue) = app();
+    // Opening reads the manager and, once, the registry order.
+    drop(app.update(Message::PluginManager(Manager::Open)));
+    assert!(matches!(queue.try_recv(), Ok(Command::PluginManagerRead)));
+    assert!(matches!(queue.try_recv(), Ok(Command::PluginRegistries)));
+    // Opening again asks for neither a second manager read nor a second registry read.
+    drop(app.update(Message::PluginManager(Manager::Open)));
+    assert!(queue.try_recv().is_err());
+    drop(app.update(Message::Worker(Event::PluginRegistriesLoaded(Ok(
+        PluginRegistries {
+            registry: Some("https://first.invalid".into()),
+            fallback: vec!["https://second.invalid".into()],
+            resolved: Some("https://pnpm.invalid".into()),
+        },
+    )))));
+    assert!(app.plugin_manager.registries().is_some());
+    // Choosing the fallback makes the next inspect ask it first.
+    drop(
+        app.update(Message::PluginManager(Manager::SelectRegistry(Some(
+            "https://second.invalid".into(),
+        )))),
+    );
+    drop(app.update(Message::PluginManager(Manager::EditSpec(
+        "@PUBLIC/pkg".into(),
+    ))));
+    drop(app.update(Message::PluginManager(Manager::Inspect)));
+    let Command::PluginInspect { spec, registry } = queue.try_recv().expect("one inspect") else {
+        panic!("only the spec inspection expected")
+    };
+    assert_eq!(spec, "@PUBLIC/pkg");
+    assert_eq!(registry.as_deref(), Some("https://second.invalid"));
+    // The answer still settles as the accepted preview; the registry choice changed only the ask.
+    drop(app.update(Message::Worker(Event::PluginInspected(Ok(
+        PluginInspection::Accepted {
+            kind: "registry".into(),
+            name: Some("@PUBLIC/pkg".into()),
+            version: Some("1.0.0".into()),
+            description: None,
+            bundle: Some(true),
+            registry: Some("https://second.invalid".into()),
+            host: None,
+        },
+    )))));
+    assert!(matches!(
+        app.plugin_manager.inspection(),
+        Some(PluginInspection::Accepted { .. })
     ));
 }

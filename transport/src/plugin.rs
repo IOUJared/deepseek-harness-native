@@ -72,6 +72,50 @@ pub struct PluginBundle {
     pub error: Option<String>,
 }
 /// What one plugin-manager write settled as (`boot/plugin-manager/lib/types/types.d.ts:98-125`).
+/// The registries the manager asks, in order (`boot/plugin-manager/lib/types/types.d.ts:78-84`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PluginRegistries {
+    /// The configured first registry; `None` is what pnpm's own configuration names.
+    pub registry: Option<String>,
+    /// Fallbacks in ask order.
+    pub fallback: Vec<String>,
+    /// The URL pnpm's own configuration names, when it could be read.
+    pub resolved: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WireRegistries {
+    registry: Option<String>,
+    #[serde(default)]
+    fallback_registries: Vec<String>,
+    resolved: Option<String>,
+}
+pub(crate) fn project_registries(value: Value) -> Result<PluginRegistries> {
+    bounded(&value)?;
+    let wire: WireRegistries = serde_json::from_value(value).map_err(|_| Error::InvalidDto)?;
+    if wire.fallback_registries.len() > 16 {
+        return Err(Error::Oversize);
+    }
+    let bounded_url = |value: String| -> Result<String> {
+        if value.len() > 2048 || value.chars().any(char::is_control) {
+            return Err(Error::InvalidDto);
+        }
+        Ok(value)
+    };
+    let registry = wire.registry.map(bounded_url).transpose()?;
+    let resolved = wire.resolved.map(bounded_url).transpose()?;
+    let fallback = wire
+        .fallback_registries
+        .into_iter()
+        .map(bounded_url)
+        .collect::<Result<Vec<_>>>()?;
+    Ok(PluginRegistries {
+        registry,
+        fallback,
+        resolved,
+    })
+}
+
 /// What a typed install spec names, read before installing anything
 /// (`boot/plugin-manager/lib/types/types.d.ts:143-171`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1079,6 +1123,32 @@ mod tests {
             json!([{"name":"a","enabled":true,"installed":true},{"name":"a","enabled":false,"installed":false}]),
         ] {
             assert!(project_bundles(bad.clone()).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn registries_project_in_ask_order_and_bound_their_urls() {
+        let registries = project_registries(json!({
+            "registry": "https://first.invalid",
+            "fallbackRegistries": ["https://second.invalid"],
+            "resolved": "https://pnpm.invalid"
+        }))
+        .unwrap();
+        assert_eq!(
+            registries.registry.as_deref(),
+            Some("https://first.invalid")
+        );
+        assert_eq!(
+            registries.fallback,
+            vec!["https://second.invalid".to_owned()]
+        );
+        assert_eq!(registries.resolved.as_deref(), Some("https://pnpm.invalid"));
+        for bad in [
+            json!({"registry": 7}),
+            json!({"fallbackRegistries": ["ok", 2]}),
+            json!({"fallbackRegistries": ["a\x00b"]}),
+        ] {
+            assert!(project_registries(bad.clone()).is_err(), "{bad}");
         }
     }
 

@@ -6430,7 +6430,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Workspace browser: grouped/animated rows, drag order, per-row menus | difference: workspace filter + navigation sheet |
 | Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory; the app's Host serves browse, so Browse… falls back to the in-app list and `pick` reports unavailable) |
 | Open in app: workspace opener | cloned (round 671): the header split button lists the Host's nameable installed apps, launches the Session's workspace through the two plain Host routes, and remembers the choice; app icons stay text glyphs rather than fetched PNGs |
-| Plugin manager: installed bundles | More → Plugins (rounds 674–677) shows the Host's profile availability and its bundles with version, enabled/installed/optional state, row counts and read-only reason, switches a readable bundle on or off and uninstalls a removable one, each through its own explicit Confirm, and inspects a typed install spec into an accepted preview or a refusal; install, registries, version exemptions and plugin-level toggles remain unbuilt |
+| Plugin manager: installed bundles | More → Plugins (rounds 674–678) shows the Host's profile availability and its bundles with version, enabled/installed/optional state, row counts and read-only reason, switches a readable bundle on or off and uninstalls a removable one, each through its own explicit Confirm, and inspects a typed install spec into an accepted preview or a refusal, asking the registry the form chose; install, version exemptions and plugin-level toggles remain unbuilt |
 | Workflow-run surface | cloned (folded `tool-workflow/*` card, five run states including the round-525 `Interrupted` for a stoppless run in a closed turn; a closed step alone does not interrupt, a named limit) |
 | Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, **reviewed resize (round 540)**, shell discovery with a remembered preference, output bounds, and **a native screen emulator core** (rounds 552–559: redraw, erase, addressing, insert/delete, ANSI colours, wide glyphs, wrapping, scrollback, alternate screen; a combining mark composes onto its base cell, round 669). The screen protocol is complete; the docked tabs ship in the panel above the output (round 673), re-following on a switch instead of holding `terminal/retain` streams, and the reference's automatic fit-to-pane stays a deliberate difference — recorded in `docs/NATIVE-TERMINAL.md`. |
 | Dockkit layout presets | difference: native fixed layout with its own preferences |
@@ -15877,7 +15877,7 @@ real warnings; the full battery is **17/17 (`verification-526912410ae0`).** The 
 
 | item | what exists | what the next round series needs |
 | --- | --- | --- |
-| Plugin manager: install, registries, exemptions, plugin-level toggles | the page lists bundles, switches one on/off, uninstalls a removable one and inspects a spec (rounds 674–677) | install a bundle, choose registries, approve version exemptions, and toggle one plugin row (`pluginManager/{setPluginEnabled,installBundle,registries,listVersionExemptions,setVersionExemption,waitForInstall,cancelInstall}`); installation has longer-running stages and needs the same tickets plus indeterminate-outcome handling |
+| Plugin manager: install, exemptions, plugin-level toggles | the page lists bundles, switches one on/off, uninstalls a removable one, inspects a spec and chooses the registry it asks (rounds 674–678) | install a bundle, approve version exemptions, and toggle one plugin row (`pluginManager/{setPluginEnabled,installBundle,listVersionExemptions,setVersionExemption,waitForInstall,cancelInstall}`); installation has longer-running stages and needs the same tickets plus indeterminate-outcome handling |
 | The right-Sidebar review/task/document tabs | the full-page details panel is native's own surface | **deliberate difference**, recorded here rather than built silently |
 
 ### Named deliberate differences (not gaps)
@@ -18733,3 +18733,44 @@ Host was read; the preview is synthetic for the frame.
 | app bin | — | **21** warnings (22 with the summary line) |
 | layout_smoke | — | **17** warnings |
 | battery | **passed** | **17 checks, 0 failing** (`verification-e6ab917001d2`) |
+
+### Round 678 — the Add-plugin form asks the registry it chose
+
+**The gap.** Round 677 inspected every spec against the Host's default. The reference reads the
+manager's registry order (`pluginManager/registries`, `types.d.ts:78-84`) and asks the selected one
+(`InspectOptions.registry`, `types.d.ts:138-141`); its form offers Default/official/mirror/custom
+(`locales.ts:283-290`).
+
+**The wire.** `pluginManager/registries` is an `Endpoint` projecting a bounded `PluginRegistries` —
+the configured first registry (`null` for pnpm's own), its fallbacks in ask order, and pnpm's resolved
+URL. URLs are length- and control-bounded, and more than 16 fallbacks is an oversize refusal. Inspect
+now takes the chosen registry as `options.registry`.
+
+**The page.** Opening the plugin manager reads the registry order once, alongside the bundle read.
+The Add-plugin form shows `Registry` with `Default registry` plus each distinct Host-offered URL; the
+chosen one is marked `●` and drawn in the primary ink. The selection is form state only until
+`Inspect`, which then asks that registry first; nothing is installed.
+
+**Tests.** `registries_project_in_ask_order_and_bound_their_urls` (transport, order plus malformed
+shapes) and `the_add_plugin_form_reads_the_registry_order_once_and_inspects_with_the_choice` (one
+registry read per visit, the chosen fallback reaching `PluginInspect`, the accepted answer still
+settling as the preview).
+
+**Frame.** `shots/376-plugin-manager-registry.png` (the expanded `plugin-manager-inspect` preset):
+`● https://registry.example.internal` is the chosen registry, and the accepted card reports the same
+registry that answered.
+
+**Still unbuilt.** Install itself (and its stages, build approvals and cancellation), version
+exemptions and plugin-level toggles. No live Host was read.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| format | **0** | `cargo fmt` applied; format-debt 0 files, 0 hunks |
+| app, fixture | **0** | **1610 passed**, 1 ignored |
+| app, default | **0** | **1554 passed**, 1 ignored |
+| transport | **0** | 68 + 17 + 91 + 7 passed |
+| app bin | — | **21** warnings (22 with the summary line) |
+| layout_smoke | — | **17** warnings |
+| battery | **passed** | **17 checks, 0 failing** (`verification-bef38b907176`) |

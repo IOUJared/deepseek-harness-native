@@ -22,20 +22,20 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > (pinned `c6044cc50b`). Cite it as `file:line` in code comments and round notes.
 >
 > ### Last five rounds, so the next session starts oriented
-> - 673: the terminal panel **docks its terminals as tabs** above the output; frame `371`.
 > - 674: the **read-only plugin manager** reads the Host's profile availability and installed bundles;
 >   frame `372`; the inventory projection now carries `managementAvailable`.
 > - 675: **a bundle switches on/off through review → Confirm**, one write, the Host's application /
 >   restart / failure copy, then a re-read; frame `373`.
 > - 676: **a removable bundle uninstalls through its own confirmation**; frame `374`.
-> - 677: **a typed install spec is inspected** into an accepted preview or a refusal, and nothing
->   installs; frame `375`.
+> - 677: **a typed install spec is inspected** into an accepted preview or a refusal; frame `375`.
+> - 678: **the Add-plugin form reads the registry order and inspects against the chosen registry**;
+>   frame `376`.
 >
-> **Current remainder:** the plugin manager's install, registry choice, version exemptions and
-> plugin-level (row) toggles — longer-running Host writes that need the same tickets plus
-> indeterminate-outcome handling. Blocked on the user: the canvas-dial dependency approval (context
-> meter stays a text reading) and the deferred live `schedule/changed` observation. Baselines: fixture
-> **1609** / default **1553**, 21 warnings, battery 17/17 (`verification-e6ab917001d2`).
+> **Current remainder:** the plugin manager's install (stages, build approvals, cancellation, the
+> install request id), version exemptions and plugin-level (row) toggles. Blocked on the user: the
+> canvas-dial dependency approval (context meter stays a text reading) and the deferred live
+> `schedule/changed` observation. Baselines: fixture **1610** / default **1554**, 21 warnings, battery
+> 17/17 (`verification-bef38b907176`).
 
 ---
 
