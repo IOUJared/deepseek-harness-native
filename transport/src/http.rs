@@ -181,6 +181,7 @@ enum Endpoint {
     EventResult,
     PluginInventory,
     PluginBundles,
+    PluginBundleEnabled,
     AgentPresetSelect,
     JobKill,
     PluginSettings,
@@ -264,6 +265,7 @@ impl Endpoint {
             Self::EventResult => "$events/result",
             Self::PluginInventory => "pluginInventory/list",
             Self::PluginBundles => "pluginManager/listBundles",
+            Self::PluginBundleEnabled => "pluginManager/setBundleEnabled",
             Self::AgentPresetSelect => "agentPresets/select",
             Self::JobKill => "job/kill",
             Self::PluginSettings => "settings/describe",
@@ -1334,6 +1336,25 @@ impl NativeClient {
     /// required before the Host serves anything; this read does not install or switch anything.
     pub async fn plugin_manager_bundles(&self) -> Result<Vec<crate::plugin::PluginBundle>> {
         crate::plugin::project_bundles(self.invoke(Endpoint::PluginBundles, json!({})).await?)
+    }
+    /// Switch one bundle on or off (`pluginManager/setBundleEnabled`, `manager-store.ts:630-636`).
+    /// This is a Host profile write: the caller owns review and a single explicit attempt, and the
+    /// reply's `application` says whether the change needs a restart.
+    pub async fn plugin_manager_set_bundle_enabled(
+        &self,
+        name: &str,
+        enabled: bool,
+    ) -> Result<crate::plugin::PluginChange> {
+        if name.is_empty() || name.len() > 512 || name.chars().any(char::is_control) {
+            return Err(Error::InvalidDto);
+        }
+        let value = self
+            .invoke(
+                Endpoint::PluginBundleEnabled,
+                json!({"name": name, "enabled": enabled}),
+            )
+            .await?;
+        crate::plugin::project_change(value)
     }
     /// Project private redacted config and Schemastery graphs before publishing any DTO.
     pub async fn plugin_settings(&self) -> Result<crate::plugin::SettingsDescribeValue> {

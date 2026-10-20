@@ -6414,6 +6414,15 @@ impl App {
                             self.command(worker::Command::PluginManagerRead);
                         }
                     }
+                    plugin_manager::Action::AskBundle { name, enabled } => {
+                        self.plugin_manager.ask(name, enabled);
+                    }
+                    plugin_manager::Action::CancelBundle => self.plugin_manager.cancel(),
+                    plugin_manager::Action::ConfirmBundle => {
+                        if let Some((name, enabled)) = self.plugin_manager.confirm_now() {
+                            self.command(worker::Command::PluginBundleEnabled { name, enabled });
+                        }
+                    }
                 }
             }
             // A disclosure with no visible composer has nothing to expand, and an
@@ -7078,6 +7087,18 @@ impl App {
             }
             Event::PluginManagerLoaded(result) => {
                 self.plugin_manager.settled(result);
+            }
+            Event::PluginBundleChanged {
+                name,
+                enabled,
+                result,
+            } => {
+                let reread = self.plugin_manager.changed(name, enabled, result);
+                // The reply states the application; the list is the Host's authority, so adopt it
+                // with one read rather than an optimistic local toggle.
+                if reread && self.plugin_manager.begin() {
+                    self.command(worker::Command::PluginManagerRead);
+                }
             }
             Event::OpenInAppApps(result) => {
                 self.open_in_app_loading = false;

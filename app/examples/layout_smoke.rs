@@ -1056,6 +1056,7 @@ impl Fixture {
                 worker::Command::Export(_) => "Export",
                 worker::Command::PluginsRead(_) => "PluginsRead",
                 worker::Command::PluginManagerRead => "PluginManagerRead",
+                worker::Command::PluginBundleEnabled { .. } => "PluginBundleEnabled",
                 worker::Command::PermissionCatalogRead => "PermissionCatalogRead",
                 worker::Command::AgentPresetsRead => "AgentPresetsRead",
                 worker::Command::AgentPresetSelect { .. } => "AgentPresetSelect",

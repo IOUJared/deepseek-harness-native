@@ -6430,7 +6430,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Workspace browser: grouped/animated rows, drag order, per-row menus | difference: workspace filter + navigation sheet |
 | Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory; the app's Host serves browse, so Browse… falls back to the in-app list and `pick` reports unavailable) |
 | Open in app: workspace opener | cloned (round 671): the header split button lists the Host's nameable installed apps, launches the Session's workspace through the two plain Host routes, and remembers the choice; app icons stay text glyphs rather than fetched PNGs |
-| Plugin manager: installed bundles | **read-only slice** (round 674): More → Plugins shows the Host's profile availability and its bundles with version, enabled/installed/optional state, row counts and read-only reason; the reference's enable/disable, install/remove, inspect, registries and version-exemption controls are still unbuilt |
+| Plugin manager: installed bundles | More → Plugins (rounds 674–675) shows the Host's profile availability and its bundles with version, enabled/installed/optional state, row counts and read-only reason, and switches a readable bundle on or off through an explicit Confirm; install/remove, inspect, registries and version exemptions remain unbuilt |
 | Workflow-run surface | cloned (folded `tool-workflow/*` card, five run states including the round-525 `Interrupted` for a stoppless run in a closed turn; a closed step alone does not interrupt, a named limit) |
 | Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, **reviewed resize (round 540)**, shell discovery with a remembered preference, output bounds, and **a native screen emulator core** (rounds 552–559: redraw, erase, addressing, insert/delete, ANSI colours, wide glyphs, wrapping, scrollback, alternate screen; a combining mark composes onto its base cell, round 669). The screen protocol is complete; the docked tabs ship in the panel above the output (round 673), re-following on a switch instead of holding `terminal/retain` streams, and the reference's automatic fit-to-pane stays a deliberate difference — recorded in `docs/NATIVE-TERMINAL.md`. |
 | Dockkit layout presets | difference: native fixed layout with its own preferences |
@@ -15877,7 +15877,7 @@ real warnings; the full battery is **17/17 (`verification-526912410ae0`).** The 
 
 | item | what exists | what the next round series needs |
 | --- | --- | --- |
-| Plugin manager mutations | the read-only page (round 674) lists bundles, their profile state and the Host's unavailable answer | enable/disable a plugin or bundle, install/remove, inspect a spec, registries and version exemptions (`pluginManager/{setPluginEnabled,setBundleEnabled,installBundle,removeBundle,inspect,registries,listVersionExemptions,setVersionExemption,waitForInstall,cancelInstall}`); each is a Host mutation and needs the review/confirm, ticket/epoch and indeterminate-outcome treatment |
+| Plugin manager: install/remove, inspect, registries, exemptions, plugin-level toggles | the page lists bundles and switches one on/off through review→confirm (rounds 674–675) | install/remove a bundle, inspect a spec, choose registries and approve version exemptions (`pluginManager/{setPluginEnabled,installBundle,removeBundle,inspect,registries,listVersionExemptions,setVersionExemption,waitForInstall,cancelInstall}`); each is a Host mutation with longer-running stages and needs the same tickets plus indeterminate-outcome handling |
 | The right-Sidebar review/task/document tabs | the full-page details panel is native's own surface | **deliberate difference**, recorded here rather than built silently |
 
 ### Named deliberate differences (not gaps)
@@ -18601,3 +18601,50 @@ availability flag are source-verified, not observed.
 | app bin | — | **21** warnings (22 with the summary line) |
 | layout_smoke | — | **17** warnings |
 | battery | **passed** | **17 checks, 0 failing** (`verification-171a60d18ec9`) |
+
+### Round 675 — a bundle switches on after an explicit confirmation
+
+**The gap.** Round 674's plugin page could only list bundles. The reference switches one on or off
+with `pluginManager/setBundleEnabled` (`manager-store.ts:630-636`) and reports the reply's
+`application` — applied, restart-required, overridden, failed, cancelled (`types.d.ts:98-125`).
+
+**The wire.** `pluginManager/setBundleEnabled` is an `Endpoint` taking the reference's named arguments
+`{name, enabled}`; `ChangeResult` is projected into a bounded `PluginChange` (changed, application,
+target, enabled, and the Host's error **code** only). An unknown application or stage is refused, not
+guessed.
+
+**The page.** Each bundle with no read-only reason gains an `Enable`/`Disable` control. It **arms** an
+inline review (`Enable dsh-bundle-voice for the next start?` with Cancel/Confirm); nothing is sent until
+Confirm, one write is admitted, a second Confirm while it is in flight is ignored, and a bundle the Host
+marks read-only offers no control. The settlement states `Applied`, `Change saved. It takes effect at
+the next start.`, a cancellation, or the refusal with its code, then re-reads the Host's list so the
+page never keeps an optimistic toggle.
+
+**The frame found stale copy.** After the switch landed, the page still said switching "is not offered
+here yet". The intro now says switching takes an explicit confirmation and installing/removing is not
+offered.
+
+**Tests.** `a_plugin_change_projects_its_application_and_hides_the_diagnostic` (transport) and
+`switching_a_plugin_bundle_needs_confirm_sends_one_write_and_rereads_the_list` (ask, cancel, confirm,
+exactly one write, the in-flight refusal, restart copy, failure copy, one re-read); the
+`plugin-manager-confirm` preset is pinned with the armed review and no queued command.
+
+**Frame.** `shots/373-plugin-manager-confirm.png` (1040×760, new `plugin-manager-confirm` preset): the
+first bundle offers `Disable`, the second shows `Enable dsh-bundle-voice for the next start?` with
+Cancel/Confirm, and the read-only bundle offers nothing.
+
+**Still unbuilt.** Install and remove, spec inspect, registries, version exemptions and plugin-level
+(row) toggles. No live Host with a manageable profile was read: the route, arguments and reply are
+source-verified, not observed.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| format | **0** | `cargo fmt` applied; format-debt 0 files, 0 hunks |
+| app, fixture | **0** | **1607 passed**, 1 ignored |
+| app, default | **0** | **1551 passed**, 1 ignored |
+| transport | **0** | 66 + 17 + 91 + 7 passed |
+| app bin | — | **21** warnings (22 with the summary line) |
+| layout_smoke | — | **17** warnings |
+| battery | **passed** | **17 checks, 0 failing** (`verification-fe3f5cc90caf`) |

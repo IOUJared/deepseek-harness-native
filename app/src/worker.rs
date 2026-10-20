@@ -59,6 +59,11 @@ pub enum Command {
     PluginsRead(crate::plugins::ReadTicket),
     /// Read the plugin manager's profile availability and installed bundles. Read-only.
     PluginManagerRead,
+    /// Switch one bundle on or off after the page's explicit confirmation.
+    PluginBundleEnabled {
+        name: String,
+        enabled: bool,
+    },
     /// Re-read the session roster, whose summaries carry the projections a subagent catalog is built
     /// from. The reference refreshes a child's projection when its chevron is pressed
     /// (`SubagentHeaderLineage.tsx:554-561`); this is the same read, whole-roster.
@@ -400,6 +405,12 @@ pub enum Event {
     /// The plugin manager's read: the Host's profile availability and, when manageable, its
     /// bundles. `Ok((false, []))` is the reference's own unavailable answer, not an empty profile.
     PluginManagerLoaded(Result<(bool, Vec<dsh_native_transport::plugin::PluginBundle>), String>),
+    /// One bundle switch's settlement; the page re-reads the list from the Host after it.
+    PluginBundleChanged {
+        name: String,
+        enabled: bool,
+        result: Result<dsh_native_transport::plugin::PluginChange, String>,
+    },
     PluginsLoaded {
         ticket: crate::plugins::ReadTicket,
         result: Result<crate::plugins::Snapshot, crate::plugins::ReadFailure>,
@@ -1163,6 +1174,11 @@ fn rejected(command: Command) -> Event {
             }
         }
         Command::PluginManagerRead => Event::PluginManagerLoaded(Err(error)),
+        Command::PluginBundleEnabled { name, enabled } => Event::PluginBundleChanged {
+            name,
+            enabled,
+            result: Err(error),
+        },
         Command::PluginsRead(ticket) => Event::PluginsLoaded {
             ticket,
             result: Err(crate::plugins::ReadFailure::Unavailable),
@@ -2769,6 +2785,11 @@ async fn run(
                     Command::OpenWorkspacePath{path}=>Event::WorkspacePathOpened{
                         result:client.open_workspace_path(&path).await.map_err(|error|format!("Open path: {error}")),
                         path,
+                    },
+                    Command::PluginBundleEnabled{name,enabled}=>Event::PluginBundleChanged{
+                        result:client.plugin_manager_set_bundle_enabled(&name,enabled).await.map_err(|error|format!("Plugins: {error}")),
+                        name,
+                        enabled,
                     },
                     Command::PluginManagerRead=>Event::PluginManagerLoaded(async{
                         let inventory=client.plugin_inventory().await.map_err(|error|format!("Plugins: {error}"))?;

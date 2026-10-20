@@ -12,10 +12,19 @@ use iced::widget::{button, column, container, scrollable};
 use iced::{Element, Length};
 
 /// What the page asks the App to do.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
     Open,
     Refresh,
+    /// Arm the review for one bundle switch; nothing is sent.
+    AskBundle {
+        name: String,
+        enabled: bool,
+    },
+    /// Leave the armed review without writing.
+    CancelBundle,
+    /// Send the armed bundle switch; one explicit attempt.
+    ConfirmBundle,
 }
 
 #[derive(Default)]
@@ -28,6 +37,12 @@ pub struct Manager {
     management_available: bool,
     bundles: Vec<PluginBundle>,
     error: Option<String>,
+    /// The bundle switch under review: `(name, wanted enabled)`. Nothing is sent until Confirm.
+    confirm: Option<(String, bool)>,
+    /// The bundle switch in flight.
+    pending: Option<(String, bool)>,
+    /// The last switch's outcome copy.
+    notice: Option<(String, bool)>,
 }
 
 impl Manager {
@@ -50,6 +65,80 @@ impl Manager {
     }
     pub fn close(&mut self) {
         self.open = false;
+    }
+    pub fn ask(&mut self, name: String, enabled: bool) {
+        if self.pending.is_none() {
+            self.confirm = Some((name, enabled));
+            self.notice = None;
+        }
+    }
+    pub fn cancel(&mut self) {
+        self.confirm = None;
+    }
+    /// Take the armed switch into flight. The caller sends it; a second press cannot duplicate it.
+    pub fn confirm_now(&mut self) -> Option<(String, bool)> {
+        if self.pending.is_some() {
+            return None;
+        }
+        let (name, enabled) = self.confirm.take()?;
+        self.pending = Some((name.clone(), enabled));
+        self.notice = None;
+        Some((name, enabled))
+    }
+    /// Adopt one switch's settlement and say whether the list should be re-read.
+    pub fn changed(
+        &mut self,
+        name: String,
+        enabled: bool,
+        result: Result<dsh_native_transport::plugin::PluginChange, String>,
+    ) -> bool {
+        self.pending = None;
+        match result {
+            Ok(change) => {
+                let verb = if enabled { "Enabled" } else { "Disabled" };
+                self.notice = Some(match change.application {
+                    dsh_native_transport::plugin::PluginApplication::Applied => {
+                        (format!("{verb} {name}."), false)
+                    }
+                    dsh_native_transport::plugin::PluginApplication::RestartRequired => (
+                        format!("Change saved. It takes effect at the next start."),
+                        false,
+                    ),
+                    dsh_native_transport::plugin::PluginApplication::Cancelled => {
+                        (format!("The change to {name} was cancelled."), false)
+                    }
+                    dsh_native_transport::plugin::PluginApplication::Overridden
+                    | dsh_native_transport::plugin::PluginApplication::Failed => {
+                        let code = change
+                            .error
+                            .as_deref()
+                            .map(|code| format!(" ({code})"))
+                            .unwrap_or_default();
+                        (format!("The Host did not change {name}{code}."), true)
+                    }
+                });
+                true
+            }
+            Err(error) => {
+                self.notice = Some((
+                    format!("Could not change {name}: {}", short(&error, 80)),
+                    true,
+                ));
+                true
+            }
+        }
+    }
+    /// The armed review, for the fixture and its pinning test.
+    #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
+    pub fn review_armed(&self) -> Option<(&str, bool)> {
+        self.confirm
+            .as_ref()
+            .map(|(name, enabled)| (name.as_str(), *enabled))
+    }
+    /// Seed the armed review for a public fixture: no Host ran and nothing is sent.
+    #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
+    pub fn seed_confirm(&mut self, name: &str, enabled: bool) {
+        self.confirm = Some((name.to_owned(), enabled));
     }
     /// Adopt one settled read: the Host's profile availability and, when manageable, its bundles.
     pub fn settled(&mut self, result: Result<(bool, Vec<PluginBundle>), String>) {
@@ -82,8 +171,7 @@ impl Manager {
     }
     pub fn view(&self) -> Element<'_, crate::ui::Message> {
         use crate::ui::Message;
-        let mut body =
-            column![
+        let mut body = column![
             iced::widget::row![
                 label("Plugins", TEXT).size(24).width(Length::Fill),
                 button(label("Close", MUTED).size(12))
@@ -93,19 +181,25 @@ impl Manager {
             ]
             .align_y(iced::Alignment::Center),
             label(
-                "Installed bundles and their profile state. Installing, switching or removing a \
-                 plugin is a Host write and is not offered here yet.",
+                "Installed bundles and their profile state. Switching one on or off takes an \
+                 explicit confirmation; installing or removing a package is not offered here.",
                 MUTED,
             )
             .size(12),
-            button(if self.loading { "Reading…" } else { "Refresh" })
-                .padding([8, 12])
-                .style(design::ghost)
-                .on_press_maybe(
-                    (!self.loading).then_some(Message::PluginManager(Action::Refresh))
-                ),
+            button(if self.loading {
+                "Reading…"
+            } else {
+                "Refresh"
+            })
+            .padding([8, 12])
+            .style(design::ghost)
+            .on_press_maybe((!self.loading).then_some(Message::PluginManager(Action::Refresh))),
         ]
-            .spacing(12);
+        .spacing(12);
+        if let Some((notice, danger)) = &self.notice {
+            body = body
+                .push(label(notice.clone(), if *danger { DANGER } else { design::FOAM }).size(12));
+        }
         if let Some(error) = &self.error {
             body = body.push(label(short(error, 120), DANGER).size(12));
             body = body.push(
@@ -186,6 +280,58 @@ impl Manager {
                     )
                     .size(10),
                 );
+                // Enable/disable is a Host write: the control arms an explicit review and sends
+                // only Confirm. A bundle the Host marks read-only offers no control.
+                if self.management_available && bundle.read_only_reason.is_none() {
+                    let wanted = !bundle.enabled;
+                    let name = bundle.name.clone();
+                    let pending = self
+                        .pending
+                        .as_ref()
+                        .is_some_and(|(pending, _)| pending == &bundle.name);
+                    let asking = self
+                        .confirm
+                        .as_ref()
+                        .is_some_and(|(asking, _)| asking == &bundle.name);
+                    if pending {
+                        row = row.push(label("Changing…", MUTED).size(10));
+                    } else if asking {
+                        row = row.push(
+                            iced::widget::row![
+                                label(
+                                    format!(
+                                        "{} {} for the next start?",
+                                        if wanted { "Enable" } else { "Disable" },
+                                        short(&bundle.name, 40)
+                                    ),
+                                    TEXT,
+                                )
+                                .size(11)
+                                .width(Length::Fill),
+                                button(label("Cancel", MUTED).size(11))
+                                    .padding([3, 8])
+                                    .style(design::ghost)
+                                    .on_press(Message::PluginManager(Action::CancelBundle)),
+                                button(label("Confirm", design::ACCENT).size(11))
+                                    .padding([3, 8])
+                                    .style(design::ghost)
+                                    .on_press(Message::PluginManager(Action::ConfirmBundle)),
+                            ]
+                            .spacing(6)
+                            .align_y(iced::Alignment::Center),
+                        );
+                    } else {
+                        row = row.push(
+                            button(label(if wanted { "Enable" } else { "Disable" }, TEXT).size(11))
+                                .padding([3, 8])
+                                .style(design::ghost)
+                                .on_press(Message::PluginManager(Action::AskBundle {
+                                    name,
+                                    enabled: wanted,
+                                })),
+                        );
+                    }
+                }
                 rows = rows.push(
                     container(row)
                         .padding([8, 10])

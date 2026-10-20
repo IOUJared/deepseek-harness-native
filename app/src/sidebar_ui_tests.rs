@@ -1218,3 +1218,79 @@ fn the_plugin_manager_reads_once_and_adopts_the_hosts_profile_answer() {
     drop(app.update(Message::DismissPanel));
     assert!(!app.plugin_manager.is_open());
 }
+
+#[test]
+fn switching_a_plugin_bundle_needs_confirm_sends_one_write_and_rereads_the_list() {
+    use super::plugin_manager::Action as Manager;
+    use dsh_native_transport::plugin::{PluginApplication, PluginChange};
+    let (mut app, mut queue) = app();
+    let bundle = dsh_native_transport::plugin::PluginBundle {
+        name: "PUBLIC-bundle".into(),
+        version: Some("1.0.0".into()),
+        description: None,
+        enabled: true,
+        installed: true,
+        optional: false,
+        removable: true,
+        rows: 1,
+        overrides: 0,
+        read_only_reason: None,
+        error: None,
+    };
+    app.plugin_manager.seed(true, vec![bundle]);
+    // Asking arms the review; nothing is sent and no state changes optimistically.
+    drop(app.update(Message::PluginManager(Manager::AskBundle {
+        name: "PUBLIC-bundle".into(),
+        enabled: false,
+    })));
+    assert!(queue.try_recv().is_err());
+    // Cancel leaves no armed review and still sends nothing.
+    drop(app.update(Message::PluginManager(Manager::CancelBundle)));
+    drop(app.update(Message::PluginManager(Manager::ConfirmBundle)));
+    assert!(queue.try_recv().is_err());
+    // A confirmed review sends exactly the armed write.
+    drop(app.update(Message::PluginManager(Manager::AskBundle {
+        name: "PUBLIC-bundle".into(),
+        enabled: false,
+    })));
+    drop(app.update(Message::PluginManager(Manager::ConfirmBundle)));
+    let Command::PluginBundleEnabled { name, enabled } = queue.try_recv().expect("one write")
+    else {
+        panic!("only the bundle switch expected")
+    };
+    assert_eq!((name.as_str(), enabled), ("PUBLIC-bundle", false));
+    // A second Confirm while the first is in flight is ignored.
+    drop(app.update(Message::PluginManager(Manager::ConfirmBundle)));
+    assert!(queue.try_recv().is_err());
+    // The settlement states the restart requirement and re-reads the Host's list once.
+    drop(app.update(Message::Worker(Event::PluginBundleChanged {
+        name: "PUBLIC-bundle".into(),
+        enabled: false,
+        result: Ok(PluginChange {
+            changed: true,
+            application: PluginApplication::RestartRequired,
+            target: "PUBLIC-bundle".into(),
+            enabled: Some(false),
+            error: None,
+        }),
+    })));
+    assert!(matches!(queue.try_recv(), Ok(Command::PluginManagerRead)));
+    // The re-read settles before another attempt; the page is then ready for a new review.
+    drop(app.update(Message::Worker(Event::PluginManagerLoaded(Ok((
+        true,
+        Vec::new(),
+    ))))));
+    // A failed switch keeps the list and states the outcome without a silent retry.
+    drop(app.update(Message::Worker(Event::PluginBundleChanged {
+        name: "PUBLIC-bundle".into(),
+        enabled: true,
+        result: Ok(PluginChange {
+            changed: false,
+            application: PluginApplication::Failed,
+            target: "PUBLIC-bundle".into(),
+            enabled: None,
+            error: Some("operation-error".into()),
+        }),
+    })));
+    assert!(matches!(queue.try_recv(), Ok(Command::PluginManagerRead)));
+}

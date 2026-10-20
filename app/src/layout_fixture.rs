@@ -148,6 +148,7 @@ pub const PRESETS: &[&str] = &[
     "mcp",
     "open-in-app",
     "plugin-manager",
+    "plugin-manager-confirm",
     "changes-card",
     "changes-diff",
     "changes-split",
@@ -369,7 +370,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "settings-shortcuts" => Some((Size::new(1040.0, 900.0), 1.0)),
         "turn-error" | "turn-max-tokens" | "quota-toast" => Some((Size::new(1040.0, 620.0), 1.0)),
         "schedule-create" | "schedule-create-deleted" => Some((Size::new(1040.0, 700.0), 1.0)),
-        "plugin-manager" => Some((Size::new(1040.0, 760.0), 1.0)),
+        "plugin-manager" | "plugin-manager-confirm" => Some((Size::new(1040.0, 760.0), 1.0)),
         "skill-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "command-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "process-group-closed" | "process-group-open" => Some((Size::new(1040.0, 760.0), 1.0)),
@@ -1545,7 +1546,8 @@ pub fn build(
         "running":preset.starts_with("working-") || matches!(preset, "menu" | "navigation" | "navigation-tiny"),
         // A preset that carries a transcript is not a blank session; the reference's own row
         // list and the chat fixtures both depend on this flag.
-        "blank": !matches!(preset, "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" | "conversation" | "chat-density" | "chat-markdown" | "chat-thoughts" | "thoughts-preview" | "chat-thoughts-markdown" | "chat-table" | "reminders" | "reminders-delete" | "session-schedule-mark" | "session-hover" | "open-in-app" | "plugin-manager")
+        "blank": !matches!(preset, "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" | "conversation" | "chat-density" | "chat-markdown" | "chat-thoughts" | "thoughts-preview" | "chat-thoughts-markdown" | "chat-table" | "reminders" | "reminders-delete" | "session-schedule-mark" | "session-hover" | "open-in-app" | "plugin-manager"
+            | "plugin-manager-confirm")
             && !preset.starts_with("tool-activity"),
 
         "cwd":"/PUBLIC-layout-fixture/workspace",
@@ -1886,6 +1888,7 @@ pub fn build(
             | "session-hover"
             | "open-in-app"
             | "plugin-manager"
+            | "plugin-manager-confirm"
             | "subagent-catalog"
             | "subagent-catalog-error"
             | "subagent-readonly"
@@ -3151,7 +3154,7 @@ pub fn build(
             app.process_group_open.insert(key, true);
         }
     }
-    if preset == "plugin-manager" {
+    if preset == "plugin-manager" || preset == "plugin-manager-confirm" {
         // The Host's bundle list as the read route returns it: no installation or switch happened.
         app.plugin_manager.seed(
             true,
@@ -3197,6 +3200,10 @@ pub fn build(
                 },
             ],
         );
+    }
+    if preset == "plugin-manager-confirm" {
+        // The armed review a press on `Enable` reaches; nothing is sent by the frame.
+        app.plugin_manager.seed_confirm("dsh-bundle-voice", true);
     }
     drop(app.update(Message::Resized(size)));
 
@@ -5004,7 +5011,7 @@ pub fn metadata(app: &App, preset: &str) -> Value {
     // The MCP panel is a full-pane page like Schedules: it owns the body and hides the composer.
     let mcp_expected = preset == "mcp";
     // The plugin manager owns the body like MCP and Schedules; it hides the composer.
-    let manager_expected = preset == "plugin-manager";
+    let manager_expected = preset.starts_with("plugin-manager");
     // The terminal panel owns the body like Schedules and MCP: it replaces the composer.
     let terminal_expected = preset.starts_with("terminal-");
     let context_expected = preset.starts_with("context-management");
@@ -5447,10 +5454,19 @@ mod tests {
                 assert_eq!(omitted, 1, "the third active task is counted, not dropped");
             }
             if preset == "plugin-manager" {
-                // The read-only page shows every Host bundle, with its profile state.
+                // The listing shows every Host bundle, and no switch is armed.
                 assert!(app.plugin_manager.is_open());
                 assert!(app.plugin_manager.loaded());
                 assert_eq!(app.plugin_manager.len(), 3);
+                assert!(app.plugin_manager.review_armed().is_none());
+            }
+            if preset == "plugin-manager-confirm" {
+                // The frame shows the armed switch; no command was queued for it.
+                assert_eq!(
+                    app.plugin_manager.review_armed(),
+                    Some(("dsh-bundle-voice", true))
+                );
+                assert!(receiver.try_recv().is_err());
             }
             if preset == "terminal-tabs" {
                 // Two Host terminals, two tabs, and the tab the follow actually attached is active.

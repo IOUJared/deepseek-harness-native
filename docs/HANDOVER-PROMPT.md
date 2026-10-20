@@ -22,22 +22,20 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > (pinned `c6044cc50b`). Cite it as `file:line` in code comments and round notes.
 >
 > ### Last five rounds, so the next session starts oriented
-> - 670: the round-551 "what is left" tables were re-audited against source and replaced.
 > - 671: the **workspace "Open in app"** header split button over the two plain Host routes, with the
 >   remembered choice persisted; frame `369`.
 > - 672: a created task's expanded row states `Scheduled for` / `Repeat` / `State`; frame `370`.
-> - 673: the terminal panel **docks its terminals as tabs** above the output, re-following on a switch;
->   frame `371`.
-> - 674: the **read-only plugin manager** (More → Plugins) reads the Host's profile availability and
->   installed bundles; frame `372`. The inventory projection now carries the Host's
->   `managementAvailable` flag instead of hardcoding false.
+> - 673: the terminal panel **docks its terminals as tabs** above the output; frame `371`.
+> - 674: the **read-only plugin manager** reads the Host's profile availability and installed bundles;
+>   frame `372`. The inventory projection now carries `managementAvailable` instead of hardcoding false.
+> - 675: **a bundle switches on/off through an explicit review → Confirm**, one write, the Host's
+>   application/restart/failure copy, then a re-read; frame `373`.
 >
-> **Current remainder:** the plugin manager's **mutations** — enable/disable a plugin or bundle,
-> install/remove, inspect, registries, version exemptions — each a Host write needing review/confirm,
-> ticket/epoch fencing and indeterminate-outcome handling. Blocked on the user: the canvas-dial
-> dependency approval (context meter stays a text reading) and the deferred live `schedule/changed`
-> observation. Baselines: fixture **1606** / default **1550**, 21 warnings, battery 17/17
-> (`verification-171a60d18ec9`).
+> **Current remainder:** the plugin manager's install/remove, spec inspect, registries, version
+> exemptions and plugin-level toggles — Host writes with longer-running stages that need the same
+> tickets plus indeterminate-outcome handling. Blocked on the user: the canvas-dial dependency approval
+> (context meter stays a text reading) and the deferred live `schedule/changed` observation. Baselines:
+> fixture **1607** / default **1551**, 21 warnings, battery 17/17 (`verification-fe3f5cc90caf`).
 
 ---
 

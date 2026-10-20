@@ -71,6 +71,70 @@ pub struct PluginBundle {
     /// The Host's management error code, when the bundle has one.
     pub error: Option<String>,
 }
+/// What one plugin-manager write settled as (`boot/plugin-manager/lib/types/types.d.ts:98-125`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PluginChange {
+    pub changed: bool,
+    pub application: PluginApplication,
+    /// The bundle or plugin the write named, echoed by the Host.
+    pub target: String,
+    /// The bundle's state after the write, when the reply carries it.
+    pub enabled: Option<bool>,
+    /// The Host's management error code; its diagnostic never reaches the app.
+    pub error: Option<String>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PluginApplication {
+    Applied,
+    RestartRequired,
+    Overridden,
+    Failed,
+    Cancelled,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WireChange {
+    changed: bool,
+    application: String,
+    stage: String,
+    target: String,
+    enabled: Option<bool>,
+    error: Option<WireManagementError>,
+}
+pub(crate) fn project_change(value: Value) -> Result<PluginChange> {
+    bounded(&value)?;
+    let wire: WireChange = serde_json::from_value(value).map_err(|_| Error::InvalidDto)?;
+    if !matches!(wire.stage.as_str(), "install" | "enable" | "remove") {
+        return Err(Error::InvalidDto);
+    }
+    let application = match wire.application.as_str() {
+        "applied" => PluginApplication::Applied,
+        "restart-required" => PluginApplication::RestartRequired,
+        "overridden" => PluginApplication::Overridden,
+        "failed" => PluginApplication::Failed,
+        "cancelled" => PluginApplication::Cancelled,
+        _ => return Err(Error::InvalidDto),
+    };
+    if !text(&wire.target, 512) {
+        return Err(Error::InvalidDto);
+    }
+    let error = wire
+        .error
+        .map(|e| {
+            text(&e.code, 128)
+                .then_some(e.code)
+                .ok_or(Error::InvalidDto)
+        })
+        .transpose()?;
+    Ok(PluginChange {
+        changed: wire.changed,
+        application,
+        target: wire.target,
+        enabled: wire.enabled,
+        error,
+    })
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct WireBundle {
@@ -919,6 +983,33 @@ mod tests {
             json!([{"name":"a","enabled":true,"installed":true},{"name":"a","enabled":false,"installed":false}]),
         ] {
             assert!(project_bundles(bad.clone()).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_plugin_change_projects_its_application_and_hides_the_diagnostic() {
+        let change = project_change(json!({
+            "changed": true,
+            "application": "restart-required",
+            "stage": "enable",
+            "target": "@PUBLIC/bundle",
+            "enabled": true,
+            "error": {"code": "operation-error", "diagnostic": "PRIVATE-SENTINEL"}
+        }))
+        .unwrap();
+        assert!(change.changed);
+        assert_eq!(change.application, PluginApplication::RestartRequired);
+        assert_eq!(change.target, "@PUBLIC/bundle");
+        assert_eq!(change.enabled, Some(true));
+        assert_eq!(change.error.as_deref(), Some("operation-error"));
+        assert!(!format!("{change:?}").contains("PRIVATE"));
+        for bad in [
+            json!({}),
+            json!({"changed":true,"application":"unknown","stage":"enable","target":"a"}),
+            json!({"changed":true,"application":"applied","stage":"other","target":"a"}),
+            json!({"changed":true,"application":"applied","stage":"enable","target":""}),
+        ] {
+            assert!(project_change(bad.clone()).is_err(), "{bad}");
         }
     }
 
