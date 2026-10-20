@@ -33,7 +33,7 @@ file is the stage map; it is deleted with the last Python file.
 | Control layout | `app/qualify_control_layout.py` | `xtask qualify control` (32 public captures + one real-keyless run) |
 | Slint scale | `benchmarks/slint/qualify-scale.py` | `xtask bench scale` (both renderers, sequential) |
 | Composed settings | `scripts/qualify-composed-settings.py` | `xtask qualify composed-settings`: pidfd root pinning, parent-chain fencing, bounded TERM/KILL cleanup. The Python file **stays** until its qualification dependents are ported |
-| Lazy account | `scripts/qualify-lazy-account.py` | `xtask qualify lazy-account`, on a shared `run_owned` (same pin/fence/cleanup rules, private report, source digests, exact lifecycle validator). Stays until its dependents are ported |
+| Lazy account | `scripts/qualify-lazy-account.py` + guard | `xtask qualify lazy-account`, on a shared `run_owned` (same pin/fence/cleanup rules, private report, source digests, exact lifecycle validator); guard mutation cases ported before deletion |
 | Agent discovery | `scripts/qualify-agent-discovery.py` (+ its guard) | `xtask qualify agent-discovery [--sdk]` |
 | Client projections | `scripts/qualify-client-projections.py` | `xtask qualify client-projections` |
 | Turn outline | `scripts/qualify-turn-outline.py` | `xtask qualify turn-outline` |
@@ -111,8 +111,8 @@ Deliberate differences, all measured against the Python originals:
 
 | Family | Files | Lines | Target |
 |---|---|---|---|
-| `scripts/qualify-*` | 13 | 2,854 | `xtask qualify <name>`; the assertions are already Rust examples writing `result.json` |
-| `scripts/test_*` | 13 | 2,623 | Rust tests next to the qualifiers; rewrite each guard's subject, never copy it verbatim. `app/` has no Python left |
+| `scripts/qualify-*` | 12 | 2,731 | `xtask qualify <name>`; the assertions are already Rust examples writing `result.json` |
+| `scripts/test_*` | 12 | 2,566 | Rust tests next to the qualifiers; rewrite each guard's subject, never copy it verbatim. `app/` has no Python left |
 | `.github/scripts/*` | 4 | 387 | `xtask package` / `xtask publish`; `tar` + `flate2` are already dependencies, `gh` stays a child process |
 | `development-launcher.py` | 1 | 356 | **Shipped** as `launch.py` in the development package: a Rust `dsh-native-launch` binary replaces it, so the archive stops requiring Python 3.11+; update the archive verifier and install docs together |
 | `benchmarks/run.py` + `test_runner.py` | 2 | 417 | Deleted with the qualification family, whose scripts import the library; `xtask bench run` is already the replacement |

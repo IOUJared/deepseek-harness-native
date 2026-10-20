@@ -985,7 +985,7 @@ mod account_tests {
         )
     }
 
-    fn account() -> Value {
+    pub(super) fn account() -> Value {
         json!({
             "status": "passed", "phase": "complete", "fatal": false,
             "processWideNetworkTrace": false, "providerHotReplacementQualified": false,
@@ -1026,5 +1026,65 @@ mod account_tests {
             !valid_account(&json!({"status": "passed"})),
             "a truncated report is not valid"
         );
+    }
+}
+
+#[cfg(test)]
+mod account_guard_tests {
+    use super::account_tests::account;
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn eager_reads_unretired_watches_and_overclaims_never_qualify() {
+        for (section, key, value) in [
+            ("snapshots.ready", "watch", 1),
+            ("snapshots.ready", "state", 1),
+            ("snapshots.metadata", "session", 1),
+            ("events", "nonnullPlatform", 1),
+            ("events", "observationErrors", 1),
+        ] {
+            let mut data = account();
+            let mut target = &mut data;
+            for part in section.split('.') {
+                target = &mut target[part];
+            }
+            target[key] = json!(value);
+            assert!(
+                !valid_account(&data),
+                "{section}.{key} = {value} was accepted"
+            );
+        }
+        for (key, value) in [
+            ("maxLive", 2),
+            ("live", 1),
+            ("ended", 1),
+            ("watch", 3),
+            ("session", 3),
+        ] {
+            let mut data = account();
+            data["counts"][key] = json!(value);
+            assert!(!valid_account(&data), "counts.{key} = {value} was accepted");
+        }
+        for key in [
+            "processWideNetworkTrace",
+            "providerHotReplacementQualified",
+            "scriptedCredentialSave",
+            "scriptedSignIn",
+            "scriptedModelOrCatalog",
+            "fatal",
+        ] {
+            let mut data = account();
+            data[key] = json!(true);
+            assert!(!valid_account(&data), "{key} true was accepted");
+        }
+        for value in [json!(true), json!(-1), json!(1.0), json!("1"), json!(null)] {
+            let mut data = account();
+            data["counts"]["maxLive"] = value.clone();
+            assert!(
+                !valid_account(&data),
+                "counts.maxLive = {value} was accepted"
+            );
+        }
     }
 }
