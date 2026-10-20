@@ -16059,3 +16059,38 @@ combining mark still counts as one column; full-width forms and emoji are the ca
 | transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
 | DP-2 capture | — | `shots/342-terminal-wide.png`, `status: passed`, 1200x900 |
 | app bin | — | **21** warnings |
+
+### Round 557 — a full-screen program gets its own screen and gives the shell back
+
+**The gap.** A program that switches to the alternate screen (`vim`, `nano`, `less`, `htop`) wrote its
+frames straight over the shell: the prompt and the command above it were destroyed while the program
+ran, and were gone when it exited. The reference's emulator keeps two screens and swaps them.
+
+**The change.** The screen understands `CSI ? 1049 h`/`l` (and `47`/`1047`, the same switch without the
+cursor save, which this screen does not distinguish): entering saves the scrollback, grid, cursor and ink
+and starts a cleared grid; leaving restores all four. A repeated enter while already alternate saves
+nothing, so a program that sends it twice cannot lose the shell — the test asserts that pairing.
+
+**Tests.** `the_alternate_screen_restores_the_shell_after_a_full_screen_program` — the prompt is
+hidden while the program draws, the exact shell text returns on exit (with the next prompt continuing
+below it), and an unmatched double enter/leave pair leaves the shell intact.
+
+**Frame.** `shots/343-terminal-altscreen.png` (1200x900, new `terminal-altscreen` preset): the nano
+screen (`GNU nano 8.2 notes.txt`, `[ Modified ]`, the `^G`/`^O`/`^X` footer) with the `$ nano` line
+above it hidden. The *restore* is transient, so it is test-covered rather than framed.
+
+**Still unbuilt, stated:** scroll regions (`CSI r`), `DECAWM` off, insert/delete line and character, and
+combining marks; the alternate screen itself no longer belongs on that list.
+
+**Battery (round 557).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1560 passed**, 1 ignored |
+| app, default | **0** | **1504 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-be75mn3k`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-t5b1k5pj`) |
+| transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
+| DP-2 capture | — | `shots/343-terminal-altscreen.png`, `status: passed`, 1200x900 |
+| app bin | — | **21** warnings |

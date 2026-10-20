@@ -214,6 +214,7 @@ pub const PRESETS: &[&str] = &[
     "terminal-address",
     "terminal-colors",
     "terminal-wide",
+    "terminal-altscreen",
     "reference-crumbs",
     "reference-subagents",
     "stats-dialog",
@@ -341,6 +342,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "terminal-address" => Some((Size::new(1200.0, 900.0), 1.0)),
         "terminal-colors" => Some((Size::new(1200.0, 900.0), 1.0)),
         "terminal-wide" => Some((Size::new(1200.0, 900.0), 1.0)),
+        "terminal-altscreen" => Some((Size::new(1200.0, 900.0), 1.0)),
         "reference-crumbs" => Some((Size::new(1040.0, 620.0), 1.0)),
         "reference-subagents" => Some((Size::new(1040.0, 620.0), 1.0)),
         "stats-dialog" => Some((Size::new(1040.0, 760.0), 1.0)),
@@ -369,6 +371,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "terminal-address"
         | "terminal-colors"
         | "terminal-wide"
+        | "terminal-altscreen"
         | "collapsed-wide"
         | "title-controls"
         | "title-controls-expanded"
@@ -4487,6 +4490,7 @@ pub fn build(
         || preset == "terminal-address"
         || preset == "terminal-colors"
         || preset == "terminal-wide"
+        || preset == "terminal-altscreen"
     {
         // The terminal panel with one selected Host terminal and its recorded output. Every frame the
         // panel sees here is one a Host could send; nothing is created or written.
@@ -4552,7 +4556,20 @@ pub fn build(
             .follow()
             .cloned()
             .expect("selecting attaches a follow");
-        let frames: [(i64, &str); 3] = if preset == "terminal-wide" {
+        let frames: [(i64, &str); 3] = if preset == "terminal-altscreen" {
+            // A full-screen program in the alternate screen: the shell line above it is gone while
+            // the program draws, and comes back when it exits.
+            [
+                (1, "PUBLIC $ nano notes.txt\u{1b}[?1049h"),
+                (2, "\u{1b}[2J\u{1b}[H GNU nano\n\n [ Welcome to nano ]\n"),
+                // The program redraws its own screen (a keystroke, a status change); the shell
+                // line stays hidden until it exits, which is what the test covers.
+                (
+                    3,
+                    "\u{1b}[2J\u{1b}[H GNU nano 8.2   notes.txt\n\n [ Modified ]\n\n^G Help   ^O Write Out   ^X Exit\n",
+                ),
+            ]
+        } else if preset == "terminal-wide" {
             // A CJK name in a listing: the glyphs take two columns each, so the size column stays
             // aligned with the lines above and below it.
             [

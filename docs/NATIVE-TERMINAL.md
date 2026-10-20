@@ -72,8 +72,9 @@ full-screen TUI's keys reach the process but its escape-driven screen does not r
   `ESC [ H`/`A`–`D`/`G`/`d` address a grid as tall as the Host's rows, whose bottom row scrolls into
   scrollback, round 554; SGR `30`–`37`/`90`–`97`/`39`/`1`/`0` colour the cells and are drawn through
   `design::ansi_ink`, round 555, and the wide and fullwidth ranges plus emoji take two columns so a
-  CJK listing stays aligned, round 556; backgrounds, the alternate screen, combining marks and scroll
-  regions are not rendered) and retained
+  CJK listing stays aligned, round 556; `CSI ? 1049 h`/`l` swaps to the alternate screen a full-screen
+  program draws in and restores the shell on exit, round 557; backgrounds, combining marks, scroll
+  regions and insert/delete are not rendered) and retained
   in the panel only: at most **400 chunks / 128 KiB**, newest kept, and the panel renders only
   the newest **32 KiB**. Every discarded chunk and every byte an oversized chunk loses is
   counted and shown.

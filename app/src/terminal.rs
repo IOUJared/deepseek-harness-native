@@ -360,6 +360,20 @@ struct Screen {
     /// The SGR colour the next written cell takes: an ANSI index 0–15, or none for the panel's
     /// default ink.
     ink: Option<u8>,
+    /// The screen a full-screen program switched away from, restored when it leaves the alternate
+    /// screen (`CSI ? 1049 h`/`l`): without it a `vim` session would scribble over the shell history
+    /// and the history would not come back.
+    alternate: Option<Box<Saved>>,
+}
+
+/// One saved screen: everything a full-screen program's exit restores.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Saved {
+    history: Vec<Vec<Cell>>,
+    grid: Vec<Vec<Cell>>,
+    row: usize,
+    column: usize,
+    ink: Option<u8>,
 }
 
 /// One screen cell: a character and the colour it was written with.
@@ -421,6 +435,7 @@ impl Screen {
             rows: 0,
             dropped: 0,
             ink: None,
+            alternate: None,
         }
     }
     /// Adopt the Host's row count: the grid becomes that tall, keeping the newest lines.
@@ -552,6 +567,30 @@ impl Screen {
             }
         }
     }
+    /// Switch to (or back from) the alternate screen, saving or restoring the whole screen.
+    fn alternate_screen(&mut self, enter: bool) {
+        if enter {
+            if self.alternate.is_some() {
+                return;
+            }
+            self.alternate = Some(Box::new(Saved {
+                history: std::mem::take(&mut self.history),
+                grid: std::mem::replace(&mut self.grid, vec![Vec::new(); self.rows.max(1)]),
+                row: self.row,
+                column: self.column,
+                ink: self.ink,
+            }));
+            self.row = 0;
+            self.column = 0;
+            self.ink = None;
+        } else if let Some(saved) = self.alternate.take() {
+            self.history = saved.history;
+            self.grid = saved.grid;
+            self.row = saved.row;
+            self.column = saved.column;
+            self.ink = saved.ink;
+        }
+    }
     /// Move the cursor within the grid, clamped to it.
     fn place(&mut self, row: usize, column: usize) {
         self.row = row.min(self.grid.len().saturating_sub(1));
@@ -584,6 +623,17 @@ impl Screen {
                         let first = numbers.first().copied().unwrap_or(0).max(1) as usize;
                         let second = numbers.get(1).copied().unwrap_or(0);
                         match final_byte {
+                            // The alternate screen: a full-screen program's own buffer. Entering
+                            // saves the shell's screen and starts a cleared grid; leaving restores
+                            // it. `47`/`1047` are the same switch without the cursor save, which
+                            // this screen does not distinguish.
+                            Some('h') | Some('l')
+                                if private
+                                    && numbers.iter().any(|n| [1047, 1049, 47].contains(n)) =>
+                            {
+                                let enter = final_byte == Some('h');
+                                self.alternate_screen(enter)
+                            }
                             Some('K') if !private => {
                                 self.erase_line(numbers.first().copied().unwrap_or(0))
                             }
@@ -2865,6 +2915,29 @@ mod tests {
         assert!(
             !terminal.shells_failed(),
             "an answered read clears the flag"
+        );
+    }
+
+    #[test]
+    fn the_alternate_screen_restores_the_shell_after_a_full_screen_program() {
+        let mut output = Output::default();
+        output.set_rows(4);
+        output.push("PUBLIC $ vim notes.txt\n");
+        assert_eq!(output.display(DISPLAY_BYTES), "PUBLIC $ vim notes.txt\n");
+        // The program switches to its own screen and draws there.
+        output.push("\u{1b}[?1049h~\n~\n");
+        assert_eq!(output.display(DISPLAY_BYTES), "~\n~\n");
+        // Leaving restores the shell exactly, cursor and all, so the next prompt continues below.
+        output.push("\u{1b}[?1049lPUBLIC $ ");
+        assert_eq!(
+            output.display(DISPLAY_BYTES),
+            "PUBLIC $ vim notes.txt\nPUBLIC $ "
+        );
+        // A second enter/leave pair is idempotent: an unmatched enter saves nothing new.
+        output.push("\u{1b}[?1049h\u{1b}[?1049h\u{1b}[?1049l\u{1b}[?1049l");
+        assert_eq!(
+            output.display(DISPLAY_BYTES),
+            "PUBLIC $ vim notes.txt\nPUBLIC $ "
         );
     }
 
