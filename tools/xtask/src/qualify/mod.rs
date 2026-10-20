@@ -8,6 +8,7 @@ pub mod composed;
 pub mod control;
 pub mod layout;
 pub mod node;
+pub mod prompt;
 pub mod scroll;
 pub mod stage;
 pub mod uncertainty;
@@ -527,6 +528,7 @@ pub fn run(arguments: &[String]) -> i32 {
         "turn-outline" => node::turn_outline(&root, &output),
         "file-upload" => upload::run(&root, &output),
         "native-file-stage" => stage::run(&root, &output),
+        "native-file-prompt" => prompt::run(&root, &output),
         "upload-uncertainty" => uncertainty::run(&root, &output, &fail_at),
         "composed-settings" => composed::run(&root, &output, scale),
         "lazy-account" => composed::lazy_account(&root, &output),

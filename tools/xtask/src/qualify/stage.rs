@@ -69,7 +69,7 @@ pub fn valid_worker(value: &Value) -> bool {
         && stop["observedDescendantsRemaining"].as_i64() == Some(0)
 }
 
-fn workspace_fixtures(output: &Path) -> Result<(), String> {
+pub(super) fn workspace_fixtures(output: &Path) -> Result<(), String> {
     for (_, data, name) in fixtures() {
         let path = output.join("workspace").join(name);
         let mut file = fs::OpenOptions::new()
