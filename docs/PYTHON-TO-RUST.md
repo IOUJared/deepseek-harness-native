@@ -83,10 +83,11 @@ Deliberate differences, all measured against the Python originals:
 - The compositor window probe moved out of the benchmark runner into
   `compositor.rs` so the component qualifiers share one implementation instead of
   growing a second.
-- The draft-restart **validators** are ported (`drafts`): exact report types, forbidden
-  record kinds, joined-save/recover mode rules, session-id bounds, and two-pid/one-session
-  correlation against the PUBLIC manifest and document. Its two-phase orchestration and
-  command wiring are the next step; the Python file cannot be deleted before that.
+- The draft-restart qualifier is fully ported (`drafts`): the validators,
+  the hardened private reader (`private`: single-link, owner-only, O_NOFOLLOW,
+  duplicate JSON keys refused at any depth), and the two-phase orchestration with a
+  frozen artifact, source digests and a 170 s deadline. `draft-interruption` imports
+  it, so both Python files are deleted together once interruption is ported.
 - The `qualify` module now owns `prepare` and the isolated child environment, and
   `xtask qualify app` can run the root workflow, but `scripts/qualify-native-app.py`
   still exists for its 18 dependents and keeps its own copies of those helpers.

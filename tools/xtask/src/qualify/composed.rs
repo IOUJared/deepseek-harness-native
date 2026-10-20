@@ -338,7 +338,12 @@ pub(super) struct GuardedRun {
 
 /// Pin, observe and clean up one spawned process tree. The caller installs the
 /// signal handlers before spawning and restores them after this returns.
-pub(super) fn guard(mut owned: Owned) -> GuardedRun {
+pub(super) fn guard(owned: Owned) -> GuardedRun {
+    guard_with(owned, QUALIFICATION_SECONDS)
+}
+
+/// The same guard with an explicit budget, for multi-phase qualifiers.
+pub(super) fn guard_with(mut owned: Owned, seconds: u64) -> GuardedRun {
     let owner = our_pid();
     let mut pidfds: BTreeMap<Key, i32> = BTreeMap::new();
     let mut observed: BTreeSet<Key> = BTreeSet::new();
@@ -361,7 +366,7 @@ pub(super) fn guard(mut owned: Owned) -> GuardedRun {
         }
     }
     if let Some(pinned) = root.as_ref() {
-        let deadline = Instant::now() + Duration::from_secs(QUALIFICATION_SECONDS);
+        let deadline = Instant::now() + Duration::from_secs(seconds);
         loop {
             if owned.poll().ok().flatten().is_some() {
                 break;

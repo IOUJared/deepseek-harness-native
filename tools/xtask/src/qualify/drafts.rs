@@ -180,6 +180,307 @@ pub fn valid_restart(first: &Value, second: &Value, manifest: &Value, document: 
         }
 }
 
+use super::composed::{Owned, guard_with};
+use super::private;
+use std::fs;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::process::CommandExt;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
+
+fn digest(path: &Path) -> Option<String> {
+    crate::sha256_file(path).ok()
+}
+
+fn walk(directory: &Path, extension: &str, paths: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        if metadata.is_dir() {
+            walk(&path, extension, paths);
+        } else if path.extension().is_some_and(|ext| ext == extension) {
+            paths.push(path);
+        }
+    }
+}
+
+/// Every source whose digest must stay unchanged across both processes.
+fn sources(root: &Path) -> std::collections::BTreeMap<String, String> {
+    let mut paths: Vec<PathBuf> = vec![
+        root.join("tools/xtask/src/qualify/drafts.rs"),
+        root.join("tools/xtask/src/qualify/composed.rs"),
+        root.join("app/examples/draft_composed_smoke.rs"),
+    ];
+    for (directory, extension) in [
+        ("app/src", "rs"),
+        ("core/src", "rs"),
+        ("transport/src", "rs"),
+        ("core/runtime", "mjs"),
+    ] {
+        walk(&root.join(directory), extension, &mut paths);
+    }
+    for crate_name in ["app", "core", "transport"] {
+        for name in ["Cargo.toml", "Cargo.lock"] {
+            let path = root.join(crate_name).join(name);
+            if path.is_file() {
+                paths.push(path);
+            }
+        }
+    }
+    if let Some(runtime) = root
+        .parent()
+        .map(|parent| parent.join("deepseek-harness-linux/apps/cli"))
+    {
+        if runtime.join("package.json").is_file() {
+            paths.push(runtime.join("package.json"));
+        }
+        walk(&runtime.join("lib"), "js", &mut paths);
+    }
+    paths.sort();
+    paths
+        .into_iter()
+        .filter_map(|path| {
+            let digest = digest(&path)?;
+            Some((path.to_string_lossy().into_owned(), digest))
+        })
+        .collect()
+}
+
+fn private_log(path: &Path) -> std::io::Result<fs::File> {
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+}
+
+fn phase(
+    output: &Path,
+    binary: &Path,
+    runtime: &Path,
+    mode: &str,
+    scale: f64,
+    seconds: u64,
+) -> Value {
+    let mut report = json!({
+        "mode": mode,
+        "pid": Value::Null,
+        "timedOut": false,
+        "identityPinFailures": Value::Null,
+        "observedIdentities": [],
+        "exitCode": Value::Null,
+        "cleanup": Value::Null,
+        "status": "failed",
+    });
+    let folder = output;
+    let logs = (
+        folder.join(format!("{mode}-stdout.log")),
+        folder.join(format!("{mode}-stderr.log")),
+    );
+    let (Ok(stdout), Ok(stderr)) = (private_log(&logs.0), private_log(&logs.1)) else {
+        report["errorType"] = json!("log-open-failed");
+        return report;
+    };
+    let mut env = super::environment(output);
+    env.insert("PATH".into(), "/usr/bin:/bin".into());
+    let spawned = Command::new(binary)
+        .arg("--fixture-mode")
+        .arg(mode)
+        .arg("--runtime")
+        .arg(runtime)
+        .arg("--expected-version")
+        .arg("0.2.1-alpha.1")
+        .arg("--home")
+        .arg(output.join("harness"))
+        .arg("--user-home")
+        .arg(output.join("user"))
+        .arg("--cwd")
+        .arg(output.join("workspace"))
+        .arg("--scale")
+        .arg(format!("{scale}"))
+        .current_dir(output.join("workspace"))
+        .env_clear()
+        .envs(&env)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(stdout))
+        .stderr(Stdio::from(stderr))
+        .process_group(0)
+        .spawn();
+    let Ok(child) = spawned else {
+        report["errorType"] = json!("spawn-failed");
+        return report;
+    };
+    let pid = child.id() as u64;
+    let run = guard_with(
+        Owned {
+            child,
+            status: None,
+        },
+        seconds,
+    );
+    let app = private::json(&output.join(format!("{mode}-app.json")), 65536)
+        .unwrap_or_else(|_| json!({"status": "invalid-or-missing-report"}));
+    let passed = run.owned.code() == 0
+        && !run.interrupted
+        && run.cleanup.observed_cleanup_complete
+        && !run.cleanup.root_was_running_at_cleanup
+        && run.cleanup.remaining_before_external_cleanup.is_empty()
+        && run.observation_failures == 0
+        && valid(&app, mode, pid);
+    report["pid"] = json!(pid);
+    report["identityPinFailures"] = json!(run.observation_failures);
+    report["exitCode"] = json!(run.owned.code());
+    report["cleanup"] = json!(&run.cleanup);
+    report["observedIdentities"] = json!(run.observed);
+    report["app"] = app;
+    report["status"] = json!(if passed { "passed" } else { "failed" });
+    if let Err(error) = super::private_json(&output.join(format!("{mode}-owned.json")), &report) {
+        report["errorType"] = json!(format!("owned-report-failed: {error}"));
+    }
+    report
+}
+
+/// `xtask qualify draft-restart --output PUBLIC-draft-restart-... [--binary] [--scale]`.
+pub fn run(root: &Path, requested: &Path, binary_arg: &Path, scale: f64) -> i32 {
+    // New private state only; every artifact below inherits owner-only modes.
+    unsafe {
+        libc::umask(0o077);
+    }
+    let requested = if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map(|directory| directory.join(requested))
+            .unwrap_or_else(|_| requested.to_path_buf())
+    };
+    if !requested
+        .file_name()
+        .map(|name| name.to_string_lossy().starts_with("PUBLIC-draft-restart-"))
+        .unwrap_or(false)
+    {
+        eprintln!("draft-restart failed: output basename must start PUBLIC-draft-restart-");
+        return 1;
+    }
+    let output = match super::prepare(root, &requested) {
+        Ok(output) => match output.canonicalize() {
+            Ok(path) => path,
+            Err(error) => {
+                eprintln!("draft-restart failed: {error}");
+                return 1;
+            }
+        },
+        Err(message) => {
+            eprintln!("draft-restart failed: {message}");
+            return 1;
+        }
+    };
+    let mut summary = json!({
+        "status": "failed",
+        "scope": "Two owned native App processes, joined save/shutdown and cold UNSENT recovery; no Send, bounded App intent/PUBLIC records, network unqualified.",
+        "phases": [],
+        "backendIndependentZeroPromptsQualified": false,
+        "networkTraceQualified": false,
+        "physicalInputQualified": false,
+        "crashDurabilityQualified": false,
+        "sourceClosureComplete": false,
+        "artifactDeploymentQualified": false,
+    });
+    let source_before = sources(root);
+    summary["sourceSha256Before"] = json!(&source_before);
+    let original = match binary_arg.canonicalize() {
+        Ok(path) => path,
+        Err(_) => {
+            eprintln!("draft-restart failed: fixture binary is not ready");
+            return 1;
+        }
+    };
+    let binary = output.join("draft_composed_smoke");
+    let copied = fs::copy(&original, &binary).and_then(|_| {
+        let file = fs::OpenOptions::new().write(true).open(&binary)?;
+        file.sync_all()
+    });
+    if let Err(error) = copied {
+        eprintln!("draft-restart failed: cannot deploy the fixture binary: {error}");
+        return 1;
+    }
+    let _ = fs::set_permissions(&binary, fs::Permissions::from_mode(0o700));
+    let artifact = digest(&binary).unwrap_or_default();
+    summary["artifactSha256"] = json!(&artifact);
+    if digest(&original).as_deref() != Some(artifact.as_str()) {
+        eprintln!("draft-restart failed: binary changed during copy");
+        return 1;
+    }
+    let runtime = root
+        .parent()
+        .map(|parent| parent.join("deepseek-harness-linux/apps/cli"))
+        .and_then(|path| path.canonicalize().ok());
+    let Some(runtime) = runtime else {
+        eprintln!("draft-restart failed: the alpha runtime is missing");
+        return 1;
+    };
+    let deadline = Instant::now() + Duration::from_secs(170);
+    let mut failed = false;
+    for mode in ["write", "recover"] {
+        let remaining = deadline
+            .saturating_duration_since(Instant::now())
+            .as_secs()
+            .min(80);
+        let report = phase(&output, &binary, &runtime, mode, scale, remaining.max(1));
+        let passed = report["status"].as_str() == Some("passed");
+        if let Some(phases) = summary["phases"].as_array_mut() {
+            phases.push(report);
+        }
+        if !passed {
+            failed = true;
+            break;
+        }
+    }
+    if !failed {
+        let phases = summary["phases"].as_array().cloned().unwrap_or_default();
+        let (first, second) = (phases[0]["app"].clone(), phases[1]["app"].clone());
+        let manifest = private::json(&output.join("session-manifest.json"), 65536)
+            .unwrap_or_else(|_| json!({}));
+        let document = private::json(&output.join("harness/native-drafts.v1.json"), 65536)
+            .unwrap_or_else(|_| json!({}));
+        if !valid_restart(&first, &second, &manifest, &document) {
+            summary["errorType"] = json!("cold-process-or-independent-durable-body-mismatch");
+            failed = true;
+        }
+    }
+    let source_after = sources(root);
+    let source_unchanged = source_after == source_before;
+    let artifact_unchanged = digest(&binary).as_deref() == Some(artifact.as_str());
+    summary["sourceSha256After"] = json!(&source_after);
+    summary["sourceUnchanged"] = json!(source_unchanged);
+    summary["artifactUnchanged"] = json!(artifact_unchanged);
+    if !failed && source_unchanged && artifact_unchanged {
+        summary["fullProcessRestartObserved"] = json!(true);
+        summary["independentlyReadPUBLICDraftMatched"] = json!(true);
+        summary["status"] = json!("passed");
+    }
+    if let Err(error) =
+        super::private_json(&output.join("draft-restart-qualification.json"), &summary)
+    {
+        eprintln!("cannot write the draft-restart report: {error}");
+        return 1;
+    }
+    println!(
+        "{}",
+        json!({"status": summary["status"], "report": output.join("draft-restart-qualification.json").to_string_lossy()})
+    );
+    if summary["status"].as_str() == Some("passed") {
+        0
+    } else {
+        1
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

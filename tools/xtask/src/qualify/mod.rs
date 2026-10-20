@@ -11,6 +11,7 @@ pub mod decisions;
 pub mod drafts;
 pub mod layout;
 pub mod node;
+pub mod private;
 pub mod prompt;
 pub mod scroll;
 pub mod skill;
@@ -464,6 +465,8 @@ pub fn run(arguments: &[String]) -> i32 {
     let mut sdk = false;
     let mut fail_at = String::from("none");
     let mut viewport_minimum = false;
+    let mut output_binary: PathBuf =
+        crate::root().join("app/target/debug/examples/draft_composed_smoke");
     let mut arguments = arguments[1..].iter();
     while let Some(argument) = arguments.next() {
         let parsed: Result<(), String> = (|| match argument.as_str() {
@@ -494,6 +497,10 @@ pub fn run(arguments: &[String]) -> i32 {
             }
             "--sdk" => {
                 sdk = true;
+                Ok(())
+            }
+            "--binary" => {
+                output_binary = PathBuf::from(arguments.next().ok_or("--binary needs a value")?);
                 Ok(())
             }
             "--viewport" => {
@@ -548,6 +555,7 @@ pub fn run(arguments: &[String]) -> i32 {
         "upload-uncertainty" => uncertainty::run(&root, &output, &fail_at),
         "composed-settings" => composed::run(&root, &output, scale),
         "composed-files" => composed_files::run(&root, &output, scale),
+        "draft-restart" => drafts::run(&root, &output, &output_binary, scale),
         "composed-decisions" => {
             let viewport = if viewport_minimum { "minimum" } else { "full" };
             decisions::run(&root, &output, scale, viewport)
