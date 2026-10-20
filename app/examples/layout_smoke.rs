@@ -1091,6 +1091,7 @@ impl Fixture {
                 worker::Command::TerminalUnfollow => "TerminalUnfollow",
                 worker::Command::TerminalCreate(_) => "TerminalCreate",
                 worker::Command::TerminalClose(_) => "TerminalClose",
+                worker::Command::TerminalRename(_) => "TerminalRename",
                 worker::Command::TerminalWrite(_) => "TerminalWrite",
                 worker::Command::McpRead(_) => "McpRead",
                 worker::Command::McpWrite(_) => "McpWrite",

@@ -51,6 +51,15 @@ pub enum CreateFailure {
     NotSent,
     Unknown,
 }
+/// Redacted rename outcome: only the Host's ACK is a title authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RenameOutcome {
+    Renamed,
+    Unavailable,
+    NotSent,
+    Unknown,
+}
+
 /// Redacted close failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CloseFailure {
@@ -113,6 +122,19 @@ pub struct CloseReceipt {
     pub id: WebTerminalId,
     pub attempt: u64,
 }
+/// A rename the panel reviewed and admitted: the Host's ACK is the only title authority.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RenameReceipt {
+    pub ticket: Ticket,
+    pub id: WebTerminalId,
+    title: String,
+}
+impl RenameReceipt {
+    #[cfg(test)]
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+}
 /// One admitted input write, fenced to the panel attachment and the input revision.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WriteReceipt {
@@ -133,6 +155,13 @@ pub struct CloseReview {
     pub ticket: Ticket,
     pub id: WebTerminalId,
 }
+/// One reviewed rename: the terminal it targets and the title being edited.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RenameReview {
+    pub ticket: Ticket,
+    pub id: WebTerminalId,
+    pub title: String,
+}
 /// One consuming reviewed create. The requested shell and dimensions are captured.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CreateSubmission {
@@ -144,6 +173,17 @@ pub struct CreateSubmission {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CloseSubmission {
     pub receipt: CloseReceipt,
+}
+/// One admitted rename, carrying the title the operator reviewed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RenameSubmission {
+    pub receipt: RenameReceipt,
+    data: String,
+}
+impl RenameSubmission {
+    pub fn title(&self) -> &str {
+        &self.data
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WriteSubmission {
@@ -219,6 +259,12 @@ pub enum Notice {
     CloseReview,
     Closing,
     Closed,
+    RenameReview,
+    Renaming,
+    Renamed,
+    RenameFailed,
+    RenamingIndeterminate,
+    RenameNotSent,
     CloseFailed,
     ClosingIndeterminate,
     CloseNotSent,
@@ -240,6 +286,7 @@ pub enum Effect {
     Unfollow,
     Create(CreateSubmission),
     Close(CloseSubmission),
+    Rename(RenameSubmission),
     Write(WriteSubmission),
 }
 
@@ -393,6 +440,14 @@ pub enum Action {
     BackClose(Ticket),
     /// Confirm the reviewed close: one owned Host termination, never retried.
     ConfirmClose(CloseReview),
+    /// Enter the rename review for one listed terminal.
+    ReviewRename { ticket: Ticket, id: WebTerminalId },
+    /// Leave the rename review without writing.
+    BackRename(Ticket),
+    /// Edit the reviewed title.
+    EditRename { ticket: Ticket, title: String },
+    /// Confirm the reviewed rename: one Host write, never retried.
+    ConfirmRename(RenameReview),
 }
 pub struct Context {
     pub view: Option<View>,
@@ -431,6 +486,8 @@ pub struct Terminal {
     create_review: Option<Review>,
     create_pending: Option<CreateReceipt>,
     close_review: Option<CloseReview>,
+    rename_review: Option<RenameReview>,
+    rename_pending: Option<RenameReceipt>,
     close_pending: Option<CloseReceipt>,
     write_pending: Option<WriteReceipt>,
     notice: Notice,
@@ -462,6 +519,8 @@ impl Default for Terminal {
             create_review: None,
             create_pending: None,
             close_review: None,
+            rename_review: None,
+            rename_pending: None,
             close_pending: None,
             write_pending: None,
             notice: Notice::None,
@@ -564,6 +623,14 @@ impl Terminal {
     pub fn review_close(&self) -> Option<&WebTerminalId> {
         self.close_review.as_ref().map(|review| &review.id)
     }
+    /// The rename review, when one is open: its target and the title being edited.
+    pub fn review_rename(&self) -> Option<&RenameReview> {
+        self.rename_review.as_ref()
+    }
+    #[cfg(test)]
+    pub fn rename_pending(&self) -> bool {
+        self.rename_pending.is_some()
+    }
     /// Whole-panel pending probes. The composer gates on the specific action, so
     /// only this module's tests read the aggregate slots.
     #[cfg(test)]
@@ -578,7 +645,9 @@ impl Terminal {
         self.write_pending.is_some()
     }
     pub fn busy(&self) -> bool {
-        self.create_pending.is_some() || self.close_pending.is_some()
+        self.create_pending.is_some()
+            || self.close_pending.is_some()
+            || self.rename_pending.is_some()
     }
     pub fn notice(&self) -> &Notice {
         &self.notice
@@ -589,6 +658,7 @@ impl Terminal {
         self.panel = None;
         self.create_review = None;
         self.close_review = None;
+        self.rename_review = None;
         self.notice = Notice::None;
         let following = self.follow.is_some();
         self.stop_follow();
@@ -596,11 +666,14 @@ impl Terminal {
     }
     /// Fence late receipts after the transport generation is gone.
     pub fn disconnect(&mut self) {
+        let renaming = self.rename_pending.take().is_some();
         let admitted = self.create_pending.take().is_some() || self.close_pending.take().is_some();
         let writing = self.write_pending.take().is_some();
         self.dismiss();
         if admitted {
             self.notice = Notice::CreatingIndeterminate;
+        } else if renaming {
+            self.notice = Notice::RenamingIndeterminate;
         } else if writing {
             self.notice = Notice::WriteIndeterminate;
         }
@@ -943,6 +1016,77 @@ impl Terminal {
                 self.close_review = None;
                 self.notice = Notice::None;
             }
+            Action::ReviewRename { ticket, id }
+                if self.current(&ticket, context)
+                    && !self.busy()
+                    && self.write_pending.is_none()
+                    && self.list.iter().any(|info| info.id == id) =>
+            {
+                // The review opens on the terminal's current title, so a rename that keeps the
+                // name is a no-op the operator can see before confirming.
+                let title = self
+                    .list
+                    .iter()
+                    .find(|info| info.id == id)
+                    .map(|info| info.title.clone())
+                    .unwrap_or_default();
+                self.rename_review = Some(RenameReview {
+                    ticket: ticket.clone(),
+                    id,
+                    title,
+                });
+                self.create_review = None;
+                self.close_review = None;
+                self.notice = Notice::RenameReview;
+            }
+            Action::BackRename(ticket) if self.current(&ticket, context) => {
+                self.rename_review = None;
+                self.notice = Notice::None;
+            }
+            Action::EditRename { ticket, title }
+                if self.current(&ticket, context)
+                    && self
+                        .rename_review
+                        .as_ref()
+                        .is_some_and(|review| review.ticket == ticket) =>
+            {
+                if let Some(review) = self.rename_review.as_mut() {
+                    review.title = title;
+                }
+            }
+            Action::ConfirmRename(review)
+                if self.current(&review.ticket, context)
+                    && !self.busy()
+                    && self.write_pending.is_none()
+                    && self.rename_review.as_ref() == Some(&review) =>
+            {
+                let title = review.title.trim().to_owned();
+                // The Host refuses an empty or over-long title; refusing here keeps the panel from
+                // sending a request it already knows fails (`terminal-controller/src/index.ts`).
+                if title.is_empty()
+                    || title.chars().count() > 120
+                    || title.chars().any(char::is_control)
+                    || self
+                        .list
+                        .iter()
+                        .any(|info| info.id == review.id && info.title == title)
+                {
+                    self.notice = Notice::RenameFailed;
+                    return None;
+                }
+                self.rename_review = None;
+                let receipt = RenameReceipt {
+                    ticket: review.ticket,
+                    id: review.id,
+                    title: title.clone(),
+                };
+                self.rename_pending = Some(receipt.clone());
+                self.notice = Notice::Renaming;
+                return Some(Effect::Rename(RenameSubmission {
+                    receipt,
+                    data: title,
+                }));
+            }
             Action::ConfirmClose(review)
                 if self.current(&review.ticket, context)
                     && !self.busy()
@@ -1183,6 +1327,38 @@ impl Terminal {
             self.notice = Notice::None;
         }
         applied
+    }
+    /// Retire the exact rename receipt; install the Host-confirmed title only for the reviewed
+    /// terminal, and only when the ACK names the same identity.
+    pub fn finish_rename(&mut self, receipt: &RenameReceipt, outcome: RenameOutcome) {
+        if self.rename_pending.as_ref() != Some(receipt) {
+            return;
+        }
+        self.rename_pending = None;
+        let notice = match outcome {
+            RenameOutcome::Renamed => {
+                if let Some(info) = self
+                    .list
+                    .iter_mut()
+                    .find(|info| info.id == receipt.id && info.title != receipt.title)
+                {
+                    info.title = receipt.title.clone();
+                }
+                Notice::Renamed
+            }
+            RenameOutcome::Unavailable => Notice::RenameFailed,
+            RenameOutcome::NotSent => Notice::RenameNotSent,
+            RenameOutcome::Unknown => Notice::RenamingIndeterminate,
+        };
+        if self
+            .panel
+            .as_ref()
+            .is_some_and(|panel| panel.ticket == receipt.ticket)
+        {
+            self.notice = notice;
+        } else if matches!(self.notice, Notice::Renaming) {
+            self.notice = Notice::None;
+        }
     }
     /// Retire the exact close receipt; remove the terminal only on a Host confirmation.
     pub fn finish_close(&mut self, receipt: &CloseReceipt, outcome: CloseOutcome) {
@@ -2061,6 +2237,141 @@ mod tests {
             !terminal.shells_failed(),
             "an answered read clears the flag"
         );
+    }
+
+    #[test]
+    fn a_rename_is_reviewed_edited_admitted_and_installed_only_from_the_ack() {
+        let mut terminal = opened();
+        let read = terminal
+            .apply(Action::Refresh(ticket(&terminal)), &context())
+            .and_then(|effect| match effect {
+                Effect::Read(read) => Some(read),
+                _ => None,
+            })
+            .expect("refresh reads");
+        terminal.loaded(
+            &read,
+            Ok(Loaded {
+                list: vec![info("PUBLIC-terminal-1")],
+                shells: vec![shell()],
+                shells_failed: false,
+                environment: Some(environment()),
+            }),
+        );
+        let t = ticket(&terminal);
+        let id = WebTerminalId::new("PUBLIC-terminal-1").unwrap();
+        // The review opens on the current title.
+        assert!(
+            terminal
+                .apply(
+                    Action::ReviewRename {
+                        ticket: t.clone(),
+                        id: id.clone()
+                    },
+                    &context()
+                )
+                .is_none()
+        );
+        let review = terminal
+            .review_rename()
+            .cloned()
+            .expect("the review opened");
+        assert_eq!(review.title, info("PUBLIC-terminal-1").title);
+        // Editing the title is local until Confirm.
+        terminal.apply(
+            Action::EditRename {
+                ticket: t.clone(),
+                title: "PUBLIC renamed".into(),
+            },
+            &context(),
+        );
+        assert_eq!(
+            terminal.review_rename().map(|review| review.title.as_str()),
+            Some("PUBLIC renamed")
+        );
+        let review = terminal.review_rename().cloned().expect("still open");
+        let Some(Effect::Rename(submission)) =
+            terminal.apply(Action::ConfirmRename(review), &context())
+        else {
+            panic!("confirming a rename is one Host write");
+        };
+        assert_eq!(submission.title(), "PUBLIC renamed");
+        assert!(terminal.rename_pending());
+        // The list changes only from the ACK, which must carry the reviewed title.
+        terminal.finish_rename(&submission.receipt, RenameOutcome::Renamed);
+        assert_eq!(
+            terminal
+                .list()
+                .iter()
+                .find(|info| info.id == id)
+                .map(|info| info.title.as_str()),
+            Some("PUBLIC renamed")
+        );
+        assert_eq!(terminal.notice(), &Notice::Renamed);
+        assert!(!terminal.rename_pending());
+    }
+
+    #[test]
+    fn a_rename_that_changes_nothing_or_breaks_the_title_rule_is_refused() {
+        let mut terminal = opened();
+        let read = terminal
+            .apply(Action::Refresh(ticket(&terminal)), &context())
+            .and_then(|effect| match effect {
+                Effect::Read(read) => Some(read),
+                _ => None,
+            })
+            .expect("refresh reads");
+        terminal.loaded(
+            &read,
+            Ok(Loaded {
+                list: vec![info("PUBLIC-terminal-1")],
+                shells: vec![shell()],
+                shells_failed: false,
+                environment: Some(environment()),
+            }),
+        );
+        let t = ticket(&terminal);
+        let id = WebTerminalId::new("PUBLIC-terminal-1").unwrap();
+        // Opening the review and confirming the unchanged title is refused.
+        terminal.apply(
+            Action::ReviewRename {
+                ticket: t.clone(),
+                id: id.clone(),
+            },
+            &context(),
+        );
+        let unchanged = terminal.review_rename().cloned().expect("open");
+        assert!(
+            terminal
+                .apply(Action::ConfirmRename(unchanged), &context())
+                .is_none()
+        );
+        assert_eq!(terminal.notice(), &Notice::RenameFailed);
+        // An empty or over-long title is refused without a Host round trip: the review is edited
+        // first, because Confirm admits only the review that is actually open.
+        for title in ["", "   ", &"x".repeat(121)] {
+            terminal.apply(
+                Action::ReviewRename {
+                    ticket: t.clone(),
+                    id: id.clone(),
+                },
+                &context(),
+            );
+            terminal.apply(
+                Action::EditRename {
+                    ticket: t.clone(),
+                    title: (*title).to_owned(),
+                },
+                &context(),
+            );
+            let review = terminal.review_rename().cloned().expect("open");
+            assert!(
+                terminal
+                    .apply(Action::ConfirmRename(review), &context())
+                    .is_none()
+            );
+            assert_eq!(terminal.notice(), &Notice::RenameFailed, "{title:?}");
+        }
     }
 
     #[test]

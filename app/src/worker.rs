@@ -205,6 +205,7 @@ pub enum Command {
     TerminalUnfollow,
     TerminalCreate(crate::terminal::CreateSubmission),
     TerminalClose(crate::terminal::CloseSubmission),
+    TerminalRename(crate::terminal::RenameSubmission),
     TerminalWrite(crate::terminal::WriteSubmission),
     /// Read the app-owned MCP patch file and the live Host MCP inventory.
     McpRead(crate::mcp::ReadTicket),
@@ -424,6 +425,10 @@ pub enum Event {
         submission: crate::terminal::CreateSubmission,
         result:
             Result<dsh_native_transport::terminal::WebTerminalInfo, crate::terminal::CreateFailure>,
+    },
+    TerminalRenamed {
+        submission: crate::terminal::RenameSubmission,
+        result: Result<(), crate::terminal::RenameOutcome>,
     },
     TerminalClosed {
         submission: crate::terminal::CloseSubmission,
@@ -1208,6 +1213,10 @@ fn rejected(command: Command) -> Event {
             submission,
             result: Err(crate::terminal::CreateFailure::NotSent),
         },
+        Command::TerminalRename(submission) => Event::TerminalRenamed {
+            submission,
+            result: Err(crate::terminal::RenameOutcome::NotSent),
+        },
         Command::TerminalClose(submission) => Event::TerminalClosed {
             submission,
             result: Err(crate::terminal::CloseFailure::NotSent),
@@ -1815,6 +1824,25 @@ async fn terminal_create(
     Event::TerminalCreated { submission, result }
 }
 /// Ask the Host to close the reviewed terminal. The app owns no process teardown.
+async fn terminal_rename(
+    client: dsh_native_transport::NativeClient,
+    submission: crate::terminal::RenameSubmission,
+) -> Event {
+    use crate::terminal::RenameOutcome;
+    use dsh_native_transport::Error;
+    let result = client
+        .terminal_rename(
+            &submission.receipt.ticket.target,
+            &submission.receipt.id,
+            submission.title(),
+        )
+        .await
+        .map_err(|error| match error {
+            Error::TerminalUnavailable => RenameOutcome::Unavailable,
+            _ => RenameOutcome::Unknown,
+        });
+    Event::TerminalRenamed { submission, result }
+}
 async fn terminal_close(
     client: dsh_native_transport::NativeClient,
     submission: crate::terminal::CloseSubmission,
@@ -1853,10 +1881,11 @@ async fn terminal_write(
     Event::TerminalWritten { submission, result }
 }
 /// One terminal management write (create or close). Only one may own the process.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum TerminalFlight {
     Create(crate::terminal::CreateSubmission),
     Close(crate::terminal::CloseSubmission),
+    Rename(crate::terminal::RenameReceipt),
 }
 /// Reserve the terminal flight, which shares the single session-management flight.
 fn admit_terminal(
@@ -1873,6 +1902,9 @@ fn admit_terminal(
 fn settle_terminal(active: &mut Option<TerminalFlight>, event: &Event) {
     let flight = match event {
         Event::TerminalCreated { submission, .. } => TerminalFlight::Create(submission.clone()),
+        Event::TerminalRenamed { submission, .. } => {
+            TerminalFlight::Rename(submission.receipt.clone())
+        }
         Event::TerminalClosed { submission, .. } => TerminalFlight::Close(submission.clone()),
         _ => return,
     };
@@ -2534,6 +2566,15 @@ async fn run(
                         }
                         continue;
                     },
+                    Command::TerminalRename(submission)=>{
+                        let flight=TerminalFlight::Rename(submission.receipt.clone());
+                        if submission.receipt.ticket.epoch==TRANSPORT_EPOCH && admit_terminal(&mut terminal_active,&flight,&Admission::new(smoke,*closing.borrow(),operations,flights)) {
+                            tasks.spawn(terminal_rename(client.clone(),submission));
+                        } else if !publish(&events,Event::TerminalRenamed{submission,result:Err(crate::terminal::RenameOutcome::NotSent)}) {
+                            break Some("Native UI delivery queue overflow".into());
+                        }
+                        continue;
+                    },
                     Command::TerminalClose(submission)=>{
                         let flight=TerminalFlight::Close(submission.clone());
                         if submission.receipt.ticket.epoch==TRANSPORT_EPOCH && admit_terminal(&mut terminal_active,&flight,&Admission::new(smoke,*closing.borrow(),operations,flights)) {
@@ -2612,6 +2653,7 @@ async fn run(
                 if matches!(command,Command::Inspect){let backend=backend.clone();tasks.spawn_blocking(move||Event::Inspection(match backend.request(CoreCommand::Inspect,Duration::from_secs(5)){Ok(PublicReply::Inspection(value))=>Ok(value),Ok(_)=>Err("Invalid Core inspection reply".into()),Err(e)=>Err(format!("Core inspection: {e}"))}));continue;}
                 let client=client.clone();tasks.spawn(async move {match command {
                     Command::TerminalUnfollow=>Event::Fault("Terminal unfollow bypassed priority dispatch".into()),
+                    Command::TerminalRename(_)=>Event::Fault("Terminal rename bypassed priority dispatch".into()),
                     Command::PermissionCatalogRead=>Event::Fault("Permission catalog bypassed priority dispatch".into()),
                     Command::PermissionSettingsRead=>Event::Fault("Permission settings bypassed priority dispatch".into()),
                     Command::AgentPresetsRead=>Event::Fault("Agent presets bypassed priority dispatch".into()),

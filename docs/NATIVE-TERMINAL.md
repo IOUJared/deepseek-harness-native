@@ -29,7 +29,7 @@ spawns a shell or child process; the Host owns every PTY and its process range.
 8. **The shell choice is remembered** across launches as the `layout.terminalShell` preference, so a
    reopened create review starts on the shell you last chose (rounds 461–462).
 
-Left out of this slice: `terminal/rename`, `terminal/retain` and in-panel `terminal/resize`.
+Left out of this slice: `terminal/retain` and in-panel `terminal/resize`.
 Resize exists in the transport but the panel always requests `80×24`, clamped to the limits the
 Host advertised for the Session. There is also **no terminal emulator**: the screen is a sanitized
 text panel, so a full-screen TUI's keys reach the process but its escape-driven screen does not

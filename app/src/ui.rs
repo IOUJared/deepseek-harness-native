@@ -7090,6 +7090,17 @@ impl App {
                     self.command(Command::TerminalFollow(applied.follow));
                 }
             }
+            Event::TerminalRenamed { submission, result } => {
+                use crate::terminal::RenameOutcome;
+                let outcome = match result {
+                    Ok(()) => RenameOutcome::Renamed,
+                    Err(crate::terminal::RenameOutcome::Renamed) => RenameOutcome::Renamed,
+                    Err(crate::terminal::RenameOutcome::Unavailable) => RenameOutcome::Unavailable,
+                    Err(crate::terminal::RenameOutcome::NotSent) => RenameOutcome::NotSent,
+                    Err(crate::terminal::RenameOutcome::Unknown) => RenameOutcome::Unknown,
+                };
+                self.terminal.finish_rename(&submission.receipt, outcome);
+            }
             Event::TerminalClosed { submission, result } => {
                 use crate::terminal::{CloseFailure, CloseOutcome};
                 let outcome = match result {
@@ -8178,6 +8189,9 @@ impl App {
             }
             crate::terminal::Effect::Close(submission) => {
                 self.command(Command::TerminalClose(submission))
+            }
+            crate::terminal::Effect::Rename(submission) => {
+                self.command(Command::TerminalRename(submission))
             }
             crate::terminal::Effect::Write(submission) => {
                 self.command(Command::TerminalWrite(submission))
@@ -15790,6 +15804,7 @@ impl App {
         )
     }
     /// Whether one code block wraps its source: everything wraps unless the reader unwrapped it.
+    #[cfg(test)]
     fn code_wrap_wrapped(&self, key: u64, index: usize) -> bool {
         !self.code_unwrapped.contains(&(key, index))
     }
@@ -19504,6 +19519,15 @@ impl App {
                     )
                     .size(10)
                     .width(Length::Fill),
+                    button("Rename…")
+                        .on_press_maybe(enabled.then_some(Message::Terminal(
+                            Action::ReviewRename {
+                                ticket: close.clone(),
+                                id: info.id.clone()
+                            }
+                        )))
+                        .style(design::ghost)
+                        .padding([6, 8]),
                     button("Close…")
                         .on_press_maybe(enabled.then_some(Message::Terminal(Action::ReviewClose {
                             ticket: close,
@@ -19547,6 +19571,48 @@ impl App {
                                     }
                                 )))
                             ),
+                    ]
+                    .spacing(8),
+                );
+        }
+        if let Some(review) = self.terminal.review_rename() {
+            // The review edits the title the Host currently reports, so a no-op is visible before
+            // Confirm; the Host's ACK is still the only title authority.
+            body = body
+                .push(
+                    label(
+                        format!(
+                            "Rename {}: 1–120 characters, trimmed by the Host, and the title must change.",
+                            short(review.id.as_str(), 24)
+                        ),
+                        MUTED,
+                    )
+                    .size(11),
+                )
+                .push(
+                    text_input("Terminal title", &review.title)
+                        .id("native-terminal-rename")
+                        .on_input_maybe(enabled.then_some({
+                            let ticket = ticket.clone();
+                            move |text: String| {
+                                Message::Terminal(Action::EditRename {
+                                    ticket: ticket.clone(),
+                                    title: text,
+                                })
+                            }
+                        }))
+                        .style(design::field)
+                        .padding(8)
+                        .size(12),
+                )
+                .push(
+                    row![
+                        button("Back").style(design::ghost).on_press_maybe(
+                            enabled.then_some(Message::Terminal(Action::BackRename(ticket.clone())))
+                        ),
+                        button("Confirm rename").style(design::primary).on_press_maybe(
+                            enabled.then_some(Message::Terminal(Action::ConfirmRename(review.clone())))
+                        ),
                     ]
                     .spacing(8),
                 );
@@ -19759,6 +19825,26 @@ impl App {
             )
             .size(11),
             Notice::CloseNotSent => label("Worker queue rejected the close: not sent.", DANGER).size(11),
+            Notice::RenameReview => {
+                label("Review the new title, then Confirm rename.", MUTED).size(11)
+            }
+            Notice::Renaming => label(
+                "Rename admitted. The title changes only from the Host acknowledgment.",
+                ACCENT,
+            )
+            .size(11),
+            Notice::Renamed => label("Host confirmed the terminal's new title.", ACCENT).size(11),
+            Notice::RenameFailed => label(
+                "The Host refused the rename, or the title was empty, over 120 characters, or unchanged. No automatic retry.",
+                DANGER,
+            )
+            .size(11),
+            Notice::RenamingIndeterminate => label(
+                "Rename outcome unknown: the title may or may not have changed. Refresh to read it again.",
+                DANGER,
+            )
+            .size(11),
+            Notice::RenameNotSent => label("Worker queue rejected the rename: not sent.", DANGER).size(11),
             Notice::WritePending => label(
                 "Input admitted to the Host attachment. Acceptance is not shell execution; the line clears only on the Host acknowledgment.",
                 ACCENT,

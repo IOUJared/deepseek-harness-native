@@ -164,6 +164,19 @@ pub fn validate_create(request: &TerminalCreateRequest) -> Result<()> {
     Ok(())
 }
 
+/// The Host's own title rule for a rename: 1–120 characters after trimming, with no control
+/// characters (`terminal-controller/src/index.ts` `rename`: `title.trim().length === 0 ||
+/// title.length > 120`). The request is refused here so the panel never sends what the Host would
+/// reject.
+pub fn validate_title(title: &str) -> Result<()> {
+    let trimmed = title.trim();
+    if trimmed.is_empty() || trimmed.chars().count() > 120 || trimmed.chars().any(char::is_control)
+    {
+        return Err(Error::InvalidDto);
+    }
+    Ok(())
+}
+
 /// Refuse one raw input write that cannot fit the native outbound envelope.
 pub fn validate_input(data: &str) -> Result<()> {
     if data.len() > MAX_INPUT_BYTES {
@@ -251,6 +264,19 @@ pub fn validate_environment(environment: &TerminalEnvironment) -> Result<()> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_title_is_trimmed_to_the_hosts_one_to_one_hundred_and_twenty_rule() {
+        assert!(validate_title("PUBLIC terminal").is_ok());
+        assert!(validate_title("  PUBLIC padded  ").is_ok());
+        assert_eq!(validate_title(""), Err(Error::InvalidDto));
+        assert_eq!(validate_title("   "), Err(Error::InvalidDto));
+        assert_eq!(validate_title(&"x".repeat(121)), Err(Error::InvalidDto));
+        assert!(validate_title(&"x".repeat(120)).is_ok());
+        // A control character is refused rather than sent: the Host would reject it, and a
+        // newline in a title would split the panel's own row.
+        assert_eq!(validate_title("PUBLIC\nterminal"), Err(Error::InvalidDto));
+    }
 
     fn id(value: &str) -> WebTerminalId {
         WebTerminalId::new(value).unwrap()

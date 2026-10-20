@@ -207,6 +207,7 @@ pub const PRESETS: &[&str] = &[
     "markdown-table-quote",
     "markdown-code-quote",
     "markdown-nested-image",
+    "terminal-rename",
     "stats-dialog",
     "settings-shortcuts",
     "turn-error",
@@ -325,6 +326,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "markdown-table-quote" => Some((Size::new(1040.0, 620.0), 1.0)),
         "markdown-code-quote" => Some((Size::new(1040.0, 620.0), 1.0)),
         "markdown-nested-image" => Some((Size::new(1040.0, 560.0), 1.0)),
+        "terminal-rename" => Some((Size::new(1200.0, 900.0), 1.0)),
         "stats-dialog" => Some((Size::new(1040.0, 760.0), 1.0)),
         "settings-shortcuts" => Some((Size::new(1040.0, 900.0), 1.0)),
         "turn-error" | "turn-max-tokens" | "quota-toast" => Some((Size::new(1040.0, 620.0), 1.0)),
@@ -344,6 +346,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "terminal-panel"
         | "terminal-panel-readonly"
         | "terminal-panel-shells-failed"
+        | "terminal-rename"
         | "collapsed-wide"
         | "title-controls"
         | "title-controls-expanded"
@@ -4342,6 +4345,7 @@ pub fn build(
     if preset == "terminal-panel"
         || preset == "terminal-panel-readonly"
         || preset == "terminal-panel-shells-failed"
+        || preset == "terminal-rename"
     {
         // The terminal panel with one selected Host terminal and its recorded output. Every frame the
         // panel sees here is one a Host could send; nothing is created or written.
@@ -4419,6 +4423,25 @@ pub fn build(
                     data: data.into(),
                 },
             })));
+        }
+        if preset == "terminal-rename" {
+            // The rename review open on the listed terminal: its row's press opens it with the Host's
+            // current title, which the frame shows being edited.
+            let ticket = app.terminal.ticket().expect("the panel's ticket");
+            let id =
+                dsh_native_transport::terminal::WebTerminalId::new("PUBLIC-terminal-1").unwrap();
+            drop(
+                app.update(Message::Terminal(crate::terminal::Action::ReviewRename {
+                    ticket: ticket.clone(),
+                    id,
+                })),
+            );
+            drop(
+                app.update(Message::Terminal(crate::terminal::Action::EditRename {
+                    ticket,
+                    title: "PUBLIC renamed shell".into(),
+                })),
+            );
         }
         if preset == "terminal-panel-readonly" {
             // The Host's own frame naming another attachment as controller is what makes this view

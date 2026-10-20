@@ -192,6 +192,7 @@ enum Endpoint {
     TerminalWrite,
     TerminalResize,
     TerminalClose,
+    TerminalRename,
     CommandsList,
     SkillsList,
     CommandsExecute,
@@ -269,6 +270,7 @@ impl Endpoint {
             Self::TerminalWrite => "terminal/write",
             Self::TerminalResize => "terminal/resize",
             Self::TerminalClose => "terminal/close",
+            Self::TerminalRename => "terminal/rename",
             Self::CommandsList => "commands/list",
             Self::SkillsList => "skills/list",
             Self::CommandsExecute => "commands/execute",
@@ -528,7 +530,8 @@ impl NativeClient {
                             Endpoint::TerminalCreate
                             | Endpoint::TerminalWrite
                             | Endpoint::TerminalResize
-                            | Endpoint::TerminalClose,
+                            | Endpoint::TerminalClose
+                            | Endpoint::TerminalRename,
                             Some("terminal/unavailable"),
                         ) => Error::TerminalUnavailable,
                         (
@@ -1549,6 +1552,21 @@ impl NativeClient {
         self.invoke(
             Endpoint::TerminalResize,
             json!({"agentId":agent_id,"id":id,"attachmentId":attachment_id,"cols":cols,"rows":rows}),
+        )
+        .await
+    }
+    /// Rename one terminal. The Host trims the title and refuses one outside 1–120 characters, so
+    /// the same rule is enforced here before the call (`terminal-controller/src/index.ts:rename`).
+    pub async fn terminal_rename(
+        &self,
+        agent_id: &SessionId,
+        id: &crate::terminal::WebTerminalId,
+        title: &str,
+    ) -> Result<()> {
+        crate::terminal::validate_title(title)?;
+        self.invoke(
+            Endpoint::TerminalRename,
+            json!({"agentId":agent_id,"id":id,"title":title.trim()}),
         )
         .await
     }

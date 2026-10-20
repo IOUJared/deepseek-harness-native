@@ -6418,6 +6418,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Workspace browser: grouped/animated rows, drag order, per-row menus | difference: workspace filter + navigation sheet |
 | Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory; the app's Host serves browse, so Browse… falls back to the in-app list and `pick` reports unavailable) |
 | Workflow-run surface | cloned (folded `tool-workflow/*` card, five run states including the round-525 `Interrupted` for a stoppless run in a closed turn; a closed step alone does not interrupt, a named limit) |
+| Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, shell discovery with a remembered preference, output bounds. The xterm screen, resize, retain and a docked multi-terminal tab remain recorded as unbuilt in `docs/NATIVE-TERMINAL.md`. |
 | Dockkit layout presets | difference: native fixed layout with its own preferences |
 | Locales (zh/en) | difference: English-only |
 
@@ -15358,4 +15359,46 @@ and inner alt, the destination is not text), plus the rewritten fallback tests a
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-pwfn0nsx`) |
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 capture | — | `shots/332-nested-image.png`, `status: passed`, 1040x560 |
+| app bin | — | **21** warnings |
+
+### Round 539 — a terminal's title can be renamed
+
+**The gap.** The coverage table and `docs/NATIVE-TERMINAL.md` both recorded rename as unbuilt: the Host
+serves `terminal/rename` (1–120 characters, trimmed, refused when empty or unchanged), and the panel
+offered no way to reach it.
+
+**The change, end to end.** The transport gains `Endpoint::TerminalRename` and
+`terminal_rename(address, id, title)`, gated by `terminal::validate_title` (the Host's own rule, plus a
+control-character refusal so a newline can never split the panel's row); the worker gains
+`Command::TerminalRename` on the shared terminal flight and `Event::TerminalRenamed`; the terminal model
+gains a rename review (opened on the Host's current title, editable, refused locally when the title is
+empty, over 120 characters, control-bearing or unchanged), `RenameReceipt`/`RenameSubmission`, and
+`finish_rename`, which installs the title only from an ACK for the reviewed terminal; and the panel
+draws `Rename…` per listed terminal with a review row — a labelled title field, Back and Confirm rename.
+`busy()`, the panel dismiss, the disconnect fence and the smoke example's command-kind match all learned
+the new flight.
+
+**Frame.** `shots/333-terminal-rename.png` (1200x900, new `terminal-rename` preset): the row reading
+`Rename… · Close…`, the review line "Rename PUBLIC-terminal-1: 1–120 characters, trimmed by the Host, and
+the title must change.", the field holding `PUBLIC renamed shell`, `Back` / `Confirm rename`, and the
+notice "Review the new title, then Confirm rename."
+
+**Tests.** Transport `a_title_is_trimmed_to_the_hosts_one_to_one_hundred_and_twenty_rule` (trimmed
+accepted, empty/blank/121/control refused, 120 accepted); model
+`a_rename_is_reviewed_edited_admitted_and_installed_only_from_the_ack` and
+`a_rename_that_changes_nothing_or_breaks_the_title_rule_is_refused` (Confirm admits only the review that
+is open — the second draft confirmed a review it had not edited, and the test caught it).
+
+**Battery (round 539).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1544 passed**, 1 ignored |
+| app, default | **0** | **1488 passed**, 1 ignored |
+| transport | **0** | **60** + 17 + 91 + 7 (the title rule added one) |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-i2p9q6ne`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-0likyacz`) |
+| core / JS | — | **not re-run**: neither crate changed this round (core last 115, JS 419/0) |
+| DP-2 capture | — | `shots/333-terminal-rename.png`, `status: passed`, 1200x900 |
 | app bin | — | **21** warnings |
