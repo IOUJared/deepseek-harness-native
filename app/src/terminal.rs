@@ -947,7 +947,7 @@ impl Output {
     }
 }
 
-/// Strip terminal control sequences so a plain-text panel can render Host output.
+/// Strip terminal control sequences for the plain-text copy; the screen applies them instead.
 fn sanitize(input: &str) -> String {
     let mut out = String::with_capacity(input.len().min(CHUNK_BYTES));
     let mut chars = input.chars().peekable();
@@ -2709,7 +2709,7 @@ mod tests {
         assert!(output.dropped() > 0);
         assert!(output.bytes() <= OUTPUT_BYTES);
         assert!(output.chunks().len() <= OUTPUT_CHUNKS);
-        // Control sequences are stripped so the plain-text panel cannot be corrupted.
+        // Control sequences are stripped from the text copy; the screen applies them.
         let mut control = Output::default();
         control.push("\u{1b}[31mPUBLIC\u{1b}[0m\r\n");
         // The escape sequences are gone; the carriage return survives for the display to apply, so

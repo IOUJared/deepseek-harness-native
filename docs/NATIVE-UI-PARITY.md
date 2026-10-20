@@ -6430,7 +6430,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Workspace browser: grouped/animated rows, drag order, per-row menus | difference: workspace filter + navigation sheet |
 | Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory; the app's Host serves browse, so Browse… falls back to the in-app list and `pick` reports unavailable) |
 | Workflow-run surface | cloned (folded `tool-workflow/*` card, five run states including the round-525 `Interrupted` for a stoppless run in a closed turn; a closed step alone does not interrupt, a named limit) |
-| Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, **reviewed resize (round 540)**, shell discovery with a remembered preference, output bounds. The xterm screen, automatic fit-to-pane, retain and a docked multi-terminal tab remain recorded as unbuilt in `docs/NATIVE-TERMINAL.md`. |
+| Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, **reviewed resize (round 540)**, shell discovery with a remembered preference, output bounds, and **a native screen emulator core** (rounds 552–559: redraw, erase, addressing, insert/delete, ANSI colours, wide glyphs, wrapping, scrollback, alternate screen). Still unbuilt: scroll regions, `DECAWM` off, combining marks and background colours, the reference's automatic fit-to-pane, `terminal/retain` and a docked multi-terminal tab — recorded in `docs/NATIVE-TERMINAL.md`. |
 | Dockkit layout presets | difference: native fixed layout with its own preferences |
 | Locales (zh/en) | difference: English-only |
 
@@ -15853,7 +15853,7 @@ next round start.
 
 | item | what exists | what the next round series needs |
 | --- | --- | --- |
-| The terminal screen | sanitized plain-text output bounded to 400 chunks/128 KiB; every mutating action reviewed | a VT parser and screen grid (cursor, erase, scroll region) plus its own geometry contract; a dependency decision may be part of it |
+| The terminal screen | **built as a native emulator core** in rounds 552–559 (grid sized by the Host, redraw, erase, addressing, insert/delete, SGR colours, two-column wide glyphs, wrapping, 2,000-line scrollback, alternate screen); output still bounded to 400 chunks/128 KiB and every mutating action reviewed | scroll regions (`CSI r`), `DECAWM` off, combining marks and background/underline attributes; nothing here needs a dependency decision any more |
 | `terminal/retain` and a docked multi-terminal tab | the panel's own slice; retain exists in the Host for holding tabs open | a right-docked tab strip first, because retain only means something with tabs |
 | Schedules: sidebar marks, hover cards, turn cards, right-Sidebar tab | the page, history, edits, pickers, the header chip and the live reload | per-session schedule counts from the Host (`sessionListMetadata` does not carry them), then the marks |
 | The right-Sidebar review tab | the deliverables sheet is a native surface | a deliberate second layout decision, recorded as such rather than built silently |
@@ -16161,4 +16161,37 @@ than framed — the same call as round 541's behavioural round.
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-9j70y7fg`) |
 | transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
 | DP-2 capture | — | none: transient screen operations |
+| app bin | — | **21** warnings |
+
+### Round 560 — the terminal's own documents stop calling its screen a text panel
+
+**The drift.** Rounds 552–559 built a screen model in the panel — grid, redraw, erase, addressing,
+insert/delete, colours, wide glyphs, wrapping, scrollback, alternate screen — while four statements kept
+describing the old panel: `NATIVE-TERMINAL.md` said "**no terminal emulator**: the screen is a sanitized
+text panel, so a full-screen TUI's escape-driven screen does not render", its bounds bullet still listed
+every sequence as absent, the coverage table called the xterm screen "unbuilt", and the round-551 backlog
+still proposed "a VT parser and screen grid" as future work. A reader would have concluded none of rounds
+552–559 existed.
+
+**What the docs say now.** `NATIVE-TERMINAL.md` describes the emulator core and what it applies, then
+names exactly what it does not: **scroll regions (`CSI r`), `DECAWM` off, combining marks, background and
+underline attributes** — so a TUI relying on a fixed status row or zero-width joins renders with that
+structure ignored. Its bounds bullet separates the two retained forms (raw bytes and the screen) and adds
+the 2,000-line scrollback bound. The coverage row lists the built behaviours and the same four absences,
+the backlog row no longer asks for a parser that exists, and two code comments that still said
+"plain-text panel" now describe the two forms.
+
+**No code, no frame:** a documentation-truth round; the checks below re-ran because two comments changed.
+
+**Battery (round 560).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1562 passed**, 1 ignored |
+| app, default | **0** | **1506 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-3b35tqca`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-45vdgnc0`) |
+| transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
+| DP-2 capture | — | none: documentation and comments |
 | app bin | — | **21** warnings |

@@ -35,12 +35,21 @@ spawns a shell or child process; the Host owns every PTY and its process range.
     dimensions, and adopts the acknowledged size only from the Host's ACK (round 540).
 
 Left out of this slice: `terminal/retain` (which only means something with docked terminal tabs).
-Resize is a reviewed control in the panel (round 540) rather than the reference's automatic
-fit-to-pane, because native mounts no terminal emulator: a create requests `80×24`, clamped to the
-limits the Host advertised, and a later resize replaces that request with the size the operator
-confirms. There is also **no terminal emulator**: the screen is a sanitized text panel, so a
-full-screen TUI's keys reach the process but its escape-driven screen does not render
-(`docs/FEATURE-PARITY.md`).
+
+**The screen is a native emulator core, not a text panel (rounds 552–559).** It owns a grid as tall and
+as wide as the Host's own terminal and applies the rules a shell depends on: `\r` redraws in place,
+`CSI K`/`J` erase, `CSI H`/`f`/`A`–`D`/`G`/`d` address, `CSI L`/`M`/`P`/`@` insert and delete rows and
+characters, `CSI m` colours the cells (drawn through `design::ansi_ink`), wide and fullwidth glyphs take
+two columns, a glyph past the last column wraps, the bottom row scrolls into scrollback (2,000 lines),
+and `CSI ? 1049 h`/`l` swaps to the alternate screen a full-screen program draws in and restores the
+shell on exit. What it still does not do: **scroll regions (`CSI r`), `DECAWM` off, combining marks, and
+background colours or underline attributes** — so a TUI that relies on a fixed status row or on
+zero-width joins renders with that structure ignored. The panel is a monochrome-per-cell renderer of that
+screen, not a second emulator.
+
+Resize is a reviewed control in the panel (round 540) rather than the reference's automatic fit-to-pane:
+a create requests `80×24`, clamped to the limits the Host advertised, and a later resize replaces that
+request with the size the operator confirms.
 
 ## Authority and consent
 
@@ -66,20 +75,13 @@ full-screen TUI's keys reach the process but its escape-driven screen does not r
 
 ## Bounds
 
-- Output is sanitized to plain text (CSI/OSC sequences and control bytes removed, except the carriage
-  return, which the panel applies as a line redraw, and the erase sequences `ESC [ K`/`ESC [ J`, which
-  it applies to the same screen, so `clear` clears and a progress bar is one line, rounds 552–553;
-  `ESC [ H`/`A`–`D`/`G`/`d` address a grid as tall as the Host's rows, whose bottom row scrolls into
-  scrollback, round 554; SGR `30`–`37`/`90`–`97`/`39`/`1`/`0` colour the cells and are drawn through
-  `design::ansi_ink`, round 555, and the wide and fullwidth ranges plus emoji take two columns so a
-  CJK listing stays aligned, round 556; `CSI ? 1049 h`/`l` swaps to the alternate screen a full-screen
-  program draws in and restores the shell on exit, round 557; a glyph past the Host's column count wraps
-  to the next row, counting columns so a wide glyph moves whole, round 558; `CSI L`/`M`/`P`/`@` insert
-  and delete rows and characters at the cursor, round 559; backgrounds, combining marks, scroll regions
-  and `DECAWM` off are not rendered) and retained
-  in the panel only: at most **400 chunks / 128 KiB**, newest kept, and the panel renders only
-  the newest **32 KiB**. Every discarded chunk and every byte an oversized chunk loses is
-  counted and shown.
+- Output is kept twice: the raw bytes bounded as follows, and the screen the emulator core builds from
+  them (above). The sanitized text strips CSI/OSC payloads, so a plain copy of the output never carries
+  escape sequences; the screen applies those payloads instead (rounds 552–559).
+- The retained bytes live in the panel only: at most **400 chunks / 128 KiB**, newest kept, and the
+  panel renders only the newest **32 KiB** of text. The screen keeps **2,000** lines of scrollback and
+  counts what it drops. Every discarded chunk and every byte an oversized chunk loses is counted and
+  shown.
 - One write is bounded by the smaller of the Host's `environment.maxInputBytes` and the
   transport's 256 KiB outbound cap — the typed line and a single keystroke's bytes alike; a create's
   dimensions are `80×24` bounded by the host environment's `maxCols`/`maxRows` (round 343).
