@@ -19869,7 +19869,7 @@ impl App {
                     .size(10),
                 );
             }
-            let text = self.terminal.output().tail(DISPLAY_BYTES);
+            let text = self.terminal.output().display(DISPLAY_BYTES);
             body = body.push(
                 container(
                     scrollable(

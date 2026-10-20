@@ -66,7 +66,9 @@ full-screen TUI's keys reach the process but its escape-driven screen does not r
 
 ## Bounds
 
-- Output is sanitized to plain text (CSI/OSC sequences and control bytes removed) and retained
+- Output is sanitized to plain text (CSI/OSC sequences and control bytes removed, except the carriage
+  return, which the panel applies as a line redraw: `Output::display` overwrites from column 0 so a
+  progress bar is one line, round 552) and retained
   in the panel only: at most **400 chunks / 128 KiB**, newest kept, and the panel renders only
   the newest **32 KiB**. Every discarded chunk and every byte an oversized chunk loses is
   counted and shown.

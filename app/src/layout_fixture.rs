@@ -209,6 +209,7 @@ pub const PRESETS: &[&str] = &[
     "markdown-nested-image",
     "terminal-rename",
     "terminal-resize",
+    "terminal-progress",
     "reference-crumbs",
     "reference-subagents",
     "stats-dialog",
@@ -331,6 +332,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "markdown-nested-image" => Some((Size::new(1040.0, 560.0), 1.0)),
         "terminal-rename" => Some((Size::new(1200.0, 900.0), 1.0)),
         "terminal-resize" => Some((Size::new(1200.0, 900.0), 1.0)),
+        "terminal-progress" => Some((Size::new(1200.0, 900.0), 1.0)),
         "reference-crumbs" => Some((Size::new(1040.0, 620.0), 1.0)),
         "reference-subagents" => Some((Size::new(1040.0, 620.0), 1.0)),
         "stats-dialog" => Some((Size::new(1040.0, 760.0), 1.0)),
@@ -354,6 +356,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "terminal-panel-shells-failed"
         | "terminal-rename"
         | "terminal-resize"
+        | "terminal-progress"
         | "collapsed-wide"
         | "title-controls"
         | "title-controls-expanded"
@@ -4467,6 +4470,7 @@ pub fn build(
         || preset == "terminal-panel-shells-failed"
         || preset == "terminal-rename"
         || preset == "terminal-resize"
+        || preset == "terminal-progress"
     {
         // The terminal panel with one selected Host terminal and its recorded output. Every frame the
         // panel sees here is one a Host could send; nothing is created or written.
@@ -4532,11 +4536,22 @@ pub fn build(
             .follow()
             .cloned()
             .expect("selecting attaches a follow");
-        for (sequence, data) in [
-            (1, "PUBLIC $ cargo test\n"),
-            (2, "running 4 tests\ntest widget::layout ... ok\n"),
-            (3, "test widget::paint ... ok\n"),
-        ] {
+        let frames: [(i64, &str); 3] = if preset == "terminal-progress" {
+            // One progress line, redrawn four times with `\r`: the panel must show the newest
+            // state on one line, not four lines.
+            [
+                (1, "PUBLIC $ download\nDownloading   0%"),
+                (2, "\rDownloading  45%"),
+                (3, "\rDownloading 100%\ndone\n"),
+            ]
+        } else {
+            [
+                (1, "PUBLIC $ cargo test\n"),
+                (2, "running 4 tests\ntest widget::layout ... ok\n"),
+                (3, "test widget::paint ... ok\n"),
+            ]
+        };
+        for (sequence, data) in frames {
             drop(app.update(Message::Worker(Event::TerminalFrame {
                 ticket: follow.clone(),
                 frame: TerminalFrame::Output {

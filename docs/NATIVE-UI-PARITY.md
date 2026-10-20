@@ -15867,3 +15867,42 @@ next round start.
 - The split diff layout clips rather than mirroring with horizontal scroll.
 - A tool path is underlined, not a separate open link.
 - Rename and resize are reviewed controls; the reference's PTY fits its pane automatically.
+
+### Round 552 — a carriage return redraws its line instead of stacking a new one
+
+**The gap.** The sanitizer dropped `\r` as just another control byte, so every progress bar, spinner and
+`curl`-style counter in the terminal panel became one retained line per update: a build that redraws
+"45%" forty times left forty lines where the reference's screen leaves one. The panel's own doc claimed
+only that output was "sanitized to plain text", which was true and also the bug.
+
+**The change, in the model.** `sanitize` now keeps the carriage return, `Output::display(bytes)` applies
+it as the terminal's own rule — the cursor returns to column 0 and later characters overwrite only the
+columns they reach, leaving the rest of the line — and the panel renders `display` instead of `tail`.
+The retained chunks are untouched, so the 400-chunk/128-KiB bounds and the dropped/truncated accounting
+still describe the Host's bytes; the transform is display-only.
+
+**Tests.** `a_carriage_return_redraws_its_line_in_place` — a progress line ends at its newest state,
+`abcdef\rXY` gives `XYcdef` (a terminal overwrites columns, it does not truncate), a `\r` at column 0
+changes nothing, a newline after a redraw still ends the line, and `tail` keeps the raw `\r`. The
+sanitizer test now asserts the split explicitly: escape sequences are stripped, the carriage return
+survives, and the rendered text is one line.
+
+**Frame.** `shots/338-terminal-progress.png` (1200x900, new `terminal-progress` preset): the panel shows
+`PUBLIC $ download` / `Downloading 100%` / `done` — one progress line at its final state where the raw
+stream had three redraws.
+
+**Still unbuilt, stated:** this is the terminal's line-redraw rule, not a screen: erase/cursor/scroll
+sequences are still consumed silently, and the full grid stays in the "large, unbuilt" list.
+
+**Battery (round 552).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1555 passed**, 1 ignored |
+| app, default | **0** | **1499 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-02d8bmvn`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-kyiyl5wv`) |
+| transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
+| DP-2 capture | — | `shots/338-terminal-progress.png`, `status: passed`, 1200x900 |
+| app bin | — | **21** warnings (a first draft left an unused `mut` and measured 22; removed) |

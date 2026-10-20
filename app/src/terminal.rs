@@ -390,6 +390,13 @@ impl Output {
     pub fn text(&self) -> String {
         self.chunks.concat()
     }
+    /// The panel's text: the bounded tail with every carriage return applied. A `\r` returns the
+    /// cursor to the start of its line and later characters overwrite it, which is how a shell
+    /// redraws a progress bar in place; the retained chunks stay untouched so the bounds and the
+    /// dropped/truncated accounting still describe the Host's bytes.
+    pub fn display(&self, max_bytes: usize) -> String {
+        apply_carriage_returns(&self.tail(max_bytes))
+    }
     /// Newest retained output bounded to `max_bytes`, for the rendered panel only.
     pub fn tail(&self, max_bytes: usize) -> String {
         let mut out = String::new();
@@ -452,11 +459,49 @@ fn sanitize(input: &str) -> String {
                 }
             },
             '\n' => out.push('\n'),
+            // The carriage return is kept: the display applies it as an in-place redraw, so a
+            // progress bar does not become one line per update.
+            '\r' => out.push('\r'),
             '\t' => out.push('\t'),
             c if c.is_control() => {}
             c => out.push(c),
         }
     }
+    out
+}
+
+/// Overwrite in place after a carriage return: the terminal's own redraw rule for one line.
+///
+/// A `\r` moves the cursor to column 0 without erasing, so text written after it replaces only the
+/// columns it reaches and leaves the rest of the line — a progress bar's `45%` becoming `100%` is
+/// one line, not two. Newlines still end a line.
+fn apply_carriage_returns(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut line: Vec<char> = Vec::new();
+    let mut column = 0usize;
+    let flush = |out: &mut String, line: &mut Vec<char>| {
+        out.extend(line.iter());
+        line.clear();
+    };
+    for character in text.chars() {
+        match character {
+            '\r' => column = 0,
+            '\n' => {
+                flush(&mut out, &mut line);
+                out.push('\n');
+                column = 0;
+            }
+            other => {
+                if column < line.len() {
+                    line[column] = other;
+                } else {
+                    line.push(other);
+                }
+                column += 1;
+            }
+        }
+    }
+    flush(&mut out, &mut line);
     out
 }
 
@@ -2169,7 +2214,10 @@ mod tests {
         // Control sequences are stripped so the plain-text panel cannot be corrupted.
         let mut control = Output::default();
         control.push("\u{1b}[31mPUBLIC\u{1b}[0m\r\n");
-        assert_eq!(control.text(), "PUBLIC\n");
+        // The escape sequences are gone; the carriage return survives for the display to apply, so
+        // the rendered text is one line and the retained bytes keep the redraw that made it so.
+        assert_eq!(control.text(), "PUBLIC\r\n");
+        assert_eq!(control.display(DISPLAY_BYTES), "PUBLIC\n");
         // A single oversized chunk is truncated, never retained whole.
         let mut huge = Output::default();
         huge.push(&"x".repeat(CHUNK_BYTES * 2));
@@ -2436,6 +2484,31 @@ mod tests {
             !terminal.shells_failed(),
             "an answered read clears the flag"
         );
+    }
+
+    #[test]
+    fn a_carriage_return_redraws_its_line_in_place() {
+        // A progress bar redraws with `\r`: one line, the newest text.
+        let mut output = Output::default();
+        output.push("Downloading 10%\rDownloading 100%\n");
+        assert_eq!(output.display(DISPLAY_BYTES), "Downloading 100%\n");
+        // Only the columns the new text reaches change; the rest of the line survives, as it
+        // does in a terminal.
+        let mut output = Output::default();
+        output.push("abcdef\rXY");
+        assert_eq!(output.display(DISPLAY_BYTES), "XYcdef");
+        // A carriage return at column 0 changes nothing.
+        let mut output = Output::default();
+        output.push("\rabc");
+        assert_eq!(output.display(DISPLAY_BYTES), "abc");
+        // A newline after a redraw still ends the line.
+        let mut output = Output::default();
+        output.push("one\rtwo\nthree");
+        assert_eq!(output.display(DISPLAY_BYTES), "two\nthree");
+        // The retained bytes are unchanged: the transform is display-only.
+        let mut output = Output::default();
+        output.push("a\rb");
+        assert_eq!(output.tail(DISPLAY_BYTES), "a\rb");
     }
 
     #[test]
