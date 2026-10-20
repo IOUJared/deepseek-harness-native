@@ -651,9 +651,11 @@ impl Screen {
                 }
             }
             _ => {
-                self.grid = vec![Vec::new(); self.grid.len().max(1)];
-                self.row = 0;
-                self.column = 0;
+                // `CSI 2 J` clears the display and leaves the cursor where it was; programs that want
+                // the cursor home send `CSI H` as well. Resetting it here moved every following glyph.
+                for line in self.grid.iter_mut() {
+                    line.clear();
+                }
             }
         }
     }
@@ -3230,6 +3232,16 @@ mod tests {
                 ("two".to_owned(), None, true, None),
             ]
         );
+    }
+
+    #[test]
+    fn clearing_the_display_leaves_the_cursor_where_it_was() {
+        // `CSI 2 J` empties the screen but does not home the cursor; text next lands at the same
+        // column, which is what a program that clears and then redraws in place expects.
+        let mut output = Output::default();
+        output.set_size(0, 3);
+        output.push("abc\u{1b}[2JX");
+        assert_eq!(output.display(DISPLAY_BYTES), "   X");
     }
 
     #[test]

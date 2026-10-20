@@ -16947,3 +16947,23 @@ plus a dedicated regression test for every row above that changed behaviour.
 | app, default | **0** | **1517 passed**, 1 ignored |
 | app bin | — | **21** warnings (22 with the summary line) |
 | `xtask verify --suite all` | — | last run 16/18; `wayland-drops` hardware-only and `release-guards` awaiting the port |
+
+### Round 599 — clearing the display leaves the cursor where it was
+
+**The bug.** `CSI 2 J` emptied the grid **and homed the cursor**, so a program that clears the screen and
+redraws in place (`CSI 2 J` then text, the common repaint) wrote from the top-left corner instead of from
+where it was. Programs that want the cursor home send `CSI H` themselves — that is why the two sequences
+exist separately.
+
+**The fix.** `erase_display(2)` clears every grid line and leaves the cursor's row and column alone.
+
+**Test.** `clearing_the_display_leaves_the_cursor_where_it_was` — `abc`, `CSI 2 J`, `X` renders `"   X"` at
+the third column rather than `"X"` at the first.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1574 passed**, 1 ignored |
+| app, default | **0** | **1518 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |
