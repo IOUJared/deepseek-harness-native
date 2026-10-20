@@ -14968,6 +14968,13 @@ test gained a titled image as their inert-markup case.
 collapses; native draws the same characters in a paragraph whose newlines are line breaks, so a
 multi-line HTML block's internal line structure is preserved rather than collapsed.
 
+**~~Superseded, kept as the round-528 record~~ (swept in round 545).** The "titled image and titled
+link, which stay refused" exemplars did not stay refused: round 529 made both parse, round 530–537
+closed the container refusals, round 538 folded a nested image's alt, and the detail test cited above
+was renamed to `a_nested_image_document_stays_formatted_and_nonce_exhaustion_disables_actions`. Read this
+round's paragraphs as what was true when it landed; `docs/NATIVE-FORMATTED-DETAILS.md` carries the
+current rule.
+
 **Battery (round 528).**
 
 | gate | status | result |
@@ -15616,4 +15623,46 @@ tool-body diff card, so a reader of the geometry contract could not tell there w
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-uzr0pf2k`) |
 | transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
 | DP-2 capture | — | none: a measurement round; the wrapped-card frame is round 533's |
+| app bin | — | **21** warnings |
+
+### Round 545 — a repo-wide citation sweep
+
+**Why.** Round 543's four-document sweep found a dead helper and a vanished test, which is a cheap way
+to find real drift: the docs cite test names, functions and files constantly, and a rename or deletion
+leaves the citation pointing at nothing. This round ran the same check over **every** doc.
+
+**Method.** For each `*.md` under `docs/`, extract every backticked identifier matching
+`[a-z][a-z0-9_]*` with at least two underscores and 18+ characters, then look it up textually across
+`app/src`, `app/examples`, `transport/src`, `transport/tests`, `core/src` and `scripts`. Anything with no
+match is a candidate; each candidate was then read in context, because a name can be legitimately
+historical.
+
+**Result — five candidates, one real drift.**
+
+| candidate | verdict |
+| --- | --- |
+| `heading_margins_step_up_like_the_reference` | already annotated as superseded in round 543 |
+| `a_group_seat_sits_inside_its_first_row_and_reserves_only_its_own_line` | already records its own rename in round 512 |
+| `unsupported_document_preserves_complete_source_and_nonce_exhaustion_disables_actions` | **real drift**: renamed in round 538; the round-528 note now carries a superseded pointer that names the current test |
+| `chat_geometry_probe` | false positive: an example *target*, which exists on disk but whose name is not inside the sources the sweep read |
+| `too_many_arguments` | false positive: a rustc lint name |
+
+Everything else in sixty-odd documents matched the tree. The round-528 note was also annotated where it
+says titled images and links "stay refused" — they parse since round 529 — so a linear reader is not
+left believing a construct is refused when it is not.
+
+**No code, no frame:** the sweep found documentation drift only, and the one code-adjacent claim it
+touched (a test name) was corrected in the docs rather than by renaming the test back.
+
+**Battery (round 545).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1549 passed**, 1 ignored |
+| app, default | **0** | **1493 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks |
+| clippy suite | **0** | core, transport and app passed (`verification-4f6yqjqw`, unchanged sources) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-uzr0pf2k`, unchanged sources) |
+| transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
+| DP-2 capture | — | none: a documentation round |
 | app bin | — | **21** warnings |
