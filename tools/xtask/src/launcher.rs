@@ -1348,6 +1348,91 @@ pub fn licenses(metadata: &Value, cargo_src: &Path, payload: &Path) -> Result<Va
     Ok(inventory)
 }
 
+/// Read the native package version from the app manifest without a TOML dependency.
+pub fn package_version(app_root: &Path) -> Result<String, String> {
+    let manifest = crate::launcher::private_read(&app_root.join("Cargo.toml"), 64 * 1024)
+        .map_err(|_| "Unsafe native package version")?;
+    let text = String::from_utf8(manifest).map_err(|_| "Unsafe native package version")?;
+    let mut in_package = false;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_package = line == "[package]";
+            continue;
+        }
+        if !in_package {
+            continue;
+        }
+        let Some(value) = line.strip_prefix("version") else {
+            continue;
+        };
+        let Some(value) = value.trim_start().strip_prefix('=') else {
+            continue;
+        };
+        let value = value.trim();
+        let Some(quoted) = value
+            .strip_prefix('"')
+            .and_then(|rest| rest.strip_suffix('"'))
+        else {
+            return Err("Unsafe native package version".into());
+        };
+        let safe = !quoted.is_empty()
+            && quoted.len() <= 100
+            && quoted.as_bytes()[0].is_ascii_digit()
+            && quoted
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'+' | b'-'));
+        return if safe {
+            Ok(quoted.to_string())
+        } else {
+            Err("Unsafe native package version".into())
+        };
+    }
+    Err("Unsafe native package version".into())
+}
+
+fn leading_digits(text: &str) -> (u64, &str) {
+    let end = text
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(text.len());
+    (text[..end].parse::<u64>().unwrap_or(u64::MAX), &text[end..])
+}
+
+/// The highest glibc version symbol the binary requires.
+pub fn glibc_requirement(binary: &Path) -> Result<String, String> {
+    let output = std::process::Command::new("/usr/bin/readelf")
+        .args(["--version-info", &binary.to_string_lossy()])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|_| "ELF version output exceeded bound")?;
+    if output.stdout.len() > 1024 * 1024 {
+        return Err("ELF version output exceeded bound".into());
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut highest: Option<(u64, u64)> = None;
+    for line in text.lines() {
+        let Some(rest) = line.split("Name: GLIBC_").nth(1) else {
+            continue;
+        };
+        // The name is followed by a dot, the minor and then flags on the same line.
+        let (major, rest) = leading_digits(rest);
+        let Some(rest) = rest.strip_prefix('.') else {
+            continue;
+        };
+        let (minor, _) = leading_digits(rest);
+        if major == u64::MAX || minor == u64::MAX {
+            continue;
+        }
+        if highest.is_none_or(|(best_major, best_minor)| (major, minor) > (best_major, best_minor))
+        {
+            highest = Some((major, minor));
+        }
+    }
+    highest
+        .map(|(major, minor)| format!("{major}.{minor}"))
+        .ok_or_else(|| "ELF version output exceeded bound".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2030,5 +2115,45 @@ mod license_tests {
             );
         }
         fs::remove_dir_all(base).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod metadata_tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn the_package_version_comes_from_the_package_section_only() {
+        let base =
+            crate::tempdir::make_temp_dir(&std::env::temp_dir(), "package-version-").unwrap();
+        fs::write(
+            base.join("Cargo.toml"),
+            b"[workspace]\nversion = \"9.9.9\"\n\n[package]\nname = \"app\"\nversion = \"2026.10.10-r2\"\n",
+        )
+        .unwrap();
+        assert_eq!(package_version(&base).unwrap(), "2026.10.10-r2");
+        for broken in [
+            &b"[package]\nversion = \"latest\"\n"[..],
+            b"[package]\nversion = \"\"\n",
+            b"[package]\nname = \"app\"\n",
+            b"version = \"1.0.0\"\n",
+        ] {
+            fs::write(base.join("Cargo.toml"), broken).unwrap();
+            assert_eq!(
+                package_version(&base).unwrap_err(),
+                "Unsafe native package version"
+            );
+        }
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn the_glibc_baseline_is_the_highest_required_symbol() {
+        let binary = std::env::current_exe().unwrap();
+        let requirement = glibc_requirement(&binary).expect("an ELF binary");
+        let (major, minor) = requirement.split_once('.').unwrap();
+        assert!(major.parse::<u64>().unwrap() >= 2);
+        assert!(minor.parse::<u64>().unwrap() < 100);
     }
 }
