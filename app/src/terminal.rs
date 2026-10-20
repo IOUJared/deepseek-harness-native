@@ -378,6 +378,9 @@ struct Screen {
     underline: bool,
     /// SGR `40`–`47`/`100`–`107` for the cells written next.
     paper: Option<u8>,
+    /// `ESC 7` saves the cursor and its attributes; `ESC 8` restores them (DECSC/DECRC), which a large
+    /// share of full-screen programs use around a redraw.
+    saved_cursor: Option<(usize, usize, Option<u8>, bool, Option<u8>)>,
     /// The screen a full-screen program switched away from, restored when it leaves the alternate
     /// screen (`CSI ? 1049 h`/`l`): without it a `vim` session would scribble over the shell history
     /// and the history would not come back.
@@ -491,6 +494,7 @@ impl Screen {
             ink: None,
             underline: false,
             paper: None,
+            saved_cursor: None,
             alternate: None,
         }
     }
@@ -933,6 +937,18 @@ impl Screen {
                                 chars.next();
                                 break;
                             }
+                        }
+                    } else if chars.peek() == Some(&'7') {
+                        chars.next();
+                        self.saved_cursor =
+                            Some((self.row, self.column, self.ink, self.underline, self.paper));
+                    } else if chars.peek() == Some(&'8') {
+                        chars.next();
+                        if let Some((row, column, ink, underline, paper)) = self.saved_cursor {
+                            self.place(row, column);
+                            self.ink = ink;
+                            self.underline = underline;
+                            self.paper = paper;
                         }
                     } else {
                         chars.next();
@@ -3266,6 +3282,23 @@ mod tests {
                 ("two".to_owned(), None, true, None),
             ]
         );
+    }
+
+    #[test]
+    fn saving_and_restoring_the_cursor_returns_to_the_same_cell() {
+        // `ESC 7` / `ESC 8` are how a program redraws around a position it wants back; the attributes
+        // travel with the cursor.
+        let mut output = Output::default();
+        output.set_size(0, 3);
+        output.push("ab\u{1b}7cd\u{1b}8X");
+        // The cursor returns to the saved cell and the glyph overwrites it; the text it wrote after
+        // saving stays where it was written.
+        assert_eq!(output.display(DISPLAY_BYTES), "abXd");
+        // An `ESC 8` with nothing saved is a no-op rather than a jump to the origin.
+        let mut output = Output::default();
+        output.set_size(0, 3);
+        output.push("ab\u{1b}8X");
+        assert_eq!(output.display(DISPLAY_BYTES), "abX");
     }
 
     #[test]

@@ -17055,3 +17055,25 @@ cursor, which is what separates them from a newline at the region's bottom.
 | app, fixture | **0** | **1576 passed**, 1 ignored |
 | app, default | **0** | **1520 passed**, 1 ignored |
 | app bin | — | **21** warnings (22 with the summary line) |
+
+### Round 607 — `ESC 7` and `ESC 8` save and restore the cursor
+
+**The gap.** Both sequences were swallowed by the lone-`ESC` branch. A program that redraws and returns to
+a saved cell — TUI status lines and menus do this constantly — came back to the wrong column.
+
+**The change.** `ESC 7` saves the row, column, ink, underline and background; `ESC 8` restores them through
+`place`, so the cursor is re-clamped to the screen. An `ESC 8` with nothing saved is a no-op rather than a
+jump to the origin.
+
+**Test.** `saving_and_restoring_the_cursor_returns_to_the_same_cell` — `ab`, `ESC 7`, `cd`, `ESC 8`, `X`
+renders `abXd`: the cursor returns to the saved cell and the glyph overwrites what is there, while the text
+written after the save stays. My first expectation (`abXcd`) forgot that restore moves the cursor rather
+than deleting what it wrote; the corrected line says so.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1577 passed**, 1 ignored |
+| app, default | **0** | **1521 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |
