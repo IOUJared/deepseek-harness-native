@@ -17617,8 +17617,9 @@ makes copying a byte slice safe without any grapheme bookkeeping.
 **Named limits.** Selection stays inside one block — a drag is clamped to the paragraph it
 started in, so a phrase, a line or a code block copies in one gesture but two paragraphs need
 two. Tables, tool bodies, the reasoning title row and the Details panel are not wrapped.
-Double-click word, triple-click line, shift-click extension, keyboard selection and
-auto-scroll-while-dragging do not exist. Assistant reply bodies were framed separately in the
+Ctrl+C is the only copy gesture: transcript text has no right-click menu. Double-click word,
+triple-click line, shift-click extension, keyboard selection and auto-scroll-while-dragging do
+not exist. Assistant reply bodies were framed separately in the
 held paint fixture (`layout_smoke --mode markdown-gfm` and `code-wrapped`), with one temporary
 switch that routed only `TextSelect` through the fixture's effect gate — selection is local
 state, so the fixture stayed zero-Host. That switch was reverted and the pristine example
