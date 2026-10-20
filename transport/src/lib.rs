@@ -12,7 +12,9 @@ pub mod prompt_admission;
 mod question;
 pub mod terminal;
 pub mod upload;
-pub use http::{Limits, NativeClient, SecretLaunchUrl};
+pub use http::{
+    Limits, NativeClient, SecretLaunchUrl, SessionFeedbackOutcome, SESSION_FEEDBACK_CATEGORIES,
+};
 pub use mux::{Mux, NativeStream};
 pub use question::QuestionClaim;
 

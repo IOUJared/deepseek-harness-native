@@ -17732,3 +17732,23 @@ with no postcondition, an unknown error code, an empty object, and the taxonomy 
 **Still to do, next round:** the session-level dialog itself — the seven category chips and the note field
 reusing the per-message feedback surface, its submit calling this method, the recorded/session-not-found
 toasts, and a DP-2 frame of the dialog.
+
+### Round 646 — the worker leg was written, then reverted for being dead code
+
+**What was added.** `Command::SessionFeedbackRecord { session, text, category }`,
+`Event::SessionFeedbackRecorded { session, result }`, the dispatch arm and the failure arm in
+`app/src/worker.rs`, calling the transport method landed in round 645.
+
+**Why it was reverted.** Nothing constructs the command yet, so `cargo check` went from **21** real warnings
+to **23** — the command variant and the event field are both unread. That is the 22nd-warning contract break
+this loop treats as a failure, not a detail, and it is precisely the "no dead code against a feature that has
+no caller" policy recorded in round 643. The worker leg belongs in the same commit as the dialog that sends it.
+
+**What stayed.** `transport/src/lib.rs` now re-exports `SessionFeedbackOutcome` and
+`SESSION_FEEDBACK_CATEGORIES` (a `pub use`, no warning), so the dialog can name the outcome without reaching
+into `http`.
+
+**Measured.** app bin **21** real warnings (22 with the summary line), tree clean apart from that re-export.
+
+**Next round carries both halves at once:** the session-feedback dialog (seven chips, note field, submit,
+recorded/session-not-found outcomes) *and* the worker leg it sends — one commit, so neither half is dead.
