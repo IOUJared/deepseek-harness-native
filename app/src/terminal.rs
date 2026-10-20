@@ -346,6 +346,10 @@ pub enum Effect {
 /// own, so this is the panel's own bound and the drop is counted the way a chunk drop is.
 const SCREEN_LINES: usize = 2_000;
 
+/// The most rows one paint renders: a rich-text row per line, so a 2,000-line scrollback must not
+/// cost 2,000 of them. The newest rows are the ones an operator is reading.
+const RENDERED_ROWS: usize = 400;
+
 /// One screen line, written left to right by a cursor that `\r`, `\b` and the erase sequences move.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Screen {
@@ -1011,6 +1015,11 @@ impl Output {
             kept.push(runs);
         }
         kept.reverse();
+        // A paint costs one rich-text row per line, so the panel draws the newest rows a screen can
+        // plausibly show rather than the whole scrollback; the byte bound above usually trims first.
+        if kept.len() > RENDERED_ROWS {
+            kept.drain(..kept.len() - RENDERED_ROWS);
+        }
         kept
     }
     /// The screen as plain text, newest lines kept: the tests read this, the panel draws the
@@ -3099,6 +3108,30 @@ mod tests {
             !terminal.shells_failed(),
             "an answered read clears the flag"
         );
+    }
+
+    #[test]
+    fn one_paint_renders_only_the_newest_rows_it_can_show() {
+        let mut output = Output::default();
+        // A thousand lines: more than any screen shows, fewer than the scrollback bound.
+        for index in 0..1_000 {
+            output.push(&format!("line {index}\n"));
+        }
+        let rows = output.display_styled(DISPLAY_BYTES);
+        assert!(
+            rows.len() <= RENDERED_ROWS,
+            "{} rows is more than one paint renders",
+            rows.len()
+        );
+        // The newest line is last and the oldest are the ones dropped.
+        let last: String = rows
+            .last()
+            .expect("rows")
+            .iter()
+            .map(|(text, ..)| text.as_str())
+            .collect();
+        assert_eq!(last, "line 999");
+        assert!(!rows.iter().flatten().any(|(text, ..)| text == "line 0"));
     }
 
     #[test]

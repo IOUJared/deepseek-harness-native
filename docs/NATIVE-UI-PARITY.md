@@ -16365,3 +16365,36 @@ tab strip.
 | transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
 | DP-2 capture | — | `shots/346-terminal-background.png`, `status: passed`, 1200x900 |
 | app bin | — | **21** warnings |
+
+### Round 566 — one paint renders only the rows a screen can show
+
+**The gap.** Round 565 made the panel draw one `rich_text` row per screen line, and the screen keeps up to
+2,000 lines of scrollback: a busy terminal would build 2,000 rich-text rows on every redraw, which the
+loop's resource-efficiency rule cannot accept. The byte bound trimmed most of the time, but a screen of
+short lines (a build log) stays far under 32 KiB while holding a thousand rows.
+
+**The change.** `display_styled` caps what it returns at `RENDERED_ROWS` (400), keeping the newest rows —
+the ones an operator is reading — and the byte bound still applies first. The cap is a constant with its
+reason beside it, not a magic number in the panel.
+
+**Test.** `one_paint_renders_only_the_newest_rows_it_can_show` — 1,000 short lines produce at most 400
+rows, the newest line is last, and the oldest is gone.
+
+**No frame:** a bound, not a look; the frames from rounds 552–565 show the rendering it caps.
+
+**Stated:** the panel's scroll position is not preserved across a redraw when rows are dropped from the
+front; the reference's emulator keeps the viewport anchored. That is a follow-up, recorded here rather
+than implied.
+
+**Battery (round 566).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1568 passed**, 1 ignored |
+| app, default | **0** | **1512 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-7zee31t6`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-c7uz0_2u`) |
+| transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
+| DP-2 capture | — | none: a bound |
+| app bin | — | **21** warnings |

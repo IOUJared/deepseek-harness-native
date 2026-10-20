@@ -82,8 +82,10 @@ request with the size the operator confirms.
   them (above). The sanitized text strips CSI/OSC payloads, so a plain copy of the output never carries
   escape sequences; the screen applies those payloads instead (rounds 552–559).
 - The retained bytes live in the panel only: at most **400 chunks / 128 KiB**, newest kept, and the
-  panel renders only the newest **32 KiB** of text. The screen keeps **2,000** lines of scrollback and
-  counts what it drops. Every discarded chunk and every byte an oversized chunk loses is counted and
+  panel renders only the newest **32 KiB** of text and at most **400 rows** of it (one rich-text row per
+  line, so a long scrollback cannot cost a paint per line, round 566). The screen keeps **2,000** lines
+  of scrollback and counts what it drops; the viewport is not anchored across a redraw that drops front
+  rows. Every discarded chunk and every byte an oversized chunk loses is counted and
   shown.
 - One write is bounded by the smaller of the Host's `environment.maxInputBytes` and the
   transport's 256 KiB outbound cap — the typed line and a single keystroke's bytes alike; a create's
