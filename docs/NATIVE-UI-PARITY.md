@@ -17453,3 +17453,17 @@ instead of implying the frame verified it.
 | app, fixture | **0** | **1581 passed**, 1 ignored |
 | app, default | **0** | **1525 passed**, 1 ignored |
 | app bin | — | **21** warnings (22 with the summary line) |
+
+### Round 637 — the battery with the whole panel split
+
+**Both artifacts rebuilt, then the full battery** (`verification-c4d087c4388a`): **16 of 18**, unchanged after
+the three-builder split.
+
+| check | result |
+| --- | --- |
+| format-debt, core/transport/app/xtask clippy, core, core-transport, transport, app, app-public, layout_smoke, scroll_app_smoke, xtask-guards, bridge, script-guards, benchmark-guards, app-guards, binary-freshness | passed |
+| **wayland-drops** | failed — needs a real seat (hardware-only) |
+| **release-guards** | failed — the leftover discovery entry for a ported stage (round 602) |
+
+**The parity backlog now has no unbuilt app item.** The panel split, the cursor paint and the screen protocol
+are shipped; what remains is the six entries in "Blocked on a user action".
