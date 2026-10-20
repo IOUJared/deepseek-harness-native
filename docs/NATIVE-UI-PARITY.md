@@ -16804,3 +16804,27 @@ I have not edited `tools/xtask` — it is your in-flight work and the choice is 
 **What the fix itself proved:** the tab clamp is green in fixture (**1570**) and default (**1514**), and
 `binary-freshness` passing after rebuilding both artifacts is the guard doing its job — a stale example
 binary is not "fresh".
+
+### Round 591 — the adversarial harness is now a committed guard
+
+**What changed.** Round 588's throwaway harness — ten hostile byte sequences fed to the screen — is now
+`adversarial_escape_input_terminates_and_renders`, and it runs each case **in its own thread with a
+two-second bounded join**, so a future non-terminating input fails the test instead of hanging the suite.
+That bound is the point: the original hang taught that a plain in-process test can wedge the whole suite.
+
+**Why it is safe to commit now.** The tab clamp (round 589) fixed the only case that hung; all ten shapes
+terminate and render, so the test passes in milliseconds.
+
+**The ten shapes, each a parser hazard:** an unterminated CSI, a lone `ESC`, a private mode with no final
+byte, `0;0H` plus a glyph, `999999999` in an addressing parameter and again in a scroll region, a region
+with `L`/`M`/`P`/`@`, an unmatched alternate-screen pair, an OSC title, an SGR 256-colour sequence, and
+bare control bytes with `0x7f`.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1571 passed**, 1 ignored |
+| app, default | **0** | **1515 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |
+| `xtask verify --suite all` | — | last run 16/18: `wayland-drops` (hardware) and `release-guards` (`.github/scripts` deleted, discovery entry remains) |

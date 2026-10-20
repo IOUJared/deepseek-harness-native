@@ -3194,6 +3194,42 @@ mod tests {
     }
 
     #[test]
+    fn adversarial_escape_input_terminates_and_renders() {
+        // The screen is fed bytes from the Host, so every sequence is untrusted. Each case runs in its
+        // own thread with a bounded join: a non-terminating input fails this test instead of hanging
+        // the suite — which is exactly how round 588's tab loop was found.
+        let cases: [&str; 10] = [
+            "\u{1b}[",
+            "\u{1b}",
+            "\u{1b}[?",
+            "\u{1b}[0m\u{1b}[0;0HX",
+            "\u{1b}[999999999H\u{1b}[999999999;999999999r",
+            "\u{1b}[3;1r\u{1b}[L\u{1b}[M\u{1b}[P\u{1b}[@",
+            "\u{1b}[?1049h\u{1b}[?1049l\u{1b}[?1049l",
+            "\u{1b}]0;title\u{7}text",
+            "\u{1b}[38;5;200mcolour\u{1b}[0m",
+            "\r\u{8}\t\u{7f}ok",
+        ];
+        for (index, case) in cases.iter().enumerate() {
+            let (sender, receiver) = std::sync::mpsc::channel();
+            let owned = (*case).to_owned();
+            std::thread::spawn(move || {
+                let mut output = Output::default();
+                output.set_size(5, 3);
+                output.push(&owned);
+                let _ = output.display_styled(DISPLAY_BYTES);
+                let _ = sender.send(());
+            });
+            assert!(
+                receiver
+                    .recv_timeout(std::time::Duration::from_secs(2))
+                    .is_ok(),
+                "case {index} did not terminate: {case:?}"
+            );
+        }
+    }
+
+    #[test]
     fn a_tab_past_the_last_column_does_not_spin() {
         // A tab advances to the next eight-column stop. On a five-column screen that stop is past the
         // margin, and with autowrap on the cursor wrapped to column 0 on every space, so the stop was
