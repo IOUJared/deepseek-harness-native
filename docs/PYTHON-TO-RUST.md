@@ -37,7 +37,7 @@ file is the stage map; it is deleted with the last Python file.
 | Agent discovery | `scripts/qualify-agent-discovery.py` (+ its guard) | `xtask qualify agent-discovery [--sdk]` |
 | Client projections | `scripts/qualify-client-projections.py` | `xtask qualify client-projections` |
 | Turn outline | `scripts/qualify-turn-outline.py` | `xtask qualify turn-outline` |
-| Upload uncertainty | `scripts/qualify-upload-uncertainty.py` | `xtask qualify upload-uncertainty [--fail-at]`: exact fact/count/bridge/cleanup sets and the expected-failure containment shape. Stays until its 150-line guard is ported |
+| Upload uncertainty | `scripts/qualify-upload-uncertainty.py` + guard | `xtask qualify upload-uncertainty [--fail-at]`: exact fact/count/bridge/cleanup sets, expected-failure containment, fixture order/digest, and the symlink-above-store rejection; guard cases ported before deletion |
 | Native file stage | `scripts/qualify-native-file-stage.py` | `xtask qualify native-file-stage`: the worker runs through `run_owned`; stored fixtures are re-verified and the refusal fixture must not be published. Stays until `native-file-prompt`/`composed-files` are ported |
 | File upload | `scripts/qualify-file-upload.py` | `xtask qualify file-upload`: the shared ownership runner plus an independent private-store check (0400 canonical object and its hardlinked alias, same inode, exact fixture bytes). Stays until `native-file-stage` and `upload-uncertainty` are ported |
 | App qualifier (root) | `scripts/qualify-native-app.py` | `xtask qualify app`: owned-tree sampling, per-thread CPU, pidfd identity guard, SIGINT/SIGTERM cleanup, compositor mapping proxy, keyless-idle medians. The Python file **stays** until its qualification dependents are ported |
@@ -103,8 +103,8 @@ Deliberate differences, all measured against the Python originals:
 
 | Family | Files | Lines | Target |
 |---|---|---|---|
-| `scripts/qualify-*` | 19 | 3,669 | `xtask qualify <name>`; the assertions are already Rust examples writing `result.json` |
-| `scripts/test_*` | 19 | 3,353 | Rust tests next to the qualifiers; rewrite each guard's subject, never copy it verbatim. `app/` has no Python left |
+| `scripts/qualify-*` | 18 | 3,551 | `xtask qualify <name>`; the assertions are already Rust examples writing `result.json` |
+| `scripts/test_*` | 18 | 3,203 | Rust tests next to the qualifiers; rewrite each guard's subject, never copy it verbatim. `app/` has no Python left |
 | `.github/scripts/*` | 4 | 387 | `xtask package` / `xtask publish`; `tar` + `flate2` are already dependencies, `gh` stays a child process |
 | `development-launcher.py` | 1 | 356 | **Shipped** as `launch.py` in the development package: a Rust `dsh-native-launch` binary replaces it, so the archive stops requiring Python 3.11+; update the archive verifier and install docs together |
 | `benchmarks/run.py` + `test_runner.py` | 2 | 417 | Deleted with the qualification family, whose scripts import the library; `xtask bench run` is already the replacement |

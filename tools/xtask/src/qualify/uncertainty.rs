@@ -408,6 +408,51 @@ mod tests {
     }
 
     #[test]
+    fn no_provider_swap_model_run_or_unintended_surface_is_accepted() {
+        for key in [
+            "scriptedModelPromptOrCatalog",
+            "scriptedSignInOrCredentialSave",
+            "providerSubstituted",
+            "processWideNetworkTrace",
+            "rustSdkExercised",
+            "uiExercised",
+        ] {
+            let mut value = observation(&CASES);
+            value[key] = json!(true);
+            assert!(!valid_barriers(&value), "{key} true was accepted");
+        }
+        let mut boolean_count = observation(&CASES);
+        boolean_count["counts"]["turnStarts"] = json!(false);
+        assert!(
+            !valid_barriers(&boolean_count),
+            "a boolean cannot impersonate zero"
+        );
+        let mut closed = observation(&CASES);
+        closed["cleanup"]["handlersJoined"] = json!(false);
+        assert!(!valid_barriers(&closed), "only drainTimedOut may be false");
+    }
+
+    #[test]
+    fn only_the_independent_fixture_order_and_digest_are_accepted() {
+        let mut reordered = observation(&CASES);
+        let files = reordered["files"].as_array_mut().unwrap();
+        files.swap(0, 1);
+        assert!(
+            !valid_barriers(&reordered),
+            "the case order is part of the proof"
+        );
+        let mut wrong_digest = observation(&CASES);
+        wrong_digest["files"][0]["file"]["attachmentId"] = json!("sha256:00");
+        assert!(!valid_barriers(&wrong_digest));
+        let mut extra_key = observation(&CASES);
+        extra_key["files"][0]["extra"] = json!(1);
+        assert!(
+            !valid_barriers(&extra_key),
+            "an extra file field is not the fixture shape"
+        );
+    }
+
+    #[test]
     fn an_injected_barrier_must_fail_at_the_right_point_and_stay_contained() {
         for point in ["ack-held", "store-held"] {
             let owned = owned(point);

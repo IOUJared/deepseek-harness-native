@@ -447,6 +447,11 @@ mod tests {
         fs::write(&alias, &data).unwrap();
         fs::set_permissions(&alias, fs::Permissions::from_mode(0o400)).unwrap();
         assert!(verify_local_cases(&base, &fixtures).is_err());
+        // A symlink in place of a store directory is rejected as well.
+        fs::remove_file(&alias).unwrap();
+        fs::remove_dir_all(base.join("harness/attachments")).unwrap();
+        std::os::unix::fs::symlink(&canonical, base.join("harness/attachments")).unwrap();
+        assert!(verify_local_cases(&base, &fixtures).is_err());
         fs::remove_dir_all(base).unwrap();
     }
 }
