@@ -18008,3 +18008,31 @@ does — picture alone, name and size on the row's text — rather than what I i
 
 **No behaviour change this round:** comment only, `cargo check` **21** real warnings (22 with the summary
 line), both frames archived (`359`, `360`).
+
+### Round 660 — the bubble was clipped by a reservation, not by a reducer
+
+**The measurement that closed it.** A new fixture assertion proved the row still carries its text and the card
+carries a thumbnail, so the reducer was never at fault. The frame said the rest: `attachment_height(count,
+has_bubble)` reserved a fixed **64px per card**, while an inline image draws at its own aspect ratio — 180px for
+a square — so the row's measured height was 116px short and the bubble under the card was clipped away by
+`clip(true)`.
+
+**The fix, one measurement.** `design::attachment_stack_height(files, has_bubble)` sums **per card** — 64px for
+a file, `image_card_height(width, height)` for a picture (240 × ratio, capped at 0.75) — plus the gaps, and both
+the reservation and the view call it, so a picture cannot outgrow its row again. The count-based
+`attachment_height` is gone; its assertions moved onto the new function, extended with the picture case
+(`image_card_height(1, 1) == 180`, one picture above a bubble reserves 188).
+
+**Frame.** `shots/362-image-bubble.png` — the picture card **and** the message bubble under it, which is the
+defect the frame found in round 657 and this round closes.
+
+**Test.** `attachment_cards_reserve_their_own_box_and_the_stack_gap` now pins file cards at 64, a square
+picture at 180, and the 8px gaps for both, with the fixture asserting the image row keeps its text.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1593 passed**, 1 ignored |
+| app, default | **0** | **1537 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |

@@ -5237,6 +5237,18 @@ mod tests {
                         !app.transcript.rows()[0].text.contains("PUBLIC-note.txt"),
                         "the file part must leave the bubble body"
                     );
+                } else if preset == "attachment-image" {
+                    // The picture rides the row's cards, and the sentence beside it must survive: a card
+                    // that swallowed the bubble's text would leave a picture with no message under it.
+                    assert_eq!(files.len(), 1, "one card for one image part");
+                    assert!(
+                        files[0].thumbnail.is_some(),
+                        "the card carries the decoded thumbnail"
+                    );
+                    assert!(
+                        !app.transcript.rows()[0].text.is_empty(),
+                        "the image part must not consume the message text"
+                    );
                 } else {
                     assert!(files.is_empty());
                 }

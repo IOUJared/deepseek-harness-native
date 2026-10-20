@@ -875,7 +875,8 @@ fn row_outer_chrome(row: &DisplayRow) -> bool {
 /// 8px apart. One fixed `240x64` card per file, as the reference's `.fileCard`
 /// is fixed (`MessageItem.module.css:320-332`): its name and meta lines are
 /// literals there, so no card measurement follows the content-size preference
-/// and `design::attachment_height` reserves exactly `64` per card.
+/// and `design::attachment_stack_height` reserves exactly `64` per file card (a picture card
+/// reserves its own aspect ratio).
 /// The composer's attachment rail. The reference lays staged attachments in a
 /// horizontal, 10px-gapped row of 64px-tall items inside `padding: 2px 10px 0`
 /// with a `-6px` bottom margin (`ComposerAttachments.module.css:1-8`,
@@ -984,8 +985,8 @@ fn attachment_cards(files: Vec<FileCard>) -> Element<'static, Message> {
         if let Some((width, height, rgba)) = &file.thumbnail {
             let handle =
                 iced::widget::image::Handle::from_rgba(*width, *height, rgba.as_ref().clone());
-            let ratio = *height as f32 / (*width).max(1) as f32;
-            let shown = 240.0 * ratio.min(0.75);
+            // The same measurement the row reserves, so the picture cannot outgrow its row.
+            let shown = design::image_card_height(*width, *height);
             cards = cards.push(
                 container(
                     iced::widget::image(handle)
@@ -15660,7 +15661,7 @@ impl App {
             // The cards stack above the bubble inside `.userStack`, so they add
             // to the row's height and not to the body the bubble sizes
             // (`MessageItem.module.css:10-21`).
-            geometry.height += design::attachment_height(row.files.len(), has_bubble);
+            geometry.height += design::attachment_stack_height(&row.files, has_bubble);
         }
         if self.activity_is_expanded(row) {
             // The compact line stays; the recorded body sits beneath it in the
@@ -22605,7 +22606,7 @@ mod tests {
         // gap to the bubble.
         assert_eq!(
             app.row_geometry(&attached, lane).height - app.row_geometry(&plain, lane).height,
-            design::attachment_height(1, true)
+            design::attachment_stack_height(&attached.files, true)
         );
         // A file-only message draws no bubble, so the card is the whole body and
         // no gap follows it (`MessageItem.tsx:187`): the row is the action row and

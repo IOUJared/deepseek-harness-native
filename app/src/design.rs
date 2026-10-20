@@ -468,15 +468,34 @@ pub const ATTACH_RAIL_REMOVE_INSET: f32 = 6.0;
 /// `ATTACHMENT_CARD_GAP` between them, and the same gap before the bubble when
 /// one is drawn. The reservation and the view both read this, so a card cannot
 /// be drawn without being measured.
-pub fn attachment_height(count: usize, has_bubble: bool) -> f32 {
-    if count == 0 {
+/// The height an inline image's card takes at the stack's 240px column: its own aspect ratio, capped so a
+/// tall picture cannot push the message off the row (`IMAGE_CARD_MAX_RATIO`).
+pub const IMAGE_CARD_WIDTH: f32 = 240.0;
+pub const IMAGE_CARD_MAX_RATIO: f32 = 0.75;
+pub fn image_card_height(width: u32, height: u32) -> f32 {
+    let ratio = height as f32 / width.max(1) as f32;
+    IMAGE_CARD_WIDTH * ratio.min(IMAGE_CARD_MAX_RATIO)
+}
+fn card_height(file: &crate::reducer::FileCard) -> f32 {
+    match &file.thumbnail {
+        Some((width, height, _)) => image_card_height(*width, *height),
+        None => ATTACHMENT_CARD_HEIGHT,
+    }
+}
+/// The height a row's attachment stack adds above its bubble, measured per card: a file card is the fixed
+/// 64px, an inline image is its own aspect ratio. The reservation and the view both read this, so a picture
+/// cannot be drawn taller than the row reserves for it — which is what clipped the bubble off the row when
+/// every card was assumed to be 64px.
+pub fn attachment_stack_height(files: &[crate::reducer::FileCard], has_bubble: bool) -> f32 {
+    if files.is_empty() {
         return 0.0;
     }
-    let count = count as f32;
-    count * ATTACHMENT_CARD_HEIGHT
-        + (count - 1.0) * ATTACHMENT_CARD_GAP
+    let cards: f32 = files.iter().map(card_height).sum();
+    cards
+        + (files.len() as f32 - 1.0) * ATTACHMENT_CARD_GAP
         + if has_bubble { ATTACHMENT_CARD_GAP } else { 0.0 }
 }
+
 // Native radius scale, mapped to the web unified scale (docs/NATIVE-UI-PARITY.md):
 // sm≈8, md=12, lg=16, xl=20. Native rounds sm to 9 and lg to 18; panel stays a
 // tighter 20 than the web 28. Keep these stable — the parity skill forbids
@@ -1121,15 +1140,35 @@ mod tests {
     }
     #[test]
     fn attachment_cards_reserve_their_own_box_and_the_stack_gap() {
+        let file = crate::reducer::FileCard {
+            name: "PUBLIC-note.txt".into(),
+            meta: "TXT 12B".into(),
+            thumbnail: None,
+        };
         // No cards, no height, and a file-only message has no gap after the last
         // card because `.userStack` gaps sit between children.
-        assert_eq!(attachment_height(0, true), 0.0);
-        assert_eq!(attachment_height(1, false), ATTACHMENT_CARD_HEIGHT);
+        assert_eq!(attachment_stack_height(&[], true), 0.0);
+        assert_eq!(
+            attachment_stack_height(&[file.clone()], false),
+            ATTACHMENT_CARD_HEIGHT
+        );
         // One card above a bubble is the card plus one 8px gap: 72px.
-        assert_eq!(attachment_height(1, true), 72.0);
+        assert_eq!(attachment_stack_height(&[file.clone()], true), 72.0);
         // Two cards add one more card and one more gap: 64 + 8 + 64 + 8.
-        assert_eq!(attachment_height(2, true), 144.0);
-        assert_eq!(attachment_height(2, false), 136.0);
+        assert_eq!(
+            attachment_stack_height(&[file.clone(), file.clone()], true),
+            144.0
+        );
+        assert_eq!(attachment_stack_height(&[file.clone(), file], false), 136.0);
+        // An inline image reserves its own aspect ratio, not the 64px file box: a square picture is
+        // 240 * 0.75 = 180px, which is what the row now leaves for it and the bubble under it.
+        let picture = crate::reducer::FileCard {
+            name: "PUBLIC-shot.png".into(),
+            meta: "1×1 · image/png".into(),
+            thumbnail: Some((1, 1, std::sync::Arc::new(vec![0; 4]))),
+        };
+        assert_eq!(image_card_height(1, 1), 180.0);
+        assert_eq!(attachment_stack_height(&[picture], true), 188.0);
     }
     #[test]
     fn ghost_does_not_fill_idle_secondary_actions() {
