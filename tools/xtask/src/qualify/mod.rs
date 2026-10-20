@@ -473,6 +473,11 @@ pub fn run(arguments: &[String]) -> i32 {
     let mut viewport_minimum = false;
     let mut package_dir = PathBuf::from(".");
     let mut node_path: Option<PathBuf> = None;
+    let mut runtime_path: PathBuf = crate::root()
+        .parent()
+        .unwrap_or(&crate::root())
+        .join("deepseek-harness-linux/apps/cli");
+    let mut usage_scope = String::from("usage");
     let mut output_binary: PathBuf =
         crate::root().join("app/target/debug/examples/draft_composed_smoke");
     let mut arguments = arguments[1..].iter();
@@ -519,6 +524,14 @@ pub fn run(arguments: &[String]) -> i32 {
                 node_path = Some(PathBuf::from(
                     arguments.next().ok_or("--node needs a value")?,
                 ));
+                Ok(())
+            }
+            "--runtime" => {
+                runtime_path = PathBuf::from(arguments.next().ok_or("--runtime needs a value")?);
+                Ok(())
+            }
+            "--scope" => {
+                usage_scope = arguments.next().ok_or("--scope needs a value")?.to_string();
                 Ok(())
             }
             "--viewport" => {
@@ -575,6 +588,7 @@ pub fn run(arguments: &[String]) -> i32 {
         "composed-files" => composed_files::run(&root, &output, scale),
         "composed-registry" => registry::run(&root, &output, scale),
         "composed-export" => export::run(&root, &output, scale),
+        "composed-usage" => usage::run(&root, &output_binary, &runtime_path, &output, &usage_scope),
         "draft-restart" => drafts::run(&root, &output, &output_binary, scale),
         "draft-interruption" => interruption::run(&root, &output, &output_binary),
         "development-package" => {

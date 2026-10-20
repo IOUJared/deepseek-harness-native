@@ -4,8 +4,10 @@
 //! patch is read with a small YAML subset reader for the pinned writer profile,
 //! because the product does not ship a YAML codec and the fixture is ours.
 use serde_json::Value;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
+use super::composed::{self, Key, Owned, cleanup_owned, identity, observe_descendants, pin_root};
 use super::upload::sha256_hex;
 
 /// A bounded YAML subset: block mappings, block lists of mappings, and scalars.
@@ -475,6 +477,361 @@ pub fn accounts_valid(app: &Value, name: &str, output: &Path) -> bool {
             }
             app["selectedSwitchReadback"] == readback
         }
+}
+
+const USAGE_APP_ID: &str = "ai.deepseek.harness.native.usage-composed-fixture";
+
+struct PhaseOutcome {
+    passed: bool,
+    report: Value,
+    app: Value,
+    durable_document: Option<Value>,
+    durable_account: Option<Value>,
+    durable_runtime: Option<Value>,
+}
+
+fn phase(
+    binary: &Path,
+    root: &Path,
+    runtime: &Path,
+    name: &str,
+    scope: &str,
+    seconds: u64,
+) -> PhaseOutcome {
+    let output = root.join(name);
+    let report = match std::fs::create_dir(&output) {
+        Ok(()) => {
+            let _ = std::fs::set_permissions(
+                &output,
+                std::os::unix::fs::PermissionsExt::from_mode(0o700),
+            );
+            None
+        }
+        Err(_) => Some("phase-output-exists"),
+    };
+    let Some(failure) = report else {
+        return run_phase(binary, root, runtime, name, scope, seconds, &output);
+    };
+    PhaseOutcome {
+        passed: false,
+        report: serde_json::json!({"status": "failed", "phase": name, "errorCode": failure}),
+        app: serde_json::json!({"status": "missing"}),
+        durable_document: None,
+        durable_account: None,
+        durable_runtime: None,
+    }
+}
+
+fn run_phase(
+    binary: &Path,
+    root: &Path,
+    runtime: &Path,
+    name: &str,
+    scope: &str,
+    seconds: u64,
+    output: &Path,
+) -> PhaseOutcome {
+    use std::os::unix::process::CommandExt;
+    let mut environment = super::environment(root);
+    environment.insert("PATH".into(), "/usr/bin:/bin".into());
+    let log_path = root.join(format!("{name}-stderr.log"));
+    let Ok(log) = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&log_path)
+    else {
+        return PhaseOutcome {
+            passed: false,
+            report: serde_json::json!({"status": "failed", "phase": name, "errorCode": "log-open-failed"}),
+            app: serde_json::json!({"status": "missing"}),
+            durable_document: None,
+            durable_account: None,
+            durable_runtime: None,
+        };
+    };
+    let spawned = std::process::Command::new(binary)
+        .arg("--output")
+        .arg(output)
+        .arg("--state-root")
+        .arg(root)
+        .arg("--runtime")
+        .arg(runtime)
+        .arg("--phase")
+        .arg(name)
+        .arg("--scope")
+        .arg(scope)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::from(
+            log.try_clone()
+                .unwrap_or_else(|_| std::fs::File::open("/dev/null").unwrap()),
+        ))
+        .stderr(std::process::Stdio::from(log))
+        .env_clear()
+        .envs(&environment)
+        .process_group(0)
+        .spawn();
+    let Ok(child) = spawned else {
+        return PhaseOutcome {
+            passed: false,
+            report: serde_json::json!({"status": "failed", "phase": name, "errorCode": "spawn-failed"}),
+            app: serde_json::json!({"status": "missing"}),
+            durable_document: None,
+            durable_account: None,
+            durable_runtime: None,
+        };
+    };
+    let pid = child.id();
+    let mut owned = Owned {
+        child,
+        status: None,
+    };
+    let owner = std::process::id() as i32;
+    let mut pidfds: std::collections::BTreeMap<Key, i32> = std::collections::BTreeMap::new();
+    let mut observed: std::collections::BTreeSet<Key> = std::collections::BTreeSet::new();
+    let mut facts: Option<Value> = None;
+    let mut forced = false;
+    let mut failure: Option<&'static str> = None;
+    let mut observation_failures = 0u64;
+    let mut root_pinned = false;
+    let mut pinned_root: Option<crate::proc::Stat> = None;
+    match pin_root(&mut owned, owner) {
+        Err(()) => {
+            failure = Some("root-pin-failed");
+            forced = true;
+        }
+        Ok((pinned, fd)) => {
+            root_pinned = true;
+            pidfds.insert(identity(&pinned), fd);
+            observed.insert(identity(&pinned));
+            pinned_root = Some(pinned);
+        }
+    }
+    if let Some(pinned) = pinned_root.as_ref() {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+        loop {
+            if owned.poll().ok().flatten().is_some() {
+                break;
+            }
+            observation_failures +=
+                observe_descendants(&mut owned, pinned, &mut pidfds, &mut observed, owner);
+            if facts.is_none()
+                && let Some(candidate) = crate::compositor::window_facts(pid as i32)
+                && candidate["mapped"].as_bool() == Some(true)
+            {
+                facts = Some(Value::Object(candidate));
+            }
+            if composed::INTERRUPTED.load(std::sync::atomic::Ordering::SeqCst)
+                || std::time::Instant::now() >= deadline
+            {
+                forced = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+    let cleanup = cleanup_owned(&mut owned, &pidfds, root_pinned);
+    for fd in pidfds.values() {
+        // Safe: each descriptor was opened for one identity this run and closed once.
+        unsafe {
+            libc::close(*fd);
+        }
+    }
+    let forced = forced || cleanup.root_was_running_at_cleanup;
+    let app: Value = std::fs::read(output.join("app.json"))
+        .ok()
+        .and_then(|body| serde_json::from_slice(&body).ok())
+        .unwrap_or_else(|| serde_json::json!({"status": "missing"}));
+    let passed = owned.code() == 0
+        && !forced
+        && failure.is_none()
+        && observation_failures == 0
+        && cleanup.observed_cleanup_complete
+        && cleanup.remaining_before_external_cleanup.is_empty()
+        && app["status"].as_str() == Some("passed")
+        && facts.as_ref().is_some_and(|facts| {
+            facts["class"].as_str() == Some(USAGE_APP_ID)
+                && facts["xwayland"].as_bool() == Some(false)
+        })
+        && output.join("own-window.png").is_file();
+    let mut report = serde_json::json!({
+        "status": if passed { "passed" } else { "failed" },
+        "phase": name,
+        "scope": scope,
+        "exitCode": owned.code(),
+        "forced": forced,
+        "errorCode": failure,
+        "ownedWindow": facts,
+        "observedOwnedProcessCount": observed.len(),
+        "ownershipObservationFailures": observation_failures,
+        "cleanup": &cleanup,
+        "app": app,
+        "parentPaintInspected": false,
+        "nativeKeyboardPointerInputQualified": false,
+    });
+    let mut durable_document = None;
+    let mut durable_account = None;
+    let mut durable_runtime = None;
+    if passed {
+        match scope {
+            "usage" => {
+                durable_document = usage_document(root).ok();
+                report["durableDocument"] = durable_document.clone().unwrap_or(Value::Null);
+                report["kernelUsageLockReleased"] =
+                    serde_json::json!(lock_released(root).unwrap_or(false));
+            }
+            "runtime" => {
+                let valid = runtime_valid(&app, output);
+                if !valid {
+                    report["status"] = serde_json::json!("failed");
+                }
+                durable_runtime = runtime_document(root, name == "initial").ok();
+                report["durableRuntimePatch"] = durable_runtime.clone().unwrap_or(Value::Null);
+            }
+            _ => {
+                let valid = accounts_valid(&app, name, output);
+                if !valid {
+                    report["status"] = serde_json::json!("failed");
+                }
+                durable_account = account_document(root, name == "initial").ok();
+                report["durableAccountDocument"] = durable_account.clone().unwrap_or(Value::Null);
+                report["kernelAccountVaultLockReleased"] =
+                    serde_json::json!(account_lock_released(root).unwrap_or(false));
+            }
+        }
+    }
+    let passed = report["status"].as_str() == Some("passed");
+    if let Err(error) = super::private_json(&output.join("result.json"), &report) {
+        report["errorCode"] = serde_json::json!(format!("result-write-failed: {error}"));
+    }
+    PhaseOutcome {
+        passed,
+        report,
+        app,
+        durable_document,
+        durable_account,
+        durable_runtime,
+    }
+}
+
+fn projected(value: &Value) -> Value {
+    let mut projected = serde_json::Map::new();
+    for key in ["version", "configured", "values", "baseValues", "overrides"] {
+        projected.insert(key.to_string(), value[key].clone());
+    }
+    Value::Object(projected)
+}
+
+/// `xtask qualify composed-usage --binary PATH --runtime DIR --output NEW [--scope]`.
+pub fn run(
+    root: &Path,
+    binary_arg: &Path,
+    runtime_arg: &Path,
+    requested: &Path,
+    scope: &str,
+) -> i32 {
+    let Ok(binary) = binary_arg.canonicalize() else {
+        eprintln!("composed usage failed: native fixture");
+        return 1;
+    };
+    let Ok(runtime) = runtime_arg.canonicalize() else {
+        eprintln!("composed usage failed: runtime");
+        return 1;
+    };
+    let Ok(before_hash) = crate::sha256_file(&binary) else {
+        eprintln!("composed usage failed: binary digest");
+        return 1;
+    };
+    let output = match super::prepare(root, requested) {
+        Ok(output) => output,
+        Err(message) => {
+            eprintln!("composed usage failed: {message}");
+            return 1;
+        }
+    };
+    let names: &[&str] = match scope {
+        "usage" => &["initial", "restored"],
+        _ => &["initial", "restored", "inherited"],
+    };
+    let mut outcomes: Vec<PhaseOutcome> = Vec::new();
+    for name in names {
+        let outcome = phase(&binary, &output, &runtime, name, scope, 40);
+        let passed = outcome.passed;
+        outcomes.push(outcome);
+        if !passed {
+            break;
+        }
+    }
+    let passed = outcomes.len() == names.len() && outcomes.iter().all(|outcome| outcome.passed);
+    let stable = crate::sha256_file(&binary).is_ok_and(|hash| hash == before_hash);
+    let durable = if scope == "usage" {
+        passed && outcomes[0].durable_document == outcomes[1].durable_document
+    } else if scope == "accounts" {
+        passed
+            && outcomes[1].durable_account == outcomes[2].durable_account
+            && outcomes[0].app["accountFinal"] == outcomes[1].app["accountLoaded"]
+            && outcomes[1].app["accountFinal"] == outcomes[2].app["accountLoaded"]
+            && outcomes[1].app["selectedLogoutHasNoReplacement"].as_bool() == Some(true)
+            && outcomes[2].app["emptySignoutAllRejectedByActualApp"].as_bool() == Some(true)
+    } else {
+        let unrelated: std::collections::BTreeSet<String> = outcomes
+            .iter()
+            .filter_map(|outcome| {
+                outcome.durable_runtime.as_ref()?["unrelatedFieldsSha256"]
+                    .as_str()
+                    .map(str::to_string)
+            })
+            .collect();
+        passed
+            && unrelated.len() == 1
+            && outcomes[1]
+                .durable_runtime
+                .as_ref()
+                .map(|value| &value["sha256"])
+                == outcomes[2]
+                    .durable_runtime
+                    .as_ref()
+                    .map(|value| &value["sha256"])
+            && projected(&outcomes[0].app["runtimeAcknowledged"])
+                == projected(&outcomes[1].app["runtimeLoaded"])
+            && projected(&outcomes[1].app["runtimeAcknowledged"])
+                == projected(&outcomes[2].app["runtimeLoaded"])
+    };
+    let status = if passed && stable && durable {
+        "passed"
+    } else {
+        "failed"
+    };
+    let results: Vec<Value> = outcomes
+        .iter()
+        .map(|outcome| outcome.report.clone())
+        .collect();
+    let report = serde_json::json!({
+        "status": status,
+        "scope": "Own native App/worker/full-alpha PUBLIC usage, runtime or local account lifecycle.",
+        "configurationScope": scope,
+        "binarySha256": before_hash,
+        "binaryUnchanged": stable,
+        "results": results,
+        "persistedConfigurationVerifiedAcrossIndependentProcesses": durable,
+        "persistedDocumentUnchangedAcrossIndependentProcesses": if scope == "usage" { serde_json::json!(durable) } else { Value::Null },
+        "runtimePinnedAndInheritedRestartsMatched": if scope == "runtime" { serde_json::json!(durable) } else { Value::Null },
+        "installedRuntimeProfilesAccountsOrDesktopChanged": false,
+        "actualProviderRequests": 0,
+        "zeroRequestsEvidence": "reviewed commands/source scope; NOT network instrumentation",
+        "accountCounterScope": "admitted native UI effects, NOT underlying private commands; each account/status refresh issues two local reads",
+        "realQuotaOrNativeAlertsOrResetRetryQualified": false,
+        "parentPaintInspectionRequired": true,
+    });
+    if let Err(error) = super::private_json(&output.join("qualification.json"), &report) {
+        eprintln!("cannot write the usage report: {error}");
+        return 1;
+    }
+    println!(
+        "{}",
+        serde_json::json!({"status": report["status"], "report": output.join("qualification.json").to_string_lossy()})
+    );
+    if status == "passed" { 0 } else { 1 }
 }
 
 #[cfg(test)]

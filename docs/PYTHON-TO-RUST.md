@@ -136,13 +136,14 @@ Deliberate differences, all measured against the Python originals:
 
 | Composed registry | `scripts/qualify-composed-registry.py` + guard | Deleted: `xtask qualify composed-registry` (stage contract, PNG writer profile, owned run). The guard's validator and PNG cases are Rust tests; its three orchestration cases exercise the shared pin/probe/cleanup path and have no dedicated unit test |
 
-| Composed usage | `scripts/qualify-composed-usage.py` (in progress) | `usage`: a dependency-free YAML subset reader, the pinned usage document, the usage lock, the runtime patch with its eight exact pins, canonical JSON, the account document with its lock, and the runtime/accounts phase validators are ported; the multi-phase runs remain |
+
+| Composed usage | `scripts/qualify-composed-usage.py` | Deleted: `xtask qualify composed-usage --scope usage|runtime|accounts` (documents, locks, phase validators, multi-phase durability) with a dependency-free YAML subset reader |
 
 ## Remaining
 
 | Family | Files | Lines | Target |
 |---|---|---|---|
-| `scripts/qualify-*` | 6 | 1,490 | `xtask qualify <name>`; the assertions are already Rust examples writing `result.json` |
+| `scripts/qualify-*` | 5 | 1,215 | `xtask qualify <name>`; the assertions are already Rust examples writing `result.json` |
 | `scripts/test_*` | 5 | 921 | Rust tests next to the qualifiers; rewrite each guard's subject, never copy it verbatim. `app/` has no Python left |
 | `benchmarks/run.py` | 1 | 330 | Deleted with the qualification family, whose scripts import the library; `xtask bench run` is already the replacement and `test_runner.py` is already deleted |
 
