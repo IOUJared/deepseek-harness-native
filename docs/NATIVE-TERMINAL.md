@@ -42,9 +42,10 @@ as wide as the Host's own terminal and applies the rules a shell depends on: `\r
 characters, `CSI m` colours the cells (drawn through `design::ansi_ink`), wide and fullwidth glyphs take
 two columns, a glyph past the last column wraps, the bottom row scrolls into scrollback (2,000 lines),
 and `CSI ? 1049 h`/`l` swaps to the alternate screen a full-screen program draws in and restores the
-shell on exit. What it still does not do: **scroll regions (`CSI r`), `DECAWM` off, combining marks, and
-background colours or underline attributes** — so a TUI that relies on a fixed status row or on
-zero-width joins renders with that structure ignored. The panel is a monochrome-per-cell renderer of that
+shell on exit, and `CSI t;b r` sets a scroll region whose rows scroll alone while the rows above and
+below stay put (round 561). What it still does not do: **`DECAWM` off, combining marks, and background
+colours or underline attributes** — so a TUI that relies on zero-width joins or on a specific background
+colour renders without that detail. The panel is a monochrome-per-cell renderer of that
 screen, not a second emulator.
 
 Resize is a reviewed control in the panel (round 540) rather than the reference's automatic fit-to-pane:

@@ -359,6 +359,10 @@ struct Screen {
     /// The Host's column count: a glyph written past it wraps to the next row, the way a shell's own
     /// line does, instead of drawing one endless row.
     cols: usize,
+    /// The scrolling region, 0-based and inclusive: `CSI t;b r` keeps a status row fixed while the
+    /// body scrolls, so a newline at the region's bottom scrolls only the region.
+    top: usize,
+    bottom: usize,
     dropped: usize,
     /// The SGR colour the next written cell takes: an ANSI index 0–15, or none for the panel's
     /// default ink.
@@ -437,6 +441,10 @@ impl Screen {
             // reports its rows is not scrolled into scrollback and later "cleared".
             rows: 0,
             cols: 0,
+            top: 0,
+            // `usize::MAX` is "the last row": the region is the whole screen until a program sets
+            // one, and every use clamps it to the grid.
+            bottom: usize::MAX,
             dropped: 0,
             ink: None,
             alternate: None,
@@ -614,18 +622,24 @@ impl Screen {
     /// height, so the bottom rows fall out, as a terminal's do.
     fn insert_lines(&mut self, count: usize) {
         let row = self.row.min(self.grid.len().saturating_sub(1));
+        let bottom = self.bottom.min(self.grid.len().saturating_sub(1));
         for _ in 0..count {
-            self.grid.insert(row, Vec::new());
-            self.grid.truncate(self.rows.max(1));
+            if row <= bottom {
+                self.grid.insert(row, Vec::new());
+                self.grid.remove(bottom + 1);
+            }
         }
         self.column = 0;
     }
     /// Delete `count` rows at the cursor, pulling the rows below up and blanking the bottom.
     fn delete_lines(&mut self, count: usize) {
         let row = self.row.min(self.grid.len().saturating_sub(1));
-        for _ in 0..count.min(self.grid.len() - row) {
-            self.grid.remove(row);
-            self.grid.push(Vec::new());
+        let bottom = self.bottom.min(self.grid.len().saturating_sub(1));
+        for _ in 0..count {
+            if row <= bottom {
+                self.grid.remove(row);
+                self.grid.insert(bottom, Vec::new());
+            }
         }
         self.column = 0;
     }
@@ -691,6 +705,22 @@ impl Screen {
                                 let enter = final_byte == Some('h');
                                 self.alternate_screen(enter)
                             }
+                            Some('r') if !private => {
+                                // `CSI t;b r`: 1-based, both defaulting to the full screen. A
+                                // region homes to its own first row, not the screen's.
+                                let top = numbers.first().copied().unwrap_or(1).max(1) as usize - 1;
+                                let bottom = numbers
+                                    .get(1)
+                                    .copied()
+                                    .unwrap_or(self.grid.len() as u32)
+                                    .max(1) as usize
+                                    - 1;
+                                if top < bottom && bottom < self.grid.len() {
+                                    self.top = top;
+                                    self.bottom = bottom;
+                                    self.place(top, 0);
+                                }
+                            }
                             Some('L') if !private => self.insert_lines(first),
                             Some('M') if !private => self.delete_lines(first),
                             Some('P') if !private => self.delete_chars(first),
@@ -726,11 +756,11 @@ impl Screen {
                                 self.place(first - 1, column);
                             }
                             Some('A') if !private => {
-                                self.row = self.row.saturating_sub(first);
+                                self.row = self.row.saturating_sub(first).max(self.top);
                             }
                             Some('B') if !private => {
-                                self.row =
-                                    (self.row + first).min(self.grid.len().saturating_sub(1));
+                                let bottom = self.bottom.min(self.grid.len().saturating_sub(1));
+                                self.row = (self.row + first).min(bottom);
                             }
                             Some('C') if !private => self.column += first,
                             Some('D') if !private => {
@@ -2982,6 +3012,31 @@ mod tests {
             !terminal.shells_failed(),
             "an answered read clears the flag"
         );
+    }
+
+    #[test]
+    fn a_scroll_region_scrolls_only_its_own_rows() {
+        let mut output = Output::default();
+        output.set_size(0, 5);
+        // A status row at the top and one at the bottom, with three body rows between them.
+        output.push("STATUS\n\u{1b}[2;4rbody one\nbody two\nbody three\nbody four\nFOOT\n");
+        let text = output.display(DISPLAY_BYTES);
+        assert!(text.starts_with("STATUS\n"), "{text}");
+        assert!(text.contains("body two\nbody three\nbody four"), "{text}");
+        // A newline at the region's bottom scrolls the body only: the top status row and the row
+        // below the region do not move.
+        assert!(text.contains("FOOT"), "{text}");
+        // Setting a region homes the cursor to its first row, not the screen's, so the next text
+        // lands below the status row above it.
+        let mut output = Output::default();
+        output.set_size(0, 4);
+        output.push("top\u{1b}[2;3rX");
+        assert_eq!(output.display(DISPLAY_BYTES), "top\nX");
+        // `CSI r` with no parameters restores the whole screen.
+        let mut output = Output::default();
+        output.set_size(0, 3);
+        output.push("a\nb\u{1b}[1;2r\u{1b}[r\u{1b}[3;1Hc");
+        assert_eq!(output.display(DISPLAY_BYTES), "a\nb\nc");
     }
 
     #[test]

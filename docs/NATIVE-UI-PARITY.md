@@ -6430,7 +6430,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Workspace browser: grouped/animated rows, drag order, per-row menus | difference: workspace filter + navigation sheet |
 | Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory; the app's Host serves browse, so Browse… falls back to the in-app list and `pick` reports unavailable) |
 | Workflow-run surface | cloned (folded `tool-workflow/*` card, five run states including the round-525 `Interrupted` for a stoppless run in a closed turn; a closed step alone does not interrupt, a named limit) |
-| Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, **reviewed resize (round 540)**, shell discovery with a remembered preference, output bounds, and **a native screen emulator core** (rounds 552–559: redraw, erase, addressing, insert/delete, ANSI colours, wide glyphs, wrapping, scrollback, alternate screen). Still unbuilt: scroll regions, `DECAWM` off, combining marks and background colours, the reference's automatic fit-to-pane, `terminal/retain` and a docked multi-terminal tab — recorded in `docs/NATIVE-TERMINAL.md`. |
+| Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, **reviewed resize (round 540)**, shell discovery with a remembered preference, output bounds, and **a native screen emulator core** (rounds 552–559: redraw, erase, addressing, insert/delete, ANSI colours, wide glyphs, wrapping, scrollback, alternate screen). Still unbuilt: `DECAWM` off, combining marks and background/underline attributes, the reference's automatic fit-to-pane, `terminal/retain` and a docked multi-terminal tab — recorded in `docs/NATIVE-TERMINAL.md`. |
 | Dockkit layout presets | difference: native fixed layout with its own preferences |
 | Locales (zh/en) | difference: English-only |
 
@@ -15853,7 +15853,7 @@ next round start.
 
 | item | what exists | what the next round series needs |
 | --- | --- | --- |
-| The terminal screen | **built as a native emulator core** in rounds 552–559 (grid sized by the Host, redraw, erase, addressing, insert/delete, SGR colours, two-column wide glyphs, wrapping, 2,000-line scrollback, alternate screen); output still bounded to 400 chunks/128 KiB and every mutating action reviewed | scroll regions (`CSI r`), `DECAWM` off, combining marks and background/underline attributes; nothing here needs a dependency decision any more |
+| The terminal screen | **built as a native emulator core** in rounds 552–561 (grid sized by the Host, redraw, erase, addressing, insert/delete, SGR colours, two-column wide glyphs, wrapping, 2,000-line scrollback, alternate screen, scroll regions); output still bounded to 400 chunks/128 KiB and every mutating action reviewed | `DECAWM` off, combining marks and background/underline attributes; nothing here needs a dependency decision any more |
 | `terminal/retain` and a docked multi-terminal tab | the panel's own slice; retain exists in the Host for holding tabs open | a right-docked tab strip first, because retain only means something with tabs |
 | Schedules: sidebar marks, hover cards, turn cards, right-Sidebar tab | the page, history, edits, pickers, the header chip and the live reload | per-session schedule counts from the Host (`sessionListMetadata` does not carry them), then the marks |
 | The right-Sidebar review tab | the deliverables sheet is a native surface | a deliberate second layout decision, recorded as such rather than built silently |
@@ -16194,4 +16194,40 @@ the backlog row no longer asks for a parser that exists, and two code comments t
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-45vdgnc0`) |
 | transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
 | DP-2 capture | — | none: documentation and comments |
+| app bin | — | **21** warnings |
+
+### Round 561 — a scroll region scrolls alone, so a pager keeps its status row
+
+**The gap.** The last structural screen operation: `CSI t;b r` sets a scrolling region, and a pager
+(`less`, `man`, `git log`) keeps a fixed status row outside it. Native ignored the sequence, so a pager's
+newlines scrolled the whole screen and its status row walked away with the body.
+
+**The change.** The screen keeps a region (`top`/`bottom`, `bottom` defaulting to the last row) and: a
+newline below the region's bottom scrolls only its rows (the region's first row drops, a blank joins at
+its bottom, and the rows outside do not move); `CSI r` sets the region and homes the cursor to the
+region's first row, and a bare `CSI r` restores the whole screen; `A`/`B` clamp to the region; insert and
+delete line shift rows inside it, not past it. Scrolling from the screen's first row still feeds the
+scrollback.
+
+**Tests.** `a_scroll_region_scrolls_only_its_own_rows` — a status row above and below a three-row body,
+a newline at the region's bottom leaving both untouched, `CSI r` homing to the region's first row, and a
+bare `CSI r` restoring the whole screen. Three of my expectations were wrong before the run agreed: a
+region does *not* move an absolute `CSI H`, `CSI r` homes to the region's top rather than the screen's,
+and my first insert/delete bodies had to be confined to the region for the fixture to still balance.
+
+**No frame:** the state is transient (a pager redraws over it), so it is test-covered rather than framed.
+
+**Stated:** `DECAWM` off, combining marks and background/underline attributes remain unbuilt.
+
+**Battery (round 561).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1563 passed**, 1 ignored |
+| app, default | **0** | **1507 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-di6bphps`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-qbckyqd6`) |
+| transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
+| DP-2 capture | — | none: transient screen state |
 | app bin | — | **21** warnings |
