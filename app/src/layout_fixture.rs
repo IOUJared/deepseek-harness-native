@@ -142,6 +142,7 @@ pub const PRESETS: &[&str] = &[
     "schedules-linked",
     "reminders",
     "reminders-delete",
+    "session-schedule-mark",
     "mcp",
     "changes-card",
     "changes-diff",
@@ -445,6 +446,9 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "model-popup-tiny"
         | "model-submenu-tiny"
         | "effort-submenu-tiny" => Some((Size::new(608.0, 448.0), 1.25)),
+        // The sidebar's session rows and their scheduled-task seats need the expanded sidebar; a
+        // 760px frame draws its compact rail instead, where rows are not drawn at all.
+        "session-schedule-mark" => Some((Size::new(1040.0, 700.0), 1.0)),
         "narrow-welcome"
         | "menu"
         | "navigation"
@@ -1517,7 +1521,7 @@ pub fn build(
         "running":preset.starts_with("working-") || matches!(preset, "menu" | "navigation" | "navigation-tiny"),
         // A preset that carries a transcript is not a blank session; the reference's own row
         // list and the chat fixtures both depend on this flag.
-        "blank": !matches!(preset, "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" | "conversation" | "chat-density" | "chat-markdown" | "chat-thoughts" | "thoughts-preview" | "chat-thoughts-markdown" | "chat-table" | "reminders" | "reminders-delete")
+        "blank": !matches!(preset, "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" | "conversation" | "chat-density" | "chat-markdown" | "chat-thoughts" | "thoughts-preview" | "chat-thoughts-markdown" | "chat-table" | "reminders" | "reminders-delete" | "session-schedule-mark")
             && !preset.starts_with("tool-activity"),
 
         "cwd":"/PUBLIC-layout-fixture/workspace",
@@ -1852,6 +1856,7 @@ pub fn build(
             | "schedules-linked"
             | "reminders"
             | "reminders-delete"
+            | "session-schedule-mark"
             | "subagent-catalog"
             | "subagent-catalog-error"
             | "subagent-readonly"
@@ -2635,7 +2640,7 @@ pub fn build(
         }
     }
 
-    if preset.starts_with("reminders") {
+    if preset.starts_with("reminders") || preset == "session-schedule-mark" {
         // The header's reminder chip and its popover over the conversation it belongs to: the open
         // Session's own live tasks, ordered overdue first (`ScheduleCatalogAction.tsx:141-192`,
         // `schedule-format.ts:442-458`). One inactive task and one other Session's live task sit in
@@ -2708,7 +2713,8 @@ pub fn build(
             2,
             "two live reminders belong to this header"
         );
-        app.reminders_open = true;
+        // The mark preset frames the sidebar rows alone: the same catalog, with the popover shut.
+        app.reminders_open = preset.starts_with("reminders");
         if preset == "reminders-delete" {
             // A delete armed from the popover states what it takes before the button that does it.
             app.schedule_delete = Some((session.clone(), "PUBLIC-reminder-overdue".into()));
@@ -5175,6 +5181,43 @@ mod tests {
                 drop(app.update(app.detail_request(2).unwrap()));
                 assert!(app.detail.as_ref().unwrap().source.contains("canceled"));
                 assert!(receiver.try_recv().is_err());
+            }
+            if preset == "session-schedule-mark" {
+                // One active task marks the selected row, another row with its own active task
+                // keeps its own mark, and a row with no active task carries none; the reminder
+                // popover is shut, so the frame shows the sidebar seat rather than the chip open.
+                assert!(!app.reminders_open && !app.schedules_open);
+                assert_eq!(
+                    app.schedules
+                        .iter()
+                        .filter(|item| item.status == "active")
+                        .count(),
+                    3
+                );
+                let selected = app
+                    .sessions
+                    .get(app.selected.as_ref().expect("a selected row"))
+                    .cloned()
+                    .expect("the selected row");
+                assert!(app.session_schedule_mark(&selected, None).is_some());
+                let session = |id: &str| {
+                    dsh_native_transport::dto::SessionId::new(id).expect("a fixture session id")
+                };
+                let notes = app
+                    .sessions
+                    .get(&session("PUBLIC-layout-notes"))
+                    .cloned()
+                    .expect("the notes row");
+                assert!(app.session_schedule_mark(&notes, None).is_some());
+                let review = app
+                    .sessions
+                    .get(&session("PUBLIC-layout-review"))
+                    .cloned()
+                    .expect("the review row");
+                assert!(
+                    app.session_schedule_mark(&review, None).is_none(),
+                    "a row without an active task carries no mark"
+                );
             }
             if preset == "permission-chip" {
                 // The chip is drawn only from the recorded preset, and the record

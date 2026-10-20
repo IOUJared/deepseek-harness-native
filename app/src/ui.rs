@@ -14662,6 +14662,8 @@ impl App {
             let mut content = row![].spacing(8).align_y(iced::Alignment::Center);
             if session.running && self.running_status_live() {
                 content = content.push(working_indicator::view(self.working_phase));
+            } else if let Some(mark) = self.session_schedule_mark(&session, pending) {
+                content = content.push(mark);
             }
             content = content.push(identity);
             if self.management.registry.pinned(&session.session_id) {
@@ -14806,6 +14808,43 @@ impl App {
         .spacing(0)
         .height(Length::Fill)
         .into()
+    }
+    /// One Session row's scheduled-task mark: the reference's leading clock seat
+    /// (`ui-schedule/src/client/SessionScheduleMark.tsx:40-58`, a `16x20px` cell at
+    /// `SessionScheduleMark.module.css:1-9`) projected from the one shared Host catalog
+    /// (`session-schedule-state.ts:5-10, 73-82`). Native already reads that catalog for the header's
+    /// reminders (`request_reminders`), so a row issues no read of its own.
+    ///
+    /// The row offers the cell only while its own primary state is idle; live activity, a pending
+    /// decision or an unread completion keeps it for the state dot (`SessionScheduleMark.tsx:5-9`).
+    fn session_schedule_mark(
+        &self,
+        session: &SessionSummary,
+        pending: Option<&str>,
+    ) -> Option<Element<'_, Message>> {
+        if session.running
+            || pending.is_some()
+            || self.completion_unread.contains(&session.session_id)
+        {
+            return None;
+        }
+        let has_active = self
+            .schedules
+            .iter()
+            .any(|item| crate::reducer::schedule_card::is_open_reminder(item, &session.session_id));
+        if !has_active {
+            return None;
+        }
+        Some(
+            // The cell is 16x20 and fixed: `center_x`/`center_y` with `Length::Fill` would make
+            // the mark claim the row's whole width and squeeze the title to nothing.
+            container(label("◷", MUTED).size(14))
+                .width(16)
+                .height(20)
+                .align_x(iced::Alignment::Center)
+                .align_y(iced::Alignment::Center)
+                .into(),
+        )
     }
     fn workspace_navigation(&self) -> Element<'_, Message> {
         if !self.workspace_controls && !self.sidebar_sheet {

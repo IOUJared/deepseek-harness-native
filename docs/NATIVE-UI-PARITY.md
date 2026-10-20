@@ -6417,7 +6417,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the slash menu groups its two sources as the reference does (`Commands`, then `Skills`), states `Loading…` while the advertisement is in flight and shows a command's argument hint under the draft (the reference draws it inside the editor), draws the `@` menu's directory breadcrumb trail (round 546) and labels a subagent child's row `Subagents` apart from `Sessions` (round 547), though the references register no separate subagent trigger source, files are chosen one at a time through a path field, no image thumbnails in the rail, and a send awaiting admission is stated by the composer's own banner (with Check, Review and Stop-original) rather than as a queue row;  steering the whole queue is a `Steer all` control on the strip (the reference triggers it from an empty draft); and these deliberate differences: the reference inverts its submission policy on Cmd/Ctrl+Enter (`view-binding.ts:120-130`), while native keeps Ctrl+Enter a plain send alias by the user's explicit confirmation (`docs/SESSION-PROMPT.md`); and native's goal bar states a running goal's controls where the reference adds `hint.goal`/`hint.goal.active` ghost copy beside the draft) |
 | Sidebar: sessions, search, pin/archive/trash, workspace filter, navigation sheet | cloned (time-grouped list, not the grouped browser) |
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
-| Schedules: page, history, edits, pickers, and the Session header's reminder chip with its popover (count, rule, next run, per-row delete; round 503) | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab; the chip states its count as words where the web is icon-only, and its rows' names open the page where the web opens its right-Sidebar tab). A read-only audit of this surface found work still open, recorded in round 417: rows now state their rule, `Enabled`/`Inactive`, and their next-run and delivery instants as local text with a relative next-run form; the page has status tabs (All/Enabled/Inactive), a search field, next-time ordering, the reference's empty-state variants and its retention disclosure, and its `New` action, and a deletion outcome stated on the page where the reference shows a shell toast, and a linked-session control that opens the creating session (with the reference's archived/unavailable sentences when it cannot); the `schedule/changed` notification reloads an open catalog (round 541: `root()`'s Emit arm, unit-tested, with the Host's emission source-confirmed; its live arrival on a real session is still unobserved), while native's own reads remain on open, Refresh and after its own writes; a failed history read retries in place |
+| Schedules: page, history, edits, pickers, and the Session header's reminder chip with its popover (count, rule, next run, per-row delete; round 503) | cloned (the sidebar row's active-task clock is round 664; no hover cards, turn cards or right-Sidebar tab; the chip states its count as words where the web is icon-only, and its rows' names open the page where the web opens its right-Sidebar tab). A read-only audit of this surface found work still open, recorded in round 417: rows now state their rule, `Enabled`/`Inactive`, and their next-run and delivery instants as local text with a relative next-run form; the page has status tabs (All/Enabled/Inactive), a search field, next-time ordering, the reference's empty-state variants and its retention disclosure, and its `New` action, and a deletion outcome stated on the page where the reference shows a shell toast, and a linked-session control that opens the creating session (with the reference's archived/unavailable sentences when it cannot); the `schedule/changed` notification reloads an open catalog (round 541: `root()`'s Emit arm, unit-tested, with the Host's emission source-confirmed; its live arrival on a real session is still unobserved), while native's own reads remain on open, Refresh and after its own writes; a failed history read retries in place |
 | Goals, plan mode, permissions, approvals/questions, jobs, subagents, session log | cloned |
 | Tool rows: one row per call with the folded result, relative path, `+N −N`, and the structured cards — diff, read, terminal, search, web, ask-user | cloned (no per-tool glyphs — the reference's SVGs have no DejaVu equivalent); each run of step activity sits under a process-group seat whose live label, running detail, folding and grouping follow the **Work details** preference — Compact / Standard / Detailed / Verbose, chosen in Settings → General and persisted locally), and a settled turn folds its whole process behind one `Completed in …` / `Stopped` / `Failed` control with a hairline and the reference's 16px rung (rounds 513–514) |
 | Reasoning disclosure wording | difference: native says `Thoughts` where the reference says `Thought for a while` (`message.turnProcess.thoughtForAWhile`), by the user's stated preference for the shorter label; a settled row still previews its first line under the `settledReasoningPreview` policy |
@@ -15863,7 +15863,7 @@ is the one-line leftover from the finished port stage. Nothing else in this repo
 | --- | --- | --- |
 | The terminal screen | **complete as a native emulator core** (rounds 552–565): grid sized by the Host, redraw, erase, addressing, insert/delete, SGR colour, underline and background, two-column wide glyphs, combining marks take no column, wrapping and autowrap off, 2,000-line scrollback, alternate screen, scroll regions; output bounded to 400 chunks/128 KiB and 400 rendered rows, and every mutating action reviewed | **the panel, not the screen**: a true fill and a pinned footer at short heights need the three-builder rewrite specified in round 572; the reference's automatic fit-to-pane stays a deliberate difference (resize is a reviewed control), and `terminal/retain` + a docked tab strip remain unbuilt |
 | `terminal/retain` and a docked multi-terminal tab | the panel's own slice; retain exists in the Host for holding tabs open | a right-docked tab strip first, because retain only means something with tabs |
-| Schedules: sidebar marks, hover cards, turn cards, right-Sidebar tab | the page, history, edits, pickers, the header chip and the live reload | per-session schedule counts from the Host (`sessionListMetadata` does not carry them), then the marks |
+| Schedules: sidebar marks, hover cards, turn cards, right-Sidebar tab | the page, history, edits, pickers, the header chip, the live reload, and (round 664) the sidebar row's active-task clock | the hover card's task rows, schedule turn cards and the right-Sidebar tab. The marks were **not** blocked on `sessionListMetadata`: the reference projects the one `schedule/catalog` read that native already makes for the header (`session-schedule-state.ts:5-10, 73-82`) |
 | The right-Sidebar review tab | the deliverables sheet is a native surface | a deliberate second layout decision, recorded as such rather than built silently |
 
 ### Named deliberate differences (not gaps)
@@ -18096,3 +18096,58 @@ line); full battery **passed, 17 checks, 0 failing** (`verification-e2f2c1e6a3`)
 
 **Cost, for the record:** two crates and their transitive dependencies are now part of the release build. That
 is the price of rendering the formats the reference renders, and it was your call to pay it.
+
+### Round 664 — a Session row marks its active scheduled tasks
+
+**The gap, and the blocker that was not one.** The coverage table and the "large, unbuilt" table
+recorded the sidebar's schedule marks as waiting on "per-session schedule counts from the Host
+(`sessionListMetadata` does not carry them)". Re-read against the reference: the mark never asks
+Session metadata. `ui-schedule/src/client/session-schedule-state.ts:5-10` projects **one**
+`schedule/catalog()` read — active and ended tasks with their originating `sessionId` — onto every
+row, and `:73-82` keeps a row's tasks only when the `sessionId` matches and `status === 'active'`.
+Native already makes that exact read for the header's reminder chip (`App::request_reminders`), so
+the row needs no new route, no per-row read and no separate settled flag: records exist only after a
+successful catalog read, and a refresh republishes over them.
+
+**The change.** `App::session_schedule_mark` returns the reference's leading clock seat
+(`SessionScheduleMark.tsx:40-58`) when the shared catalog holds an active task for that Session, in
+a fixed `16x20` cell at `MUTED` — the reference's `label-tertiary` ink in a `16x20` cell
+(`SessionScheduleMark.module.css:1-11`) — using the `◷` glyph DejaVu Sans carries; `session_navigation`
+pushes it where the working indicator otherwise sits. The seat is offered only while the row's own
+primary state is idle: a running Session, a pending decision or an unread completion keeps the cell
+for itself (`SessionScheduleMark.tsx:5-9`). An inactive or ended task marks nothing.
+
+**Why it took three attempts.** First the new preset was registered in the `reminders` size arm
+(760×560), so the frame drew the compact rail, where session rows do not exist. Then the mark's cell
+used `center_x(Length::Fill)`, which made it claim the row's whole width and squeezed both marked
+titles to nothing — the unit test passed because it only asks whether the mark is mounted, and **the
+frame caught it**. The cell is now fixed `16x20` with `align_x`/`align_y(Center)`.
+
+**Test.** `a_session_row_marks_only_its_own_active_scheduled_tasks` — the row's own Session only, an
+inactive or ended task never, a refresh in flight keeps the retained mark, and running/pending/unread
+suppress it; the new `session-schedule-mark` preset is pinned in
+`presets_render_actual_app_without_queued_effects` (two marked rows, one unmarked, popover shut).
+
+**Frame.** `shots/363-session-schedule-mark.png` (1040×700, new `session-schedule-mark` preset): the
+selected conversation and `PUBLIC notes · café · 世界` each carry the clock in the leading cell,
+`PUBLIC review · native layout` carries none, and the reminder popover is shut so the frame shows the
+row seat rather than the chip's own panel.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| format | **0** | `cargo fmt` applied; format-debt 0 files, 0 hunks |
+| app, fixture | **0** | **1594 passed**, 1 ignored |
+| app, default | **0** | **1538 passed**, 1 ignored |
+| transport | **0** | 62 + 17 + 91 + 7 passed |
+| app bin | — | **21** warnings (22 with the summary line) |
+| battery | **passed** | **17 checks, 0 failing** (`verification-326afbb8322c`) |
+
+**Still open on this surface.** The row hover card's task section (`SessionScheduleHover.tsx`),
+schedule turn cards and the right-Sidebar task tab remain unbuilt; the marks no longer do.
+
+**Deliberate limit, stated.** The reference's mark swallows a press so the row is not activated
+(`SessionScheduleMark.tsx:49-51`); native's mark rides inside the row's own `button`, so pressing the
+clock selects the Session like any other cell. Splitting the row's hit area for one 16px seat is not
+worth a second click target.

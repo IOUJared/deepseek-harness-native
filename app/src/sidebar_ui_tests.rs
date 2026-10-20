@@ -951,3 +951,62 @@ fn new_conversation_is_not_offered_where_its_press_is_discarded() {
     );
     assert!(app.pending.is_empty() || !app.can_create());
 }
+
+#[test]
+fn a_session_row_marks_only_its_own_active_scheduled_tasks() {
+    use dsh_native_transport::dto::ScheduleCatalogItem;
+    let (mut app, _queue) = app();
+    let item = |schedule: &str, session: &str, status: &str| ScheduleCatalogItem {
+        id: schedule.into(),
+        title: schedule.into(),
+        kind: "daily".into(),
+        session_id: id(session),
+        status: status.into(),
+        scheduled_at: None,
+        last_delivery: None,
+        record: serde_json::Map::new(),
+    };
+    let row = app
+        .sessions
+        .get(&id("a"))
+        .cloned()
+        .expect("the fixture's row");
+    // A catalog read that has not settled yet advertises nothing, so no row flashes a mark.
+    assert!(app.session_schedule_mark(&row, None).is_none());
+    app.schedules = vec![
+        item("PUBLIC-mark-one", "a", "active"),
+        item("PUBLIC-mark-paused", "a", "inactive"),
+        item("PUBLIC-mark-elsewhere", "b", "active"),
+    ];
+    assert!(
+        app.session_schedule_mark(&row, None).is_some(),
+        "an active task marks its Session's row"
+    );
+    let elsewhere = app.sessions.get(&id("b")).cloned().expect("the other row");
+    assert!(app.session_schedule_mark(&elsewhere, None).is_some());
+    let third = app.sessions.get(&id("c")).cloned().expect("the third row");
+    assert!(
+        app.session_schedule_mark(&third, None).is_none(),
+        "a Session without an active task carries no mark"
+    );
+    // A refresh republishes over the records it already has, so the mark cannot blink mid-read.
+    app.schedules_loading = true;
+    assert!(app.session_schedule_mark(&row, None).is_some());
+    app.schedules_loading = false;
+    // An ended task runs no more and an inactive one never marks.
+    app.schedules[0].status = "ended".into();
+    assert!(app.session_schedule_mark(&row, None).is_none());
+    app.schedules[0].status = "active".into();
+    // The reference offers the row's leading cell only while its own primary state is idle
+    // (`SessionScheduleMark.tsx:8-12`): live activity, a pending decision or an unread
+    // completion keeps the cell for itself and the mark is not mounted.
+    let mut running = row.clone();
+    running.running = true;
+    assert!(app.session_schedule_mark(&running, None).is_none());
+    assert!(
+        app.session_schedule_mark(&row, Some("Approval requested"))
+            .is_none()
+    );
+    app.completion_unread.insert(id("a"));
+    assert!(app.session_schedule_mark(&row, None).is_none());
+}
