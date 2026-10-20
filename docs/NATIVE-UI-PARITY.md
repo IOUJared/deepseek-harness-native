@@ -6430,7 +6430,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Workspace browser: grouped/animated rows, drag order, per-row menus | difference: workspace filter + navigation sheet |
 | Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory; the app's Host serves browse, so Browse… falls back to the in-app list and `pick` reports unavailable) |
 | Open in app: workspace opener | cloned (round 671): the header split button lists the Host's nameable installed apps, launches the Session's workspace through the two plain Host routes, and remembers the choice; app icons stay text glyphs rather than fetched PNGs |
-| Plugin manager: installed bundles | More → Plugins (rounds 674–682) shows the Host's profile availability and its bundles with version, enabled/installed/optional state, the rows each bundle declares with their live entry state, and read-only reasons; it switches a readable bundle or one of its live rows on or off, uninstalls a removable one and installs an inspected spec, each through its own explicit Confirm, inspects a typed install spec into an accepted preview or a refusal against the chosen registry, cancels or recovers an installation by its request id, and approves a failed install's pending package scripts before retrying; install progress/log chunks remain unbuilt |
+| Plugin manager: installed bundles | More → Plugins (rounds 674–683) shows the Host's profile availability and its bundles with version, enabled/installed/optional state, the rows each bundle declares with their live entry state, and read-only reasons; it switches a readable bundle or one of its live rows on or off, uninstalls a removable one and installs an inspected spec, each through its own explicit Confirm, inspects a typed install spec into an accepted preview or a refusal against the chosen registry, cancels or recovers an installation by its request id, approves a failed install's pending package scripts before retrying, and shows the Host's announced install phase, per-registry attempt and a bounded pnpm log tail |
 | Workflow-run surface | cloned (folded `tool-workflow/*` card, five run states including the round-525 `Interrupted` for a stoppless run in a closed turn; a closed step alone does not interrupt, a named limit) |
 | Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, **reviewed resize (round 540)**, shell discovery with a remembered preference, output bounds, and **a native screen emulator core** (rounds 552–559: redraw, erase, addressing, insert/delete, ANSI colours, wide glyphs, wrapping, scrollback, alternate screen; a combining mark composes onto its base cell, round 669). The screen protocol is complete; the docked tabs ship in the panel above the output (round 673), re-following on a switch instead of holding `terminal/retain` streams, and the reference's automatic fit-to-pane stays a deliberate difference — recorded in `docs/NATIVE-TERMINAL.md`. |
 | Dockkit layout presets | difference: native fixed layout with its own preferences |
@@ -15877,7 +15877,7 @@ real warnings; the full battery is **17/17 (`verification-526912410ae0`).** The 
 
 | item | what exists | what the next round series needs |
 | --- | --- | --- |
-| Plugin manager: install progress | installs carry a request id, a lost reply is recovered through `waitForInstall`, `cancelInstall` states its answer, and pending scripts are approved and retried (rounds 681–682) | the `plugin-manager/install-state` progress stream and pnpm log chunks; the manager page shows no live attempt log or per-registry attempt badge |
+| Plugin manager | cloned through round 683 (list, rows, switch, uninstall, inspect, registry choice, install, request-id recovery/cancel, script approval, live phase/attempt and a bounded log tail) | deliberate limits: the log tail is four chunks and is not a scrollable full log; the Host's `plugin-manager/changed` invalidation is handled by re-reading only after operations this page starts |
 | The right-Sidebar review/task/document tabs | the full-page details panel is native's own surface | **deliberate difference**, recorded here rather than built silently |
 
 ### Named deliberate differences (not gaps)
@@ -18957,3 +18957,46 @@ was read.
 | app bin | — | **21** warnings (22 with the summary line) |
 | layout_smoke | — | **17** warnings |
 | battery | **passed** | **17 checks, 0 failing** (`verification-0ce31d2a4168`) |
+
+### Round 683 — the install reports its Host phase, attempt and log tail
+
+**The gap.** The reference subscribes to `plugin-manager/install-state` and `plugin-manager/install-log`
+(`ui-plugin-manager/src/client/index.ts:89-92`), showing the attempt's registry and position and the
+pnpm output as it arrives (`PluginInstallProgress`, `PluginInstallLogChunk` at `types.d.ts:172-199`);
+native ignored both emits.
+
+**The dispatch.** The existing event dispatcher now reads both emits (`ui.rs` `root()`): the phase must
+be `installing`, `cancelling` or `applying`; an attempt is kept only when its index and total are
+coherent; a log chunk must carry a known stream and non-empty text. Everything is adopted **only when
+the request id matches the run this page started**, so another client's install cannot paint this one.
+
+**The page.** While installing, the accepted card shows `Attempt {index} of {total} · {registry}`,
+`Stopping installation…` or `Applying the change…`, then the newest four output chunks (stderr in the
+danger ink), each bounded to 400 characters and the tail to six stored lines. A settlement, an unknown
+result or a `not-running` cancellation clears the phase and the tail.
+
+**Tests.** `install_progress_and_logs_follow_only_the_current_request` drives real
+`RemoteEventFrame::Emit` frames through the app: another request is ignored, the attempt is adopted,
+an unknown phase is ignored, logs follow the request, empty chunks drop, stderr keeps its ink, the tail
+caps at six, and `not-running` clears everything. `plugin-manager-progress` is pinned with the second
+attempt and a three-line tail.
+
+**Frame.** `shots/381-plugin-manager-progress.png` (1040×760, new `plugin-manager-progress` preset):
+`Installing…` with `Cancel installation`, `Attempt 2 of 3 · https://registry.example.internal`, and the
+three chunks including the red `WARN peer dependency unmet` line.
+
+**Deliberate limits.** The tail is a bounded progress hint, not a log viewer: no scrollback, exit code
+or per-attempt cancellation, and the reference's `plugin-manager/changed` invalidation is covered only
+for operations this page starts (the page re-reads after each). No live Host was read.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| format | **0** | `cargo fmt` applied; format-debt 0 files, 0 hunks |
+| app, fixture | **0** | **1615 passed**, 1 ignored |
+| app, default | **0** | **1559 passed**, 1 ignored |
+| transport | **0** | 70 + 17 + 91 + 7 passed |
+| app bin | — | **21** warnings (22 with the summary line) |
+| layout_smoke | — | **17** warnings |
+| battery | **passed** | **17 checks, 0 failing** (`verification-0bd94e828cca`) |

@@ -22,22 +22,22 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > (pinned `c6044cc50b`). Cite it as `file:line` in code comments and round notes.
 >
 > ### Last five rounds, so the next session starts oriented
-> - 678: **the Add-plugin form reads the registry order and inspects against the chosen registry**;
->   frame `376`.
 > - 679: **each bundle's declared rows are listed** with live state, and one row switches through its
 >   own Confirm; frame `377`.
 > - 680: **an inspected spec installs** after one explicit Confirm, reporting bundle/version/restart or
 >   failure and re-reading; frame `378`.
 > - 681: **installs carry a request id**, a lost reply is recovered through `waitForInstall` (not a
 >   retry), and `cancelInstall` states cancelled/too-late/not-running; frame `379`.
-> - 682: **a failed install's pending package scripts are approved and the same spec retried** with a
->   fresh request id; frame `380`.
+> - 682: **a failed install's pending package scripts are approved and retried**; frame `380`.
+> - 683: **the install's Host phase, per-registry attempt and a bounded pnpm log tail are shown**;
+>   frame `381`. The plugin manager is now cloned through its full reference surface.
 >
-> **Current remainder:** the `plugin-manager/install-state` progress stream and pnpm log chunks (the
-> per-registry attempt badges). Version exemptions are Host tools with no reference client surface.
-> Blocked on the user: the canvas-dial dependency approval (context meter stays a text reading) and the
-> deferred live `schedule/changed` observation. Baselines: fixture **1614** / default **1558**, 21
-> warnings, battery 17/17 (`verification-0ce31d2a4168`).
+> **Current remainder:** only deliberate limits (the log tail is four chunks, not a full log viewer;
+> `plugin-manager/changed` invalidation covers operations this page starts). Version exemptions are
+> Host tools with no reference client surface. Blocked on the user: the canvas-dial dependency approval
+> (context meter stays a text reading) and the deferred live `schedule/changed` observation. Baselines:
+> fixture **1615** / default **1559**, 21 warnings, battery 17/17
+> (`verification-0bd94e828cca`).
 
 ---
 

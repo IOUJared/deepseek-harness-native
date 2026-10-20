@@ -1852,3 +1852,90 @@ fn approving_pending_scripts_retries_the_same_spec_with_a_fresh_request() {
     )))));
     assert!(app.plugin_manager.pending_builds().is_empty());
 }
+
+#[test]
+fn install_progress_and_logs_follow_only_the_current_request() {
+    use dsh_native_transport::dto::RemoteEventFrame;
+    let (mut app, mut queue) = app();
+    let _ = queue.try_recv();
+    app.plugin_manager.seed_installing("native-x");
+    let state = |app: &mut crate::ui::App,
+                 request: &str,
+                 phase: &str,
+                 attempt: Option<serde_json::Value>| {
+        let mut value = serde_json::json!({"requestId": request, "phase": phase});
+        if let Some(attempt) = attempt {
+            value["attempt"] = attempt;
+        }
+        app.root(
+            RemoteEventFrame::Emit {
+                event: "plugin-manager/install-state".into(),
+                args: vec![value],
+            },
+            None,
+        );
+    };
+    let log = |app: &mut crate::ui::App, request: Option<&str>, stream: &str, text: &str| {
+        let mut value = serde_json::json!({"stream": stream, "text": text});
+        if let Some(request) = request {
+            value["requestId"] = serde_json::json!(request);
+        }
+        app.root(
+            RemoteEventFrame::Emit {
+                event: "plugin-manager/install-log".into(),
+                args: vec![value],
+            },
+            None,
+        );
+    };
+    // Another client's run is ignored.
+    state(&mut app, "other", "installing", None);
+    assert!(app.plugin_manager.progress().is_none());
+    // This run's attempt is adopted with its registry and position.
+    state(
+        &mut app,
+        "native-x",
+        "installing",
+        Some(serde_json::json!({"registry": "https://registry.invalid", "index": 2, "total": 3})),
+    );
+    let progress = app.plugin_manager.progress().expect("adopted");
+    assert_eq!(progress.phase, "installing");
+    assert_eq!(
+        progress.attempt,
+        Some((Some("https://registry.invalid".into()), 2, 3))
+    );
+    // An unknown phase is not adopted.
+    state(&mut app, "native-x", "bogus", None);
+    assert_eq!(
+        app.plugin_manager.progress().expect("kept").phase,
+        "installing"
+    );
+    // Logs follow the same request, keep stderr's ink, and drop empty chunks.
+    log(&mut app, Some("other"), "stdout", "not this run");
+    log(&mut app, None, "stdout", "model resolve 12.4s");
+    log(&mut app, Some("native-x"), "stderr", "warn peer dependency");
+    log(&mut app, Some("native-x"), "stdout", "   ");
+    assert_eq!(app.plugin_manager.log().len(), 2);
+    assert!(app.plugin_manager.log()[1].stderr);
+    // The tail keeps only the newest six chunks.
+    for index in 0..8 {
+        log(
+            &mut app,
+            Some("native-x"),
+            "stdout",
+            &format!("chunk {index}"),
+        );
+    }
+    assert_eq!(app.plugin_manager.log().len(), 6);
+    assert_eq!(app.plugin_manager.log()[5].text, "chunk 7");
+    // A run the Host no longer has clears the progress and the tail.
+    app.plugin_manager.seed_pending_builds(Vec::new());
+    drop(
+        app.update(Message::Worker(Event::PluginInstallCancelAsked(Ok(
+            dsh_native_transport::plugin::PluginCancellation::NotRunning,
+        )))),
+    );
+    assert!(app.plugin_manager.progress().is_none());
+    assert!(app.plugin_manager.log().is_empty());
+    assert!(!app.plugin_manager.is_installing());
+}

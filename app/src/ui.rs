@@ -8506,6 +8506,41 @@ impl App {
                     self.status =
                         "Host reported session failure; view durable transcript for details".into()
                 }
+                "plugin-manager/install-state" => {
+                    // Only the run this page started is adopted; the Host may serve other clients.
+                    if let Some(value) = args.first()
+                        && let (Some(request), Some(phase)) = (
+                            value.get("requestId").and_then(|v| v.as_str()),
+                            value.get("phase").and_then(|v| v.as_str()),
+                        )
+                    {
+                        let attempt = value.get("attempt").and_then(|attempt| {
+                            Some((
+                                attempt
+                                    .get("registry")
+                                    .and_then(|v| v.as_str())
+                                    .map(str::to_owned),
+                                attempt.get("index").and_then(|v| v.as_u64())? as u32,
+                                attempt.get("total").and_then(|v| v.as_u64())? as u32,
+                            ))
+                        });
+                        self.plugin_manager.install_state(request, phase, attempt);
+                    }
+                }
+                "plugin-manager/install-log" => {
+                    if let Some(value) = args.first()
+                        && let (Some(stream), Some(text)) = (
+                            value.get("stream").and_then(|v| v.as_str()),
+                            value.get("text").and_then(|v| v.as_str()),
+                        )
+                    {
+                        self.plugin_manager.install_log(
+                            value.get("requestId").and_then(|v| v.as_str()),
+                            stream,
+                            text,
+                        );
+                    }
+                }
                 _ => {}
             },
             RemoteEventFrame::Waterfall {

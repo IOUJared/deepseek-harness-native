@@ -155,6 +155,7 @@ pub const PRESETS: &[&str] = &[
     "plugin-manager-install",
     "plugin-manager-installing",
     "plugin-manager-approve",
+    "plugin-manager-progress",
     "changes-card",
     "changes-diff",
     "changes-split",
@@ -383,7 +384,8 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "plugin-manager-row-confirm"
         | "plugin-manager-install"
         | "plugin-manager-installing"
-        | "plugin-manager-approve" => Some((Size::new(1040.0, 760.0), 1.0)),
+        | "plugin-manager-approve"
+        | "plugin-manager-progress" => Some((Size::new(1040.0, 760.0), 1.0)),
         "skill-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "command-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "process-group-closed" | "process-group-open" => Some((Size::new(1040.0, 760.0), 1.0)),
@@ -1562,7 +1564,8 @@ pub fn build(
         "blank": !matches!(preset, "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" | "conversation" | "chat-density" | "chat-markdown" | "chat-thoughts" | "thoughts-preview" | "chat-thoughts-markdown" | "chat-table" | "reminders" | "reminders-delete" | "session-schedule-mark" | "session-hover" | "open-in-app" | "plugin-manager"
             | "plugin-manager-confirm" | "plugin-manager-remove" | "plugin-manager-inspect"
             | "plugin-manager-row-confirm" | "plugin-manager-install"
-            | "plugin-manager-installing" | "plugin-manager-approve")
+            | "plugin-manager-installing" | "plugin-manager-approve"
+            | "plugin-manager-progress")
             && !preset.starts_with("tool-activity"),
 
         "cwd":"/PUBLIC-layout-fixture/workspace",
@@ -1910,6 +1913,7 @@ pub fn build(
             | "plugin-manager-install"
             | "plugin-manager-installing"
             | "plugin-manager-approve"
+            | "plugin-manager-progress"
             | "subagent-catalog"
             | "subagent-catalog-error"
             | "subagent-readonly"
@@ -3183,6 +3187,7 @@ pub fn build(
         || preset == "plugin-manager-install"
         || preset == "plugin-manager-installing"
         || preset == "plugin-manager-approve"
+        || preset == "plugin-manager-progress"
     {
         // The Host's bundle list as the read route returns it: no installation or switch happened.
         app.plugin_manager.seed(
@@ -3280,6 +3285,7 @@ pub fn build(
         || preset == "plugin-manager-install"
         || preset == "plugin-manager-installing"
         || preset == "plugin-manager-approve"
+        || preset == "plugin-manager-progress"
     {
         // The registry order the Add-plugin form offers, with the second registry chosen.
         app.plugin_manager
@@ -3317,6 +3323,28 @@ pub fn build(
         app.plugin_manager
             .seed_pending_builds(vec!["PUBLIC-native-addon".into()]);
         app.plugin_manager.ask_approve();
+    }
+    if preset == "plugin-manager-progress" {
+        // A run announcing its second registry attempt, with a short bounded log tail.
+        app.plugin_manager.seed_installing("native-fixture-2");
+        app.plugin_manager.seed_progress(
+            "installing",
+            Some((Some("https://registry.example.internal".into()), 2, 3)),
+            vec![
+                crate::ui::plugin_manager::LogLine {
+                    stderr: false,
+                    text: "Progress: resolved 41, reused 38, downloaded 3".into(),
+                },
+                crate::ui::plugin_manager::LogLine {
+                    stderr: false,
+                    text: "+ @PUBLIC/voice-kit 2.1.0".into(),
+                },
+                crate::ui::plugin_manager::LogLine {
+                    stderr: true,
+                    text: "WARN peer dependency unmet: @PUBLIC/core".into(),
+                },
+            ],
+        );
     }
     drop(app.update(Message::Resized(size)));
 
@@ -5604,6 +5632,16 @@ mod tests {
                 // The frame shows the pending scripts and the armed approval; nothing ran.
                 assert_eq!(app.plugin_manager.pending_builds(), ["PUBLIC-native-addon"]);
                 assert!(app.plugin_manager.approve_armed());
+                assert!(receiver.try_recv().is_err());
+            }
+            if preset == "plugin-manager-progress" {
+                // The frame shows the second attempt and the bounded log tail.
+                let progress = app.plugin_manager.progress().expect("announced attempt");
+                assert_eq!(
+                    progress.attempt,
+                    Some((Some("https://registry.example.internal".into()), 2, 3))
+                );
+                assert_eq!(app.plugin_manager.log().len(), 3);
                 assert!(receiver.try_recv().is_err());
             }
             if preset == "plugin-manager-inspect"

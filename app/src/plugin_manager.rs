@@ -64,6 +64,20 @@ pub enum Action {
     ConfirmApprove,
 }
 
+/// The Host's announced phase for one installation (`PluginInstallProgress`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct InstallProgress {
+    pub phase: String,
+    /// For `installing`: the registry asked, its one-based position, and how many may be asked.
+    pub attempt: Option<(Option<String>, u32, u32)>,
+}
+/// One bounded tail line from the installation's pnpm output.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LogLine {
+    pub stderr: bool,
+    pub text: String,
+}
+
 #[derive(Default)]
 pub struct Manager {
     open: bool,
@@ -106,6 +120,9 @@ pub struct Manager {
     /// The failed install's pending package scripts, and the approval review armed for them.
     pending_builds: Vec<String>,
     approve_confirm: bool,
+    /// The Host's announced phase for the current run, and the last few log lines.
+    progress: Option<InstallProgress>,
+    log: Vec<LogLine>,
 }
 
 impl Manager {
@@ -312,6 +329,69 @@ impl Manager {
         self.installing = true;
         self.install_request = Some(request_id.to_owned());
     }
+    /// Adopt one announced phase, but only for the run this page started.
+    pub fn install_state(
+        &mut self,
+        request_id: &str,
+        phase: &str,
+        attempt: Option<(Option<String>, u32, u32)>,
+    ) {
+        if self.install_request.as_deref() != Some(request_id)
+            || !matches!(phase, "installing" | "cancelling" | "applying")
+        {
+            return;
+        }
+        self.progress = Some(InstallProgress {
+            phase: phase.to_owned(),
+            attempt: attempt.filter(|(_, index, total)| *index >= 1 && *total >= *index),
+        });
+    }
+    /// Adopt one output chunk for the current run, keeping a short tail.
+    pub fn install_log(&mut self, request_id: Option<&str>, stream: &str, text: &str) {
+        if self.install_request.is_none()
+            || request_id.is_some_and(|id| self.install_request.as_deref() != Some(id))
+            || !matches!(stream, "stdout" | "stderr")
+        {
+            return;
+        }
+        let text = text.trim_end();
+        if text.is_empty() {
+            return;
+        }
+        self.log.push(LogLine {
+            stderr: stream == "stderr",
+            text: short(text, 400),
+        });
+        if self.log.len() > 6 {
+            self.log.remove(0);
+        }
+    }
+    fn clear_run(&mut self) {
+        self.progress = None;
+        self.log.clear();
+    }
+    #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
+    pub fn progress(&self) -> Option<&InstallProgress> {
+        self.progress.as_ref()
+    }
+    #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
+    pub fn log(&self) -> &[LogLine] {
+        &self.log
+    }
+    /// Seed the running state's progress for a public fixture: no Host run exists behind it.
+    #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
+    pub fn seed_progress(
+        &mut self,
+        phase: &str,
+        attempt: Option<(Option<String>, u32, u32)>,
+        log: Vec<LogLine>,
+    ) {
+        self.progress = Some(InstallProgress {
+            phase: phase.to_owned(),
+            attempt,
+        });
+        self.log = log;
+    }
     pub fn ask_approve(&mut self) {
         if !self.installing && !self.pending_builds.is_empty() {
             self.approve_confirm = true;
@@ -370,6 +450,7 @@ impl Manager {
             Ok(None) => {
                 self.installing = false;
                 self.install_request = None;
+                self.clear_run();
                 self.notice = Some((
                     "Installation result unavailable; check the plugin list.".to_owned(),
                     true,
@@ -411,6 +492,7 @@ impl Manager {
             Ok(dsh_native_transport::plugin::PluginCancellation::NotRunning) => {
                 self.installing = false;
                 self.install_request = None;
+                self.clear_run();
                 self.notice = Some((
                     "The installation is no longer running; check the plugin list.".to_owned(),
                     true,
@@ -435,6 +517,7 @@ impl Manager {
         result: Result<dsh_native_transport::plugin::PluginChange, String>,
     ) -> bool {
         self.installing = false;
+        self.clear_run();
         match result {
             Ok(change)
                 if change.application
@@ -897,6 +980,30 @@ impl Manager {
                             .spacing(6)
                             .align_y(iced::Alignment::Center),
                         );
+                        if let Some(progress) = &self.progress {
+                            let phase = match progress.phase.as_str() {
+                                "cancelling" => "Stopping installation…".to_owned(),
+                                "applying" => "Applying the change…".to_owned(),
+                                _ => match &progress.attempt {
+                                    Some((registry, index, total)) => format!(
+                                        "Attempt {index} of {total}{}",
+                                        registry
+                                            .as_deref()
+                                            .map(|registry| format!(" · {registry}"))
+                                            .unwrap_or_default()
+                                    ),
+                                    None => "Installing…".to_owned(),
+                                },
+                            };
+                            card = card.push(label(phase, MUTED).size(10).width(Length::Fill));
+                        }
+                        for line in self.log.iter().rev().take(4).rev() {
+                            card = card.push(
+                                label(line.text.clone(), if line.stderr { DANGER } else { MUTED })
+                                    .size(9)
+                                    .width(Length::Fill),
+                            );
+                        }
                     } else if self.install_confirm {
                         card = card.push(
                             iced::widget::column![
