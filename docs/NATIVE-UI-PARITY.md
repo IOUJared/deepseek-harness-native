@@ -15241,3 +15241,41 @@ keep no container provenance — the renderer's last structural refusal, recorde
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 capture | — | `shots/329-rule-quote.png`, `status: passed`, 1040x560 |
 | app bin | — | **21** warnings |
+
+### Round 536 — a table inside a container keeps its rule and fills the quoted column
+
+**The gap.** `Tag::Table` refused whenever a container was open, so a table inside a blockquote or a list
+item failed the whole document — the renderer's last structural refusal, recorded by round 535. The
+reference nests a table in the same containers as any block, and a table inside a blockquote fills the
+column instead of scrolling (`ui-primitives/src/markdown/render.tsx:281-289`,
+`MarkdownText.module.css:234-241`).
+
+**The change.** `Block::Table` carries `quote` and `quote_first` beside its `indent`; the event arm
+records the container state instead of refusing, and only a table inside a table or inside inline text
+still fails. Height, search offset and view all reserve the container inset, and the view draws the
+rule before the table (or after the indent) and gives the table the remaining width. The indent follows
+the fenced-block rule — every list level indents a table, because a table has no marker column — which
+the first test run caught: `self.indent()` left a table inside an item flush with the item's text.
+
+**Frame.** `shots/330-table-quote.png` (1040x620, new `markdown-table-quote` preset): a quoted table
+inside one continuous rule — `PUBLIC name` / `PUBLIC value` header and two body rows filling the quoted
+column.
+
+**Tests.** `a_table_inside_a_container_keeps_its_rule_and_indent` (a quoted table keeps quote,
+quote-first and its header; a listed table is one level indented and not a quote; a plain table keeps
+zero provenance), and `tables_keep_their_header_inline_runs_and_bounds` now asserts a quoted table
+parses instead of expecting a refusal. The "unsupported" exemplars moved to **a fenced code block inside
+a quote**, which still fails closed.
+
+**Battery (round 536).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1540 passed**, 1 ignored |
+| app, default | **0** | **1484 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-w5h6ocj1`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-nqedmisu`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 capture | — | `shots/330-table-quote.png`, `status: passed`, 1040x620 |
+| app bin | — | **21** warnings |

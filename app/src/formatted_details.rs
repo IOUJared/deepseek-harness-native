@@ -60,6 +60,10 @@ pub enum Block {
         header: Vec<Cell>,
         rows: Vec<Vec<Cell>>,
         indent: u8,
+        /// A table keeps its container's rule and indent, like any other block
+        /// (`render.tsx:281-289`).
+        quote: bool,
+        quote_first: bool,
     },
     /// A thematic rule. It keeps its container's indent and rule, and its own line shrinks by that
     /// inset (`render.tsx:290-291`).
@@ -140,6 +144,9 @@ struct Table {
     header: Vec<Cell>,
     rows: Vec<Vec<Cell>>,
     row: Vec<Cell>,
+    /// The table's container order, carried from the event that opened it.
+    quote: bool,
+    quote_first: bool,
     /// True while the head section's cells are open; the head is the first row.
     head: bool,
 }
@@ -511,17 +518,17 @@ impl Builder {
                 self.alt = Some(String::new());
             }
             Tag::Table(_) => {
-                // A table's cells carry the inline machinery, so a table inside a
-                // list or quote cannot keep its provenance in this flat model.
-                if self.table.is_some()
-                    || self.inline.is_some()
-                    || !self.frames.is_empty()
-                    || !self.lists.is_empty()
-                    || self.quotes != 0
-                {
+                // A table keeps its container's provenance on its own block now; what still has
+                // nowhere to live is a table inside a table or inside inline text.
+                if self.table.is_some() || self.inline.is_some() {
                     return Err(Failure::Unsupported);
                 }
-                self.table = Some(Table::default());
+                self.table = Some(Table {
+                    quote: self.quotes != 0,
+                    quote_first: self.quotes != 0
+                        && self.containers.first() == Some(&Container::Quote),
+                    ..Table::default()
+                });
             }
             Tag::TableHead => {
                 let table = self.table.as_mut().ok_or(Failure::Unsupported)?;
@@ -672,10 +679,14 @@ impl Builder {
                 if table.header.is_empty() || table.head {
                     return Err(Failure::Unsupported);
                 }
+                // A table has no marker column, so every list level indents it — the same rule a
+                // fenced block follows (`Tag::CodeBlock`).
                 self.push(Block::Table {
                     header: table.header,
                     rows: table.rows,
-                    indent: self.indent(),
+                    indent: self.lists.len() as u8,
+                    quote: table.quote,
+                    quote_first: table.quote_first,
                 })?;
             }
             _ => return Err(Failure::Unsupported),
@@ -785,6 +796,49 @@ mod tests {
                 .any(|s| s.text == "x < y" && s.code && !s.bold && !s.italic)
         );
         assert!(spans.iter().any(|s| s.text == "all" && s.bold && s.italic));
+    }
+
+    #[test]
+    fn a_table_inside_a_container_keeps_its_rule_and_indent() {
+        // The reference nests a table in the same containers as any block, and a table inside a
+        // blockquote fills the column instead of scrolling (`render.tsx:281-289`).
+        let quoted = document("> | a | b |\n> |---|---|\n> | c | d |\n");
+        match &quoted.blocks[0] {
+            Block::Table {
+                quote,
+                quote_first,
+                indent,
+                header,
+                ..
+            } => {
+                assert!(*quote, "the table is quoted");
+                assert!(*quote_first);
+                assert_eq!(*indent, 0);
+                assert_eq!(header.len(), 2, "the header survives the container");
+            }
+            _ => panic!("a table"),
+        }
+        let listed = document("- | a | b |\n  |---|---|\n  | c | d |\n");
+        match &listed.blocks[0] {
+            Block::Table {
+                quote,
+                quote_first,
+                indent,
+                ..
+            } => {
+                assert!(!*quote, "a list item is not a quote");
+                assert!(!*quote_first);
+                assert_eq!(*indent, 1, "the item's text sits one level in");
+            }
+            _ => panic!("a table"),
+        }
+        // A plain table keeps zero provenance.
+        match &document("| a |\n|---|\n| b |\n").blocks[0] {
+            Block::Table {
+                quote, quote_first, ..
+            } => assert_eq!((*quote, *quote_first), (false, false)),
+            _ => panic!("a table"),
+        }
     }
 
     #[test]
@@ -1202,6 +1256,7 @@ mod tests {
                 header,
                 rows,
                 indent,
+                ..
             } => (header, rows, *indent),
             _ => panic!("expected table"),
         };
@@ -1212,9 +1267,20 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert!(rows[0][0][0].code);
         assert_eq!(joined(&rows[1][0]), "e");
-        // A table stays out of list/quote provenance, which the flat block model cannot
-        // represent, and its rows are bounded like the other block lists.
-        failure("> | a |\n> |---|\n> | b |\n", Failure::Unsupported);
+        // A table keeps its container's provenance now, so it parses inside a quote; its rows
+        // stay bounded like the other block lists. (`quoted` is the parsed document here, because
+        // the helper's name is shadowed above.)
+        let quoted = crate::ui::detail_panel::formatted::parse("> | a |\n> |---|\n> | b |\n")
+            .unwrap_or_else(|_| panic!("valid quoted table"));
+        match &quoted.blocks[0] {
+            Block::Table {
+                quote, quote_first, ..
+            } => {
+                assert!(*quote, "the table is quoted");
+                assert!(*quote_first);
+            }
+            _ => panic!("a table"),
+        }
         let mut rows = String::from("| a |\n|---|\n");
         for index in 0..ROWS {
             rows.push_str(&format!("| {index} |\n"));
@@ -1242,8 +1308,8 @@ mod tests {
     #[test]
     fn unsupported_content_anywhere_fails_whole_source() {
         for source in [
-            // A table inside a container is still refused: its cells keep no list/quote provenance.
-            "> | a | b |\n> |---|---|\n> | a | b |",
+            // A fenced code block inside a container is still refused: its text keeps no
+            // list/quote provenance.
             "> ```\n> code\n> ```",
             ">     code\n",
             "- > ```\n  > code\n  > ```",
@@ -1450,7 +1516,7 @@ mod tests {
     fn diagnostics_only_expose_content_free_failure_variants() {
         // A heading inside a quote is refused, so it can stand in for content that must never
         // reach a diagnostic.
-        let private_source = "PRIVATE_TOKEN\n\n> | a | b |\n> |---|---|\n> | PRIVATE | x |";
+        let private_source = "PRIVATE_TOKEN\n\n> ```\n> PRIVATE_CODE\n> ```";
         let error = match parse(private_source) {
             Err(error) => error,
             Ok(_) => panic!("expected unsupported HTML"),
@@ -1516,7 +1582,23 @@ mod extension_tests {
         let doc = parse("Plain **bold** text.\n").unwrap();
         assert_eq!(texts(&doc.blocks), vec!["Plain bold text.".to_owned()]);
         // An unsupported construct still fails closed; raw HTML is drawn literally.
-        assert!(parse("> | a | b |\n> |---|---|\n> | nested | x |").is_err());
+        assert!(parse("> ```\n> nested\n> ```").is_err());
         assert!(parse("<div>html</div>\n").is_ok());
+    }
+}
+
+#[cfg(test)]
+mod unsupported_probe {
+    use super::*;
+
+    #[test]
+    fn probe_unsupported() {
+        for source in [
+            "> ```\n> code\n> ```",
+            ">     code\n",
+            "- > ```\n  > code\n  > ```",
+        ] {
+            println!("{source:?} => {:?}", parse(source).map(|d| d.blocks.len()));
+        }
     }
 }

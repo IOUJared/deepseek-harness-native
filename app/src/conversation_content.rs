@@ -1265,10 +1265,12 @@ fn block_height(
             header,
             rows,
             indent,
+            quote,
+            ..
         } => table_height(
             header,
             rows,
-            width - *indent as f32 * 18.0,
+            width - *indent as f32 * 18.0 - if *quote { ladder.quote_inset() } else { 0.0 },
             delta,
             delta_secondary,
             ladder,
@@ -1362,13 +1364,29 @@ pub(crate) fn document_first_offset(
             .map(|offset| offset + design::CODE_BANNER_HEIGHT + design::CODE_PAD),
             // A table's cells are searched row by row at the height each row
             // reserves, so a header match and a body match land where they are drawn.
-            formatted::Block::Table { header, rows, .. } => {
+            formatted::Block::Table {
+                header,
+                rows,
+                indent,
+                quote,
+                ..
+            } => {
+                let cell_width =
+                    width - *indent as f32 * 18.0 - if *quote { ladder.quote_inset() } else { 0.0 };
                 let mut inner = 0.0;
                 for (index, row) in std::iter::once(header).chain(rows.iter()).enumerate() {
-                    let height = table_row_height(row, width, delta_secondary, ladder);
+                    let height = table_row_height(row, cell_width, delta_secondary, ladder);
                     let found = row.iter().find_map(|cell| {
-                        first_offset(inline_runs(cell), query, width, size, line, FONT, false)
-                            .map(|offset| inner + offset)
+                        first_offset(
+                            inline_runs(cell),
+                            query,
+                            cell_width,
+                            size,
+                            line,
+                            FONT,
+                            false,
+                        )
+                        .map(|offset| inner + offset)
                     });
                     if let Some(offset) = found {
                         return Some(y + gap + offset);
@@ -1684,7 +1702,37 @@ fn document_view(
                 header,
                 rows,
                 indent,
-            } => table_view(header, rows, *indent, width, delta_secondary, ladder, query),
+                quote,
+                quote_first,
+            } => {
+                // The table fills the width its containers leave, inside the quote's rule and the
+                // list's indent (`render.tsx:281-289`).
+                let inset = *indent as f32 * 18.0 + if *quote { ladder.quote_inset() } else { 0.0 };
+                let table = table_view(
+                    header,
+                    rows,
+                    0,
+                    width - inset,
+                    delta_secondary,
+                    ladder,
+                    query,
+                );
+                let mut line = row![].spacing(0);
+                if *quote && *quote_first {
+                    let height =
+                        table_height(header, rows, width - inset, delta, delta_secondary, ladder);
+                    let (rule, pad) = quote_rule(height, ladder);
+                    line = line.push(rule).push(pad);
+                }
+                line = line.push(iced::widget::Space::new().width(*indent as f32 * 18.0));
+                if *quote && !*quote_first {
+                    let height =
+                        table_height(header, rows, width - inset, delta, delta_secondary, ladder);
+                    let (rule, pad) = quote_rule(height, ladder);
+                    line = line.push(rule).push(pad);
+                }
+                line.push(table).into()
+            }
             formatted::Block::Rule {
                 indent,
                 quote,
@@ -1992,12 +2040,7 @@ mod tests {
         assert!(p.matches("supplied reasoning"));
         assert!(!p.matches("absent"));
         // A heading inside a quote is inert markup: the whole source stays searchable text.
-        let raw = cache.prepare(
-            1,
-            3,
-            String::new(),
-            "> | a | b |\n> |---|---|\n> | PUBLIC inert | x |".into(),
-        );
+        let raw = cache.prepare(1, 3, String::new(), "> ```\n> PUBLIC inert\n> ```".into());
         assert!(raw.document.is_none());
         assert!(raw.matches("PUBLIC inert"));
     }
@@ -2449,7 +2492,7 @@ mod tests {
     #[test]
     fn unsupported_markup_is_inert_full_source_not_partial_formatting() {
         let cache = Cache::default();
-        let source = "> | a | b |\n> |---|---|\n> | PUBLIC inert | x |";
+        let source = "> ```\n> PUBLIC code\n> ```";
         let p = cache.prepare(1, 0, String::new(), source.into());
         assert!(p.document.is_none());
         assert_eq!(p.answer, source);

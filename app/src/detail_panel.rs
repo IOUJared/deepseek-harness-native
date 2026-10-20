@@ -364,6 +364,7 @@ fn view(document: &formatted::Document) -> Element<'_, Message> {
                 header,
                 rows,
                 indent,
+                ..
             } => super::conversation_content::table_view(
                 header,
                 rows,
