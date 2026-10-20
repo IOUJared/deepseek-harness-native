@@ -128,7 +128,8 @@ not a composed-profile or runtime observation.
 **Every quantity a sequence parses is bounded (rounds 588–596).** The screen is fed bytes from the Host, so
 a parsed number is untrusted. A tab stop is clamped to the last column
 (`a_tab_past_the_last_column_does_not_spin`); `CSI N L`/`M`/`P`/`@` clamp their count to the grid's height
-or the screen's width, and to 1,024 before the Host states a size (`bound every count` in round 592);
+or the screen's width, and to 1,024 before the Host states a size (the two count shapes in
+`adversarial_escape_input_terminates_and_renders`, round 592);
 `CSI r;c H`, `G` and `C` clamp the cursor to the screen through one `clamp_column` (round 593); an unbounded
 grid grows on insert and shrinks on delete rather than dropping a row
 (`inserting_a_line_before_a_size_arrives_keeps_every_row`); and `CSI 1 J` blanks only up to and including
