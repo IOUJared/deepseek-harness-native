@@ -182,6 +182,7 @@ enum Endpoint {
     PluginInventory,
     PluginBundles,
     PluginBundleEnabled,
+    PluginBundleRemove,
     AgentPresetSelect,
     JobKill,
     PluginSettings,
@@ -266,6 +267,7 @@ impl Endpoint {
             Self::PluginInventory => "pluginInventory/list",
             Self::PluginBundles => "pluginManager/listBundles",
             Self::PluginBundleEnabled => "pluginManager/setBundleEnabled",
+            Self::PluginBundleRemove => "pluginManager/removeBundle",
             Self::AgentPresetSelect => "agentPresets/select",
             Self::JobKill => "job/kill",
             Self::PluginSettings => "settings/describe",
@@ -1353,6 +1355,20 @@ impl NativeClient {
                 Endpoint::PluginBundleEnabled,
                 json!({"name": name, "enabled": enabled}),
             )
+            .await?;
+        crate::plugin::project_change(value)
+    }
+    /// Remove one bundle from the profile (`pluginManager/removeBundle`, `manager-store.ts:637-643`).
+    /// A destructive Host write: the caller owns the explicit confirmation and the single attempt.
+    pub async fn plugin_manager_remove_bundle(
+        &self,
+        name: &str,
+    ) -> Result<crate::plugin::PluginChange> {
+        if name.is_empty() || name.len() > 512 || name.chars().any(char::is_control) {
+            return Err(Error::InvalidDto);
+        }
+        let value = self
+            .invoke(Endpoint::PluginBundleRemove, json!({"name": name}))
             .await?;
         crate::plugin::project_change(value)
     }

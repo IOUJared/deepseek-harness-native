@@ -25,6 +25,14 @@ pub enum Action {
     CancelBundle,
     /// Send the armed bundle switch; one explicit attempt.
     ConfirmBundle,
+    /// Arm the removal review for one removable bundle; nothing is sent.
+    AskRemove {
+        name: String,
+    },
+    /// Leave the armed removal without writing.
+    CancelRemove,
+    /// Send the armed removal; one explicit destructive attempt.
+    ConfirmRemove,
 }
 
 #[derive(Default)]
@@ -43,6 +51,10 @@ pub struct Manager {
     pending: Option<(String, bool)>,
     /// The last switch's outcome copy.
     notice: Option<(String, bool)>,
+    /// The bundle removal under review; nothing is sent until Confirm.
+    remove_confirm: Option<String>,
+    /// The removal in flight.
+    remove_pending: Option<String>,
 }
 
 impl Manager {
@@ -128,6 +140,76 @@ impl Manager {
             }
         }
     }
+    pub fn ask_remove(&mut self, name: String) {
+        if self.remove_pending.is_none() {
+            self.remove_confirm = Some(name);
+            self.notice = None;
+        }
+    }
+    pub fn cancel_remove(&mut self) {
+        self.remove_confirm = None;
+    }
+    /// Take the armed removal into flight. The caller sends it; a second press cannot duplicate it.
+    pub fn confirm_remove(&mut self) -> Option<String> {
+        if self.remove_pending.is_some() {
+            return None;
+        }
+        let name = self.remove_confirm.take()?;
+        self.remove_pending = Some(name.clone());
+        self.notice = None;
+        Some(name)
+    }
+    /// Adopt one removal's settlement and say whether the list should be re-read.
+    pub fn removed(
+        &mut self,
+        name: String,
+        result: Result<dsh_native_transport::plugin::PluginChange, String>,
+    ) -> bool {
+        self.remove_pending = None;
+        match result {
+            Ok(change) => {
+                self.notice = Some(match change.application {
+                    dsh_native_transport::plugin::PluginApplication::Applied => {
+                        (format!("Uninstalled {name}."), false)
+                    }
+                    dsh_native_transport::plugin::PluginApplication::RestartRequired => (
+                        "Removal saved. It takes effect at the next start.".to_owned(),
+                        false,
+                    ),
+                    dsh_native_transport::plugin::PluginApplication::Cancelled => {
+                        (format!("The removal of {name} was cancelled."), false)
+                    }
+                    dsh_native_transport::plugin::PluginApplication::Overridden
+                    | dsh_native_transport::plugin::PluginApplication::Failed => {
+                        let code = change
+                            .error
+                            .as_deref()
+                            .map(|code| format!(" ({code})"))
+                            .unwrap_or_default();
+                        (format!("The Host did not uninstall {name}{code}."), true)
+                    }
+                });
+                true
+            }
+            Err(error) => {
+                self.notice = Some((
+                    format!("Could not uninstall {name}: {}", short(&error, 80)),
+                    true,
+                ));
+                true
+            }
+        }
+    }
+    /// The armed removal, for the fixture and its pinning test.
+    #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
+    pub fn remove_armed(&self) -> Option<&str> {
+        self.remove_confirm.as_deref()
+    }
+    /// Seed the armed removal for a public fixture: no Host ran and nothing is sent.
+    #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
+    pub fn seed_remove(&mut self, name: &str) {
+        self.remove_confirm = Some(name.to_owned());
+    }
     /// The armed review, for the fixture and its pinning test.
     #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
     pub fn review_armed(&self) -> Option<(&str, bool)> {
@@ -181,8 +263,8 @@ impl Manager {
             ]
             .align_y(iced::Alignment::Center),
             label(
-                "Installed bundles and their profile state. Switching one on or off takes an \
-                 explicit confirmation; installing or removing a package is not offered here.",
+                "Installed bundles and their profile state. Switching or uninstalling a bundle \
+                 takes its own explicit confirmation; installing a package is not offered here.",
                 MUTED,
             )
             .size(12),
@@ -329,6 +411,53 @@ impl Manager {
                                     name,
                                     enabled: wanted,
                                 })),
+                        );
+                    }
+                }
+                // Removal is destructive, so it always carries the reference's own question
+                // (`confirmUninstallTitle`); a shipped or Host-protected bundle offers nothing.
+                if self.management_available
+                    && bundle.removable
+                    && bundle.read_only_reason.is_none()
+                {
+                    let name = bundle.name.clone();
+                    if self
+                        .remove_pending
+                        .as_deref()
+                        .is_some_and(|pending| pending == bundle.name)
+                    {
+                        row = row.push(label("Removing…", MUTED).size(10));
+                    } else if self
+                        .remove_confirm
+                        .as_deref()
+                        .is_some_and(|asking| asking == bundle.name)
+                    {
+                        row = row.push(
+                            iced::widget::column![
+                                label(format!("Uninstall \"{}\"?", short(&bundle.name, 48)), TEXT)
+                                    .size(11),
+                                label("What it provides goes away once it is uninstalled.", MUTED)
+                                    .size(10),
+                                iced::widget::row![
+                                    button(label("Cancel", MUTED).size(11))
+                                        .padding([3, 8])
+                                        .style(design::ghost)
+                                        .on_press(Message::PluginManager(Action::CancelRemove)),
+                                    button(label("Uninstall", DANGER).size(11))
+                                        .padding([3, 8])
+                                        .style(design::ghost)
+                                        .on_press(Message::PluginManager(Action::ConfirmRemove)),
+                                ]
+                                .spacing(6),
+                            ]
+                            .spacing(2),
+                        );
+                    } else {
+                        row = row.push(
+                            button(label("Uninstall…", MUTED).size(11))
+                                .padding([3, 8])
+                                .style(design::ghost)
+                                .on_press(Message::PluginManager(Action::AskRemove { name })),
                         );
                     }
                 }

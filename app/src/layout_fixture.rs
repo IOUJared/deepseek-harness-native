@@ -149,6 +149,7 @@ pub const PRESETS: &[&str] = &[
     "open-in-app",
     "plugin-manager",
     "plugin-manager-confirm",
+    "plugin-manager-remove",
     "changes-card",
     "changes-diff",
     "changes-split",
@@ -370,7 +371,9 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "settings-shortcuts" => Some((Size::new(1040.0, 900.0), 1.0)),
         "turn-error" | "turn-max-tokens" | "quota-toast" => Some((Size::new(1040.0, 620.0), 1.0)),
         "schedule-create" | "schedule-create-deleted" => Some((Size::new(1040.0, 700.0), 1.0)),
-        "plugin-manager" | "plugin-manager-confirm" => Some((Size::new(1040.0, 760.0), 1.0)),
+        "plugin-manager" | "plugin-manager-confirm" | "plugin-manager-remove" => {
+            Some((Size::new(1040.0, 760.0), 1.0))
+        }
         "skill-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "command-row" => Some((Size::new(1040.0, 700.0), 1.0)),
         "process-group-closed" | "process-group-open" => Some((Size::new(1040.0, 760.0), 1.0)),
@@ -1547,7 +1550,7 @@ pub fn build(
         // A preset that carries a transcript is not a blank session; the reference's own row
         // list and the chat fixtures both depend on this flag.
         "blank": !matches!(preset, "jobs-panel" | "jobs-panel-error" | "jobs-panel-many" | "conversation" | "chat-density" | "chat-markdown" | "chat-thoughts" | "thoughts-preview" | "chat-thoughts-markdown" | "chat-table" | "reminders" | "reminders-delete" | "session-schedule-mark" | "session-hover" | "open-in-app" | "plugin-manager"
-            | "plugin-manager-confirm")
+            | "plugin-manager-confirm" | "plugin-manager-remove")
             && !preset.starts_with("tool-activity"),
 
         "cwd":"/PUBLIC-layout-fixture/workspace",
@@ -1889,6 +1892,7 @@ pub fn build(
             | "open-in-app"
             | "plugin-manager"
             | "plugin-manager-confirm"
+            | "plugin-manager-remove"
             | "subagent-catalog"
             | "subagent-catalog-error"
             | "subagent-readonly"
@@ -3154,7 +3158,10 @@ pub fn build(
             app.process_group_open.insert(key, true);
         }
     }
-    if preset == "plugin-manager" || preset == "plugin-manager-confirm" {
+    if preset == "plugin-manager"
+        || preset == "plugin-manager-confirm"
+        || preset == "plugin-manager-remove"
+    {
         // The Host's bundle list as the read route returns it: no installation or switch happened.
         app.plugin_manager.seed(
             true,
@@ -3204,6 +3211,10 @@ pub fn build(
     if preset == "plugin-manager-confirm" {
         // The armed review a press on `Enable` reaches; nothing is sent by the frame.
         app.plugin_manager.seed_confirm("dsh-bundle-voice", true);
+    }
+    if preset == "plugin-manager-remove" {
+        // The armed uninstall a press on `Uninstall…` reaches; nothing is sent by the frame.
+        app.plugin_manager.seed_remove("dsh-bundle-base");
     }
     drop(app.update(Message::Resized(size)));
 
@@ -5466,6 +5477,11 @@ mod tests {
                     app.plugin_manager.review_armed(),
                     Some(("dsh-bundle-voice", true))
                 );
+                assert!(receiver.try_recv().is_err());
+            }
+            if preset == "plugin-manager-remove" {
+                // The frame shows the armed uninstall; no destructive command was queued.
+                assert_eq!(app.plugin_manager.remove_armed(), Some("dsh-bundle-base"));
                 assert!(receiver.try_recv().is_err());
             }
             if preset == "terminal-tabs" {

@@ -1294,3 +1294,57 @@ fn switching_a_plugin_bundle_needs_confirm_sends_one_write_and_rereads_the_list(
     })));
     assert!(matches!(queue.try_recv(), Ok(Command::PluginManagerRead)));
 }
+
+#[test]
+fn uninstalling_a_bundle_needs_confirm_and_sends_one_destructive_write() {
+    use super::plugin_manager::Action as Manager;
+    use dsh_native_transport::plugin::{PluginApplication, PluginChange};
+    let (mut app, mut queue) = app();
+    let bundle = dsh_native_transport::plugin::PluginBundle {
+        name: "PUBLIC-bundle".into(),
+        version: Some("1.0.0".into()),
+        description: None,
+        enabled: false,
+        installed: true,
+        optional: false,
+        removable: true,
+        rows: 1,
+        overrides: 0,
+        read_only_reason: None,
+        error: None,
+    };
+    app.plugin_manager.seed(true, vec![bundle]);
+    // Arming the removal sends nothing.
+    drop(app.update(Message::PluginManager(Manager::AskRemove {
+        name: "PUBLIC-bundle".into(),
+    })));
+    assert!(queue.try_recv().is_err());
+    // Cancelling sends nothing and leaves nothing armed.
+    drop(app.update(Message::PluginManager(Manager::CancelRemove)));
+    drop(app.update(Message::PluginManager(Manager::ConfirmRemove)));
+    assert!(queue.try_recv().is_err());
+    // A confirmed removal sends exactly one destructive write.
+    drop(app.update(Message::PluginManager(Manager::AskRemove {
+        name: "PUBLIC-bundle".into(),
+    })));
+    drop(app.update(Message::PluginManager(Manager::ConfirmRemove)));
+    let Command::PluginRemove { name } = queue.try_recv().expect("one removal") else {
+        panic!("only the bundle removal expected")
+    };
+    assert_eq!(name, "PUBLIC-bundle");
+    // A second Confirm while the first is in flight is ignored.
+    drop(app.update(Message::PluginManager(Manager::ConfirmRemove)));
+    assert!(queue.try_recv().is_err());
+    // The settlement re-reads the Host's list.
+    drop(app.update(Message::Worker(Event::PluginRemoved {
+        name: "PUBLIC-bundle".into(),
+        result: Ok(PluginChange {
+            changed: true,
+            application: PluginApplication::Applied,
+            target: "PUBLIC-bundle".into(),
+            enabled: None,
+            error: None,
+        }),
+    })));
+    assert!(matches!(queue.try_recv(), Ok(Command::PluginManagerRead)));
+}

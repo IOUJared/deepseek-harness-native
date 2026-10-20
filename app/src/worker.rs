@@ -64,6 +64,10 @@ pub enum Command {
         name: String,
         enabled: bool,
     },
+    /// Remove one bundle after the page's explicit confirmation. Destructive.
+    PluginRemove {
+        name: String,
+    },
     /// Re-read the session roster, whose summaries carry the projections a subagent catalog is built
     /// from. The reference refreshes a child's projection when its chevron is pressed
     /// (`SubagentHeaderLineage.tsx:554-561`); this is the same read, whole-roster.
@@ -409,6 +413,11 @@ pub enum Event {
     PluginBundleChanged {
         name: String,
         enabled: bool,
+        result: Result<dsh_native_transport::plugin::PluginChange, String>,
+    },
+    /// One bundle removal's settlement; the page re-reads the list from the Host after it.
+    PluginRemoved {
+        name: String,
         result: Result<dsh_native_transport::plugin::PluginChange, String>,
     },
     PluginsLoaded {
@@ -1177,6 +1186,10 @@ fn rejected(command: Command) -> Event {
         Command::PluginBundleEnabled { name, enabled } => Event::PluginBundleChanged {
             name,
             enabled,
+            result: Err(error),
+        },
+        Command::PluginRemove { name } => Event::PluginRemoved {
+            name,
             result: Err(error),
         },
         Command::PluginsRead(ticket) => Event::PluginsLoaded {
@@ -2785,6 +2798,10 @@ async fn run(
                     Command::OpenWorkspacePath{path}=>Event::WorkspacePathOpened{
                         result:client.open_workspace_path(&path).await.map_err(|error|format!("Open path: {error}")),
                         path,
+                    },
+                    Command::PluginRemove{name}=>Event::PluginRemoved{
+                        result:client.plugin_manager_remove_bundle(&name).await.map_err(|error|format!("Plugins: {error}")),
+                        name,
                     },
                     Command::PluginBundleEnabled{name,enabled}=>Event::PluginBundleChanged{
                         result:client.plugin_manager_set_bundle_enabled(&name,enabled).await.map_err(|error|format!("Plugins: {error}")),

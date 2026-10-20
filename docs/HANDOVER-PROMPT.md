@@ -22,20 +22,20 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > (pinned `c6044cc50b`). Cite it as `file:line` in code comments and round notes.
 >
 > ### Last five rounds, so the next session starts oriented
-> - 671: the **workspace "Open in app"** header split button over the two plain Host routes, with the
->   remembered choice persisted; frame `369`.
 > - 672: a created task's expanded row states `Scheduled for` / `Repeat` / `State`; frame `370`.
 > - 673: the terminal panel **docks its terminals as tabs** above the output; frame `371`.
 > - 674: the **read-only plugin manager** reads the Host's profile availability and installed bundles;
->   frame `372`. The inventory projection now carries `managementAvailable` instead of hardcoding false.
-> - 675: **a bundle switches on/off through an explicit review → Confirm**, one write, the Host's
->   application/restart/failure copy, then a re-read; frame `373`.
+>   frame `372`; the inventory projection now carries `managementAvailable`.
+> - 675: **a bundle switches on/off through review → Confirm**, one write, the Host's application /
+>   restart / failure copy, then a re-read; frame `373`.
+> - 676: **a removable bundle uninstalls through its own confirmation**, reusing the same settlement and
+>   re-read; frame `374`.
 >
-> **Current remainder:** the plugin manager's install/remove, spec inspect, registries, version
-> exemptions and plugin-level toggles — Host writes with longer-running stages that need the same
-> tickets plus indeterminate-outcome handling. Blocked on the user: the canvas-dial dependency approval
-> (context meter stays a text reading) and the deferred live `schedule/changed` observation. Baselines:
-> fixture **1607** / default **1551**, 21 warnings, battery 17/17 (`verification-fe3f5cc90caf`).
+> **Current remainder:** the plugin manager's install, spec inspect, registries, version exemptions and
+> plugin-level (row) toggles — longer-running Host writes that need the same tickets plus
+> indeterminate-outcome handling. Blocked on the user: the canvas-dial dependency approval (context
+> meter stays a text reading) and the deferred live `schedule/changed` observation. Baselines: fixture
+> **1608** / default **1552**, 21 warnings, battery 17/17 (`verification-c34cb2d555ab`).
 
 ---
 

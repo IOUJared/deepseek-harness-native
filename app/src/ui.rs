@@ -6423,6 +6423,15 @@ impl App {
                             self.command(worker::Command::PluginBundleEnabled { name, enabled });
                         }
                     }
+                    plugin_manager::Action::AskRemove { name } => {
+                        self.plugin_manager.ask_remove(name);
+                    }
+                    plugin_manager::Action::CancelRemove => self.plugin_manager.cancel_remove(),
+                    plugin_manager::Action::ConfirmRemove => {
+                        if let Some(name) = self.plugin_manager.confirm_remove() {
+                            self.command(worker::Command::PluginRemove { name });
+                        }
+                    }
                 }
             }
             // A disclosure with no visible composer has nothing to expand, and an
@@ -7087,6 +7096,12 @@ impl App {
             }
             Event::PluginManagerLoaded(result) => {
                 self.plugin_manager.settled(result);
+            }
+            Event::PluginRemoved { name, result } => {
+                let reread = self.plugin_manager.removed(name, result);
+                if reread && self.plugin_manager.begin() {
+                    self.command(worker::Command::PluginManagerRead);
+                }
             }
             Event::PluginBundleChanged {
                 name,
