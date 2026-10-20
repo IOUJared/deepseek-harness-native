@@ -34,6 +34,9 @@ file is the stage map; it is deleted with the last Python file.
 | Slint scale | `benchmarks/slint/qualify-scale.py` | `xtask bench scale` (both renderers, sequential) |
 | Composed settings | `scripts/qualify-composed-settings.py` | `xtask qualify composed-settings`: pidfd root pinning, parent-chain fencing, bounded TERM/KILL cleanup. The Python file **stays** until its qualification dependents are ported |
 | Lazy account | `scripts/qualify-lazy-account.py` | `xtask qualify lazy-account`, on a shared `run_owned` (same pin/fence/cleanup rules, private report, source digests, exact lifecycle validator). Stays until its dependents are ported |
+| Agent discovery | `scripts/qualify-agent-discovery.py` (+ its guard) | `xtask qualify agent-discovery [--sdk]` |
+| Client projections | `scripts/qualify-client-projections.py` | `xtask qualify client-projections` |
+| Turn outline | `scripts/qualify-turn-outline.py` | `xtask qualify turn-outline` |
 | App qualifier (root) | `scripts/qualify-native-app.py` | `xtask qualify app`: owned-tree sampling, per-thread CPU, pidfd identity guard, SIGINT/SIGTERM cleanup, compositor mapping proxy, keyless-idle medians. The Python file **stays** until its qualification dependents are ported |
 | Their guards | 4 Python test modules | 65 tests in `tools/xtask` (`src/*` units + `tests/cli.rs`) |
 | Entry point | `check.sh` → `python3` | `check.sh` → `cargo run -- verify` |
@@ -97,8 +100,8 @@ Deliberate differences, all measured against the Python originals:
 
 | Family | Files | Lines | Target |
 |---|---|---|---|
-| `scripts/qualify-*` | 22 | 3,811 | `xtask qualify <name>`; the assertions are already Rust examples writing `result.json` |
-| `scripts/test_*` | 20 | 3,397 | Rust tests next to the qualifiers; rewrite each guard's subject, never copy it verbatim. `app/` has no Python left |
+| `scripts/qualify-*` | 19 | 3,669 | `xtask qualify <name>`; the assertions are already Rust examples writing `result.json` |
+| `scripts/test_*` | 19 | 3,353 | Rust tests next to the qualifiers; rewrite each guard's subject, never copy it verbatim. `app/` has no Python left |
 | `.github/scripts/*` | 4 | 387 | `xtask package` / `xtask publish`; `tar` + `flate2` are already dependencies, `gh` stays a child process |
 | `development-launcher.py` | 1 | 356 | **Shipped** as `launch.py` in the development package: a Rust `dsh-native-launch` binary replaces it, so the archive stops requiring Python 3.11+; update the archive verifier and install docs together |
 | `benchmarks/run.py` + `test_runner.py` | 2 | 417 | Deleted with the qualification family, whose scripts import the library; `xtask bench run` is already the replacement |

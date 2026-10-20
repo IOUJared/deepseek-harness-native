@@ -725,13 +725,16 @@ pub fn valid_account(value: &Value) -> bool {
 }
 
 /// The shared private ownership runner used by the account-style qualifiers.
+/// A command built after the private output directory exists.
+pub type CommandFactory<'a> = Box<dyn Fn(&Path) -> Vec<String> + 'a>;
+
 pub struct OwnedRun<'a> {
     pub script: &'a Path,
     pub report_name: &'a str,
     pub report_key: &'a str,
     pub evidence_env: &'a str,
     pub scope: Option<&'a str>,
-    pub command: Vec<String>,
+    pub command: CommandFactory<'a>,
     pub capture_stdout: bool,
     pub timeout: Duration,
 }
@@ -788,9 +791,10 @@ pub fn run_owned(
     } else {
         Stdio::null()
     };
-    let mut command = Command::new(&spec.command[0]);
+    let argv = (spec.command)(&output);
+    let mut command = Command::new(&argv[0]);
     command
-        .args(&spec.command[1..])
+        .args(&argv[1..])
         .current_dir(output.join("workspace"))
         .env_clear()
         .envs(&env)
@@ -919,12 +923,13 @@ pub fn lazy_account(root: &Path, output: &Path) -> i32 {
         report_key: "account",
         evidence_env: "DSH_NATIVE_ACCOUNT_EVIDENCE",
         scope: None,
-        command: vec![
-            "/usr/bin/node".into(),
-            root.join("scripts/qualify-lazy-account.mjs")
+        command: {
+            let script = root
+                .join("scripts/qualify-lazy-account.mjs")
                 .to_string_lossy()
-                .into_owned(),
-        ],
+                .into_owned();
+            Box::new(move |_| vec!["/usr/bin/node".to_string(), script.clone()])
+        },
         capture_stdout: false,
         timeout: Duration::from_secs(35),
     };

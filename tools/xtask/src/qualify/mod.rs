@@ -7,6 +7,7 @@ pub mod app;
 pub mod composed;
 pub mod control;
 pub mod layout;
+pub mod node;
 pub mod scroll;
 
 use crate::compositor::{Facts, window_facts};
@@ -452,6 +453,7 @@ pub fn run(arguments: &[String]) -> i32 {
     let mut scale = 1.0_f64;
     let mut seconds: u32 = 10;
     let mut screenshot = false;
+    let mut sdk = false;
     let mut arguments = arguments[1..].iter();
     while let Some(argument) = arguments.next() {
         let parsed: Result<(), String> = (|| match argument.as_str() {
@@ -480,6 +482,10 @@ pub fn run(arguments: &[String]) -> i32 {
                 screenshot = true;
                 Ok(())
             }
+            "--sdk" => {
+                sdk = true;
+                Ok(())
+            }
             other => Err(format!("unexpected argument: {other}")),
         })();
         if let Err(message) = parsed {
@@ -505,6 +511,9 @@ pub fn run(arguments: &[String]) -> i32 {
         ),
         "details" => layout::run(&root.join("app")),
         "scroll" => scroll::run(&root.join("app")),
+        "agent-discovery" => node::agent_discovery(&root, &output, sdk),
+        "client-projections" => node::client_projections(&root, &output),
+        "turn-outline" => node::turn_outline(&root, &output),
         "composed-settings" => composed::run(&root, &output, scale),
         "lazy-account" => composed::lazy_account(&root, &output),
         "control" => control::run(&root.join("app")),
