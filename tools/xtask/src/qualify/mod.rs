@@ -503,6 +503,7 @@ pub fn run(arguments: &[String]) -> i32 {
         ),
         "details" => layout::run(&root.join("app")),
         "scroll" => scroll::run(&root.join("app")),
+        "submenus" => layout::submenus(&root.join("app")),
         "dialog" => dialog(&root, &output, scale),
         "codex" => codex(&root, &output, scale),
         other => {
