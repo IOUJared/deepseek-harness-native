@@ -3098,20 +3098,6 @@ pub fn build(
         // own state: one click's worth, set before the frame rather than pressed during it.
         app.turn_process_open.insert(1);
     }
-    if preset == "schedule-create" || preset == "schedule-create-deleted" {
-        // The call's own seat is folded until the reader opens it, so the card needs the seat's
-        // open state before the frame rather than a press during it.
-        let keys: Vec<u64> = {
-            let rows: Vec<_> = app.transcript.display_rows(false).collect();
-            app.process_seats(&rows)
-                .values()
-                .map(|seat| seat.key)
-                .collect()
-        };
-        for key in keys {
-            app.process_group_open.insert(key, true);
-        }
-    }
     if preset == "tool-activity-open" {
         // A seat is folded until the reader opens it, so the expanded state needs its own
         // state: one click's worth, set before the frame rather than pressed during it.
@@ -3739,6 +3725,19 @@ pub fn build(
                 Some("Weekly on Mon, Fri at 09:00 (UTC)")
             );
             assert_eq!(card.fallback, None);
+            // The card belongs to the Turn tail, outside the fold: the call's own row is not the
+            // card, and folding the process cannot take the created task away
+            // (`ScheduleTurnCard.tsx:107-127`).
+            let rows = app.transcript.rows();
+            let tail = rows
+                .iter()
+                .find(|row| app.transcript.is_turn_tail(row.key, 1))
+                .expect("the Turn's tail row");
+            assert_eq!(app.schedule_tail_cards(tail).len(), 1);
+            assert!(
+                app.schedule_tail_cards(&rows[1]).is_empty(),
+                "the tool call's own row does not own the tail card"
+            );
             drop(app.update(Message::ToggleActivity {
                 generation: app.generation,
                 key: 1,

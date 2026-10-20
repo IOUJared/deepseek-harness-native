@@ -12528,6 +12528,40 @@ impl App {
             _ => None,
         }
     }
+    /// The created-task cards a Turn renders beneath its closing prose, outside the collapsible Tool
+    /// group (`ui-schedule/src/client/ScheduleTurnCard.tsx:107-127`, list order 20 after the
+    /// changed-files card). Only the Turn's tail row owns them, so folding the process cannot hide a
+    /// created task.
+    fn schedule_tail_cards(&self, row: &DisplayRow) -> Vec<crate::reducer::schedule_card::Card> {
+        let Some(turn) = row.turn else {
+            return Vec::new();
+        };
+        if !self.transcript.is_turn_tail(row.key, turn) {
+            return Vec::new();
+        }
+        self.transcript
+            .rows()
+            .iter()
+            .filter(|candidate| candidate.turn == Some(turn))
+            .filter_map(|candidate| {
+                self.transcript
+                    .activity(candidate.key, self.path_roots())
+                    .and_then(|activity| activity.schedule)
+            })
+            .collect()
+    }
+    /// The Tail stack's own reservation: 4px above and below, a 10px gap between cards.
+    fn schedule_tail_height(&self, row: &DisplayRow) -> f32 {
+        let cards = self.schedule_tail_cards(row);
+        if cards.is_empty() {
+            return 0.0;
+        }
+        let heights: f32 = cards
+            .iter()
+            .map(|card| self.schedule_card_height(card))
+            .sum();
+        8.0 + heights + 10.0 * (cards.len() - 1) as f32
+    }
     /// The one-shot date trigger and its anchored month calendar.
     fn at_date_control(&self, at: &str) -> Element<'_, Message> {
         let anchor = button(label("Date…", MUTED).size(10))
@@ -15875,10 +15909,15 @@ impl App {
                 0.0
             };
             let changes = self.changes_height(row);
+            let schedule = self.schedule_tail_height(row);
             return chat_geometry::Geometry {
                 width,
                 body_height,
-                height: chat_geometry::chrome_height(&row.role) + body_height + actions + changes,
+                height: chat_geometry::chrome_height(&row.role)
+                    + body_height
+                    + actions
+                    + changes
+                    + schedule,
             };
         }
         let mut geometry = self.chat_geometry.geometry(
@@ -15970,16 +16009,7 @@ impl App {
                         .and_then(|activity| activity.ask)
                 })
                 .flatten();
-            let schedule = (row.role == "Tool call")
-                .then(|| {
-                    self.transcript
-                        .activity(row.key, self.path_roots())
-                        .and_then(|activity| activity.schedule)
-                })
-                .flatten();
-            let body = if let Some(card) = &schedule {
-                self.schedule_card_height(card)
-            } else {
+            let body = {
                 match (&read, &terminal, &search, &web, &ask, &diff) {
                     (Some(card), _, _, _, _, _) => self.read_card_height(card, row.key),
                     (None, Some(card), _, _, _, _) => self.terminal_card_height(card, row.key),
@@ -18075,16 +18105,8 @@ impl App {
                                 .and_then(|activity| activity.ask)
                         })
                         .flatten();
-                    let schedule = (record.role == "Tool call")
-                        .then(|| {
-                            self.transcript
-                                .activity(record.key, self.path_roots())
-                                .and_then(|activity| activity.schedule)
-                        })
-                        .flatten();
-                    let body: Element<'static, Message> = match &schedule {
-                        Some(card) => self.schedule_card(card),
-                        None => match (&read, &terminal, &search, &web, &ask, &diff) {
+                    let body: Element<'static, Message> =
+                        match (&read, &terminal, &search, &web, &ask, &diff) {
                             (Some(card), _, _, _, _, _) => self.read_card(card, record.key),
                             (None, Some(card), _, _, _, _) => self.terminal_card(card, record.key),
                             (None, None, Some(card), _, _, _) => self.search_card(card, record.key),
@@ -18108,8 +18130,7 @@ impl App {
                                     design::body_line(self.content_delta()),
                                 )
                             }
-                        },
-                    };
+                        };
                     activity_column = activity_column.push(body);
                 }
                 activity_column.into()
@@ -18606,6 +18627,11 @@ impl App {
                             .push(footer);
                         if let Some(card) = self.changes_card(record) {
                             assembled = assembled.push(card);
+                        }
+                        // The Turn tail's created-task cards sit outside the process fold, after the
+                        // changed-files card (`ScheduleTurnCard.tsx:107-127`).
+                        for card in self.schedule_tail_cards(record) {
+                            assembled = assembled.push(self.schedule_card(&card));
                         }
                         // No box padding: a settled body starts at the row's flow edge, and
                         // only the bubble pads its own text.

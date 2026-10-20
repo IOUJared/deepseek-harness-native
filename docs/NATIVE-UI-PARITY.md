@@ -6421,7 +6421,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Goals, plan mode, permissions, approvals/questions, jobs, subagents, session log | cloned |
 | Tool rows: one row per call with the folded result, relative path, `+N −N`, and the structured cards — diff, read, terminal, search, web, ask-user | cloned (no per-tool glyphs — the reference's SVGs have no DejaVu equivalent); each run of step activity sits under a process-group seat whose live label, running detail, folding and grouping follow the **Work details** preference — Compact / Standard / Detailed / Verbose, chosen in Settings → General and persisted locally), and a settled turn folds its whole process behind one `Completed in …` / `Stopped` / `Failed` control with a hairline and the reference's 16px rung (rounds 513–514) |
 | Reasoning disclosure wording | difference: native says `Thoughts` where the reference says `Thought for a while` (`message.turnProcess.thoughtForAWhile`), by the user's stated preference for the shorter label; a settled row still previews its first line under the `settledReasoningPreview` policy |
-| Model-retry row, command row (a manual `/compact` folded into one marker), turn duration, failure and output-limit rows, card Copy control, created-task (`schedule_create`) card, skill row | cloned (the created-task card now reconciles with the settled catalog: `Deleted` after its task goes, and the current title/rule while it is present — round 667) (the skill row has no `Inspect` action: native has no right Sidebar to open it in) |
+| Model-retry row, command row (a manual `/compact` folded into one marker), turn duration, failure and output-limit rows, card Copy control, created-task (`schedule_create`) card, skill row | cloned (the created-task card reconciles with the settled catalog: `Deleted` after its task goes, and the current title/rule while it is present — round 667 — and it renders at the Turn tail outside the process fold, round 668, where the call's own seat shows the generic recorded result) (the skill row has no `Inspect` action: native has no right Sidebar to open it in) |
 | Composer usage pill: tokens, cache hit, speed, turn/step counts, and the Host's session-statistics dialog | cloned |
 | Deliverables: summary, file list, per-file diff rows with both gutters, wrapping and a side-by-side layout (round 505), desktop open | cloned (rounds 475–491, 505; no right-Sidebar review tab) |
 | Message feedback: ratings, categories, note, refusal/limit states | cloned (rounds 492–497); the rating controls are words rather than thumb icons, and a session-level dialog needs a Host route native lacks |
@@ -18287,3 +18287,42 @@ Sidebar (a recorded deliberate difference).
 | transport | **0** | 62 + 17 + 91 + 7 passed |
 | app bin | — | **21** warnings (22 with the summary line) |
 | battery | **passed** | **17 checks, 0 failing** (`verification-c7eb3fc09a12`) |
+
+### Round 668 — the created-task card belongs to the Turn tail
+
+**The gap.** Round 667 made the created-task card truthful, but it still lived **inside the call's
+seat**, so folding the process group hid a task the Turn had created. The reference puts the card on
+the Turn's tail list seat, beneath the closing prose and outside the collapsible Tool group
+(`ui-schedule/src/client/index.ts:14-21, 186-196`, `ScheduleTurnCard.tsx:107-127`); the call's own
+cell stays with ui-tool's generic keyed row (`ui-tool/src/client/tool/toolviews/details-row.tsx:78-84`).
+The tail stack is `gap: 10px` with 4px above and below (`ScheduleTurnCard.module.css:1-9`) and its slot
+order is 20, after the changed-files card (`ui-deliverables/src/client/index.ts:61-67`).
+
+**The change.** `schedule_tail_cards` collects the Turn's settled `schedule_create` cards once, for the
+row that is the Turn's tail (`is_turn_tail`), and `schedule_tail_height` reserves the 4/10px stack so
+virtualised geometry cannot clip it. The reply branch draws them after the changed-files card; the tool
+seat no longer special-cases `schedule_create`, so its row is the ordinary recorded-result row.
+
+**Frame.** `shots/367-schedule-created-tail.png` (1040×700, `schedule-create`): the process group is
+folded to `Calling tools · PUBLIC weekly fixture reminder`, the reply and its footer render, and the
+created-task card follows with `PUBLIC weekly fixture reminder` over
+`Weekly on Mon, Fri at 09:00 (UTC)`.
+
+**Pinning.** The `schedule-create` arm in `presets_render_actual_app_without_queued_effects` now
+asserts the tail row owns one card, and that the tool-call row owns none — folding the process cannot
+take the card away.
+
+**The call's expanded body.** With the card gone from the seat, expanding the call shows the generic
+recorded-result body (the result text) rather than the reference's structured details list. That is the
+one remaining difference on this surface; the row itself and the tail card match.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| format | **0** | `cargo fmt` applied; format-debt 0 files, 0 hunks |
+| app, fixture | **0** | **1600 passed**, 1 ignored |
+| app, default | **0** | **1544 passed**, 1 ignored |
+| transport | **0** | 62 + 17 + 91 + 7 passed |
+| app bin | — | **21** warnings (22 with the summary line) |
+| battery | **passed** | **17 checks, 0 failing** (`verification-dc3b482c1781`) |
