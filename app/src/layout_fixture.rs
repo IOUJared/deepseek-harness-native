@@ -209,6 +209,7 @@ pub const PRESETS: &[&str] = &[
     "markdown-nested-image",
     "terminal-rename",
     "terminal-resize",
+    "reference-crumbs",
     "stats-dialog",
     "settings-shortcuts",
     "turn-error",
@@ -329,6 +330,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "markdown-nested-image" => Some((Size::new(1040.0, 560.0), 1.0)),
         "terminal-rename" => Some((Size::new(1200.0, 900.0), 1.0)),
         "terminal-resize" => Some((Size::new(1200.0, 900.0), 1.0)),
+        "reference-crumbs" => Some((Size::new(1040.0, 620.0), 1.0)),
         "stats-dialog" => Some((Size::new(1040.0, 760.0), 1.0)),
         "settings-shortcuts" => Some((Size::new(1040.0, 900.0), 1.0)),
         "turn-error" | "turn-max-tokens" | "quota-toast" => Some((Size::new(1040.0, 620.0), 1.0)),
@@ -1877,6 +1879,22 @@ pub fn build(
                 "data":{"runId":"PUBLIC-run","seq":2,"label":"PUBLIC write","phase":"write","childId":"PUBLIC-child-two"}}}),
             json!({"type":"event","event":{"type":"tool-workflow/run-end","seq":5,"time":1005,
                 "data":{"runId":"PUBLIC-run","stopReason":"completed"}}}),
+        ]
+    } else if preset == "reference-crumbs" {
+        // The `@` menu drilled into a directory: its breadcrumb trail, then the directory's rows.
+        vec![
+            json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
+                "surfaceOp":"append","data":{"role":"user","id":"PUBLIC-crumbs-user",
+                    "source":{"kind":"user"},
+                    "content":[{"type":"text","text":"PUBLIC reference-crumbs fixture · no model request ran."}]}}}),
+            json!({"type":"event","event":{"type":"turn/start","seq":1,"time":1000,
+                "surfaceOp":"append","data":{"turn":1}}}),
+            json!({"type":"event","event":{"type":"assistant/message","seq":2,"time":1001,
+                "surfaceOp":"append","data":{"turn":1,"step":1,
+                    "stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],
+                        "texts":["The `@` menu drilled into a folder, with its trail above the rows.\n"]}]}}}),
+            json!({"type":"event","event":{"type":"turn/end","seq":3,"time":1002,
+                "surfaceOp":"append","data":{"turn":1,"reason":{"kind":"completed"}}}}),
         ]
     } else if preset == "markdown-nested-image" {
         // An image inside an image: its alt text joins the outer run instead of failing the reply.
@@ -3658,6 +3676,30 @@ pub fn build(
             assert_eq!(
                 crate::reducer::turn_tail::label(Some(duration)),
                 "Completed in 2m 23s"
+            );
+        }
+        "reference-crumbs" => {
+            // The `@` menu drilled into a folder: its breadcrumb trail above the rows. The draft
+            // token must match the seeded token exactly, or a later refresh sees a new query and
+            // clears the rows.
+            use dsh_native_transport::dto::FileReferenceCandidate;
+            app.editor = iced::widget::text_editor::Content::with_text("@src/detail/");
+            app.reference_token = Some(("src/detail/".into(), false));
+            app.reference_pending = false;
+            app.file_references = vec![
+                FileReferenceCandidate {
+                    path: "src/detail/panel.rs".into(),
+                    kind: "file".into(),
+                },
+                FileReferenceCandidate {
+                    path: "src/detail/tests".into(),
+                    kind: "directory".into(),
+                },
+            ];
+            app.session_references.clear();
+            assert!(
+                app.reference_menu_open(),
+                "the crumbs preset shows the @ menu"
             );
         }
         "command-hint" => {

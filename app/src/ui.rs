@@ -391,6 +391,8 @@ pub enum Message {
     AtPickerMinute(u8),
     /// Inserts one `@` file-reference candidate into the draft.
     ReferencePick(String, String),
+    /// Re-point a drilled `@` mention at one breadcrumb step.
+    ReferenceCrumb(String),
     /// Opens one changed file on the Host desktop.
     OpenChangedOnDesktop(u64, usize),
     /// A key press as **data** for the live chain, with the state at the moment it arrives: an
@@ -5526,6 +5528,9 @@ impl App {
                     command_menu::query(&self.editor.text()).map(str::to_owned);
                 self.command_selected = 0;
                 return Self::focus_composer();
+            }
+            Message::ReferenceCrumb(prefix) if self.reference_token.is_some() => {
+                return self.reference_crumb(prefix);
             }
             Message::ReferencePick(path, kind) if self.reference_token.is_some() => {
                 let Some((query, quoted)) = self.reference_token.clone() else {
@@ -11744,6 +11749,70 @@ impl App {
                 .map(|query| (query.to_owned(), false))
         }
     }
+    /// The breadcrumb trail for a drilled `@` mention: the workspace root, then each path segment,
+    /// the last marked current. The reference shows it only when the mention names a directory
+    /// (`ui-reference/src/client/index.ts:179-208` `crumbsFor`), and hides it rather than offering a
+    /// step it cannot write back as mention text.
+    fn reference_crumbs(&self) -> Vec<(String, String, bool)> {
+        let Some((query, _)) = self.reference_token.as_ref() else {
+            return Vec::new();
+        };
+        let Some(slash) = query.rfind('/') else {
+            return Vec::new();
+        };
+        let prefix = &query[..slash];
+        // A quote cannot be written into a mention, so a trail through one is no trail.
+        if prefix.contains('"') {
+            return Vec::new();
+        }
+        let segments: Vec<&str> = prefix.split('/').filter(|part| !part.is_empty()).collect();
+        let mut trail = vec![("Workspace".to_owned(), String::new(), segments.is_empty())];
+        let mut walked = String::new();
+        for (index, segment) in segments.iter().enumerate() {
+            if !walked.is_empty() {
+                walked.push('/');
+            }
+            walked.push_str(segment);
+            trail.push((
+                (*segment).to_owned(),
+                walked.clone(),
+                index + 1 == segments.len(),
+            ));
+        }
+        trail
+    }
+    /// Re-point a drilled mention at one crumb. The reference rewrites the mention to the crumb's
+    /// directory and keeps the list open there (`MenuView.tsx:100-123`,
+    /// `controller.pickCrumb`), so the next read lists that directory's children.
+    fn reference_crumb(&mut self, prefix: String) -> Task<Message> {
+        let Some((query, quoted)) = self.reference_token.clone() else {
+            return Task::none();
+        };
+        let token_len = query.len() + if quoted { 2 } else { 1 };
+        let text = self.editor.text();
+        if token_len > text.len() {
+            return Task::none();
+        }
+        let head = &text[..text.len() - token_len];
+        let new = if prefix.is_empty() {
+            format!("{head}@")
+        } else {
+            format!("{head}@\"{prefix}/")
+        };
+        if new == text {
+            return Task::none();
+        }
+        self.editor = text_editor::Content::with_text(&new);
+        self.draft_serial = self.draft_serial.saturating_add(1);
+        self.touch_draft();
+        self.reference_token = None;
+        self.file_references.clear();
+        self.session_references.clear();
+        self.reference_pending = false;
+        self.session_reference_query = None;
+        self.refresh_reference_token();
+        Self::focus_composer()
+    }
     /// Recompute the active `@` token and read candidates when it changes.
     fn refresh_reference_token(&mut self) {
         let Some((query, quoted)) = Self::active_reference_token(&self.editor.text()) else {
@@ -13632,7 +13701,35 @@ impl App {
         if self.reference_token.is_some()
             && (!self.file_references.is_empty() || !self.session_references.is_empty())
         {
+            // The trail shares the menu's surface, the way the reference's breadcrumb header sits
+            // above its scrolling listbox inside `MenuSurface` (`MenuView.tsx:100-134`).
+            let crumbs: Vec<(String, String, bool)> = self.reference_crumbs();
             let mut rows = column![].spacing(1);
+            if !crumbs.is_empty() {
+                let mut trail = row![].spacing(4).align_y(iced::Alignment::Center);
+                for (index, (name, prefix, current)) in crumbs.iter().enumerate() {
+                    if index > 0 {
+                        trail = trail.push(label("›", MUTED).size(10));
+                    }
+                    // The current step is where the list already is: labelled, not pressable.
+                    trail = trail.push(
+                        button(label(name.clone(), if *current { TEXT } else { MUTED }).size(10))
+                            .style(design::ghost)
+                            .padding([1, 2])
+                            .on_press_maybe(
+                                (!*current)
+                                    .then(|| Message::ReferenceCrumb(prefix.clone()))
+                                    .filter(|_| self.layout_controls_enabled()),
+                            ),
+                    );
+                }
+                rows = rows.push(
+                    container(trail)
+                        .padding([3, 7])
+                        .width(Length::Fill)
+                        .style(|_| design::card(OVERLAY, design::RADIUS_SM)),
+                );
+            }
             for (index, candidate) in self.file_references.iter().take(REFERENCE_ROWS).enumerate() {
                 let directory = candidate.kind == "directory";
                 let selected = index == self.reference_selected;
@@ -25172,6 +25269,59 @@ mod tests {
         assert_eq!(app.editor.text(), "@src/ui/");
         assert_eq!(app.reference_token, Some(("src/ui/".into(), false)));
         assert!(app.file_references.is_empty());
+    }
+    #[test]
+    fn a_nested_mention_names_each_segment_in_its_breadcrumb_trail() {
+        let (mut app, _receiver) = managed_app();
+        // A bare query has no trail: the reference shows none until the mention names a directory
+        // (`ui-reference/src/client/index.ts:186-188`).
+        app.reference_token = Some(("src".into(), false));
+        assert!(app.reference_crumbs().is_empty());
+        app.reference_token = Some(("src/ui.rs".into(), false));
+        let trail: Vec<(String, String, bool)> = app.reference_crumbs();
+        assert_eq!(
+            trail,
+            vec![
+                ("Workspace".to_owned(), String::new(), false),
+                ("src".to_owned(), "src".to_owned(), true),
+            ]
+        );
+        // Two segments name three steps, and only the last is current.
+        app.reference_token = Some(("src/detail/x.rs".into(), false));
+        let trail: Vec<(String, String, bool)> = app.reference_crumbs();
+        assert_eq!(trail.len(), 3);
+        assert_eq!(trail[1], ("src".to_owned(), "src".to_owned(), false));
+        assert_eq!(
+            trail[2],
+            ("detail".to_owned(), "src/detail".to_owned(), true)
+        );
+        // A quote cannot be written back into a mention, so a trail through one is no trail.
+        app.reference_token = Some(("my \"dir/x".into(), false));
+        assert!(app.reference_crumbs().is_empty());
+    }
+    #[test]
+    fn a_crumb_press_repoints_the_mention_and_reopens_that_directory() {
+        let (mut app, _receiver) = managed_app();
+        app.editor = text_editor::Content::with_text("@src/detail/x.rs");
+        app.reference_token = Some(("src/detail/x.rs".into(), false));
+        app.file_references.clear();
+        // The workspace crumb goes back to the bare mention, quoted like the reference's root value.
+        let _ = app.update(Message::ReferenceCrumb(String::new()));
+        assert_eq!(app.editor.text(), "@");
+        // The root mention stays an open token: the next read lists the workspace root, the way
+        // the reference's root crumb re-opens its listing there.
+        assert_eq!(app.reference_token, Some((String::new(), false)));
+        // A middle crumb re-points the mention at that directory and keeps it open.
+        app.editor = text_editor::Content::with_text("@src/detail/x.rs");
+        app.reference_token = Some(("src/detail/x.rs".into(), false));
+        let _ = app.update(Message::ReferenceCrumb("src".into()));
+        assert_eq!(app.editor.text(), "@\"src/");
+        assert_eq!(app.reference_token, Some(("src/".into(), true)));
+        // A quoted mention keeps its quote when a crumb re-points it.
+        app.editor = text_editor::Content::with_text("@\"src/detail/my file.rs");
+        app.reference_token = Some(("src/detail/my file.rs".into(), true));
+        let _ = app.update(Message::ReferenceCrumb("src/detail".into()));
+        assert_eq!(app.editor.text(), "@\"src/detail/");
     }
     #[test]
     fn the_reference_menu_moves_accepts_and_dismisses_from_the_keyboard() {

@@ -27,7 +27,7 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > 2. Measure the baselines rather than trusting this file:
 >    - fixture: `cargo test --manifest-path app/Cargo.toml --locked --offline --jobs 2 --features public-layout-fixture --bin dsh-native-app -- --test-threads=2`
 >    - default: the same without `--features`
->    - at handover: **1549** fixture / **1493** default, 1 ignored each (round 545).
+>    - at handover: **1551** fixture / **1495** default, 1 ignored each (round 546).
 > 3. Load `.agents/skills/native-ui-parity/SKILL.md` (and `.agents/skills/impeccable-rust/SKILL.md` for
 >    Rust changes) — `AGENTS.md` makes both mandatory for this work. Then read `docs/SESSION-PROMPT.md`
 >    (capture conventions, next shot number), `docs/VERIFICATION.md`, and the coverage table at the end
@@ -115,7 +115,8 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > schedule-changed catalog reload (round 541), and the client projections checked against the composed
 > Host (round 542, `scripts/qualify-client-projections.py`), and a renderer doc sweep that restored a
 > lost heading-step test (round 543), and the wrapped code card's height rule measured and pinned
-> (round 544), and a repo-wide documentation citation sweep (round 545).
+> (round 544), a repo-wide documentation citation sweep (round 545), and the `@` menu's breadcrumb
+> trail (round 546).
 >
 > ### Etiquette
 > Be terse. Prefer numbered lists over tables in replies. Challenge your own claims; walk back anything

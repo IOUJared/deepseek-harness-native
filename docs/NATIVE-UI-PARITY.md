@@ -15666,3 +15666,48 @@ touched (a test name) was corrected in the docs rather than by renaming the test
 | transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
 | DP-2 capture | — | none: a documentation round |
 | app bin | — | **21** warnings |
+
+### Round 546 — the `@` menu's breadcrumb trail
+
+**The gap.** The coverage table recorded "no breadcrumbs" in the composer's `@` menu. The reference
+shows a trail above the listing once the mention names a directory: the workspace root, then each
+segment, the last marked current and every earlier step a button that re-points the listing
+(`ui-reference/src/client/index.ts:179-208` `crumbsFor`, `MenuView.tsx:100-134`). Native drilled into
+directories since an earlier round but drew no trail, so a reader inside `src/detail/` had no way back
+except editing the mention by hand.
+
+**The change.** `reference_crumbs` derives the trail from the active token: nothing without a slash
+(the reference shows no header for a bare query), `Workspace` plus one step per segment, the last
+current, and **no** trail when a segment carries a quote — a quote cannot be written back as mention
+text, which is the reference's own refusal (`crumbsFor` returns undefined). The trail is drawn inside
+the menu surface above the rows, sharing its card; each non-current step is a `ReferenceCrumb` press
+that rewrites the mention (`@"src/`, or `@` for the root) and re-opens that directory, and a quoted
+mention keeps its quote.
+
+**Two frame-visible lessons.** The first capture showed *no menu at all* while the suite was green: the
+seeded draft `@src/detail` did not match the seeded token `src/detail/`, so the next
+`refresh_reference_token` saw a new query and cleared the rows. The second capture showed the trail
+floating above the rows card instead of inside it. Both were found only in the frame — the class the
+goal's capture rule exists for.
+
+**Frame.** `shots/335-reference-crumbs.png` (1040x620, new `reference-crumbs` preset): the trail
+`Workspace › src › detail` above `src/detail/panel.rs` (file) and `▸ src/detail/tests` (folder), with
+the composer holding `@src/detail/`.
+
+**Tests.** `a_nested_mention_names_each_segment_in_its_breadcrumb_trail` (none without a slash, one step
+per segment with the last current, and none through a quote) and
+`a_crumb_press_repoints_the_mention_and_reopens_that_directory` (root returns to `@`, a middle crum
+re-points to `@"src/`, and a quoted mention stays quoted).
+
+**Battery (round 546).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1551 passed**, 1 ignored |
+| app, default | **0** | **1495 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-4n20ms2v`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-7esdj_v4`) |
+| transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
+| DP-2 capture | — | `shots/335-reference-crumbs.png`, `status: passed`, 1040x620 |
+| app bin | — | **21** warnings |
