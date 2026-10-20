@@ -11,6 +11,7 @@ pub mod layout;
 pub mod node;
 pub mod prompt;
 pub mod scroll;
+pub mod skill;
 pub mod stage;
 pub mod uncertainty;
 pub mod upload;
@@ -530,6 +531,7 @@ pub fn run(arguments: &[String]) -> i32 {
         "file-upload" => upload::run(&root, &output),
         "native-file-stage" => stage::run(&root, &output),
         "native-file-prompt" => prompt::run(&root, &output),
+        "impeccable-skill" => skill::run(&root, &output),
         "upload-uncertainty" => uncertainty::run(&root, &output, &fail_at),
         "composed-settings" => composed::run(&root, &output, scale),
         "composed-files" => composed_files::run(&root, &output, scale),
