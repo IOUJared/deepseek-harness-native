@@ -16511,3 +16511,37 @@ proved that. The 240px box stands until that refactor is scheduled as its own ro
 **Gate status:** unchanged — `dsh-xtask` is still mid-migration (its `verify` does not compile), so the
 app suites remain the reliable measurement (fixture **1568**, default **1512** at round 568) and
 `verify --suite all` / `format-debt` are recorded as unavailable, not passed.
+
+### Round 571 — the terminal output takes a share of the window
+
+**The gap, narrowed.** Rounds 567–570 established that the panel's single `body` column cannot give the
+output a `Fill` height, and that a true fill needs `terminal_view` rewritten as three builders. That
+refactor is still the plan; this round closes the *visible* half of the gap without it: the fixed 240px
+box became a share of the window — `terminal_output_height(window) = clamp(window * 0.42, 240, 640)` — so
+a tall window shows much more terminal and a short one keeps the shell and terminal lists reachable.
+
+**Why a share and not a fill, stated in the code.** The comment beside the height says exactly that: a
+Fill child collapses here, the three-region rewrite is what makes a true fill possible, and this is the
+honest approximation until then.
+
+**Tests.** `the_terminal_output_box_takes_a_share_of_the_window_with_a_floor_and_a_ceiling` — 600 and 900
+windows give proportional heights (within a hundredth of a pixel, because 0.42 is not exact in `f32`), a
+400 window holds the 240 floor, a 4000 window holds the 640 ceiling, and the taller window is strictly
+taller. The first run failed on `251.99998 vs 252.0`; the assertion now states the tolerance rather than
+pretending floats are exact.
+
+**Frame.** `shots/349-terminal-share.png` (1200x900, the existing `terminal-panel` preset): the output box
+now fills the lower pane (about 385px) with the header, OUTPUT label, input row and notice in their
+correct order — the reordering that sank rounds 569 and 570 does not occur, because nothing was
+restructured.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1569 passed**, 1 ignored |
+| app, default | **0** | **1513 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |
+| DP-2 capture | — | `shots/349-terminal-share.png`, `status: passed`, 1200x900 |
+| `xtask verify --suite all` | **—** | still unavailable: `dsh-xtask` is mid-migration and does not compile |
+| format debt | **—** | moved to `xtask format-debt`; last measured 0 |

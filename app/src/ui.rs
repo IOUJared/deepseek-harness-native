@@ -19445,6 +19445,11 @@ impl App {
         .height(Length::Fill)
         .into()
     }
+    /// The terminal output box's height: a share of the window, so a tall window shows more terminal
+    /// and a short one keeps the shell and terminal lists above it reachable.
+    fn terminal_output_height(window: f32) -> f32 {
+        (window * 0.42).clamp(240.0, 640.0)
+    }
     /// Client-only terminal panel. It renders exactly what the Host confirmed: the
     /// list, shell profiles and limits from read ACKs, the ACK-created terminal, and
     /// bounded frames from the owned follow. Opening it spawns no local shell.
@@ -19904,7 +19909,12 @@ impl App {
                 // content: the panel's body is a shrink column inside a scrollable, so a Fill child
                 // has no height to take. Filling the pane needs the body restructured, not a
                 // different length here.
-                .height(Length::Fixed(240.0))
+                // The reference's terminal fills its pane. The panel's body is one scrollable column,
+                // so a Fill child collapses (rounds 567-570); a share of the window with a floor and a
+                // ceiling is the honest approximation until the three-region rewrite lands.
+                .height(Length::Fixed(Self::terminal_output_height(
+                    self.window_size.height,
+                )))
                 .width(Length::Fill)
                 .padding(8)
                 .style(|_| design::card(OVERLAY, design::RADIUS_MD)),
@@ -23515,6 +23525,21 @@ mod tests {
             }
         }
         assert_eq!(reads, 1, "the reminders popover reloads too");
+    }
+
+    #[test]
+    fn the_terminal_output_box_takes_a_share_of_the_window_with_a_floor_and_a_ceiling() {
+        // A tall window shows much more terminal than a short one, and neither the floor nor the
+        // ceiling is crossed: the reference fills its pane, which the panel cannot yet do.
+        assert!((App::terminal_output_height(600.0) - 252.0).abs() < 0.01);
+        assert!((App::terminal_output_height(900.0) - 378.0).abs() < 0.01);
+        assert_eq!(App::terminal_output_height(400.0), 240.0, "the floor holds");
+        assert_eq!(
+            App::terminal_output_height(4000.0),
+            640.0,
+            "the ceiling holds"
+        );
+        assert!(App::terminal_output_height(900.0) > App::terminal_output_height(600.0));
     }
 
     #[test]
