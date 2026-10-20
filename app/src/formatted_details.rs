@@ -192,6 +192,9 @@ struct Builder {
     /// An open image: its alt text accumulates here, because the HTML alt attribute
     /// and the reference's fallback are the image's plain text.
     alt: Option<String>,
+    /// How deep the open image run is. A nested image's own `End` must not close the run the outer
+    /// image opened, and its alt text simply joins the same plain string.
+    image_depth: usize,
     /// A footnote definition's `[n]` marker, waiting for the paragraph it labels.
     pending_marker: Option<String>,
     text_bytes: usize,
@@ -515,13 +518,14 @@ impl Builder {
             }
             Tag::Image { dest_url, .. } => {
                 // Same for an image's title: the reference shows the image, and native its alt
-                // text; neither draws the title.
+                // text; neither draws the title. A nested image keeps accumulating into the same
+                // alt run — its own alt text is part of the outer one — so it is not refused.
                 self.ensure_inline()?;
-                if self.alt.is_some() {
-                    return Err(Failure::Unsupported);
+                if self.alt.is_none() {
+                    destination = Some(dest_url.into_string());
+                    self.alt = Some(String::new());
                 }
-                destination = Some(dest_url.into_string());
-                self.alt = Some(String::new());
+                self.image_depth += 1;
             }
             Tag::Table(_) => {
                 // A table keeps its container's provenance on its own block now; what still has
@@ -659,6 +663,15 @@ impl Builder {
                 table.head = false;
             }
             TagEnd::Image => {
+                // Only the outermost image closes the run; a nested one just leaves it open.
+                self.image_depth = self
+                    .image_depth
+                    .checked_sub(1)
+                    .ok_or(Failure::Unsupported)?;
+                if self.image_depth != 0 {
+                    // `end()` already popped this image's own frame.
+                    return Ok(());
+                }
                 let alt = self.alt.take().ok_or(Failure::Unsupported)?;
                 let destination = frame.destination.ok_or(Failure::Unsupported)?;
                 // The sheet's unresolvable branch shows the alt text; its failed-load
@@ -805,6 +818,25 @@ mod tests {
                 .any(|s| s.text == "x < y" && s.code && !s.bold && !s.italic)
         );
         assert!(spans.iter().any(|s| s.text == "all" && s.bold && s.italic));
+    }
+
+    #[test]
+    fn an_image_inside_an_image_joins_the_outer_alt_run() {
+        // The reference's alt attribute is a plain string, so a nested image contributes its own
+        // alt text to the outer run instead of being refused (`render.tsx:640-653`).
+        let doc = document("before ![outer ![inner](a.png) tail](b.png) after");
+        let spans = paragraph(&doc.blocks[0]).0;
+        let alt: Vec<&Span> = spans.iter().filter(|span| span.alt).collect();
+        assert_eq!(alt.len(), 1, "one alt run, not two images");
+        assert!(alt[0].text.contains("outer"), "{}", alt[0].text);
+        assert!(alt[0].text.contains("inner"), "{}", alt[0].text);
+        assert!(alt[0].text.contains("tail"), "{}", alt[0].text);
+        assert!(
+            !alt[0].text.contains("(b.png)"),
+            "the outer destination is not text"
+        );
+        // A whole source of only nested images still parses.
+        assert!(parse("![![x](a)](b)").is_ok());
     }
 
     #[test]
@@ -1358,12 +1390,19 @@ mod tests {
     }
     #[test]
     fn unsupported_content_anywhere_fails_whole_source() {
+        // Round 538 closed the renderer's last structural refusal: every plain Markdown construct
+        // now has a representation, including an image nested in an image, whose alt text joins the
+        // outer run. What still fails a whole source is a budget, and it fails it everywhere.
         for source in [
-            // An image inside an image is still refused: its alt run has no room for another.
-            "![![inner](a.png)](b.png)",
+            "before ![![nested](a.png)](b.png) after",
+            "> - | a |\n>   |---|\n>   | b |",
+            "> ```\n> code\n> ```",
         ] {
-            failure(source, Failure::Unsupported);
+            assert!(parse(source).is_ok(), "{source:?}");
         }
+        let oversized = "x".repeat(INPUT_BYTES + 1);
+        failure(&oversized, Failure::Bytes);
+        failure(&format!("before\n\n{oversized}"), Failure::Bytes);
         // Escaped HTML and HTML in code remain inert text, not unsupported nodes.
         assert_eq!(
             joined(paragraph(&document("\\<b> safe").blocks[0]).0),
@@ -1562,14 +1601,14 @@ mod tests {
 
     #[test]
     fn diagnostics_only_expose_content_free_failure_variants() {
-        // A heading inside a quote is refused, so it can stand in for content that must never
-        // reach a diagnostic.
-        let private_source = "PRIVATE_TOKEN ![![PRIVATE_INNER](a.png)](b.png)";
-        let error = match parse(private_source) {
+        // A source past the byte budget still fails, and its diagnostic names only the variant: no
+        // length, no bytes and none of the content reach it.
+        let private_source = format!("PRIVATE_TOKEN {}", "x".repeat(INPUT_BYTES));
+        let error = match parse(&private_source) {
             Err(error) => error,
-            Ok(_) => panic!("expected unsupported HTML"),
+            Ok(_) => panic!("expected a byte-budget failure"),
         };
-        assert_eq!(format!("{error:?}"), "Unsupported");
+        assert_eq!(format!("{error:?}"), "Bytes");
         let copied = error;
         assert_eq!(copied, error);
     }
@@ -1629,8 +1668,8 @@ mod extension_tests {
     fn a_document_without_either_extension_is_unchanged() {
         let doc = parse("Plain **bold** text.\n").unwrap();
         assert_eq!(texts(&doc.blocks), vec!["Plain bold text.".to_owned()]);
-        // An unsupported construct still fails closed; raw HTML is drawn literally.
-        assert!(parse("![![nested](a.png)](b.png)").is_err());
+        // A nested image flattens into its outer alt run, and raw HTML is drawn literally.
+        assert!(parse("![![nested](a.png)](b.png)").is_ok());
         assert!(parse("<div>html</div>\n").is_ok());
     }
 }

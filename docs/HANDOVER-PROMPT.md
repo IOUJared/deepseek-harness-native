@@ -27,7 +27,7 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > 2. Measure the baselines rather than trusting this file:
 >    - fixture: `cargo test --manifest-path app/Cargo.toml --locked --offline --jobs 2 --features public-layout-fixture --bin dsh-native-app -- --test-threads=2`
 >    - default: the same without `--features`
->    - at handover: **1541** fixture / **1485** default, 1 ignored each (round 537).
+>    - at handover: **1541** fixture / **1486** default, 1 ignored each (round 538).
 > 3. Load `.agents/skills/native-ui-parity/SKILL.md` (and `.agents/skills/impeccable-rust/SKILL.md` for
 >    Rust changes) — `AGENTS.md` makes both mandatory for this work. Then read `docs/SESSION-PROMPT.md`
 >    (capture conventions, next shot number), `docs/VERIFICATION.md`, and the coverage table at the end
@@ -109,7 +109,8 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > with a per-block toggle (round 533), and a heading that keeps its container's rule and indent
 > (round 534), a thematic rule that keeps its container's inset (round 535), and a table that keeps
 > its container's rule and fills the quoted column (round 536), and a fenced block that keeps its
-> container's rule (round 537).
+> container's rule (round 537), and the renderer's last structural refusal — an image inside an
+> image — closed (round 538), so no plain Markdown falls back to text now.
 >
 > ### Etiquette
 > Be terse. Prefer numbered lists over tables in replies. Challenge your own claims; walk back anything

@@ -2070,14 +2070,15 @@ mod tests {
         assert!(p.matches("let value"));
         assert!(p.matches("supplied reasoning"));
         assert!(!p.matches("absent"));
-        // A heading inside a quote is inert markup: the whole source stays searchable text.
+        // Round 538 closed the renderer's last structural refusal, so the nesting that used to fall
+        // back to plain text now parses and stays searchable through its spans.
         let raw = cache.prepare(
             1,
             3,
             String::new(),
-            "![![PUBLIC inert](a.png)](b.png)".into(),
+            "before ![![PUBLIC inert](a.png)](b.png) after".into(),
         );
-        assert!(raw.document.is_none());
+        assert!(raw.document.is_some(), "the nested image parses");
         assert!(raw.matches("PUBLIC inert"));
     }
 
@@ -2528,13 +2529,14 @@ mod tests {
         let _ = p.view(600.0, true);
     }
     #[test]
-    fn unsupported_markup_is_inert_full_source_not_partial_formatting() {
+    fn no_plain_markdown_falls_back_to_inert_text_any_more() {
+        // The renderer's structural refusals are gone: a source that mixes a nested image, a quoted
+        // table and a quoted fence keeps its document instead of degrading to plain text.
         let cache = Cache::default();
-        let source = "![![PUBLIC inert](a.png)](b.png)";
+        let source = "before ![![PUBLIC alt](a.png)](b.png)\n\n> | a |\n> |---|\n> | b |\n\n> ```\n> code\n> ```";
         let p = cache.prepare(1, 0, String::new(), source.into());
-        assert!(p.document.is_none());
-        assert_eq!(p.answer, source);
-        assert!(p.code(0).is_none());
+        assert!(p.document.is_some(), "every construct has a representation");
+        assert_eq!(p.answer, source, "the source is preserved as sent");
         let _ = p.view(300.0, false);
     }
 

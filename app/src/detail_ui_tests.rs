@@ -147,15 +147,17 @@ fn covered_or_closing_detail_controls_are_inert() {
     }
 }
 #[test]
-fn unsupported_document_preserves_complete_source_and_nonce_exhaustion_disables_actions() {
+fn a_nested_image_document_stays_formatted_and_nonce_exhaustion_disables_actions() {
     let (mut app, mut queue) = app();
+    // The renderer refuses no plain Markdown now, so this document formats and keeps its source.
     let source =
         "# PUBLIC\n\n![no fetch](file:///PUBLIC/no-image.png)\n\n![![PUBLIC nested](a.png)](b.png)";
     snapshot(&mut app, "assistant/message", source);
     let ticket = open(&mut app);
-    assert!(!app.detail.as_ref().unwrap().formatted_available());
+    assert!(app.detail.as_ref().unwrap().formatted_available());
+    // A formatted document carries no fallback notice any more.
     assert!(
-        app.detail
+        !app.detail
             .as_ref()
             .unwrap()
             .notice()
@@ -488,7 +490,7 @@ fn detail_debug_redacts_heading_source_and_plan() {
 fn copy_admits_only_exact_frozen_source_without_metadata_or_formatted_rewrite() {
     let (mut app, mut queue) = app();
     let source = "# PUBLIC clipboard · café 世界\n\n**literal Markdown**\n\n[PUBLIC](https://example.invalid/PUBLIC)\n";
-    snapshot(&mut app, "assistant/message", source);
+    snapshot(&mut app, "assistant/message", &source);
     app.editor = text_editor::Content::with_text("PUBLIC unsent draft");
     app.follow_bottom = false;
     app.offset = 14.0;

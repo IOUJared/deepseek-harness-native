@@ -15317,3 +15317,45 @@ exemplars across the tests now name the nested image.
 | transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
 | DP-2 capture | — | `shots/331-code-quote.png`, `status: passed`, 1040x620 |
 | app bin | — | **21** warnings |
+
+### Round 538 — the renderer refuses no plain Markdown at all
+
+**The gap.** The last structural refusal was an image inside an image: `Tag::Image` failed the whole
+document when an alt run was already open. The reference's alt attribute is a plain string
+(`ui-primitives/src/markdown/render.tsx:640-653`), so a nested image's own alt text simply belongs to
+the outer run.
+
+**The change.** A builder `image_depth` tracks the open image run: a nested `Tag::Image` keeps
+accumulating into the same alt string instead of refusing, and only the outermost `TagEnd::Image` closes
+the run and emits the alt span. (The first draft popped the frame twice — `end()` already pops it — and
+the test suite caught the resulting mismatch before the frame existed.) With this, **no plain Markdown
+construct fails the parser any more**: the remaining failures are the byte/block/span/nesting budgets
+and malformed event streams.
+
+**The tests had to say that.** Five tests used a real construct as their "unsupported markup" exemplar,
+and every one of them was down to nothing. They now assert the opposite where that is the truth: a
+nested image parses and stays searchable, `no_plain_markdown_falls_back_to_inert_text_any_more` keeps a
+mixed document (nested image, quoted table, quoted fence) formatted with its source preserved, the
+detail panel reports the document as formatted rather than carrying an "unsupported" notice, and the
+whole-source failure test drives the **byte budget** (`Failure::Bytes`) instead of a construct. The
+diagnostics test now proves a budget failure still exposes only its variant.
+
+**Frame.** `shots/332-nested-image.png` (1040x560, new `markdown-nested-image` preset): "A nested image:
+*outer tail* — its alt run survives." — one tertiary-italic alt run where the reply used to fall back to
+plain text.
+
+**Tests.** `an_image_inside_an_image_joins_the_outer_alt_run` (one alt run, its text carries the outer
+and inner alt, the destination is not text), plus the rewritten fallback tests above.
+
+**Battery (round 538).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1541 passed**, 1 ignored |
+| app, default | **0** | **1486 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-1vj1mz0k`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-pwfn0nsx`) |
+| transport / core / JS | — | **not re-run**: only `app` changed; last full run this session was transport 59+17+91+7, core 115, JS 419/0 |
+| DP-2 capture | — | `shots/332-nested-image.png`, `status: passed`, 1040x560 |
+| app bin | — | **21** warnings |
