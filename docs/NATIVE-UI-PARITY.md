@@ -17486,3 +17486,24 @@ is the honest way to claim the footer is right — a green suite cannot see a co
 is the round-107 lesson in its exact form.
 
 **Frame.** `shots/357-panel-readonly.png`, archived beside `356-footer-split.png`.
+
+### Round 639 — correction: the footer *is* in the frame, and round 638 was wrong
+
+**The mistake.** Round 638 concluded that no fixture state renders the panel's footer, basing that on a
+**crop** of `shots/357-panel-readonly.png` that stopped above it. Reading the whole capture shows the footer
+plainly, below the output box:
+
+- `Type input, then Write` with the input field,
+- the `Write` button and `0 / 262144 UTF-8 bytes`,
+- `Another client holds input control for this terminal; input here is read-only.` with `Take control`.
+
+So the footer split from round 636 **is** visually verified — by the read-only preset, which is exactly the
+state that renders the control-elsewhere prompt — and the "no visual verification" claim was a cropping error,
+not a finding.
+
+**What still holds.** The layout of the footer's *enabled* path (Write active) is not framed, because these
+presets never seed a writable control; read-only is the closest state available. That is a much smaller gap
+than round 638 stated, and it needs no fixture work unless a writable-control preset is wanted.
+
+**Rule restated, for the third time in this session:** read the **whole** capture before concluding an element
+is missing — a crop can invent a regression exactly as a green suite can hide one.
