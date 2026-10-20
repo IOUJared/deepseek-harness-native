@@ -4,6 +4,7 @@
 //! They live here so the repository has one toolchain: a checkout with Rust can
 //! run every predicate without a Python interpreter, and the report shapes stay
 //! compatible with the reports those scripts wrote (see [`verify::CheckResult`]).
+pub mod archive;
 pub mod bench;
 pub mod fmtdebt;
 pub mod idle;

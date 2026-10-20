@@ -24,6 +24,7 @@ file is the stage map; it is deleted with the last Python file.
 | Benchmark runner | `benchmarks/run.py` (CLI) | `xtask bench run` (same `DSH_BENCH:` protocol, bounded child, owned tree sampling) |
 | Benchmark analyzer | `benchmarks/analyze.py` | `xtask bench analyze RESULTS [--markdown]` |
 | Idle sampler | `scripts/measure-native-idle.py` | `xtask idle` (same warm-window identity rules) |
+| Archive verifier | `scripts/verify-development-archive.py` | `xtask archive verify` (same member bounds, extraction modes and inventory checks) |
 | Their guards | 4 Python test modules | 65 tests in `tools/xtask` (`src/*` units + `tests/cli.rs`) |
 | Entry point | `check.sh` → `python3` | `check.sh` → `cargo run -- verify` |
 
@@ -48,6 +49,11 @@ Deliberate differences, all measured against the Python originals:
 - `numbers` are read from a *proc root* instead of a hardcoded `/proc`, so the
   measurement rules are tested against a fixture tree rather than the live table.
   Production passes `/proc`.
+- The tar crate keeps the trailing `/` that Python's `tarfile` strips from a
+  directory entry, so `archive verify` normalizes directory names before
+  validating; both tools then report identical fields for the same archive, and
+  the extracted trees compared equal apart from the path each wrote into its own
+  report.
 - The benchmark runner is tested end to end against a stand-in script (protocol
   parsing, sampling, a killed overrunning child), except `benchmarks/run.py` was
   not compared against `xtask bench run` on a real app: that needs a GPU/Wayland
@@ -59,8 +65,8 @@ Deliberate differences, all measured against the Python originals:
 | Family | Files | Lines | Target |
 |---|---|---|---|
 | `scripts/qualify-*` | 24 | 3,947 | `xtask qualify <name>`; the assertions are already Rust examples writing `result.json` |
-| `scripts/test_*`, `app/*.py` | 29 | 4,141 | Rust tests next to the qualifiers; rewrite each guard's subject, never copy it verbatim |
-| `.github/scripts/*`, `verify-development-archive.py` | 5 | 543 | `xtask package` / `xtask publish`; needs `tar` + `flate2`, `gh` stays a child process |
+| `scripts/test_*`, `app/*.py` | 28 | 3,832 | Rust tests next to the qualifiers; rewrite each guard's subject, never copy it verbatim |
+| `.github/scripts/*` | 4 | 387 | `xtask package` / `xtask publish`; `tar` + `flate2` are already dependencies, `gh` stays a child process |
 | `development-launcher.py` | 1 | 356 | **Shipped** as `launch.py` in the development package: a Rust `dsh-native-launch` binary replaces it, so the archive stops requiring Python 3.11+; update the archive verifier and install docs together |
 | `benchmarks/run.py` + `test_runner.py` | 2 | 417 | Deleted with the qualification family, whose scripts import the library; `xtask bench run` is already the replacement |
 | `benchmarks/slint/qualify-scale.py` | 1 | 116 | `xtask bench qualify-scale`; needs the standalone Slint prototype binary, so it was left until the main benchmark runner settled |
