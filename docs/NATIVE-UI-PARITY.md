@@ -17752,3 +17752,29 @@ into `http`.
 
 **Next round carries both halves at once:** the session-feedback dialog (seven chips, note field, submit,
 recorded/session-not-found outcomes) *and* the worker leg it sends — one commit, so neither half is dead.
+
+### Round 647 — the dialog wiring, in one patch, and why it was reverted
+
+**What was attempted.** The whole session-feedback wiring in a single patch: `FeedbackDraft.message_id` became
+`Option<String>` (`None` = session scope), submit branched to `SessionFeedbackRecord` for session scope and
+kept `FeedbackPut` for messages, a `Message::SessionFeedbackOpen` variant opened a session draft, a `Feedback`
+ghost button went into the header's utilities cluster, and the worker leg came back with its caller.
+
+**It did not compile.** `cargo fmt` reported an unbalanced brace: "unexpected closing delimiter" at
+`ui.rs:21035` with the nearest open delimiter at the `Message::FeedbackSubmit` arm — a structural break from
+patching six sites at once, which is the hazard this file has already produced in rounds 585, 618–619, 629 and
+632–636.
+
+**Reverted, tree clean at `c9ec533`, 21 real warnings** (22 with the summary line).
+
+**The lesson the next attempt should use, and it is the same one that finally fixed the panel split:** do it in
+**two commits**, not one —
+
+1. **Scope first, no new UI:** `FeedbackDraft.message_id: Option<String>` plus the submit branch, keeping every
+   existing construction site compiling and the per-message tests green. Nothing new is reachable, nothing is
+   dead, and the diff is three call sites.
+2. **Then the entry point and the worker leg together** — `SessionFeedbackOpen`, the header button, the command
+   and its event — so the dialog exists with its caller in the same commit.
+
+Splitting keeps each patch small enough to compile on the first try; six simultaneous anchor edits in a 27k-line
+file did not.
