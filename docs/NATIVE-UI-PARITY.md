@@ -17408,3 +17408,23 @@ only up to the `body = body.push(match self.terminal.notice()` block and leave t
 `terminal_view`, taking the footer in two smaller steps.
 
 No file changed this round; tree clean at `68c9159`, suites at fixture **1581** / default **1525**.
+
+### Round 635 — the footer slice is unbalanced by one brace, and that explains all three failures
+
+**The measurement.** The slice from `let write_enabled = enabled` to just before
+`body = body.push(match self.terminal.notice()` is **3,187 bytes**, and its brace balance is **−1**
+(`{` minus `}`), with parentheses balanced and the last non-space character `}`. A region that ends on `}`
+while being one brace short can only mean one thing: **it starts inside a block that is already open**.
+
+**Why every attempt failed.** `let write_enabled = enabled` sits at twelve spaces of indentation — one level
+deeper than a function body — so the footer lives inside an enclosing conditional (the panel's visible/attached
+guard). Moving its statements out leaves that `if`'s `{` in `terminal_view` without a body and puts its `}`
+after the moved region, which is exactly the "non-item in item list" / stray-`self` pair `cargo check`
+reported in rounds 632 and 634. No marker choice would have fixed it.
+
+**The correct next step, now provable.** Either move the **whole enclosing block** — find the nearest line
+above with the next shallower indent that ends in `{`, and slice from there to its matching `}` — or leave the
+footer where it is and treat `terminal_header`/`terminal_output` as the delivered part of the split. A fourth
+line-heuristic slice would fail for the same measured reason.
+
+No file changed; tree clean at `12dde96`, default suite **1525 passed**, `cargo check` **21** real warnings.
