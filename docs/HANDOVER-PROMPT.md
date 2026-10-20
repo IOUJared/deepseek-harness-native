@@ -21,13 +21,30 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > **Reference**: `/home/jared/Documents/deepseek-harness/default-workspace/deepseek-harness-linux`
 > (pinned `c6044cc50b`). Cite it as `file:line` in code comments and round notes.
 >
+> ### Last five rounds, so the next session starts oriented
+> - 573: a 520-high frame (`terminal-panel-short`) proves the panel overflows there; the box's floor was
+>   tried and reverted.
+> - 574: two presets (`terminal-resize`, `terminal-underline`) re-captured after the height change — no
+>   drift.
+> - 575: `terminal_output_height` branches under 700px so the input row stays in view at 520.
+> - 576: `NATIVE-TERMINAL.md` states both heights and the remaining short-window scroll.
+> - 577: the full battery is back on `tools/xtask`; one hardware-only check (`wayland-drops`) fails.
+> **The one scheduled UI item left in the terminal panel:** the three-builder rewrite
+> (`terminal_header`/`terminal_output`/`terminal_footer`) specified to the line in round 572 — it is what
+> turns the proportional box into a true fill and pins the footer at short heights.
+>
 > ### First actions, in order
 > 1. `git log --oneline -8` and `git status` — the tree must be clean; read the last three rounds in
 >    `docs/NATIVE-UI-PARITY.md` to learn the current state.
 > 2. Measure the baselines rather than trusting this file:
 >    - fixture: `cargo test --manifest-path app/Cargo.toml --locked --offline --jobs 2 --features public-layout-fixture --bin dsh-native-app -- --test-threads=2`
 >    - default: the same without `--features`
->    - at handover: **1568** fixture / **1512** default, 1 ignored each (round 566).
+>    - at handover: **1569** fixture / **1513** default, 1 ignored each (round 575).
+>    - full battery: `scripts/check.sh` or `cargo run -p xtask --locked -- verify --suite all`, plus
+>      `cargo run -p xtask --locked -- format-debt`. At handover 19 checks ran, 18 passed; only
+>      `wayland-drops` failed, because the private-seat drop harness needs a real seat. **`scripts/
+>      verify-native.py` and `scripts/format-debt.py` no longer exist** — the predicates are Rust now
+>      (`tools/xtask`).
 > 3. Load `.agents/skills/native-ui-parity/SKILL.md` (and `.agents/skills/impeccable-rust/SKILL.md` for
 >    Rust changes) — `AGENTS.md` makes both mandatory for this work. Then read `docs/SESSION-PROMPT.md`
 >    (capture conventions, next shot number), `docs/VERIFICATION.md`, and the coverage table at the end
