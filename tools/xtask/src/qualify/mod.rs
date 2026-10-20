@@ -23,6 +23,7 @@ pub mod skill;
 pub mod stage;
 pub mod uncertainty;
 pub mod upload;
+pub mod usage;
 
 use crate::compositor::{Facts, window_facts};
 use crate::proc;
