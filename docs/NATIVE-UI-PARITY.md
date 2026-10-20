@@ -15831,3 +15831,39 @@ is why it now accepts exactly the one connection a launch makes.)
 | app bin | — | **21** warnings |
 
 The historical flake stays recorded as unexplained; the window it pointed at is closed.
+
+## What is left, and what would clear it (written in round 551)
+
+Every gap below is either **large enough to need its own round series** or **blocked on something only
+the user has**. Nothing here is waiting on a question; each row names the exact step that would let the
+next round start.
+
+### Blocked on a user action
+
+| item | why it is blocked | the step that clears it |
+| --- | --- | --- |
+| Context-ring dial (the reference's canvas ring) | native draws the ring as a text reading; the dial needs iced's `canvas` feature, a new dependency | approve the `canvas` feature (or a canvas-free dial) |
+| Image thumbnails in the attach rail and in replies | the reference decodes and paints images from its own fetch; native has no image fetch/decode policy, and adding one changes what the app may do on the network | decide the fetch policy (allow/deny, size bound, cache) |
+| Session-level feedback | the Host serves per-message feedback routes only; a session-level dialog has no route | add or point at a Host `feedback/session` route |
+| A control-stream worker hop | the reference multiplexes control and decisions on one stream; native has two paths, so a decision can arrive while the control stream is reconnecting | confirm the two-path split is acceptable, or specify the merged contract |
+| One window-edge drag below 520×600 with a close-timing run | the edge-drag path needs a physical drag this environment cannot perform | run the drag and close it during the resize |
+| Live arrival of `schedule/changed` | the arm is built and unit-tested (round 541); no live session has delivered it | open Schedules, change a schedule from another client, watch the catalog reload |
+
+### Large, unbuilt, and not blocked
+
+| item | what exists | what the next round series needs |
+| --- | --- | --- |
+| The terminal screen | sanitized plain-text output bounded to 400 chunks/128 KiB; every mutating action reviewed | a VT parser and screen grid (cursor, erase, scroll region) plus its own geometry contract; a dependency decision may be part of it |
+| `terminal/retain` and a docked multi-terminal tab | the panel's own slice; retain exists in the Host for holding tabs open | a right-docked tab strip first, because retain only means something with tabs |
+| Schedules: sidebar marks, hover cards, turn cards, right-Sidebar tab | the page, history, edits, pickers, the header chip and the live reload | per-session schedule counts from the Host (`sessionListMetadata` does not carry them), then the marks |
+| The right-Sidebar review tab | the deliverables sheet is a native surface | a deliberate second layout decision, recorded as such rather than built silently |
+
+### Named deliberate differences (not gaps)
+
+- Ctrl+Enter stays a plain send alias; the reference inverts its submission policy on it.
+- `Steer all` sits on the composer strip; the reference triggers it from an empty draft.
+- Search is a native Find bar; the reference leaves text search to the browser.
+- A send awaiting admission is a composer banner, not a queue row.
+- The split diff layout clips rather than mirroring with horizontal scroll.
+- A tool path is underlined, not a separate open link.
+- Rename and resize are reviewed controls; the reference's PTY fits its pane automatically.
