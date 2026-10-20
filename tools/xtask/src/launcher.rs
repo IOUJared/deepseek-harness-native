@@ -389,6 +389,155 @@ pub fn inspect_state(data: &Path, marker: &serde_json::Value) -> Result<State, S
     Ok(State::Owned)
 }
 
+/// A held data-directory lock; dropping it releases the descriptor.
+pub struct Held {
+    pub lock: std::fs::File,
+}
+
+fn openat(dir: i32, name: &str, flags: i32, mode: u32) -> Result<i32, String> {
+    let c_name = std::ffi::CString::new(name).map_err(|_| "Unexpected native data entry")?;
+    // Safe: a live descriptor, a NUL-terminated name and constant flags.
+    let fd = unsafe { libc::openat(dir, c_name.as_ptr(), flags | libc::O_CLOEXEC, mode) };
+    if fd < 0 {
+        return Err("Unexpected native data entry".into());
+    }
+    Ok(fd)
+}
+
+fn stat_fd(fd: i32) -> Result<libc::stat, String> {
+    let mut info: libc::stat = unsafe { std::mem::zeroed() };
+    // Safe: a live descriptor and a valid out-parameter.
+    if unsafe { libc::fstat(fd, &mut info) } != 0 {
+        return Err("Unexpected native data entry".into());
+    }
+    Ok(info)
+}
+
+fn private_entry(info: &libc::stat, directory: bool) -> bool {
+    let kind_ok = if directory {
+        info.st_mode & libc::S_IFMT == libc::S_IFDIR
+    } else {
+        info.st_mode & libc::S_IFMT == libc::S_IFREG
+    };
+    kind_ok
+        && info.st_uid == unsafe { libc::geteuid() }
+        && info.st_mode & 0o777 == if directory { 0o700 } else { 0o600 }
+}
+
+/// Create or adopt the data directory and hold its exclusive lock.
+pub fn acquire_state(data: &Path, marker: &serde_json::Value) -> Result<Held, String> {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::io::FromRawFd;
+    let status = inspect_state(data, marker)?;
+    if status == State::New {
+        std::fs::create_dir(data).map_err(|_| "Native data directory could not be created")?;
+        let _ = std::fs::set_permissions(data, std::fs::Permissions::from_mode(0o700));
+    }
+    let c_data = std::ffi::CString::new(data.to_string_lossy().as_bytes())
+        .map_err(|_| "Unexpected native data entry")?;
+    // Safe: a NUL-terminated path and constant flags; closed below.
+    let directory = unsafe {
+        libc::open(
+            c_data.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if directory < 0 {
+        return Err("Native data directory ownership changed".into());
+    }
+    let result = (|| -> Result<Held, String> {
+        if !private_entry(&stat_fd(directory)?, true) {
+            return Err("Native data directory ownership changed".into());
+        }
+        if status == State::New {
+            let fd = openat(
+                directory,
+                ".native-development.json",
+                libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW,
+                0o600,
+            )?;
+            let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
+            let body = format!(
+                "{}\n",
+                serde_json::to_string(marker).map_err(|_| "Marker write failed")?
+            );
+            file.write_all(body.as_bytes())
+                .map_err(|_| "Native marker write incomplete")?;
+            file.sync_all()
+                .map_err(|_| "Native marker write incomplete")?;
+            // Safe: a live directory descriptor.
+            unsafe { libc::fsync(directory) };
+        }
+        // Read the held directory, not a replaced pathname, before taking its lock.
+        let marker_fd = openat(
+            directory,
+            ".native-development.json",
+            libc::O_RDONLY | libc::O_NOFOLLOW,
+            0,
+        )?;
+        let recorded = {
+            use std::io::Read;
+            let mut file = unsafe { std::fs::File::from_raw_fd(marker_fd) };
+            let mut body = Vec::new();
+            file.read_to_end(&mut body)
+                .map_err(|_| "Native marker changed")?;
+            if body.len() > 1024 {
+                return Err("Native marker changed".into());
+            }
+            serde_json::from_slice::<serde_json::Value>(&body)
+                .map_err(|_| "Native marker changed")?
+        };
+        if &recorded != marker {
+            return Err("Native marker changed".into());
+        }
+        let lock_fd = openat(
+            directory,
+            ".native-development.lock",
+            libc::O_RDWR | libc::O_CREAT | libc::O_NOFOLLOW,
+            0o600,
+        )?;
+        let lock = unsafe { std::fs::File::from_raw_fd(lock_fd) };
+        // Safe: a live descriptor; the lock is exclusive and non-blocking.
+        if unsafe { libc::flock(lock_fd, libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            return Err("This native data directory is already in use".into());
+        }
+        // Safe: the descriptor is held for the lifetime of `lock`.
+        if !private_entry(&stat_fd(lock_fd)?, false) {
+            return Err("Native lock is not private and owned".into());
+        }
+        let c_host = std::ffi::CString::new("host").unwrap();
+        // Safe: a live directory descriptor and a constant name.
+        unsafe { libc::mkdirat(directory, c_host.as_ptr(), 0o700) };
+        let host_fd = openat(
+            directory,
+            "host",
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW,
+            0,
+        )?;
+        let host_ok = private_entry(&stat_fd(host_fd)?, true);
+        // Safe: each descriptor is closed exactly once here.
+        unsafe { libc::close(host_fd) };
+        if !host_ok {
+            return Err("Native Host directory ownership changed".into());
+        }
+        let current = std::fs::symlink_metadata(data)
+            .map_err(|_| "Native data pathname changed during acquisition")?;
+        let pinned = stat_fd(directory)?;
+        use std::os::unix::fs::MetadataExt;
+        if !current.is_dir() || current.dev() != pinned.st_dev || current.ino() != pinned.st_ino {
+            return Err("Native data pathname changed during acquisition".into());
+        }
+        inspect_state(data, marker)?;
+        // Safe: a live directory descriptor.
+        unsafe { libc::fsync(directory) };
+        Ok(Held { lock })
+    })();
+    // Safe: the directory descriptor is no longer needed.
+    unsafe { libc::close(directory) };
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -614,5 +763,38 @@ mod state_tests {
         assert!(inspect_state(&data, &marker()).is_err());
         // A missing parent is refused rather than creating a tree.
         assert!(inspect_state(&data.join("gone/child"), &marker()).is_err());
+    }
+}
+
+#[cfg(test)]
+mod acquire_tests {
+    use super::*;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn acquiring_creates_the_marker_and_host_and_holds_an_exclusive_lock() {
+        let base =
+            crate::tempdir::make_temp_dir(&std::env::temp_dir(), "launcher-acquire-").unwrap();
+        let data = base.join("native-container");
+        let marker = serde_json::json!({"application": APP, "layout": 1, "runtimeVersion": VERSION,
+                                        "nativeSha256": "a".repeat(64)});
+        let held = acquire_state(&data, &marker).expect("a new directory is acquired");
+        let marker_path = data.join(".native-development.json");
+        let info = fs::symlink_metadata(&marker_path).unwrap();
+        assert_eq!(info.permissions().mode() & 0o777, 0o600);
+        let host = fs::symlink_metadata(data.join("host")).unwrap();
+        assert_eq!(host.permissions().mode() & 0o777, 0o700);
+        assert!(fs::symlink_metadata(data.join(".native-development.lock")).is_ok());
+        // A second acquisition while the lock is held is refused.
+        assert_eq!(
+            acquire_state(&data, &marker).err().unwrap(),
+            "This native data directory is already in use"
+        );
+        drop(held);
+        // A different marker is refused rather than adopted.
+        let other = serde_json::json!({"application": "other"});
+        assert!(acquire_state(&data, &other).is_err());
+        fs::remove_dir_all(base).unwrap();
     }
 }
