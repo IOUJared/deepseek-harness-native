@@ -215,6 +215,29 @@ pub fn notify_running(native_home: &Path) -> bool {
     stream.write_all(b"focus\n").is_ok()
 }
 
+/// How long a launch that lost the lock waits for the owner's listener to accept it.
+///
+/// The owner takes the lock and *then* binds its socket, so a launch that starts in that window
+/// sees the lock held and no socket yet. Retrying briefly turns a false "nothing is listening"
+/// into the focus request the owner can already serve; a profile whose owner really is gone still
+/// fails after this bound, so the caller keeps its refusal.
+pub const OWNER_STARTING_WAIT: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// Ask the owner that holds the lock to come forward, tolerating the moment before its listener
+/// binds. Only a *held* lock reaches this path, so waiting cannot mask an absent owner.
+pub fn notify_owner(native_home: &Path) -> bool {
+    let started = std::time::Instant::now();
+    loop {
+        if notify_running(native_home) {
+            return true;
+        }
+        if started.elapsed() >= OWNER_STARTING_WAIT {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -310,6 +333,35 @@ mod tests {
         }
         assert!(received, "the owner received the focus request");
         let _ = fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_launch_waits_through_the_owners_startup_window_and_then_gives_up() {
+        // The owner takes the lock and then binds, so a launching process can ask before the
+        // socket exists. A listener that appears during the window must still be reached.
+        let home = home("starting");
+        let path = socket_path(&home);
+        let binder = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(60));
+            let listener = UnixListener::bind(&path).expect("late bind");
+            // The launch makes exactly one request, so one accept is the whole conversation.
+            let _ = listener.accept();
+        });
+        assert!(
+            notify_owner(&home),
+            "the launch waits through the owner's startup window"
+        );
+        let _ = binder.join();
+        // With nothing listening the same call still fails, bounded, rather than hanging.
+        let gone = super::tests::home("no-listener");
+        let started = std::time::Instant::now();
+        assert!(!notify_owner(&gone), "nothing listening means false");
+        assert!(
+            started.elapsed() <= OWNER_STARTING_WAIT + std::time::Duration::from_millis(400),
+            "the wait is bounded"
+        );
+        let _ = fs::remove_dir_all(&home);
+        let _ = fs::remove_dir_all(&gone);
     }
 
     #[test]

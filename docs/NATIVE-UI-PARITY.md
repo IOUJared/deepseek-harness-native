@@ -15784,3 +15784,50 @@ is listed below, but create, write, rename, resize and close cannot run."
 | transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
 | DP-2 capture | — | `shots/337-terminal-limits.png`, `status: passed`, 1040x620 |
 | app bin | — | **21** warnings |
+
+### Round 550 — the single-instance flake: investigated, not reproduced, and the window it named closed
+
+**The open item.** A session earlier, one `--suite examples` run failed
+`single_instance::tests::a_second_launch_reaches_the_owner_that_holds_the_lock` ("the owner answers
+on its socket") and never again; the record called it an unexplained flake.
+
+**The diagnostic check first.** The test binary was looped **60 times serially**
+(`-- single_instance --test-threads=1`) and the whole default suite **8 times at 8 threads**, with no
+failure in any run. So the historical failure is not reproducible now, and this round does not claim
+to have found it.
+
+**What reading the code found instead.** `claim` takes the `flock` and *then* binds the focus
+socket, while `notify_running` connects once and reports `false` on any failure. A launch that starts
+inside that window therefore sees the lock **held** but no socket yet, and concludes "nothing is
+listening" — the one state in which a second launch gets the misleading sentence even though an owner
+exists and is about to serve. That is a real window in the launch path, whether or not it caused the
+one historical failure.
+
+**The fix.** `notify_owner` retries `notify_running` for at most
+`OWNER_STARTING_WAIT` (500 ms, 10 ms apart) and is used only on the `AlreadyRunning` path, where the
+lock is provably held — so waiting cannot mask an absent owner: a profile whose owner is gone still
+fails, bounded, and the caller keeps its refusal. `notify_running` itself is unchanged for callers
+that want a single answer.
+
+**Test.** `a_launch_waits_through_the_owners_startup_window_and_then_gives_up`: a listener bound 60 ms
+after the launch asks is still reached, and a home with no listener returns `false` within the bound
+rather than hanging. (The first draft joined a listener thread that never ended — the test hung, which
+is why it now accepts exactly the one connection a launch makes.)
+
+**No frame:** a launch-path change with no pixels.
+
+**Battery (round 550).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1554 passed**, 1 ignored |
+| app, default | **0** | **1498 passed**, 1 ignored |
+| single-instance loop | **0** | 60 serial runs + 8 full suites at 8 threads, 0 failures |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-0zt4dsc5`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-oehcu8m8`) |
+| transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
+| DP-2 capture | — | none: a launch-path round |
+| app bin | — | **21** warnings |
+
+The historical flake stays recorded as unexplained; the window it pointed at is closed.

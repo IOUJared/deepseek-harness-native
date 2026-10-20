@@ -55,7 +55,7 @@ fn main() -> iced::Result {
         match single_instance::claim(&options.backend.native_home) {
             single_instance::Outcome::Claimed(claim) => Some(claim),
             single_instance::Outcome::AlreadyRunning => {
-                if single_instance::notify_running(&options.backend.native_home) {
+                if single_instance::notify_owner(&options.backend.native_home) {
                     eprintln!("DeepSeek Harness is already running; asked it to come forward.");
                 } else {
                     eprintln!(
