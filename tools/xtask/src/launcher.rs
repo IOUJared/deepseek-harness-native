@@ -1433,6 +1433,334 @@ pub fn glibc_requirement(binary: &Path) -> Result<String, String> {
         .ok_or_else(|| "ELF version output exceeded bound".into())
 }
 
+/// Build the external-runtime development archive in a new evidence directory.
+#[allow(clippy::too_many_arguments)]
+pub fn build(
+    base: &Path,
+    output: &Path,
+    metadata_path: &Path,
+    qualification_path: Option<&Path>,
+    source_root: Option<&Path>,
+    native_binary: Option<&Path>,
+    launcher: &Path,
+    cargo_src: &Path,
+) -> Result<Value, String> {
+    let output = if output.is_absolute() {
+        output.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map(|directory| directory.join(output))
+            .unwrap_or_else(|_| output.to_path_buf())
+    };
+    let allowed = base
+        .join("app/evidence")
+        .canonicalize()
+        .map_err(|_| "Package output must be new and below own evidence directory")?;
+    if output.exists()
+        || output
+            .symlink_metadata()
+            .is_ok_and(|info| info.file_type().is_symlink())
+        || !output
+            .parent()
+            .map(|parent| {
+                parent
+                    .canonicalize()
+                    .unwrap_or_default()
+                    .starts_with(&allowed)
+            })
+            .unwrap_or(false)
+    {
+        return Err("Package output must be new and below own evidence directory".into());
+    }
+    let (selected_root, source_binary) = native_inputs(
+        base,
+        &base.join("app/target/release/dsh-native-app"),
+        source_root,
+        native_binary,
+    )?;
+    let version = package_version(&selected_root.join("app"))?;
+    for module in NATIVE_MODULES {
+        for folder in native_folders(module) {
+            if output
+                .canonicalize()
+                .map(|path| path.starts_with(selected_root.join(module).join(folder)))
+                .unwrap_or(false)
+            {
+                return Err("Package output cannot overlap selected native sources".into());
+            }
+        }
+    }
+    let selected_sources = native_source_inventory(&selected_root)?;
+    let before = binary_digest(&source_binary)?;
+    let qualification = match qualification_path {
+        Some(path) => Some(qualified_native(path, &before, &selected_root.join("app"))?),
+        None => None,
+    };
+    std::fs::create_dir(&output).map_err(|error| error.to_string())?;
+    let _ = std::fs::set_permissions(&output, std::os::unix::fs::PermissionsExt::from_mode(0o700));
+    let node_qualified = qualification
+        .as_ref()
+        .and_then(|value| value["systemNodeVersionObserved"].as_str())
+        .map(|value| value.trim_start_matches('v').to_string());
+    let name = format!(
+        "dsh-native-linux-x86_64-development-{version}-{}",
+        before.get(..12).unwrap_or_default()
+    );
+    let payload = output.join(&name);
+    std::fs::create_dir(&payload).map_err(|error| error.to_string())?;
+    let _ = std::fs::set_permissions(
+        &payload,
+        std::os::unix::fs::PermissionsExt::from_mode(0o700),
+    );
+    copy_new(
+        &source_binary,
+        &payload.join("bin/dsh-native-app"),
+        0o755,
+        MAX_BINARY,
+    )?;
+    if binary_digest(&payload.join("bin/dsh-native-app"))? != before {
+        return Err("Native binary snapshot mismatch".into());
+    }
+    let minimum = glibc_requirement(&payload.join("bin/dsh-native-app"))?;
+    let manifest = serde_json::json!({
+        "application": APP,
+        "packageVersion": if version.contains('-') { version.clone() } else { format!("{version}-development") },
+        "runtimeVersion": VERSION,
+        "runtimeMode": "external-explicit",
+        "architecture": "x86_64",
+        "minimumGlibc": minimum,
+        "nativeSha256": before,
+        "node": "/usr/bin/node",
+        "nodeSelectionMode": "system-default-or-explicit-absolute",
+        "nodeMajorAccepted": 26,
+        "nodeVersionQualified": node_qualified,
+        "nodeQualificationScope": "selected native keyless report observation only; null if absent",
+        "primaryUi": "Iced 0.14.0 / wgpu",
+        "electronIncluded": false,
+        "hostRuntimeIncluded": false,
+        "standaloneInstaller": false,
+        "fullDesktopParity": false,
+        "nativeUiQualificationIncluded": qualification.is_some(),
+    });
+    std::fs::write(
+        payload.join("development-manifest.json"),
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&manifest).map_err(|error| error.to_string())?
+        ),
+    )
+    .map_err(|error| error.to_string())?;
+    // The Rust launcher replaces the shipped launch.py; the archive verifier is updated with it.
+    copy_new(launcher, &payload.join("launch"), 0o755, MAX_BINARY)?;
+    let instructions = private_read(&base.join("docs/NATIVE-DEVELOPMENT-PACKAGE.md"), 128 * 1024)
+        .map_err(|error| error.to_string())?;
+    let instructions =
+        String::from_utf8(instructions).map_err(|_| "Package instructions are not UTF-8")?;
+    let instructions = instructions
+        .split("## Qualified artifact")
+        .next()
+        .unwrap_or_default();
+    let mut readme = String::from(instructions);
+    readme.push_str(
+        "## This archive\n\nRead [development-manifest.json](<development-manifest.json>) for the executable digest, glibc baseline and explicit external-runtime requirements; this digest is not a signature. [source-snapshot.json](<source-snapshot.json>) lists the bundled native source, examples and fixtures, not a certified reproducible build or complete dependency-source closure.\n\n",
+    );
+    if qualification.is_some() {
+        readme.push_str("[Included public UI qualification](<evidence/native-ui-qualification.json>) pins this executable and the bundled app-source subset. It does not qualify physical input, real accounts/models, rich inline diffs or full parity. Relocated startup checks are a separate distribution-side report.\n\n");
+    } else {
+        readme.push_str("This archive has no selected native UI qualification. [Qualification status](<evidence/native-ui-qualification-status.json>) is explicitly unqualified; relocated startup qualification must be run separately.\n\n");
+    }
+    readme.push_str("Self-contained runtime/Node, general Linux portability, complete redistribution-license review, installer/update ownership and full parity remain unfinished.\n");
+    if qualification
+        .as_ref()
+        .is_some_and(|value| value["formatCheckPassed"].as_bool() == Some(false))
+    {
+        readme.push_str("\nThe full shared-App formatting check is not passed. Only the named source-pinned files in `scopedFormatCheck` passed scoped rustfmt; full-App formatting is not qualified.\n");
+    }
+    std::fs::write(payload.join("README.md"), readme).map_err(|error| error.to_string())?;
+    copy_new(
+        &base.join("core/LICENSE"),
+        &payload.join("LICENSE"),
+        0o644,
+        1024 * 1024,
+    )?;
+    let metadata: Value = serde_json::from_slice(&private_read(metadata_path, 8 * 1024 * 1024)?)
+        .map_err(|_| "Invalid bounded Cargo metadata package list")?;
+    let inventory = licenses(&metadata, cargo_src, &payload)?;
+    std::fs::create_dir_all(payload.join("evidence")).map_err(|error| error.to_string())?;
+    std::fs::write(
+        payload.join("evidence/native-ui-qualification-status.json"),
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "status": if qualification.is_some() { "selected-report-included" } else { "unqualified" },
+                "nativeUiQualificationIncluded": qualification.is_some(),
+                "relocatedStartupQualified": false,
+                "scope": "Snapshot consistency is not UI, provider or relocated startup qualification",
+            }))
+            .map_err(|error| error.to_string())?
+        ),
+    )
+    .map_err(|error| error.to_string())?;
+    if let Some(path) = qualification_path {
+        copy_new(
+            path,
+            &payload.join("evidence/native-ui-qualification.json"),
+            0o644,
+            256 * 1024,
+        )?;
+    }
+    copy_native_sources(&selected_root, &payload)?;
+    let snapshot = snapshot_inventory(&payload)?;
+    if native_source_inventory(&selected_root)? != selected_sources || snapshot != selected_sources
+    {
+        return Err("Selected native sources changed during snapshot".into());
+    }
+    if qualification.is_some()
+        && qualified_native(
+            &payload.join("evidence/native-ui-qualification.json"),
+            &before,
+            &payload.join("source/native/app"),
+        )? != qualification.clone().unwrap_or_default()
+    {
+        return Err("Qualification changed during snapshot".into());
+    }
+    if binary_digest(&source_binary)? != before {
+        return Err("Release binary changed during packaging".into());
+    }
+    let archive = output.join(format!("{name}.tar.gz"));
+    write_archive(&payload, &output, &archive)?;
+    let archive_sha = binary_digest(&archive)?;
+    let archive_bytes = std::fs::metadata(&archive)
+        .map(|info| info.len())
+        .unwrap_or(0);
+    let result = serde_json::json!({
+        "status": "built-external-runtime-development-package",
+        "archive": archive.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default(),
+        "nativeSha256": before,
+        "archiveSha256": archive_sha,
+        "archiveBytes": archive_bytes,
+        "minimumGlibc": minimum,
+        "runtimeBundled": false,
+        "nodeBundled": false,
+        "nativeUiQualificationIncluded": qualification.is_some(),
+        "nativeSourceSnapshotFiles": snapshot["fileCount"],
+        "nativeSourceSnapshotSha256": binary_digest(&payload.join("source-snapshot.json")).unwrap_or_default(),
+        "rustMetadataPackageCount": inventory["packageCount"],
+        "rustPackagesWithCopiedLicenseTexts": inventory["packagesWithCopiedLicenseTexts"],
+        "standaloneOrGeneralLinuxPortabilityClaimed": false,
+        "publicRedistributionLicenseReviewComplete": false,
+    });
+    std::fs::write(
+        output.join("build.json"),
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?
+        ),
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(result)
+}
+
+fn copy_native_sources(base: &Path, payload: &Path) -> Result<(), String> {
+    for (source, limit) in native_source_files(base)? {
+        let relative = source
+            .strip_prefix(base)
+            .map_err(|_| "Native source outside its root")?;
+        copy_new(
+            &source,
+            &payload.join("source/native").join(relative),
+            0o644,
+            limit,
+        )?;
+    }
+    Ok(())
+}
+
+fn snapshot_inventory(payload: &Path) -> Result<Value, String> {
+    let result = native_source_inventory(&payload.join("source/native"))?;
+    std::fs::write(
+        payload.join("source-snapshot.json"),
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?
+        ),
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(result)
+}
+
+fn collect_tree(directory: &Path, paths: &mut Vec<PathBuf>) -> Result<(), String> {
+    for entry in std::fs::read_dir(directory).map_err(|error| error.to_string())? {
+        let path = entry.map_err(|error| error.to_string())?.path();
+        paths.push(path.clone());
+        if path.is_dir() {
+            collect_tree(&path, paths)?;
+        }
+    }
+    Ok(())
+}
+
+/// Deterministic tar.gz: zeroed ownership and mtime, normalized modes.
+fn write_archive(payload: &Path, output: &Path, archive: &Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(archive)
+        .map_err(|error| error.to_string())?;
+    let encoder = flate2::GzBuilder::new()
+        .filename("")
+        .mtime(0)
+        .write(file, flate2::Compression::default());
+    let mut builder = tar::Builder::new(encoder);
+    let mut paths = vec![payload.to_path_buf()];
+    collect_tree(payload, &mut paths)?;
+    let mut rest = paths.split_off(1);
+    rest.sort();
+    paths.extend(rest);
+    for path in paths {
+        let relative = path
+            .strip_prefix(output)
+            .map_err(|_| "Payload is outside the package output")?;
+        if path
+            .symlink_metadata()
+            .is_ok_and(|info| info.file_type().is_symlink())
+        {
+            return Err("Payload symlink refused".into());
+        }
+        let info = path.symlink_metadata().map_err(|error| error.to_string())?;
+        let mut header = tar::Header::new_gnu();
+        let executable = info.is_dir() || info.permissions().mode() & 0o111 != 0;
+        header.set_mode(if executable { 0o755 } else { 0o644 });
+        header.set_uid(0);
+        header.set_gid(0);
+        header.set_username("").map_err(|error| error.to_string())?;
+        header
+            .set_groupname("")
+            .map_err(|error| error.to_string())?;
+        header.set_mtime(0);
+        if info.is_dir() {
+            header.set_entry_type(tar::EntryType::Directory);
+            header.set_size(0);
+            builder
+                .append_data(&mut header, relative, std::io::empty())
+                .map_err(|error| error.to_string())?;
+        } else {
+            header.set_entry_type(tar::EntryType::Regular);
+            header.set_size(info.len());
+            let mut file = std::fs::File::open(&path).map_err(|error| error.to_string())?;
+            builder
+                .append_data(&mut header, relative, &mut file)
+                .map_err(|error| error.to_string())?;
+        }
+    }
+    let encoder = builder.into_inner().map_err(|error| error.to_string())?;
+    encoder.finish().map_err(|error| error.to_string())?;
+    std::fs::set_permissions(archive, std::fs::Permissions::from_mode(0o600))
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2155,5 +2483,132 @@ mod metadata_tests {
         let (major, minor) = requirement.split_once('.').unwrap();
         assert!(major.parse::<u64>().unwrap() >= 2);
         assert!(minor.parse::<u64>().unwrap() < 100);
+    }
+}
+
+#[cfg(test)]
+mod build_tests {
+    use super::*;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn base_tree() -> (PathBuf, PathBuf, PathBuf, PathBuf) {
+        let base = crate::tempdir::make_temp_dir(&std::env::temp_dir(), "package-build-").unwrap();
+        for module in NATIVE_MODULES {
+            let root = base.join(module);
+            fs::create_dir_all(root.join("src")).unwrap();
+            fs::write(
+                root.join("Cargo.toml"),
+                format!("[package]\nname = \"{module}\"\nversion = \"2026.10.10-r2\"\n"),
+            )
+            .unwrap();
+            fs::write(root.join("Cargo.lock"), b"# PUBLIC lock\n").unwrap();
+            fs::write(root.join("src/lib.rs"), format!("// {module}\n")).unwrap();
+        }
+        fs::write(base.join("app/src/lib.rs"), b"// app\n").unwrap();
+        fs::create_dir_all(base.join("app/evidence")).unwrap();
+        fs::create_dir_all(base.join("core")).unwrap();
+        fs::write(base.join("core/LICENSE"), b"PUBLIC license\n").unwrap();
+        fs::create_dir_all(base.join("deepseek-harness-tauri/.cargo-home/registry/src")).unwrap();
+        fs::create_dir_all(base.join("evidence-root")).unwrap();
+        let note = base.join("docs/NATIVE-DEVELOPMENT-PACKAGE.md");
+        fs::create_dir_all(note.parent().unwrap()).unwrap();
+        fs::write(
+            &note,
+            b"# Package\n\nIntro.\n\n## Qualified artifact\n\nDetails.\n",
+        )
+        .unwrap();
+        let native = base.join("native-binary");
+        fs::copy("/bin/sh", &native).unwrap();
+        fs::set_permissions(&native, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let launcher = base.join("launcher-binary");
+        fs::copy("/bin/true", &launcher).unwrap();
+        fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let metadata = base.join("metadata.json");
+        fs::write(
+            &metadata,
+            serde_json::to_vec(&serde_json::json!({"packages": [
+                {"name": "app", "version": "2026.10.10-r2", "source": null,
+                 "manifest_path": base.join("app/Cargo.toml").to_string_lossy(), "license": null},
+            ]}))
+            .unwrap(),
+        )
+        .unwrap();
+        (base, native, launcher, metadata)
+    }
+
+    #[test]
+    fn a_complete_build_writes_a_deterministic_archive_and_build_json() {
+        let (base, native, launcher, metadata) = base_tree();
+        let output = base.join("app/evidence/package-1");
+        let result = build(
+            &base,
+            &output,
+            &metadata,
+            None,
+            Some(&base),
+            Some(&native),
+            &launcher,
+            &base.join("deepseek-harness-tauri/.cargo-home/registry/src"),
+        )
+        .expect("a built package");
+        assert_eq!(
+            result["status"],
+            "built-external-runtime-development-package"
+        );
+        assert_eq!(result["runtimeBundled"], false);
+        assert!(result["archiveBytes"].as_u64().unwrap() > 0);
+        assert!(result["minimumGlibc"].as_str().unwrap().starts_with("2."));
+        let archive = output.join(result["archive"].as_str().unwrap());
+        assert!(archive.is_file());
+        assert_eq!(
+            fs::metadata(&archive).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert!(output.join("build.json").is_file());
+        // The same inputs produce the same archive digest (zeroed mtime and owners).
+        let output2 = base.join("app/evidence/package-2");
+        let again = build(
+            &base,
+            &output2,
+            &metadata,
+            None,
+            Some(&base),
+            Some(&native),
+            &launcher,
+            &base.join("deepseek-harness-tauri/.cargo-home/registry/src"),
+        )
+        .expect("a second built package");
+        assert_eq!(again["archiveSha256"], result["archiveSha256"]);
+        // An existing output and a missing source/binary pair are refused.
+        assert_eq!(
+            build(
+                &base,
+                &output,
+                &metadata,
+                None,
+                Some(&base),
+                Some(&native),
+                &launcher,
+                &base.join("deepseek-harness-tauri/.cargo-home/registry/src")
+            )
+            .unwrap_err(),
+            "Package output must be new and below own evidence directory"
+        );
+        assert_eq!(
+            build(
+                &base,
+                &base.join("app/evidence/package-3"),
+                &metadata,
+                None,
+                Some(&base),
+                None,
+                &launcher,
+                &base.join("deepseek-harness-tauri/.cargo-home/registry/src")
+            )
+            .unwrap_err(),
+            "Source root and native binary must be supplied together"
+        );
+        fs::remove_dir_all(base).unwrap();
     }
 }

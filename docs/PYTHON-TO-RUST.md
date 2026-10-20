@@ -128,7 +128,7 @@ Deliberate differences, all measured against the Python originals:
   session the port could not claim. The Python library stays until its last
   consumer is ported, so the two runners are a named, temporary duplication.
 
-| Development package | `scripts/build-development-package.py` (in progress) | Bounded snapshot copy, the native qualification gate, canonical native input checks, the bounded native source selection/inventory and the Cargo license inventory, the Cargo.toml version read and the readelf glibc baseline are ported in `launcher`; the archive assembly and manifest remain |
+| Development package | `scripts/build-development-package.py` (in progress) | Bounded snapshot copy, the native qualification gate, canonical native input checks, the bounded native source selection/inventory and the Cargo license inventory, and `build` (payload, manifest, README, licenses, evidence, native sources, deterministic tar.gz, `build.json`) are ported in `launcher`; the archive now ships the Rust launcher as `launch`, so `package_release` and the docs must be updated with it |
 
 ## Remaining
 
