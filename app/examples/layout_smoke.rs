@@ -1063,6 +1063,8 @@ impl Fixture {
                 worker::Command::PluginManagerPlugins => "PluginManagerPlugins",
                 worker::Command::PluginEntryEnabled { .. } => "PluginEntryEnabled",
                 worker::Command::PluginInstall { .. } => "PluginInstall",
+                worker::Command::PluginWaitForInstall { .. } => "PluginWaitForInstall",
+                worker::Command::PluginCancelInstall { .. } => "PluginCancelInstall",
                 worker::Command::PermissionCatalogRead => "PermissionCatalogRead",
                 worker::Command::AgentPresetsRead => "AgentPresetsRead",
                 worker::Command::AgentPresetSelect { .. } => "AgentPresetSelect",

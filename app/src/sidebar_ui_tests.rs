@@ -1597,11 +1597,17 @@ fn installing_the_inspected_spec_needs_confirm_and_reports_the_hosts_answer() {
     // A confirmed install sends exactly one call with the inspected spec.
     drop(app.update(Message::PluginManager(Manager::AskInstall)));
     drop(app.update(Message::PluginManager(Manager::ConfirmInstall)));
-    let Command::PluginInstall { spec, registry } = queue.try_recv().expect("one install") else {
+    let Command::PluginInstall {
+        spec,
+        registry,
+        request_id,
+    } = queue.try_recv().expect("one install")
+    else {
         panic!("only the install expected")
     };
     assert_eq!(spec, "@PUBLIC/pkg");
     assert_eq!(registry, None);
+    assert!(!request_id.is_empty());
     // A second Confirm while the install runs is ignored.
     drop(app.update(Message::PluginManager(Manager::ConfirmInstall)));
     assert!(queue.try_recv().is_err());
@@ -1649,4 +1655,109 @@ fn installing_the_inspected_spec_needs_confirm_and_reports_the_hosts_answer() {
         queue.try_recv(),
         Ok(Command::PluginManagerPlugins)
     ));
+}
+
+#[test]
+fn a_lost_install_reply_is_recovered_and_the_run_cancels() {
+    use super::plugin_manager::Action as Manager;
+    use dsh_native_transport::plugin::{
+        PluginApplication, PluginCancellation, PluginChange, PluginInspection,
+    };
+    let (mut app, mut queue) = app();
+    app.plugin_manager.seed(true, Vec::new());
+    app.plugin_manager.seed_rows(Vec::new());
+    let inspect_and_arm =
+        |app: &mut crate::ui::App, queue: &mut tokio::sync::mpsc::Receiver<Command>| {
+            drop(app.update(Message::PluginManager(Manager::EditSpec(
+                "@PUBLIC/pkg".into(),
+            ))));
+            drop(app.update(Message::PluginManager(Manager::Inspect)));
+            let _ = queue.try_recv();
+            drop(app.update(Message::Worker(Event::PluginInspected(Ok(
+                PluginInspection::Accepted {
+                    kind: "registry".into(),
+                    name: Some("@PUBLIC/pkg".into()),
+                    version: Some("1.0.0".into()),
+                    description: None,
+                    bundle: Some(true),
+                    registry: None,
+                    host: None,
+                },
+            )))));
+            drop(app.update(Message::PluginManager(Manager::AskInstall)));
+            drop(app.update(Message::PluginManager(Manager::ConfirmInstall)));
+        };
+    inspect_and_arm(&mut app, &mut queue);
+    let Command::PluginInstall { request_id, .. } = queue.try_recv().expect("one install") else {
+        panic!("only the install expected")
+    };
+    // A lost reply is not retried: the page asks the Host for the active result first.
+    drop(app.update(Message::Worker(Event::PluginInstallSettled(Err(
+        "connection lost".into(),
+    )))));
+    let Command::PluginWaitForInstall { request_id: waited } =
+        queue.try_recv().expect("wait for the result")
+    else {
+        panic!("only the recovery read expected")
+    };
+    assert_eq!(waited, request_id);
+    // The recovery read settles the install and re-reads the Host's list.
+    drop(
+        app.update(Message::Worker(Event::PluginWaitForInstall(Ok(Some(
+            PluginChange {
+                changed: true,
+                application: PluginApplication::Applied,
+                target: "@PUBLIC/pkg".into(),
+                enabled: Some(false),
+                error: None,
+                bundle: Some("PUBLIC-bundle".into()),
+                version: Some("1.0.0".into()),
+                pending_builds: Vec::new(),
+                approved_builds: Vec::new(),
+            },
+        ))))),
+    );
+    assert!(matches!(queue.try_recv(), Ok(Command::PluginManagerRead)));
+    assert!(matches!(
+        queue.try_recv(),
+        Ok(Command::PluginManagerPlugins)
+    ));
+    // A second install can be cancelled while it runs; the page then waits for the run's result.
+    app.plugin_manager.seed(true, Vec::new());
+    inspect_and_arm(&mut app, &mut queue);
+    let Command::PluginInstall {
+        request_id: second, ..
+    } = queue.try_recv().expect("second install")
+    else {
+        panic!("only the install expected")
+    };
+    assert_ne!(second, request_id);
+    drop(app.update(Message::PluginManager(Manager::CancelRunningInstall)));
+    let Command::PluginCancelInstall {
+        request_id: cancelled,
+    } = queue.try_recv().expect("one cancellation")
+    else {
+        panic!("only the cancellation expected")
+    };
+    assert_eq!(cancelled, second);
+    drop(
+        app.update(Message::Worker(Event::PluginInstallCancelAsked(Ok(
+            PluginCancellation::Cancelled,
+        )))),
+    );
+    let Command::PluginWaitForInstall {
+        request_id: after_cancel,
+    } = queue.try_recv().expect("wait after cancelling")
+    else {
+        panic!("only the recovery read expected")
+    };
+    assert_eq!(after_cancel, second);
+    // An absent result is explicitly unknown, and the page re-reads the list.
+    drop(app.update(Message::Worker(Event::PluginWaitForInstall(Ok(None)))));
+    assert!(matches!(queue.try_recv(), Ok(Command::PluginManagerRead)));
+    assert!(matches!(
+        queue.try_recv(),
+        Ok(Command::PluginManagerPlugins)
+    ));
+    assert!(app.plugin_manager.install_request().is_none());
 }

@@ -73,6 +73,28 @@ pub struct PluginBundle {
     pub error: Option<String>,
 }
 /// What one plugin-manager write settled as (`boot/plugin-manager/lib/types/types.d.ts:98-125`).
+/// The Host's answer to a cancellation request (`types.d.ts:184-186`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PluginCancellation {
+    Cancelled,
+    TooLate,
+    NotRunning,
+}
+#[derive(Deserialize)]
+struct WireCancellation {
+    status: String,
+}
+pub(crate) fn project_cancellation(value: Value) -> Result<PluginCancellation> {
+    bounded(&value)?;
+    let wire: WireCancellation = serde_json::from_value(value).map_err(|_| Error::InvalidDto)?;
+    match wire.status.as_str() {
+        "cancelled" => Ok(PluginCancellation::Cancelled),
+        "too-late" => Ok(PluginCancellation::TooLate),
+        "not-running" => Ok(PluginCancellation::NotRunning),
+        _ => Err(Error::InvalidDto),
+    }
+}
+
 /// One live profile entry with its management availability (`types.d.ts:25-33`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PluginRow {
@@ -1249,6 +1271,23 @@ mod tests {
             json!([{"name":"a","enabled":true,"installed":true},{"name":"a","enabled":false,"installed":false}]),
         ] {
             assert!(project_bundles(bad.clone()).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn cancellation_status_projects_only_known_answers() {
+        for (status, expected) in [
+            ("cancelled", PluginCancellation::Cancelled),
+            ("too-late", PluginCancellation::TooLate),
+            ("not-running", PluginCancellation::NotRunning),
+        ] {
+            assert_eq!(
+                project_cancellation(json!({"status": status})),
+                Ok(expected)
+            );
+        }
+        for bad in [json!({}), json!({"status": "unknown"})] {
+            assert!(project_cancellation(bad.clone()).is_err(), "{bad}");
         }
     }
 

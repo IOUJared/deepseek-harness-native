@@ -187,6 +187,8 @@ enum Endpoint {
     PluginRegistries,
     PluginEntryEnabled,
     PluginInstall,
+    PluginWaitForInstall,
+    PluginCancelInstall,
     PluginManagerPlugins,
     AgentPresetSelect,
     JobKill,
@@ -277,6 +279,8 @@ impl Endpoint {
             Self::PluginRegistries => "pluginManager/registries",
             Self::PluginEntryEnabled => "pluginManager/setPluginEnabled",
             Self::PluginInstall => "pluginManager/installBundle",
+            Self::PluginWaitForInstall => "pluginManager/waitForInstall",
+            Self::PluginCancelInstall => "pluginManager/cancelInstall",
             Self::PluginManagerPlugins => "pluginManager/listPlugins",
             Self::AgentPresetSelect => "agentPresets/select",
             Self::JobKill => "job/kill",
@@ -1446,9 +1450,14 @@ impl NativeClient {
         &self,
         spec: &str,
         registry: Option<&str>,
+        request_id: &str,
     ) -> Result<crate::plugin::PluginChange> {
         let spec = spec.trim();
-        if spec.is_empty() || spec.len() > 2048 || spec.chars().any(char::is_control) {
+        if spec.is_empty()
+            || spec.len() > 2048
+            || spec.chars().any(char::is_control)
+            || !valid_install_request_id(request_id)
+        {
             return Err(Error::InvalidDto);
         }
         if registry.is_some_and(|registry| registry.is_empty() || registry.len() > 2048) {
@@ -1456,6 +1465,7 @@ impl NativeClient {
         }
         let mut options = serde_json::Map::new();
         options.insert("enabled".into(), json!(false));
+        options.insert("requestId".into(), json!(request_id));
         if let Some(registry) = registry {
             options.insert("registry".into(), json!(registry));
         }
@@ -1466,6 +1476,43 @@ impl NativeClient {
             )
             .await?;
         crate::plugin::project_change(value)
+    }
+    /// The active installation's result for one request id, or `null` when it is not running
+    /// (`pluginManager/waitForInstall`, `manager-store.ts:922-934`). A recovery read, never a retry.
+    pub async fn plugin_manager_wait_for_install(
+        &self,
+        request_id: &str,
+    ) -> Result<Option<crate::plugin::PluginChange>> {
+        if !valid_install_request_id(request_id) {
+            return Err(Error::InvalidDto);
+        }
+        let value: Value = self
+            .invoke(
+                Endpoint::PluginWaitForInstall,
+                json!({"requestId": request_id}),
+            )
+            .await?;
+        if value.is_null() {
+            return Ok(None);
+        }
+        crate::plugin::project_change(value).map(Some)
+    }
+    /// Ask the Host to stop one installation (`pluginManager/cancelInstall`, `manager-store.ts:1005-1030`).
+    /// A cancellation is a request, not a committed write; the caller waits for the run's result.
+    pub async fn plugin_manager_cancel_install(
+        &self,
+        request_id: &str,
+    ) -> Result<crate::plugin::PluginCancellation> {
+        if !valid_install_request_id(request_id) {
+            return Err(Error::InvalidDto);
+        }
+        let value = self
+            .invoke(
+                Endpoint::PluginCancelInstall,
+                json!({"requestId": request_id}),
+            )
+            .await?;
+        crate::plugin::project_cancellation(value)
     }
     /// Project private redacted config and Schemastery graphs before publishing any DTO.
     pub async fn plugin_settings(&self) -> Result<crate::plugin::SettingsDescribeValue> {
@@ -2075,6 +2122,15 @@ fn parse_changes_summary(value: Value) -> Option<ChangesSummary> {
         deleted,
     })
 }
+/// An opaque install request id: bounded, printable, and safe as a remote argument.
+fn valid_install_request_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
 fn valid_open_path(path: &str) -> bool {
     !path.is_empty() && path.len() <= 4096 && !path.chars().any(char::is_control)
 }

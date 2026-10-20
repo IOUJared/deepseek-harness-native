@@ -54,6 +54,8 @@ pub enum Action {
     CancelInstall,
     /// Send the armed install; one explicit attempt.
     ConfirmInstall,
+    /// Ask the Host to stop the installation in flight.
+    CancelRunningInstall,
 }
 
 #[derive(Default)]
@@ -93,6 +95,8 @@ pub struct Manager {
     /// The install review armed by the accepted preview, and the install in flight.
     install_confirm: bool,
     installing: bool,
+    /// The request id this install was started with, kept until its result is known.
+    install_request: Option<String>,
 }
 
 impl Manager {
@@ -275,7 +279,7 @@ impl Manager {
         self.install_confirm = false;
     }
     /// Take the armed install into flight; the caller sends it once.
-    pub fn confirm_install(&mut self) -> Option<(String, Option<String>)> {
+    pub fn confirm_install(&mut self) -> Option<(String, Option<String>, String)> {
         if self.installing || !self.install_confirm {
             return None;
         }
@@ -285,8 +289,92 @@ impl Manager {
         }
         self.install_confirm = false;
         self.installing = true;
+        self.install_request = Some(next_install_request());
         self.notice = None;
-        Some((spec, self.registry()))
+        Some((spec, self.registry(), self.install_request.clone()?))
+    }
+    #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
+    pub fn is_installing(&self) -> bool {
+        self.installing
+    }
+    /// Seed the installing state for a public fixture: no Host run exists behind it.
+    #[cfg_attr(not(any(test, feature = "public-layout-fixture")), allow(dead_code))]
+    pub fn seed_installing(&mut self, request_id: &str) {
+        self.installing = true;
+        self.install_request = Some(request_id.to_owned());
+    }
+    /// The request id whose result is still unknown, for a recovery read.
+    pub fn install_request(&self) -> Option<String> {
+        self.install_request.clone()
+    }
+    /// Adopt a recovery read: an active result settles the install; `None` is an unknown outcome.
+    pub fn wait_settled(
+        &mut self,
+        result: Result<Option<dsh_native_transport::plugin::PluginChange>, String>,
+    ) -> bool {
+        match result {
+            Ok(Some(change)) => self.install_settled(Ok(change)),
+            Ok(None) => {
+                self.installing = false;
+                self.install_request = None;
+                self.notice = Some((
+                    "Installation result unavailable; check the plugin list.".to_owned(),
+                    true,
+                ));
+                true
+            }
+            Err(error) => {
+                self.installing = false;
+                self.install_request = None;
+                self.notice = Some((
+                    format!(
+                        "Installation result unavailable ({}); check the plugin list.",
+                        short(&error, 80)
+                    ),
+                    true,
+                ));
+                true
+            }
+        }
+    }
+    /// Adopt a cancellation answer. Returns whether the page should ask for the run's result.
+    pub fn cancel_settled(
+        &mut self,
+        result: Result<dsh_native_transport::plugin::PluginCancellation, String>,
+    ) -> bool {
+        match result {
+            Ok(dsh_native_transport::plugin::PluginCancellation::Cancelled) => {
+                self.notice = Some(("Stopping the installation…".to_owned(), false));
+                true
+            }
+            Ok(dsh_native_transport::plugin::PluginCancellation::TooLate) => {
+                self.notice = Some((
+                    "Cancellation was not confirmed; waiting for the installation's result."
+                        .to_owned(),
+                    true,
+                ));
+                true
+            }
+            Ok(dsh_native_transport::plugin::PluginCancellation::NotRunning) => {
+                self.installing = false;
+                self.install_request = None;
+                self.notice = Some((
+                    "The installation is no longer running; check the plugin list.".to_owned(),
+                    true,
+                ));
+                true
+            }
+            Err(error) => {
+                self.notice = Some((
+                    format!(
+                        "Cancellation was not confirmed ({}); waiting for the installation's result.",
+                        short(&error, 80)
+                    ),
+                    true,
+                ));
+                true
+            }
+        }
     }
     /// Adopt one installation's settlement and say whether the list should be re-read.
     pub fn install_settled(
@@ -301,6 +389,7 @@ impl Manager {
                     || change.application
                         == dsh_native_transport::plugin::PluginApplication::RestartRequired =>
             {
+                self.install_request = None;
                 let installed = change.bundle.as_deref().unwrap_or(change.target.as_str());
                 let version = change
                     .version
@@ -323,6 +412,7 @@ impl Manager {
                 true
             }
             Ok(change) => {
+                self.install_request = None;
                 let mut notice = format!(
                     "The Host did not install the spec{}.",
                     change
@@ -342,14 +432,16 @@ impl Manager {
                 true
             }
             Err(error) => {
+                // Keep the request id: the caller asks the Host for the active result first.
+                self.installing = true;
                 self.notice = Some((
                     format!(
-                        "Installation result unavailable ({}); check the plugin list.",
+                        "Installation result unavailable ({}); asking the Host for it.",
                         short(&error, 80)
                     ),
                     true,
                 ));
-                true
+                false
             }
         }
     }
@@ -739,7 +831,17 @@ impl Manager {
                         card = card.push(label(format!("Host {host}"), MUTED).size(10));
                     }
                     if self.installing {
-                        card = card.push(label("Installing…", MUTED).size(10));
+                        card = card.push(
+                            iced::widget::row![
+                                label("Installing…", MUTED).size(10).width(Length::Fill),
+                                button(label("Cancel installation", MUTED).size(10))
+                                    .padding([2, 6])
+                                    .style(design::ghost)
+                                    .on_press(Message::PluginManager(Action::CancelRunningInstall)),
+                            ]
+                            .spacing(6)
+                            .align_y(iced::Alignment::Center),
+                        );
                     } else if self.install_confirm {
                         card = card.push(
                             iced::widget::column![
@@ -1101,4 +1203,20 @@ impl Manager {
             .height(Length::Fill)
             .into()
     }
+}
+
+/// An opaque request id for one installation. The Host treats it as a key, not a UUID, and the app
+/// spends no dependency on one; only the process, time and a local sequence are encoded.
+fn next_install_request() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or(0);
+    format!(
+        "native-{}-{nanos}-{}",
+        std::process::id(),
+        SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    )
 }

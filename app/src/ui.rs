@@ -6468,8 +6468,19 @@ impl App {
                         self.plugin_manager.cancel_install();
                     }
                     plugin_manager::Action::ConfirmInstall => {
-                        if let Some((spec, registry)) = self.plugin_manager.confirm_install() {
-                            self.command(worker::Command::PluginInstall { spec, registry });
+                        if let Some((spec, registry, request_id)) =
+                            self.plugin_manager.confirm_install()
+                        {
+                            self.command(worker::Command::PluginInstall {
+                                spec,
+                                registry,
+                                request_id,
+                            });
+                        }
+                    }
+                    plugin_manager::Action::CancelRunningInstall => {
+                        if let Some(request_id) = self.plugin_manager.install_request() {
+                            self.command(worker::Command::PluginCancelInstall { request_id });
                         }
                     }
                 }
@@ -7138,10 +7149,28 @@ impl App {
                 self.plugin_manager.settled(result);
             }
             Event::PluginInstallSettled(result) => {
-                if self.plugin_manager.install_settled(result) {
-                    // The Host's list is authoritative after an install; read bundles and rows.
+                // A dropped reply is not a retry: ask the Host for the run's active result first.
+                let request_id = self.plugin_manager.install_request();
+                if result.is_err() && request_id.is_some() {
+                    if let Some(request_id) = request_id {
+                        self.command(worker::Command::PluginWaitForInstall { request_id });
+                    }
+                } else if self.plugin_manager.install_settled(result) {
                     self.command(worker::Command::PluginManagerRead);
                     self.command(worker::Command::PluginManagerPlugins);
+                }
+            }
+            Event::PluginWaitForInstall(result) => {
+                if self.plugin_manager.wait_settled(result) {
+                    self.command(worker::Command::PluginManagerRead);
+                    self.command(worker::Command::PluginManagerPlugins);
+                }
+            }
+            Event::PluginInstallCancelAsked(result) => {
+                if self.plugin_manager.cancel_settled(result) {
+                    if let Some(request_id) = self.plugin_manager.install_request() {
+                        self.command(worker::Command::PluginWaitForInstall { request_id });
+                    }
                 }
             }
             Event::PluginManagerPluginsLoaded(result) => {

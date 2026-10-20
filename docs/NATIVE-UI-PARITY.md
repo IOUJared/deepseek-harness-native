@@ -6430,7 +6430,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Workspace browser: grouped/animated rows, drag order, per-row menus | difference: workspace filter + navigation sheet |
 | Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory; the app's Host serves browse, so Browse… falls back to the in-app list and `pick` reports unavailable) |
 | Open in app: workspace opener | cloned (round 671): the header split button lists the Host's nameable installed apps, launches the Session's workspace through the two plain Host routes, and remembers the choice; app icons stay text glyphs rather than fetched PNGs |
-| Plugin manager: installed bundles | More → Plugins (rounds 674–680) shows the Host's profile availability and its bundles with version, enabled/installed/optional state, the rows each bundle declares with their live entry state, and read-only reasons; it switches a readable bundle or one of its live rows on or off, uninstalls a removable one and installs an inspected spec, each through its own explicit Confirm, and inspects a typed install spec into an accepted preview or a refusal, asking the registry the form chose; install progress/cancel/recovery and build-script approval remain unbuilt |
+| Plugin manager: installed bundles | More → Plugins (rounds 674–681) shows the Host's profile availability and its bundles with version, enabled/installed/optional state, the rows each bundle declares with their live entry state, and read-only reasons; it switches a readable bundle or one of its live rows on or off, uninstalls a removable one and installs an inspected spec, each through its own explicit Confirm, inspects a typed install spec into an accepted preview or a refusal against the chosen registry, and can cancel or recover an installation by its request id; install progress/log chunks and build-script approval remain unbuilt |
 | Workflow-run surface | cloned (folded `tool-workflow/*` card, five run states including the round-525 `Interrupted` for a stoppless run in a closed turn; a closed step alone does not interrupt, a named limit) |
 | Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, **reviewed resize (round 540)**, shell discovery with a remembered preference, output bounds, and **a native screen emulator core** (rounds 552–559: redraw, erase, addressing, insert/delete, ANSI colours, wide glyphs, wrapping, scrollback, alternate screen; a combining mark composes onto its base cell, round 669). The screen protocol is complete; the docked tabs ship in the panel above the output (round 673), re-following on a switch instead of holding `terminal/retain` streams, and the reference's automatic fit-to-pane stays a deliberate difference — recorded in `docs/NATIVE-TERMINAL.md`. |
 | Dockkit layout presets | difference: native fixed layout with its own preferences |
@@ -15877,7 +15877,7 @@ real warnings; the full battery is **17/17 (`verification-526912410ae0`).** The 
 
 | item | what exists | what the next round series needs |
 | --- | --- | --- |
-| Plugin manager: install progress, cancellation and build-script approval | installing an inspected spec with one explicit Confirm and a re-read on settlement (round 680) | the install request id and progress stream, `waitForInstall` recovery, `cancelInstall`, and approving the pending package scripts (`installBundle` with `requestId`/`approvedBuilds`, `waitForInstall`, `cancelInstall`); a dropped reply currently has no recovery beyond the stated unknown result |
+| Plugin manager: install progress and build-script approval | installs carry a request id, a lost reply is recovered through `waitForInstall`, and `cancelInstall` states cancelled/too-late/not-running (round 681) | the `plugin-manager/install-state` progress stream and pnpm log chunks, and approving pending package scripts (`installBundle` `approvedBuilds`); the manager page shows no live attempt log |
 | The right-Sidebar review/task/document tabs | the full-page details panel is native's own surface | **deliberate difference**, recorded here rather than built silently |
 
 ### Named deliberate differences (not gaps)
@@ -18866,3 +18866,50 @@ reference (they are Host tools), so they are not a UI gap. No live Host was read
 | app bin | — | **21** warnings (22 with the summary line) |
 | layout_smoke | — | **17** warnings |
 | battery | **passed** | **17 checks, 0 failing** (`verification-e46eb6d2f38e`) |
+
+### Round 681 — an installation has a request id, can be recovered and can be cancelled
+
+**The gap.** Round 680 sent an install with no request id, so a lost reply had no recovery and the run
+could not be stopped. The reference starts every install with a `requestId`, treats a dropped reply as
+unknown and asks `waitForInstall` for the active result (`manager-store.ts:901-934`), and cancels with
+`cancelInstall`, which answers `cancelled` / `too-late` / `not-running`
+(`types.d.ts:184-186`; copy `locales.ts:317,322`).
+
+**The wire.** `installBundle` now sends `options.requestId`; `pluginManager/waitForInstall` returns the
+active `ChangeResult` or `null` (projected as `Option`), and `pluginManager/cancelInstall` projects the
+bounded `PluginCancellation`. The request id is an opaque Host key, not a UUID: the app mints
+`native-<pid>-<nanos>-<sequence>` from process, time and an atomic counter, so no new dependency is
+spent.
+
+**The page.** An install in flight shows `Installing…` with `Cancel installation`. A transport failure
+is **not retried**: the page asks `waitForInstall` once with the same id; an active result settles the
+install, and a `null` result states the outcome is unavailable, then re-reads the list. Cancelling asks
+the Host once, states `Stopping the installation…`, `Cancellation was not confirmed; waiting…` or
+`The installation is no longer running…`, and then waits for the same run's result.
+
+**Tests.** `cancellation_status_projects_only_known_answers` (transport) and
+`a_lost_install_reply_is_recovered_and_the_run_cancels` (lost reply → exactly one wait, recovery
+settles and re-reads, a second install gets a distinct id, cancel → one
+`PluginCancelInstall`/`waitForInstall`, a null result is unknown and re-reads, the request is cleared).
+The existing install test now asserts a non-empty request id. `plugin-manager-installing` is pinned with
+the in-flight state, its request id and no queued command.
+
+**Frame.** `shots/379-plugin-manager-installing.png` (1040×760, new `plugin-manager-installing` preset):
+the accepted `@PUBLIC/voice-kit` card shows `Installing…` and `Cancel installation`, with bundles and
+rows below.
+
+**Still unbuilt.** The `plugin-manager/install-state` progress stream and pnpm log chunks, and
+per-package build approval (`approvedBuilds`). No live Host was read; the request-id format is accepted
+by the Host as an opaque map key, not validated as a UUID.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| format | **0** | `cargo fmt` applied; format-debt 0 files, 0 hunks |
+| app, fixture | **0** | **1613 passed**, 1 ignored |
+| app, default | **0** | **1557 passed**, 1 ignored |
+| transport | **0** | 70 + 17 + 91 + 7 passed |
+| app bin | — | **21** warnings (22 with the summary line) |
+| layout_smoke | — | **17** warnings |
+| battery | **passed** | **17 checks, 0 failing** (`verification-b2f048e40c21`) |
