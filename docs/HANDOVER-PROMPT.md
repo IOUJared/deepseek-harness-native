@@ -22,6 +22,14 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > (pinned `c6044cc50b`). Cite it as `file:line` in code comments and round notes.
 >
 > ### Last five rounds, so the next session starts oriented
+> - 596: the screen audit (588–595) consolidated into one table — a tab loop that spun forever, three
+>   unbounded parsed quantities, a lost row on insert, an erase that overshot the cursor.
+> - 599: `CSI 2 J` no longer homes the cursor; its first commit landed on a red suite (the old test
+>   asserted the bug) and the follow-up fixed the assertion, not the fix.
+> - 600: the full battery is 16/18 — `wayland-drops` needs a real seat, `release-guards` awaits the port.
+>   **`binary-freshness` compares both release artifacts**, so a round that touches `app/src` ends with
+>   two release builds (`--bin dsh-native-app` and `--example layout_smoke`).
+> - Latest measurement: fixture **1574**, default **1518**, 1 ignored each, app bin **21** warnings.
 > - 573: a 520-high frame (`terminal-panel-short`) proves the panel overflows there; the box's floor was
 >   tried and reverted.
 > - 574: two presets (`terminal-resize`, `terminal-underline`) re-captured after the height change — no
