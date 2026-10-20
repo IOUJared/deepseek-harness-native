@@ -16855,3 +16855,24 @@ existing `lines_and_characters_are_inserted_and_deleted_at_the_cursor` failed wi
 | app, fixture | **0** | **1571 passed**, 1 ignored |
 | app, default | **0** | **1515 passed**, 1 ignored |
 | app bin | — | **21** warnings (22 with the summary line) |
+
+### Round 593 — the cursor's column is clamped too
+
+**The hazard.** `place` clamped only the *row*; `CSI 1;999999999 H` set the column to a billion, and the
+next glyph padded the line with a billion blanks before writing. `CSI … G` and `CSI … C` set the column
+directly as well. Same class as the tab loop and the insert counts, on the same untrusted bytes.
+
+**The change.** A `clamp_column` keeps the cursor inside the screen — `cols - 1` when the width is known,
+10,000 when it is not — and `place`, `G` and `C` all go through it. The fill loop in `put` is consequently
+bounded by the screen width.
+
+**The guard.** The adversarial test gained `CSI 1;999999999 H` + a glyph, `CSI 999999999 G` and
+`CSI 999999999 C`; thirteen cases, each still under the two-second join.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1571 passed**, 1 ignored |
+| app, default | **0** | **1515 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |

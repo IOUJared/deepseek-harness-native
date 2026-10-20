@@ -743,6 +743,14 @@ impl Screen {
     fn place(&mut self, row: usize, column: usize) {
         self.row = row.min(self.grid.len().saturating_sub(1));
         self.column = column;
+        self.clamp_column();
+    }
+    /// Keep the cursor's column inside the screen. A parsed column is untrusted: `CSI 1;999999999 H`
+    /// followed by a glyph would otherwise pad a line with a billion blanks before writing — the same
+    /// class as the tab loop (round 589) and the insert counts (round 592).
+    fn clamp_column(&mut self) {
+        let limit = if self.cols > 0 { self.cols - 1 } else { 10_000 };
+        self.column = self.column.min(limit);
     }
     /// Consume one chunk of raw Host bytes, applying the redraw, erase and addressing rules.
     fn feed(&mut self, data: &str) {
@@ -839,7 +847,10 @@ impl Screen {
                                     }
                                 }
                             }
-                            Some('G') if !private => self.column = first - 1,
+                            Some('G') if !private => {
+                                self.column = first - 1;
+                                self.clamp_column();
+                            }
                             Some('d') if !private => self.place(first - 1, self.column),
                             Some('H') | Some('f') if !private => {
                                 let column = second.max(1) as usize - 1;
@@ -852,7 +863,10 @@ impl Screen {
                                 let bottom = self.bottom.min(self.grid.len().saturating_sub(1));
                                 self.row = (self.row + first).min(bottom);
                             }
-                            Some('C') if !private => self.column += first,
+                            Some('C') if !private => {
+                                self.column = self.column.saturating_add(first);
+                                self.clamp_column();
+                            }
                             Some('D') if !private => {
                                 self.column = self.column.saturating_sub(first)
                             }
@@ -3211,7 +3225,7 @@ mod tests {
         // The screen is fed bytes from the Host, so every sequence is untrusted. Each case runs in its
         // own thread with a bounded join: a non-terminating input fails this test instead of hanging
         // the suite — which is exactly how round 588's tab loop was found.
-        let cases: [&str; 12] = [
+        let cases: [&str; 13] = [
             "\u{1b}[",
             "\u{1b}",
             "\u{1b}[?",
@@ -3222,6 +3236,7 @@ mod tests {
             "\u{1b}]0;title\u{7}text",
             "\u{1b}[38;5;200mcolour\u{1b}[0m",
             "\r\u{8}\t\u{7f}ok",
+            "\u{1b}[1;999999999HX\u{1b}[999999999GX\u{1b}[999999999CX",
             "\u{1b}[999999999L\u{1b}[999999999M",
             "\u{1b}[999999999P\u{1b}[999999999@",
         ];
