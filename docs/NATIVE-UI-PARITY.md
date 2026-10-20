@@ -16897,3 +16897,24 @@ and shrinks on delete.
 | app, fixture | **0** | **1571 passed**, 1 ignored |
 | app, default | **0** | **1515 passed**, 1 ignored |
 | app bin | — | **21** warnings (22 with the summary line) |
+
+### Round 595 — erasing to the cursor keeps the rest of the row
+
+**The bug.** `CSI 1 J` (erase from the start of the screen to the cursor) truncated the cursor's row at the
+cursor, so everything **after** the cursor disappeared as well. A pager that clears the lines above its
+status row and leaves the status text on that row lost that text.
+
+**The fix.** Rows above the cursor are cleared, and the cursor's row is blanked only up to and including
+the cursor's cell — `erase_display(1)` now matches what the sequence means.
+
+**Test.** `erasing_to_the_cursor_keeps_the_text_after_it` — `first` / `abcdef`, cursor to row 2 column 3,
+`CSI 1 J`, renders `"" / "   def"`. Its first expectation (`"  cdef"`) forgot that erase-to-cursor includes
+the cursor's own cell; the corrected assertion says why.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1573 passed**, 1 ignored |
+| app, default | **0** | **1517 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |

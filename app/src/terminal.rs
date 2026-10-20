@@ -634,6 +634,8 @@ impl Screen {
                 }
             }
             1 => {
+                // `CSI 1 J` blanks from the start of the screen to the cursor and leaves everything
+                // after the cursor alone; truncating the cursor's row would delete the rest of it.
                 let column = self.column;
                 let row = self.row;
                 for index in 0..row {
@@ -642,7 +644,10 @@ impl Screen {
                     }
                 }
                 if let Some(line) = self.grid.get_mut(row) {
-                    line.truncate(column);
+                    let end = column.min(line.len().saturating_sub(1));
+                    for cell in line.iter_mut().take(end + 1) {
+                        *cell = Cell::blank();
+                    }
                 }
             }
             _ => {
@@ -3225,6 +3230,16 @@ mod tests {
                 ("two".to_owned(), None, true, None),
             ]
         );
+    }
+
+    #[test]
+    fn erasing_to_the_cursor_keeps_the_text_after_it() {
+        // `CSI 1 J` blanks from the top of the screen to the cursor; the row's tail is untouched.
+        let mut output = Output::default();
+        output.set_size(0, 3);
+        output.push("first\nabcdef\u{1b}[2;3H\u{1b}[1J");
+        // Erase-to-cursor includes the cursor's own cell, so `c` is blanked: three spaces, then `def`.
+        assert_eq!(output.display(DISPLAY_BYTES), "\n   def");
     }
 
     #[test]
