@@ -16732,3 +16732,25 @@ frame — and a half-extracted builder is exactly the half-restructured panel ro
 block boundaries), never a global replace on a short pattern like `).direction(...)`: this file has
 several near-identical widget chains, and a global pattern will hit a neighbour. The three-builder
 rewrite should be executed as its own round, from the round-572 specification, with the frame matrix.
+
+### Round 588 — a hang found while hardening the screen parser (open bug, no test committed)
+
+**What was tried.** A cheap robustness test for the screen, which eats untrusted Host bytes: ten
+adversarial inputs (unterminated CSI, lone ESC, a private mode with no final byte, `0;0H`, `999999999`
+parameters, a scroll region with `L`/`M`/`P`/`@`, an unmatched alternate-screen pair, an OSC title, an
+SGR 256-colour sequence, and bare control bytes with `0x7f`), each fed to `Output::push` and then rendered.
+
+**What happened.** The test **hangs** — `cargo test` prints "has been running for over 60 seconds" and
+never reaches even the first case's `println!`, so the stall is inside the feed or the render, not in the
+assertions. Two runs, one with `--nocapture` and one with a 150s/200s timeout, both stalled the same way.
+
+**Why nothing is committed.** A hanging test blocks every future run of the suite, and I could not bisect
+the ten inputs to the one that stalls within this round's budget. `app/src/terminal.rs` is reverted to
+`e6b1d23`; the suites are green again.
+
+**The lead for the next round (this is a real defect, not a test problem).** Something in
+`Screen::feed`/`render`, `sanitize`, or one of the erase/insert helpers loops forever on one of these
+inputs, and that code is fed by remote bytes. Bisect by feeding one case at a time in a scratch binary
+(`cargo run --bin …`), starting with the `999999999` parameters (`H`, then `;999999999r`) and the
+`3;1r` + `L`/`M`/`P`/`@` group — the two shapes with allocations whose bound comes from a parsed number.
+A regression test belongs with the fix, not before it.
