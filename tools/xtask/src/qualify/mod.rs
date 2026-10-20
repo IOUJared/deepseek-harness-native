@@ -14,6 +14,7 @@ pub mod layout;
 pub mod node;
 pub mod private;
 pub mod prompt;
+pub mod registry;
 pub mod scroll;
 pub mod skill;
 pub mod stage;
