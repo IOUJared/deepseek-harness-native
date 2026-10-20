@@ -38,10 +38,10 @@ file is the stage map; it is deleted with the last Python file.
 | Client projections | `scripts/qualify-client-projections.py` | `xtask qualify client-projections` |
 | Turn outline | `scripts/qualify-turn-outline.py` | `xtask qualify turn-outline` |
 | Upload uncertainty | `scripts/qualify-upload-uncertainty.py` + guard | `xtask qualify upload-uncertainty [--fail-at]`: exact fact/count/bridge/cleanup sets, expected-failure containment, fixture order/digest, and the symlink-above-store rejection; guard cases ported before deletion |
-| Composed files | `scripts/qualify-composed-files.py` | `xtask qualify composed-files`: ticket/request/phase chain, raw Host receipts, private PNG captures (headers and dimensions only) and the storage oracle. Stays until its 285-line guard is ported |
-| Native file prompt | `scripts/qualify-native-file-prompt.py` | `xtask qualify native-file-prompt`: three prompt ACKs, three durable inbox refs and claimed pre-step rejections with every generation counter zero. Stays until `composed-files` is ported |
-| Native file stage | `scripts/qualify-native-file-stage.py` | `xtask qualify native-file-stage`: the worker runs through `run_owned`; stored fixtures are re-verified and the refusal fixture must not be published. Stays until `native-file-prompt`/`composed-files` are ported |
-| File upload | `scripts/qualify-file-upload.py` | `xtask qualify file-upload`: the shared ownership runner plus an independent private-store check (0400 canonical object and its hardlinked alias, same inode, exact fixture bytes). Stays until `native-file-stage` and `upload-uncertainty` are ported |
+| Composed files | `scripts/qualify-composed-files.py` + guard | `xtask qualify composed-files`: ticket/request/phase chain, raw Host receipts, private PNG captures (headers/dimensions only) and the storage oracle; guard cases ported before deletion |
+| Native file prompt | `scripts/qualify-native-file-prompt.py` + guard | `xtask qualify native-file-prompt`: three prompt ACKs, durable inbox refs and claimed pre-step rejections, every generation counter zero |
+| Native file stage | `scripts/qualify-native-file-stage.py` + guard | `xtask qualify native-file-stage`: the worker runs through `run_owned`; stored fixtures re-verified and the refusal fixture must not be published |
+| File upload | `scripts/qualify-file-upload.py` + guard | `xtask qualify file-upload`: shared ownership runner plus independent private-store check (0400 canonical object and hardlinked alias, same inode, exact bytes) |
 | App qualifier (root) | `scripts/qualify-native-app.py` | `xtask qualify app`: owned-tree sampling, per-thread CPU, pidfd identity guard, SIGINT/SIGTERM cleanup, compositor mapping proxy, keyless-idle medians. The Python file **stays** until its qualification dependents are ported |
 | Their guards | 4 Python test modules | 65 tests in `tools/xtask` (`src/*` units + `tests/cli.rs`) |
 | Entry point | `check.sh` → `python3` | `check.sh` → `cargo run -- verify` |
@@ -105,8 +105,8 @@ Deliberate differences, all measured against the Python originals:
 
 | Family | Files | Lines | Target |
 |---|---|---|---|
-| `scripts/qualify-*` | 18 | 3,551 | `xtask qualify <name>`; the assertions are already Rust examples writing `result.json` |
-| `scripts/test_*` | 18 | 3,203 | Rust tests next to the qualifiers; rewrite each guard's subject, never copy it verbatim. `app/` has no Python left |
+| `scripts/qualify-*` | 15 | 3,075 | `xtask qualify <name>`; the assertions are already Rust examples writing `result.json` |
+| `scripts/test_*` | 14 | 2,746 | Rust tests next to the qualifiers; rewrite each guard's subject, never copy it verbatim. `app/` has no Python left |
 | `.github/scripts/*` | 4 | 387 | `xtask package` / `xtask publish`; `tar` + `flate2` are already dependencies, `gh` stays a child process |
 | `development-launcher.py` | 1 | 356 | **Shipped** as `launch.py` in the development package: a Rust `dsh-native-launch` binary replaces it, so the archive stops requiring Python 3.11+; update the archive verifier and install docs together |
 | `benchmarks/run.py` + `test_runner.py` | 2 | 417 | Deleted with the qualification family, whose scripts import the library; `xtask bench run` is already the replacement |

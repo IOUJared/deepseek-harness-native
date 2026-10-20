@@ -464,7 +464,7 @@ pub fn run(root: &Path, output: &Path, scale: f64) -> i32 {
 mod tests {
     use super::*;
 
-    fn app() -> Value {
+    pub(super) fn app() -> Value {
         let mut counters_object = serde_json::Map::new();
         for (key, value) in counters() {
             counters_object.insert(key.to_string(), json!(value));
@@ -587,6 +587,164 @@ mod tests {
         // The capture list is part of the proof.
         app["captures"] = json!(["file-review.png"]);
         assert!(verify_captures(&base, &app).is_err());
+        fs::remove_dir_all(base).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod evidence_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn private(path: &Path, body: &[u8]) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+            fs::set_permissions(parent, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        fs::write(path, body).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    fn png() -> Vec<u8> {
+        let mut png = Vec::new();
+        png.extend_from_slice(b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR");
+        png.extend_from_slice(&1200u32.to_be_bytes());
+        png.extend_from_slice(&800u32.to_be_bytes());
+        png.extend_from_slice(&[0u8; 9]);
+        png
+    }
+
+    /// Build the private store for the stage fixtures, with hardlinked aliases.
+    fn store(output: &Path) {
+        let root = output.join("harness/attachments/v1");
+        for directory in [
+            output.to_path_buf(),
+            output.join("harness"),
+            output.join("harness/attachments"),
+            root.clone(),
+            root.join("file-objects"),
+            root.join("files"),
+        ] {
+            fs::create_dir_all(&directory).unwrap();
+            fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        for (_, data, name) in fixtures() {
+            let digest = sha256_hex(&data);
+            let objects = root.join("file-objects").join(&digest[..2]);
+            let aliases = root.join("files").join(&digest[..2]).join(&digest);
+            for directory in [&objects, &aliases] {
+                fs::create_dir_all(directory).unwrap();
+                fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).unwrap();
+            }
+            let canonical = objects.join(&digest);
+            let alias = aliases.join(name);
+            // Rebuilding replaces a previous read-only object, so drop both links first.
+            let _ = fs::remove_file(&alias);
+            let _ = fs::remove_file(&canonical);
+            fs::write(&canonical, &data).unwrap();
+            fs::set_permissions(&canonical, fs::Permissions::from_mode(0o400)).unwrap();
+            fs::hard_link(&canonical, &alias).unwrap();
+        }
+    }
+
+    fn evidence(output: &Path, app: &Value) {
+        store(output);
+        let control = output.join("fixture/control");
+        private(
+            &control.join("ready.json"),
+            serde_json::to_string(&json!({
+                "rootRegistered": true, "headerVersion": 4, "ordinary": true,
+                "actualAgentId": app["tickets"][0]["target"],
+            }))
+            .unwrap()
+            .as_bytes(),
+        );
+        for (index, phase) in app["phases"].as_array().unwrap().iter().enumerate() {
+            private(
+                &control.join(format!("phase-{}.json", index + 1)),
+                serde_json::to_string(phase).unwrap().as_bytes(),
+            );
+        }
+        private(
+            &control.join("complete.json"),
+            serde_json::to_string(&app["host"]).unwrap().as_bytes(),
+        );
+        for name in CAPTURES {
+            private(&output.join(name), &png());
+        }
+    }
+
+    fn app() -> Value {
+        // Reuse the driver fixture from the validator tests.
+        super::tests::app()
+    }
+
+    #[test]
+    fn complete_evidence_passes_and_each_cross_check_is_required() {
+        let base =
+            crate::tempdir::make_temp_dir(&std::env::temp_dir(), "composed-evidence-").unwrap();
+        let value = app();
+        evidence(&base, &value);
+        let proof = verify_evidence(&base, &value, 1.0).expect("complete evidence");
+        assert_eq!(proof["separateHostReceiptsVerified"].as_bool(), Some(true));
+        assert_eq!(proof["captures"].as_array().map(Vec::len), Some(4));
+
+        // A foreign root ticket correlation is refused.
+        fs::write(
+            base.join("fixture/control/ready.json"),
+            serde_json::to_string(&json!({
+                "rootRegistered": true, "headerVersion": 4, "ordinary": true,
+                "actualAgentId": "another-agent",
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(verify_evidence(&base, &value, 1.0).is_err());
+        evidence(&base, &value);
+
+        // A mismatched raw phase is refused.
+        fs::write(
+            base.join("fixture/control/phase-2.json"),
+            serde_json::to_string(&json!({"phase": 2})).unwrap(),
+        )
+        .unwrap();
+        assert!(verify_evidence(&base, &value, 1.0).is_err());
+        evidence(&base, &value);
+
+        // A failed marker invalidates the completion.
+        private(&base.join("fixture/control/failed.json"), b"{}");
+        assert!(verify_evidence(&base, &value, 1.0).is_err());
+        fs::remove_file(base.join("fixture/control/failed.json")).unwrap();
+
+        // A stored refusal fixture is refused.
+        let digest = sha256_hex(REFUSED);
+        let refused = base
+            .join("harness/attachments/v1/file-objects")
+            .join(&digest[..2])
+            .join(&digest);
+        fs::create_dir_all(refused.parent().unwrap()).unwrap();
+        fs::write(&refused, REFUSED).unwrap();
+        assert!(verify_evidence(&base, &value, 1.0).is_err());
+        fs::remove_file(&refused).unwrap();
+
+        // A symlinked capture is not a private artifact.
+        fs::remove_file(base.join(CAPTURES[0])).unwrap();
+        std::os::unix::fs::symlink(base.join(CAPTURES[1]), base.join(CAPTURES[0])).unwrap();
+        assert!(verify_evidence(&base, &value, 1.0).is_err());
+        fs::remove_file(base.join(CAPTURES[0])).unwrap();
+        private(&base.join(CAPTURES[0]), &png());
+
+        // A FIFO capture is refused without blocking.
+        fs::remove_file(base.join(CAPTURES[2])).unwrap();
+        let fifo =
+            std::ffi::CString::new(base.join(CAPTURES[2]).to_string_lossy().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        assert!(verify_evidence(&base, &value, 1.0).is_err());
+        fs::remove_file(base.join(CAPTURES[2])).unwrap();
+        private(&base.join(CAPTURES[2]), &png());
+
+        // With everything restored the evidence passes again.
+        assert!(verify_evidence(&base, &value, 1.0).is_ok());
         fs::remove_dir_all(base).unwrap();
     }
 }
