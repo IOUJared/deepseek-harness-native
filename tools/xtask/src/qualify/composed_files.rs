@@ -594,11 +594,26 @@ mod tests {
 #[cfg(test)]
 mod evidence_tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 
     fn private(path: &Path, body: &[u8]) {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap();
+            // `create_dir_all` follows the process umask, and the verifier refuses any
+            // non-private directory in the evidence tree. Create the missing components
+            // with an explicit 0700 so a 0022 umask (the hosted runner's) cannot fail
+            // the fixture on a property the test is not about.
+            let mut missing = Vec::new();
+            let mut cursor = parent;
+            while !cursor.exists() {
+                missing.push(cursor);
+                let Some(up) = cursor.parent() else {
+                    break;
+                };
+                cursor = up;
+            }
+            for directory in missing.into_iter().rev() {
+                fs::DirBuilder::new().mode(0o700).create(directory).unwrap();
+            }
             fs::set_permissions(parent, fs::Permissions::from_mode(0o700)).unwrap();
         }
         fs::write(path, body).unwrap();
@@ -631,13 +646,17 @@ mod evidence_tests {
         for (_, data, name) in fixtures() {
             let digest = sha256_hex(&data);
             let objects = root.join("file-objects").join(&digest[..2]);
-            let aliases = root.join("files").join(&digest[..2]).join(&digest);
-            for directory in [&objects, &aliases] {
+            let aliases = root.join("files").join(&digest[..2]);
+            let object_folder = aliases.join(&digest);
+            // Every directory the verifier walks must be private, including the
+            // two-character alias prefix that `create_dir_all` would otherwise create
+            // with the process umask.
+            for directory in [&objects, &aliases, &object_folder] {
                 fs::create_dir_all(directory).unwrap();
                 fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).unwrap();
             }
             let canonical = objects.join(&digest);
-            let alias = aliases.join(name);
+            let alias = object_folder.join(name);
             // Rebuilding replaces a previous read-only object, so drop both links first.
             let _ = fs::remove_file(&alias);
             let _ = fs::remove_file(&canonical);
