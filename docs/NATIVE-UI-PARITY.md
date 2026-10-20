@@ -16436,3 +16436,29 @@ cargo and are the last reliable measurement of this round.
 | format debt | **—** | moved to `xtask format-debt`; the last measurement was 0 |
 
 **Not committed from round 567:** the `Length::Fill` experiment (reverted), and nothing of the migration.
+
+### Round 568 — the panel's fill constraint, read off the layout instead of guessed
+
+**What was learned, not built.** Round 567's Fill attempt failed because the output box sits inside a
+shrink column inside a scrollable. Round 568 read the panel's root to state the constraint precisely and
+to write the shape a real fix needs: `ui.rs::terminal_view` wraps the whole body in
+`scrollable(container(container(body).max_width(...).padding(24)))`, so filling the pane means splitting
+the panel into a **scrolling header** (title, authority copy, shell, terminal list, notices) and a
+**fixed bottom region** where the output is the only `Fill` child above the input row. That plan is in
+`docs/NATIVE-TERMINAL.md`; the 240px box stands until it lands, because a half-restructured panel is
+worse at short window heights than the box is.
+
+**Gate status while the tooling migration is in flight.** `dsh-xtask` still does not compile (the user's
+Python→Rust conversion is mid-write: `tools/xtask/src/{bench,idle,proc}.rs` are new and uncommitted), so
+the full battery cannot run. The app gates were measured directly with cargo:
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1568 passed**, 1 ignored |
+| app, default | **0** | **1512 passed**, 1 ignored |
+| app bin | — | **21** warnings |
+| release binary | — | rebuilt in round 567, 21 warnings |
+| `xtask verify --suite all` | **—** | unavailable: `dsh-xtask` does not compile mid-migration |
+| format debt | **—** | moved to `xtask format-debt`; last measured 0 |
+
+**No frame:** a constraint and a plan; the frame that proved it is round 567's.

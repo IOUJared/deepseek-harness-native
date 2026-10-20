@@ -50,6 +50,16 @@ its own last column keeps that column instead of wrapping (round 562), `SGR 4`/`
 takes no column of its own and is dropped, because one character per cell cannot compose it. The panel is a monochrome-per-cell renderer of that
 screen, not a second emulator.
 
+**The output does not fill the pane, and here is exactly why (rounds 567–568).** The panel is one
+`scrollable` over the whole body — `scrollable(container(container(body).max_width(...).padding(24)))` in
+`ui.rs::terminal_view` — so the output box cannot take a `Fill` height: a Fill child inside a shrink
+column inside a scrollable has nothing to fill, and round 567's capture shows it collapsing to its
+content (`shots/347-terminal-fill.png`). Filling the pane like the reference's terminal requires
+splitting the panel into two regions: a scrolling header (title, authority copy, shell, terminal list,
+notices) and a fixed bottom region where the **output** is the only `Fill` child above the input row.
+That restructure is the recorded next step; the fixed 240px box stands until it lands, because a
+half-restructured panel is worse at short window heights than the box is.
+
 Resize is a reviewed control in the panel (round 540) rather than the reference's automatic fit-to-pane:
 a create requests `80×24`, clamped to the limits the Host advertised, and a later resize replaces that
 request with the size the operator confirms.
