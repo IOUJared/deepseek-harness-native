@@ -17137,3 +17137,20 @@ renders `abXd`, the same result as the escape spelling.
 | app, fixture | **0** | **1580 passed**, 1 ignored |
 | app, default | **0** | **1524 passed**, 1 ignored |
 | app bin | — | **21** warnings (22 with the summary line) |
+
+### Round 612 — the battery after eleven rounds of screen work
+
+**Rebuilt both release artifacts** (the rule from round 600) and ran the whole battery
+(`verification-9b09ffc57fb6`): **16 of 18**, unchanged from round 600 — fifteen predicates pass, and the two
+failures are the known non-app ones.
+
+| check | result |
+| --- | --- |
+| format-debt, core/transport/app/xtask clippy, core, core-transport, transport, app, app-public, layout_smoke, scroll_app_smoke, xtask-guards, bridge, script-guards, benchmark-guards, app-guards, binary-freshness | passed |
+| **wayland-drops** | failed — private-seat harness, needs a real seat (hardware-only) |
+| **release-guards** | failed — the leftover discovery entry for a ported stage (round 602) |
+
+**What this confirms:** rounds 605–610's six protocol changes (erase-character, scroll up/down, cursor
+save/restore in both spellings, scrollback erase, bold cancellation) did not disturb clippy, the format
+ratchet, either app suite, the transport, core, or the examples — and `binary-freshness` passes because both
+artifacts were rebuilt before the run rather than after.
