@@ -58,7 +58,8 @@ pub fn canonical_uuid_v4(value: &str) -> bool {
     bytes[14] == b'4' && matches!(bytes[19], b'8' | b'9' | b'a' | b'b')
 }
 
-fn digest(data: &[u8]) -> String {
+/// SHA-256 hex of a fixture body.
+pub fn sha256_hex(data: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     format!("{:x}", Sha256::digest(data))
 }
@@ -127,7 +128,7 @@ pub fn valid_sdk(report: &Value) -> bool {
             || file.as_object().map(|object| object.len()) != Some(3)
             || file["name"].as_str() != Some(name(case))
             || file["bytes"].as_i64() != Some(data.len() as i64)
-            || file["attachmentId"].as_str() != Some(&format!("sha256:{}", digest(&data)))
+            || file["attachmentId"].as_str() != Some(&format!("sha256:{}", sha256_hex(&data)))
         {
             return false;
         }
@@ -202,7 +203,7 @@ pub fn verify_local_cases(
     let root = output.join("harness/attachments/v1");
     let mut verified = Vec::new();
     for (case, data, name) in fixtures {
-        let digest = digest(data);
+        let digest = sha256_hex(data);
         let canonical = root.join("file-objects").join(&digest[..2]).join(&digest);
         let alias = root
             .join("files")
@@ -353,7 +354,7 @@ mod tests {
                     "value": {
                         "receiptId": receipt,
                         "file": {
-                            "attachmentId": format!("sha256:{}", digest(&data)),
+                            "attachmentId": format!("sha256:{}", sha256_hex(&data)),
                             "name": name(case),
                             "bytes": data.len(),
                         }
@@ -414,7 +415,7 @@ mod tests {
     fn storage_verification_requires_private_directories_and_a_hardlinked_alias() {
         let base = make_temp_dir(&std::env::temp_dir(), "upload-store-").unwrap();
         let data = b"PUBLIC fixture".to_vec();
-        let digest = digest(&data);
+        let digest = sha256_hex(&data);
         let root = base.join("harness/attachments/v1");
         use std::os::unix::fs::PermissionsExt;
         for directory in [

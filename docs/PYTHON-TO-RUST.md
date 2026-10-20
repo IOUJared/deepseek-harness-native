@@ -37,6 +37,7 @@ file is the stage map; it is deleted with the last Python file.
 | Agent discovery | `scripts/qualify-agent-discovery.py` (+ its guard) | `xtask qualify agent-discovery [--sdk]` |
 | Client projections | `scripts/qualify-client-projections.py` | `xtask qualify client-projections` |
 | Turn outline | `scripts/qualify-turn-outline.py` | `xtask qualify turn-outline` |
+| Native file stage | `scripts/qualify-native-file-stage.py` | `xtask qualify native-file-stage`: the worker runs through `run_owned`; stored fixtures are re-verified and the refusal fixture must not be published. Stays until `native-file-prompt`/`composed-files` are ported |
 | File upload | `scripts/qualify-file-upload.py` | `xtask qualify file-upload`: the shared ownership runner plus an independent private-store check (0400 canonical object and its hardlinked alias, same inode, exact fixture bytes). Stays until `native-file-stage` and `upload-uncertainty` are ported |
 | App qualifier (root) | `scripts/qualify-native-app.py` | `xtask qualify app`: owned-tree sampling, per-thread CPU, pidfd identity guard, SIGINT/SIGTERM cleanup, compositor mapping proxy, keyless-idle medians. The Python file **stays** until its qualification dependents are ported |
 | Their guards | 4 Python test modules | 65 tests in `tools/xtask` (`src/*` units + `tests/cli.rs`) |
