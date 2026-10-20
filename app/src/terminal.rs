@@ -763,6 +763,27 @@ impl Screen {
             line.truncate(cols);
         }
     }
+    /// Scroll the region's contents up (`CSI N S`): lines move toward the top and blanks join at the
+    /// bottom. The cursor does not move, unlike a newline at the bottom of the region.
+    fn scroll_up(&mut self, count: usize) {
+        let top = self.top.min(self.grid.len().saturating_sub(1));
+        let bottom = self.bottom.min(self.grid.len().saturating_sub(1));
+        let count = count.min(bottom.saturating_sub(top) + 1);
+        for _ in 0..count {
+            self.grid.remove(top);
+            self.grid.insert(bottom, Vec::new());
+        }
+    }
+    /// Scroll the region's contents down (`CSI N T`): blanks join at the top.
+    fn scroll_down(&mut self, count: usize) {
+        let top = self.top.min(self.grid.len().saturating_sub(1));
+        let bottom = self.bottom.min(self.grid.len().saturating_sub(1));
+        let count = count.min(bottom.saturating_sub(top) + 1);
+        for _ in 0..count {
+            self.grid.remove(bottom);
+            self.grid.insert(top, Vec::new());
+        }
+    }
     /// Move the cursor within the grid, clamped to it.
     fn place(&mut self, row: usize, column: usize) {
         self.row = row.min(self.grid.len().saturating_sub(1));
@@ -834,6 +855,8 @@ impl Screen {
                                 }
                             }
                             Some('X') if !private => self.erase_chars(first),
+                            Some('S') if !private => self.scroll_up(first),
+                            Some('T') if !private => self.scroll_down(first),
                             Some('L') if !private => self.insert_lines(first),
                             Some('M') if !private => self.delete_lines(first),
                             Some('P') if !private => self.delete_chars(first),
@@ -3243,6 +3266,22 @@ mod tests {
                 ("two".to_owned(), None, true, None),
             ]
         );
+    }
+
+    #[test]
+    fn a_scroll_up_moves_the_region_toward_the_top() {
+        // `CSI S` scrolls the region's contents up by one line and joins a blank at the bottom; the
+        // cursor stays where it was, unlike a newline at the region's bottom.
+        let mut output = Output::default();
+        output.set_size(0, 3);
+        output.push("one\ntwo\nthree\u{1b}[S");
+        // The cursor stays on the (now blank) last row, so the render carries its trailing newline.
+        assert_eq!(output.display(DISPLAY_BYTES), "two\nthree\n");
+        // `CSI T` scrolls the other way, joining a blank at the top.
+        let mut output = Output::default();
+        output.set_size(0, 3);
+        output.push("one\ntwo\nthree\u{1b}[T");
+        assert_eq!(output.display(DISPLAY_BYTES), "\none\ntwo");
     }
 
     #[test]

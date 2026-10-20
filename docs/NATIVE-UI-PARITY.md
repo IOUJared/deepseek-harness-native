@@ -17034,3 +17034,24 @@ parsed quantity — to the row's length or the screen's width.
 | app, fixture | **0** | **1575 passed**, 1 ignored |
 | app, default | **0** | **1519 passed**, 1 ignored |
 | app bin | — | **21** warnings (22 with the summary line) |
+
+### Round 606 — `CSI N S` and `CSI N T` scroll the region's contents
+
+**The gap.** Scroll-up and scroll-down were consumed silently. A TUI that scrolls a list without moving the
+cursor — a picker, a log pane — could not: the region stayed still.
+
+**The change.** `CSI N S` moves the region's lines toward the top and joins blanks at its bottom; `CSI N T`
+moves them down and joins blanks at the top. Both are bounded by the region's height and neither moves the
+cursor, which is what separates them from a newline at the region's bottom.
+
+**Test.** `a_scroll_up_moves_the_region_toward_the_top` — `one/two/three` plus `CSI S` renders
+`two/three/` (the cursor keeps its blank last row, so the render carries its trailing newline), and
+`CSI T` renders `/one/two`.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1576 passed**, 1 ignored |
+| app, default | **0** | **1520 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |
