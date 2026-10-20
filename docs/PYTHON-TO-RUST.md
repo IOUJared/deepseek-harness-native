@@ -95,7 +95,10 @@ Deliberate differences, all measured against the Python originals:
   evidence, a strictly increasing ticket serial, two distinct retained sessions,
   and the owned stop. The PNG writer-profile validator is ported too (chunk order,
   CRCs, one bounded zlib stream, exact row lengths and filter tags, reported-size
-  agreement). Its campaign orchestration remains, so the Python file stays.
+  agreement). The owned run is ported too: the pinned probe, the private app
+  report, both captures and the artifact digest, with `class`/`xwayland` matched to
+  the fixture. `qualify-composed-export.py` and `qualify-development-package.py`
+  still import the Python module, so it is deleted with them.
 - The draft-interruption qualifier is fully ported (`interruption`): nine
   checkpoints with the document expected at each, hold/recover/crash shapes, the
   latch-until-owned-kill crash gate, and the rule that a graceful phase may not

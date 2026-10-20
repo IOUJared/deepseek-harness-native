@@ -20,7 +20,7 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-const QUALIFICATION_SECONDS: u64 = 40;
+pub(super) const QUALIFICATION_SECONDS: u64 = 40;
 const TERM_SECONDS: u64 = 2;
 const KILL_SECONDS: u64 = 2;
 const POLL: Duration = Duration::from_millis(20);

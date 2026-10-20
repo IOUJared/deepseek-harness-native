@@ -8,6 +8,7 @@ use serde_json::Value;
 use std::fs;
 use std::io::Read;
 use std::os::unix::fs::MetadataExt;
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 
 pub const APP_ID: &str = "ai.deepseek.harness.native.registry-composed-fixture";
@@ -219,12 +220,13 @@ fn inflate_into(inflater: &mut Inflater, payload: &[u8], remaining: u64) -> Opti
     let room = usize::try_from(remaining.checked_add(1)?).ok()?;
     let before = inflater.stream.total_in();
     let mut output = vec![0u8; room];
+    let before_out = inflater.stream.total_out();
     let status = inflater
         .stream
         .decompress(payload, &mut output, flate2::FlushDecompress::None)
         .ok()?;
     inflater.supplied += payload.len() as u64;
-    let produced = (inflater.stream.total_out() as usize).min(output.len());
+    let produced = ((inflater.stream.total_out() - before_out) as usize).min(output.len());
     output.truncate(produced);
     if status == flate2::Status::StreamEnd {
         inflater.ended = true;
@@ -306,9 +308,9 @@ pub fn png_dimensions(data: &[u8]) -> Option<(u32, u32)> {
                 return None;
             }
             idat_seen = true;
-            let inflater = inflater.as_mut()?;
-            let rows = inflate_into(inflater, payload, expected - inflated)?;
-            if rows.len() as u64 > expected - inflated {
+            let remaining = expected - inflated;
+            let rows = inflate_into(inflater.as_mut()?, payload, remaining)?;
+            if rows.len() as u64 > remaining {
                 return None;
             }
             let first_filter = ((stride - inflated % stride) % stride) as usize;
@@ -406,6 +408,148 @@ pub fn valid_captures(output: &Path, app: &Value) -> bool {
         }
     }
     true
+}
+
+/// The private app report, or a status stub when it is missing or malformed.
+pub fn read_app(output: &Path) -> Value {
+    let Some(data) = private_regular(&output.join("app.json"), MAX_REPORT_BYTES) else {
+        return serde_json::json!({"status": "missing-or-invalid-private-app-report"});
+    };
+    serde_json::from_slice(&data)
+        .ok()
+        .filter(Value::is_object)
+        .unwrap_or_else(|| serde_json::json!({"status": "invalid-app-report"}))
+}
+
+/// `xtask qualify composed-registry --output NEW_DIR [--scale 1.0|1.25]`.
+pub fn run(root: &Path, output: &Path, scale: f64) -> i32 {
+    let started = std::time::Instant::now();
+    if scale != 1.0 && scale != 1.25 {
+        eprintln!("composed-registry failed: invalid scale");
+        return 1;
+    }
+    let output = match super::prepare(root, output) {
+        Ok(output) => output,
+        Err(message) => {
+            eprintln!("composed-registry failed: {message}");
+            return 1;
+        }
+    };
+    let Ok(binary) = root
+        .join("app/target/release/examples/registry_composed_smoke")
+        .canonicalize()
+    else {
+        eprintln!("composed-registry failed: release fixture not ready");
+        return 1;
+    };
+    let before_hash = match crate::sha256_file(&binary) {
+        Ok(hash) => hash,
+        Err(error) => {
+            eprintln!("composed-registry failed: {error}");
+            return 1;
+        }
+    };
+    // Safe: constant signals and a handler that only stores an atomic flag.
+    let previous_int = unsafe {
+        libc::signal(
+            libc::SIGINT,
+            super::composed::interrupt as *const () as libc::sighandler_t,
+        )
+    };
+    let previous_term = unsafe {
+        libc::signal(
+            libc::SIGTERM,
+            super::composed::interrupt as *const () as libc::sighandler_t,
+        )
+    };
+    super::composed::INTERRUPTED.store(false, std::sync::atomic::Ordering::SeqCst);
+    let spawned = std::process::Command::new(&binary)
+        .arg("--output")
+        .arg(&output)
+        .arg("--scale")
+        .arg(format!("{scale}"))
+        .env_clear()
+        .envs(super::environment(&output))
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .process_group(0)
+        .spawn();
+    let Ok(child) = spawned else {
+        eprintln!("composed-registry failed: cannot spawn the fixture");
+        return 1;
+    };
+    let child_pid = child.id() as u64;
+    let mut run = super::composed::guard(super::composed::Owned {
+        child,
+        status: None,
+    });
+    // Safe: restore the handlers this run installed.
+    unsafe {
+        libc::signal(libc::SIGINT, previous_int);
+        libc::signal(libc::SIGTERM, previous_term);
+    }
+    if run.cleanup.root_was_running_at_cleanup {
+        run.forced = true;
+    }
+    let app = read_app(&output);
+    let app_valid = valid_app(&app, child_pid, scale);
+    let captures_valid = valid_captures(&output, &app);
+    let binary_unchanged = crate::sha256_file(&binary).is_ok_and(|hash| hash == before_hash);
+    let passed = run.owned.code() == 0
+        && !run.forced
+        && run.failure.is_none()
+        && run.cleanup.observed_cleanup_complete
+        && run.cleanup.remaining_before_external_cleanup.is_empty()
+        && run.observation_failures == 0
+        && app_valid
+        && captures_valid
+        && run.facts.as_ref().is_some_and(|facts| {
+            facts["class"].as_str() == Some(APP_ID) && facts["xwayland"].as_bool() == Some(false)
+        })
+        && binary_unchanged;
+    let report = serde_json::json!({
+        "status": if passed { "passed" } else { "failed" },
+        "scope": "Scripted actual native App/worker/Core reversible registry fixture in a NEW private home only.",
+        "binarySha256": before_hash,
+        "binaryUnchanged": binary_unchanged,
+        "exitCode": run.owned.code(),
+        "forced": run.forced,
+        "interrupted": run.interrupted,
+        "failureCode": run.failure,
+        "ownedWindow": run.facts,
+        "observedOwnedProcessCount": run.observed,
+        "ownershipObservationFailures": run.observation_failures,
+        "qualificationBudgetSeconds": super::composed::QUALIFICATION_SECONDS,
+        "fixtureShutdownRequestSeconds": 35,
+        "cleanup": &run.cleanup,
+        "elapsedWallSeconds": started.elapsed().as_secs_f64(),
+        "wallClockIncludesPreparationObservationCleanup": true,
+        "hardTotalWallClockBoundClaimed": false,
+        "containmentScope": "observed pinned identities only",
+        "remainingBeforeExternalCleanup": &run.cleanup.remaining_before_external_cleanup,
+        "remainingAfterExternalCleanup": &run.cleanup.remaining_after_external_cleanup,
+        "app": app,
+        "appEvidenceVerified": app_valid,
+        "privateOwnRendererCapturesVerified": captures_valid,
+        "paintInspected": false,
+        "nativeKeyboardPointerInputQualified": false,
+        "liveHostDecisionQualified": false,
+        "desktopSettingsChanged": false,
+        "installedRuntimeChanged": false,
+        "realCredentialsUsed": false,
+        "mutationsReversible": true,
+        "filesRetainedNotDeletionRollback": true,
+    });
+    if let Err(error) = super::private_json(&output.join("result.json"), &report) {
+        eprintln!("cannot write the registry report: {error}");
+        return 1;
+    }
+    println!(
+        "{}",
+        serde_json::json!({"status": report["status"], "report": output.join("result.json").to_string_lossy()})
+    );
+    if passed { 0 } else { 1 }
 }
 
 #[cfg(test)]
@@ -608,6 +752,101 @@ mod png_tests {
         let mut size = app.clone();
         size["archivedRestoreReviewCapture"]["physicalSize"] = serde_json::json!([3, 2]);
         assert!(!valid_captures(&base, &size));
+        fs::remove_dir_all(base).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod registry_extra_tests {
+    use super::*;
+    use std::io::Write;
+
+    fn chunk(kind: &[u8; 4], payload: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+        out.extend_from_slice(kind);
+        out.extend_from_slice(payload);
+        out.extend_from_slice(&crc32(&[kind, payload]).to_be_bytes());
+        out
+    }
+
+    fn ihdr(width: u32, height: u32, depth: u8, color: u8, interlace: u8) -> Vec<u8> {
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&width.to_be_bytes());
+        payload.extend_from_slice(&height.to_be_bytes());
+        payload.extend_from_slice(&[depth, color, 0, 0, interlace]);
+        chunk(b"IHDR", &payload)
+    }
+
+    fn deflate(rows: &[u8]) -> Vec<u8> {
+        let mut encoder =
+            flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(rows).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    #[test]
+    fn split_idat_and_ancillary_chunks_are_accepted() {
+        let stream = deflate(&[0, 0, 0, 0, 0]);
+        let (first, second) = stream.split_at(stream.len() / 2);
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+        png.extend(ihdr(1, 1, 8, 6, 0));
+        png.extend(chunk(b"tEXt", b"PUBLIC-comment"));
+        png.extend(chunk(b"IDAT", first));
+        png.extend(chunk(b"IDAT", second));
+        png.extend(chunk(b"IEND", &[]));
+        assert_eq!(png_dimensions(&png), Some((1, 1)));
+    }
+
+    #[test]
+    fn unsupported_profiles_and_extra_expansion_are_refused() {
+        for (depth, color, interlace) in [(16, 6, 0), (8, 2, 0), (8, 6, 1)] {
+            let stream = deflate(&[0, 0, 0, 0, 0]);
+            let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+            png.extend(ihdr(1, 1, depth, color, interlace));
+            png.extend(chunk(b"IDAT", &stream));
+            png.extend(chunk(b"IEND", &[]));
+            assert_eq!(png_dimensions(&png), None, "{depth}/{color}/{interlace}");
+        }
+        // A stream that expands past the exact row budget is refused.
+        let bomb = deflate(&vec![0u8; 5000]);
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+        png.extend(ihdr(1, 1, 8, 6, 0));
+        png.extend(chunk(b"IDAT", &bomb));
+        png.extend(chunk(b"IEND", &[]));
+        assert_eq!(png_dimensions(&png), None);
+    }
+
+    #[test]
+    fn a_missing_capture_or_a_symlinked_report_is_refused() {
+        let base = crate::tempdir::make_temp_dir(&std::env::temp_dir(), "registry-app-").unwrap();
+        let app =
+            serde_json::json!({"archiveReviewCapture": {}, "archivedRestoreReviewCapture": {}});
+        assert!(!valid_captures(&base, &app));
+        let body = {
+            let stream = deflate(&[0, 0, 0, 0, 0]);
+            let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+            png.extend(ihdr(1, 1, 8, 6, 0));
+            png.extend(chunk(b"IDAT", &stream));
+            png.extend(chunk(b"IEND", &[]));
+            png
+        };
+        fs::write(base.join("app.json"), &body).unwrap();
+        fs::set_permissions(
+            base.join("app.json"),
+            std::os::unix::fs::PermissionsExt::from_mode(0o600),
+        )
+        .unwrap();
+        // A non-JSON private body parses to the invalid stub, not a missing one.
+        assert_eq!(read_app(&base)["status"], "invalid-app-report");
+        fs::write(base.join("app.json"), b"{\"status\": \"passed\"}").unwrap();
+        assert_eq!(read_app(&base)["status"], "passed");
+        fs::remove_file(base.join("app.json")).unwrap();
+        std::os::unix::fs::symlink(base.join("elsewhere.json"), base.join("app.json")).unwrap();
+        assert_eq!(
+            read_app(&base)["status"],
+            "missing-or-invalid-private-app-report"
+        );
         fs::remove_dir_all(base).unwrap();
     }
 }
