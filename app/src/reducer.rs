@@ -56,6 +56,22 @@ mod inline_image_card_tests {
     use serde_json::json;
 
     #[test]
+    fn a_gif_inline_image_decodes_like_a_png() {
+        // A 1x1 GIF, base64 in the envelope. The reference renders gif and webp as well as png and jpeg
+        // (its `ImageMediaType` covers all four), so the same card path must accept them.
+        let part = json!({
+            "type": "image",
+            "mediaType": "image/gif",
+            "name": "PUBLIC.gif",
+            "data": "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+        });
+        let card = super::image_card(&part).expect("a gif card");
+        assert_eq!(card.name, "PUBLIC.gif");
+        assert_eq!(card.meta, "1×1 · image/gif");
+        assert!(card.thumbnail.is_some(), "the gif decodes to a thumbnail");
+    }
+
+    #[test]
     fn an_inline_image_becomes_a_card_with_a_bounded_thumbnail() {
         // A 1x1 PNG: the card names it, states the real size and carries a decoded RGBA thumbnail.
         let part = json!({

@@ -18077,3 +18077,22 @@ into the build, so it stays a dependency decision rather than something I take u
 
 **So the parity work is complete on this side**, and the two items above are a dependency decision and a live
 observation, not unbuilt features.
+
+### Round 663 — WebP and GIF now decode, because you asked for the crates
+
+**The change.** `app/Cargo.toml` enables `image`'s `webp` and `gif` features, which pulls `image-webp` and
+`gif` into `app/Cargo.lock` (both new entries, nothing else moved). The reducer's card path is unchanged — it
+was already format-agnostic — so an inline WebP or GIF now becomes a picture card instead of round 652's
+descriptive line.
+
+**Test.** `a_gif_inline_image_decodes_like_a_png` — a 1×1 GIF part yields a card named `PUBLIC.gif` with
+`1×1 · image/gif` and a decoded thumbnail. **WebP has no test fixture**: I could not reliably synthesise a
+minimal valid WebP in this session, so it is enabled by the same feature and covered by `image-webp`'s decoder
+rather than by our own assertion. That asymmetry is stated rather than hidden.
+
+**Gates, in the recorded order** (format → both artifacts → verify): `cargo fmt --check` clean; fixture **1593**
+/ default **1537** passed, 1 ignored each; transport **7**; app bin **21** real warnings (22 with the summary
+line); full battery **passed, 17 checks, 0 failing** (`verification-e2f2c1e6a3`).
+
+**Cost, for the record:** two crates and their transitive dependencies are now part of the release build. That
+is the price of rendering the formats the reference renders, and it was your call to pay it.
