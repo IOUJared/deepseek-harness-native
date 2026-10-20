@@ -210,6 +210,7 @@ pub const PRESETS: &[&str] = &[
     "terminal-rename",
     "terminal-resize",
     "reference-crumbs",
+    "reference-subagents",
     "stats-dialog",
     "settings-shortcuts",
     "turn-error",
@@ -331,6 +332,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "terminal-rename" => Some((Size::new(1200.0, 900.0), 1.0)),
         "terminal-resize" => Some((Size::new(1200.0, 900.0), 1.0)),
         "reference-crumbs" => Some((Size::new(1040.0, 620.0), 1.0)),
+        "reference-subagents" => Some((Size::new(1040.0, 620.0), 1.0)),
         "stats-dialog" => Some((Size::new(1040.0, 760.0), 1.0)),
         "settings-shortcuts" => Some((Size::new(1040.0, 900.0), 1.0)),
         "turn-error" | "turn-max-tokens" | "quota-toast" => Some((Size::new(1040.0, 620.0), 1.0)),
@@ -1879,6 +1881,21 @@ pub fn build(
                 "data":{"runId":"PUBLIC-run","seq":2,"label":"PUBLIC write","phase":"write","childId":"PUBLIC-child-two"}}}),
             json!({"type":"event","event":{"type":"tool-workflow/run-end","seq":5,"time":1005,
                 "data":{"runId":"PUBLIC-run","stopReason":"completed"}}}),
+        ]
+    } else if preset == "reference-subagents" {
+        vec![
+            json!({"type":"event","event":{"type":"user/message","seq":0,"time":1000,
+                "surfaceOp":"append","data":{"role":"user","id":"PUBLIC-subagents-user",
+                    "source":{"kind":"user"},
+                    "content":[{"type":"text","text":"PUBLIC reference-subagents fixture · no model request ran."}]}}}),
+            json!({"type":"event","event":{"type":"turn/start","seq":1,"time":1000,
+                "surfaceOp":"append","data":{"turn":1}}}),
+            json!({"type":"event","event":{"type":"assistant/message","seq":2,"time":1001,
+                "surfaceOp":"append","data":{"turn":1,"step":1,
+                    "stream":[{"type":"text-chunks","time0":1001,"index":0,"dt":[],
+                        "texts":["The `@` menu labels a subagent child apart from a session.\n"]}]}}}),
+            json!({"type":"event","event":{"type":"turn/end","seq":3,"time":1002,
+                "surfaceOp":"append","data":{"turn":1,"reason":{"kind":"completed"}}}}),
         ]
     } else if preset == "reference-crumbs" {
         // The `@` menu drilled into a directory: its breadcrumb trail, then the directory's rows.
@@ -3676,6 +3693,64 @@ pub fn build(
             assert_eq!(
                 crate::reducer::turn_tail::label(Some(duration)),
                 "Completed in 2m 23s"
+            );
+        }
+        "reference-subagents" => {
+            // Two `@` session rows: this session's subagent child and an unrelated session, each
+            // labelled the way the reference labels its sections.
+            use dsh_native_transport::dto::{
+                SessionReferenceCandidate, SessionSummary, SubagentOrigin,
+            };
+            let parent = app.selected.clone().expect("a selected session");
+            let child = dsh_native_transport::dto::SessionId::new("PUBLIC-subagent-child").unwrap();
+            let plain = dsh_native_transport::dto::SessionId::new("PUBLIC-plain-session").unwrap();
+            let summary =
+                |id: dsh_native_transport::dto::SessionId,
+                 origin: Option<SubagentOrigin>,
+                 parent_session_id: Option<dsh_native_transport::dto::SessionId>| {
+                    SessionSummary {
+                        agent_available: true,
+                        session_id: id,
+                        updated_at: 1,
+                        running: false,
+                        blank: false,
+                        parent_session_id,
+                        origin,
+                        cwd: None,
+                        projections: None,
+                    }
+                };
+            app.sessions.insert(
+                child.clone(),
+                summary(
+                    child.clone(),
+                    Some(SubagentOrigin::Subagent),
+                    Some(parent.clone()),
+                ),
+            );
+            app.sessions
+                .insert(plain.clone(), summary(plain.clone(), None, None));
+            app.editor = iced::widget::text_editor::Content::with_text("@PUBLIC");
+            app.reference_token = Some(("PUBLIC".into(), false));
+            app.reference_pending = false;
+            app.file_references.clear();
+            app.session_references = vec![
+                SessionReferenceCandidate {
+                    session_id: child.as_str().to_owned(),
+                    label: "PUBLIC child".into(),
+                    display_title: Some("PUBLIC subagent run".into()),
+                    mention: format!("@{}", child.as_str()),
+                },
+                SessionReferenceCandidate {
+                    session_id: plain.as_str().to_owned(),
+                    label: "PUBLIC session".into(),
+                    display_title: Some("PUBLIC local conversation".into()),
+                    mention: format!("@{}", plain.as_str()),
+                },
+            ];
+            assert!(
+                app.reference_menu_open(),
+                "the subagents preset shows the @ menu"
             );
         }
         "reference-crumbs" => {

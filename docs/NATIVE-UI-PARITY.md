@@ -6414,7 +6414,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Reference surface | Native status |
 | --- | --- |
 | Chat: renderer, thoughts, turn triggers, copy/branch/edit/fork | cloned (search is a native addition: the reference has no conversation Find bar and leaves text search to the browser's own find, exposing collapsed subtrees to it through `hidden="until-found"`) (markdown: tables, footnotes, math, strikethrough, task items, literal raw HTML, headings/rules/tables/fenced blocks inside a container, quote-and-list nesting in either order, and a nested image's alt folded into the outer run — no plain Markdown construct falls back to text since round 538; math draws its source, since no native typesetter exists, and a task item draws a box glyph where the reference draws a disabled input — see the renderer note below) |
-| Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the slash menu groups its two sources as the reference does (`Commands`, then `Skills`), states `Loading…` while the advertisement is in flight and shows a command's argument hint under the draft (the reference draws it inside the editor), draws the `@` menu's directory breadcrumb trail (round 546) but has no subagent source, files are chosen one at a time through a path field, no image thumbnails in the rail, and a send awaiting admission is stated by the composer's own banner (with Check, Review and Stop-original) rather than as a queue row;  steering the whole queue is a `Steer all` control on the strip (the reference triggers it from an empty draft); and these deliberate differences: the reference inverts its submission policy on Cmd/Ctrl+Enter (`view-binding.ts:120-130`), while native keeps Ctrl+Enter a plain send alias by the user's explicit confirmation (`docs/SESSION-PROMPT.md`); and native's goal bar states a running goal's controls where the reference adds `hint.goal`/`hint.goal.active` ghost copy beside the draft) |
+| Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the slash menu groups its two sources as the reference does (`Commands`, then `Skills`), states `Loading…` while the advertisement is in flight and shows a command's argument hint under the draft (the reference draws it inside the editor), draws the `@` menu's directory breadcrumb trail (round 546) and labels a subagent child's row `Subagents` apart from `Sessions` (round 547), though the references register no separate subagent trigger source, files are chosen one at a time through a path field, no image thumbnails in the rail, and a send awaiting admission is stated by the composer's own banner (with Check, Review and Stop-original) rather than as a queue row;  steering the whole queue is a `Steer all` control on the strip (the reference triggers it from an empty draft); and these deliberate differences: the reference inverts its submission policy on Cmd/Ctrl+Enter (`view-binding.ts:120-130`), while native keeps Ctrl+Enter a plain send alias by the user's explicit confirmation (`docs/SESSION-PROMPT.md`); and native's goal bar states a running goal's controls where the reference adds `hint.goal`/`hint.goal.active` ghost copy beside the draft) |
 | Sidebar: sessions, search, pin/archive/trash, workspace filter, navigation sheet | cloned (time-grouped list, not the grouped browser) |
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
 | Schedules: page, history, edits, pickers, and the Session header's reminder chip with its popover (count, rule, next run, per-row delete; round 503) | cloned (no sidebar marks/hover cards, turn cards or right-Sidebar tab; the chip states its count as words where the web is icon-only, and its rows' names open the page where the web opens its right-Sidebar tab). A read-only audit of this surface found work still open, recorded in round 417: rows now state their rule, `Enabled`/`Inactive`, and their next-run and delivery instants as local text with a relative next-run form; the page has status tabs (All/Enabled/Inactive), a search field, next-time ordering, the reference's empty-state variants and its retention disclosure, and its `New` action, and a deletion outcome stated on the page where the reference shows a shell toast, and a linked-session control that opens the creating session (with the reference's archived/unavailable sentences when it cannot); the `schedule/changed` notification reloads an open catalog (round 541: `root()`'s Emit arm, unit-tested, with the Host's emission source-confirmed; its live arrival on a real session is still unobserved), while native's own reads remain on open, Refresh and after its own writes; a failed history read retries in place |
@@ -15710,4 +15710,42 @@ re-points to `@"src/`, and a quoted mention stays quoted).
 | examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-7esdj_v4`) |
 | transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
 | DP-2 capture | — | `shots/335-reference-crumbs.png`, `status: passed`, 1040x620 |
+| app bin | — | **21** warnings |
+
+### Round 547 — an `@` session row names its section, subagents apart
+
+**The gap.** The composer coverage row still listed "no subagent source" for the `@` menu. The
+reference's own reference source looks each candidate session up in the session list and labels the row
+`Subagents` when it is a subagent child of the open session, `Sessions` otherwise
+(`ui-reference/src/client/index.ts:62-77`, `section.subagents`/`section.sessions`) — and native already
+holds exactly that data in its sidebar summaries, so the gap was a label, not a source.
+
+**The change.** `session_reference_section` reads the candidate's `SessionSummary` and answers
+`Subagents` only for a `Subagent` origin whose `parent_session_id` is the open session. A child of
+another session, a plain session, and a candidate the app has not seen all read `Sessions` — the
+reference's `child` test is strict in the same way, and a guess would mislabel a stranger's child.
+
+**Frame.** `shots/336-reference-subagents.png` (1040x620, new `reference-subagents` preset): the two rows
+`PUBLIC subagent run · Subagents` and `PUBLIC local conversation · Sessions` above the composer holding
+`@PUBLIC`.
+
+**Test.** `an_at_menu_session_row_says_subagents_only_for_a_child_of_this_session` — this session's child,
+another session's child, a plain session and an unlisted candidate.
+
+**Still open, stated honestly.** The reference's *skill* and *command* sources are native's two slash
+groups; the subagent contribution is this row label, not a separate trigger source, because the
+reference registers none for subagents either (`ui-reference`, `ui-skill` and `ui-commands` are the only
+`registerSource` callers). If a later reference adds one, this row is where it will show.
+
+**Battery (round 547).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1552 passed**, 1 ignored |
+| app, default | **0** | **1496 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-tmwzy_53`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-kwdtq067`) |
+| transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
+| DP-2 capture | — | `shots/336-reference-subagents.png`, `status: passed`, 1040x620 |
 | app bin | — | **21** warnings |

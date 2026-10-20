@@ -11876,6 +11876,24 @@ impl App {
             self.session_references.len().min(REFERENCE_ROWS),
         )
     }
+    /// Whether one `@` session candidate is a subagent child of the open session, which is what the
+    /// reference labels separately: a candidate's row says `Subagents` for a child and `Sessions`
+    /// otherwise (`ui-reference/src/client/index.ts:62-77`, `section.subagents`/`section.sessions`).
+    fn session_reference_section(
+        &self,
+        candidate: &dsh_native_transport::dto::SessionReferenceCandidate,
+    ) -> &'static str {
+        let Ok(id) = SessionId::new(candidate.session_id.clone()) else {
+            return "Sessions";
+        };
+        let child = self.sessions.get(&id).is_some_and(|summary| {
+            matches!(
+                summary.origin,
+                Some(dsh_native_transport::dto::SubagentOrigin::Subagent)
+            ) && summary.parent_session_id.as_ref() == self.selected.as_ref()
+        });
+        if child { "Subagents" } else { "Sessions" }
+    }
     /// Rate one message, or remove the rating when the same control is pressed again.
     fn feedback_press(&mut self, message_id: String, rating: &'static str) -> Task<Message> {
         let Some(session) = self.selected.clone() else {
@@ -13784,7 +13802,7 @@ impl App {
                         )
                         .size(11)
                         .width(Length::Fill),
-                        label("session", MUTED).size(9),
+                        label(self.session_reference_section(candidate), MUTED,).size(9),
                     ]
                     .spacing(6)
                     .align_y(iced::Alignment::Center),
@@ -25269,6 +25287,72 @@ mod tests {
         assert_eq!(app.editor.text(), "@src/ui/");
         assert_eq!(app.reference_token, Some(("src/ui/".into(), false)));
         assert!(app.file_references.is_empty());
+    }
+    #[test]
+    fn an_at_menu_session_row_says_subagents_only_for_a_child_of_this_session() {
+        use dsh_native_transport::dto::{
+            SessionReferenceCandidate, SessionSummary, SubagentOrigin,
+        };
+        let (mut app, _receiver) = managed_app();
+        let parent = app.selected.clone().expect("a selected session");
+        let child = SessionId::new("PUBLIC-subagent-child").unwrap();
+        let other_child = SessionId::new("PUBLIC-someone-elses-child").unwrap();
+        let plain = SessionId::new("PUBLIC-plain-session").unwrap();
+        let summary = |id: SessionId, origin: Option<SubagentOrigin>, parent: Option<SessionId>| {
+            SessionSummary {
+                agent_available: true,
+                session_id: id,
+                updated_at: 1,
+                running: false,
+                blank: false,
+                parent_session_id: parent,
+                origin,
+                cwd: None,
+                projections: None,
+            }
+        };
+        app.sessions.insert(
+            child.clone(),
+            summary(
+                child.clone(),
+                Some(SubagentOrigin::Subagent),
+                Some(parent.clone()),
+            ),
+        );
+        app.sessions.insert(
+            other_child.clone(),
+            summary(
+                other_child.clone(),
+                Some(SubagentOrigin::Subagent),
+                Some(SessionId::new("PUBLIC-another-parent").unwrap()),
+            ),
+        );
+        app.sessions
+            .insert(plain.clone(), summary(plain.clone(), None, None));
+        let candidate = |id: &SessionId| SessionReferenceCandidate {
+            session_id: id.as_str().to_owned(),
+            label: "PUBLIC label".into(),
+            display_title: None,
+            mention: format!("@{}", id.as_str()),
+        };
+        assert_eq!(
+            app.session_reference_section(&candidate(&child)),
+            "Subagents"
+        );
+        // A child of another session is not this session's subagent, and a plain session never is.
+        assert_eq!(
+            app.session_reference_section(&candidate(&other_child)),
+            "Sessions"
+        );
+        assert_eq!(
+            app.session_reference_section(&candidate(&plain)),
+            "Sessions"
+        );
+        // A candidate the app has not seen is labelled as a session, not guessed into a subagent.
+        assert_eq!(
+            app.session_reference_section(&candidate(&SessionId::new("PUBLIC-unlisted").unwrap())),
+            "Sessions"
+        );
     }
     #[test]
     fn a_nested_mention_names_each_segment_in_its_breadcrumb_trail() {
