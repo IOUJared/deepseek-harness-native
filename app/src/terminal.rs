@@ -726,6 +726,16 @@ impl Screen {
         self.column = 0;
     }
     /// Delete `count` characters at the cursor, shifting the rest of the row left and padding the end.
+    /// Erase `count` characters at the cursor without shifting the rest of the row (`CSI N X`).
+    fn erase_chars(&mut self, count: usize) {
+        let count = count.min(self.cols.max(self.line().len()).max(1));
+        let column = self.column;
+        let line = self.line();
+        let end = (column + count).min(line.len());
+        for cell in line.iter_mut().take(end).skip(column) {
+            *cell = Cell::blank();
+        }
+    }
     fn delete_chars(&mut self, count: usize) {
         // The same bound for characters: a row cannot hold more than its own length (or the width).
         let count = count.min(self.cols.max(self.line().len()).max(1));
@@ -823,6 +833,7 @@ impl Screen {
                                     self.place(top, 0);
                                 }
                             }
+                            Some('X') if !private => self.erase_chars(first),
                             Some('L') if !private => self.insert_lines(first),
                             Some('M') if !private => self.delete_lines(first),
                             Some('P') if !private => self.delete_chars(first),
@@ -3232,6 +3243,16 @@ mod tests {
                 ("two".to_owned(), None, true, None),
             ]
         );
+    }
+
+    #[test]
+    fn erasing_characters_blanks_them_without_shifting_the_row() {
+        // `CSI 2 X` blanks two cells at the cursor and leaves the rest of the row where it is, which
+        // is how a TUI clears a field without moving what follows it.
+        let mut output = Output::default();
+        output.set_size(0, 2);
+        output.push("abcdef\u{1b}[1;2H\u{1b}[2X");
+        assert_eq!(output.display(DISPLAY_BYTES), "a  def");
     }
 
     #[test]

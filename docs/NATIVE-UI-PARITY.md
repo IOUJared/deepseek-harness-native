@@ -17013,3 +17013,24 @@ directory the port deleted.
 **The one-line fix belongs to `tools/xtask`, so it stays unapplied here.** Removing that entry (as
 `app-guards` already did when its family was ported) turns the battery from 16/18 into 17/18, leaving
 `wayland-drops` as the only failure — the hardware-only check.
+
+### Round 605 — `CSI N X` erases characters without shifting the row
+
+**The gap.** Erase-character (ECH) was consumed silently with the other unhandled sequences. A TUI that
+clears a field — a prompt, a progress cell — by erasing characters in place had no effect: the old text
+stayed, and if the program then wrote a shorter value the difference remained on screen.
+
+**The change.** `CSI N X` blanks `N` cells at the cursor **without shifting** what follows, which is what
+distinguishes it from `CSI N P` (delete, which shifts the row left). The count is bounded like every other
+parsed quantity — to the row's length or the screen's width.
+
+**Test.** `erasing_characters_blanks_them_without_shifting_the_row` — `abcdef`, cursor to column 2,
+`CSI 2 X` renders `"a  def"`.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1575 passed**, 1 ignored |
+| app, default | **0** | **1519 passed**, 1 ignored |
+| app bin | — | **21** warnings (22 with the summary line) |
