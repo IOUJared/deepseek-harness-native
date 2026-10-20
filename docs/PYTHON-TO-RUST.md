@@ -87,12 +87,13 @@ Deliberate differences, all measured against the Python originals:
   the hardened private reader (`private`: single-link, owner-only, O_NOFOLLOW,
   duplicate JSON keys refused at any depth), and the two-phase orchestration with a
   frozen artifact, source digests and a 170 s deadline. `draft-interruption` imports
-  it, so both Python files are deleted together once interruption is ported.
-- The draft-interruption **validators** are ported (`interruption`): nine checkout
-  points with the document expected at each, hold/recover/crash report shapes,
-  the latch-until-owned-kill crash gate, and the rule that a graceful phase may not
-  borrow the crash phase's external cleanup. Its campaign orchestration and command
-  wiring remain.
+  it, so `draft-interruption` (and its guard) is deleted while `draft-restart`
+  stays: `qualify-private-native-seat.py` still imports the latter as a library.
+- The draft-interruption qualifier is fully ported (`interruption`): nine
+  checkpoints with the document expected at each, hold/recover/crash shapes, the
+  latch-until-owned-kill crash gate, and the rule that a graceful phase may not
+  borrow the crash phase's external cleanup. Its campaign orchestration runs the
+  hold case, every crash/recover pair, and re-checks sources and the artifact.
 - The `qualify` module now owns `prepare` and the isolated child environment, and
   `xtask qualify app` can run the root workflow, but `scripts/qualify-native-app.py`
   still exists for its 18 dependents and keeps its own copies of those helpers.
@@ -117,8 +118,8 @@ Deliberate differences, all measured against the Python originals:
 
 | Family | Files | Lines | Target |
 |---|---|---|---|
-| `scripts/qualify-*` | 12 | 2,731 | `xtask qualify <name>`; the assertions are already Rust examples writing `result.json` |
-| `scripts/test_*` | 12 | 2,566 | Rust tests next to the qualifiers; rewrite each guard's subject, never copy it verbatim. `app/` has no Python left |
+| `scripts/qualify-*` | 11 | 2,504 | `xtask qualify <name>`; the assertions are already Rust examples writing `result.json` |
+| `scripts/test_*` | 11 | 2,365 | Rust tests next to the qualifiers; rewrite each guard's subject, never copy it verbatim. `app/` has no Python left |
 | `.github/scripts/*` | 4 | 387 | `xtask package` / `xtask publish`; `tar` + `flate2` are already dependencies, `gh` stays a child process |
 | `development-launcher.py` | 1 | 356 | **Shipped** as `launch.py` in the development package: a Rust `dsh-native-launch` binary replaces it, so the archive stops requiring Python 3.11+; update the archive verifier and install docs together |
 | `benchmarks/run.py` + `test_runner.py` | 2 | 417 | Deleted with the qualification family, whose scripts import the library; `xtask bench run` is already the replacement |

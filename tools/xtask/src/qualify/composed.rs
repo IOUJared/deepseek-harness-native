@@ -32,9 +32,9 @@ pub(super) extern "C" fn interrupt(_: libc::c_int) {
     INTERRUPTED.store(true, Ordering::SeqCst);
 }
 
-type Key = (i32, u64);
+pub(super) type Key = (i32, u64);
 
-fn identity(stat: &proc::Stat) -> Key {
+pub(super) fn identity(stat: &proc::Stat) -> Key {
     (stat.pid, stat.start_ticks)
 }
 
@@ -49,7 +49,7 @@ pub(super) struct Owned {
 }
 
 impl Owned {
-    fn poll(&mut self) -> io::Result<Option<ExitStatus>> {
+    pub(super) fn poll(&mut self) -> io::Result<Option<ExitStatus>> {
         if self.status.is_none()
             && let Some(status) = self.child.try_wait()?
         {
@@ -75,7 +75,7 @@ fn root_matches(owned: &mut Owned, root: &proc::Stat, owner: i32) -> bool {
         .is_some_and(|current| identity(&current) == identity(root) && current.ppid == owner)
 }
 
-fn pin_root(owned: &mut Owned, owner: i32) -> Result<(proc::Stat, i32), ()> {
+pub(super) fn pin_root(owned: &mut Owned, owner: i32) -> Result<(proc::Stat, i32), ()> {
     let pid = owned.child.id() as i32;
     let root = proc::stat(Path::new("/proc"), pid).ok_or(())?;
     if owned.poll().ok().flatten().is_some() || root.pid != pid || root.ppid != owner {
@@ -122,7 +122,7 @@ fn parent_chain_matches(
             .is_some_and(|current| identity(&current) == identity(root) && current.ppid == owner)
 }
 
-fn observe_descendants(
+pub(super) fn observe_descendants(
     owned: &mut Owned,
     root: &proc::Stat,
     pidfds: &mut BTreeMap<Key, i32>,
@@ -252,7 +252,11 @@ pub struct Cleanup {
 }
 
 /// Bounded TERM/KILL and reap for every pinned identity, even after the GUI root exits.
-fn cleanup_owned(owned: &mut Owned, pidfds: &BTreeMap<Key, i32>, root_pinned: bool) -> Cleanup {
+pub(super) fn cleanup_owned(
+    owned: &mut Owned,
+    pidfds: &BTreeMap<Key, i32>,
+    root_pinned: bool,
+) -> Cleanup {
     let mut failed = owned.poll().is_err();
     let (before, probe_failed) = live_pidfds(pidfds);
     failed |= probe_failed;

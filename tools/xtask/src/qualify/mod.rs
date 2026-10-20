@@ -557,6 +557,7 @@ pub fn run(arguments: &[String]) -> i32 {
         "composed-settings" => composed::run(&root, &output, scale),
         "composed-files" => composed_files::run(&root, &output, scale),
         "draft-restart" => drafts::run(&root, &output, &output_binary, scale),
+        "draft-interruption" => interruption::run(&root, &output, &output_binary),
         "composed-decisions" => {
             let viewport = if viewport_minimum { "minimum" } else { "full" };
             decisions::run(&root, &output, scale, viewport)

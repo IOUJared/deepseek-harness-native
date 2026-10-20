@@ -189,7 +189,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-fn digest(path: &Path) -> Option<String> {
+pub(super) fn digest(path: &Path) -> Option<String> {
     crate::sha256_file(path).ok()
 }
 
@@ -211,7 +211,7 @@ fn walk(directory: &Path, extension: &str, paths: &mut Vec<PathBuf>) {
 }
 
 /// Every source whose digest must stay unchanged across both processes.
-fn sources(root: &Path) -> std::collections::BTreeMap<String, String> {
+pub(super) fn sources(root: &Path) -> std::collections::BTreeMap<String, String> {
     let mut paths: Vec<PathBuf> = vec![
         root.join("tools/xtask/src/qualify/drafts.rs"),
         root.join("tools/xtask/src/qualify/composed.rs"),
