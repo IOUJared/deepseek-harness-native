@@ -410,6 +410,28 @@ impl Cell {
 /// emoji, one for everything else. A single-column terminal would misalign a CJK prompt against the
 /// text below it, which is what a `CSI H` layout notices first.
 fn columns(character: char) -> usize {
+    // A combining mark has no column of its own: the grid keeps one character per cell and cannot
+    // compose it onto the base, so it is dropped rather than drawn beside it as a stray box.
+    let mark = matches!(character as u32,
+        0x0300..=0x036F
+            | 0x0483..=0x0489
+            | 0x0591..=0x05BD
+            | 0x0610..=0x061A
+            | 0x064B..=0x065F
+            | 0x0670
+            | 0x06D6..=0x06DC
+            | 0x0900..=0x0903
+            | 0x093E..=0x094F
+            | 0x0E31
+            | 0x0E34..=0x0E3A
+            | 0x1AB0..=0x1AFF
+            | 0x1DC0..=0x1DFF
+            | 0x20D0..=0x20F0
+            | 0xFE20..=0xFE2F
+    );
+    if mark {
+        return 0;
+    }
     let c = character as u32;
     let wide = matches!(c,
         0x1100..=0x115F
@@ -526,6 +548,9 @@ impl Screen {
         // A glyph that would end past the last column wraps first: the shell's own line discipline
         // starts the next row rather than letting the screen grow sideways.
         let width = columns(character);
+        if width == 0 {
+            return;
+        }
         if self.wrap && self.cols > 0 && self.column + width > self.cols {
             self.newline();
         }
@@ -3025,6 +3050,21 @@ mod tests {
             !terminal.shells_failed(),
             "an answered read clears the flag"
         );
+    }
+
+    #[test]
+    fn a_combining_mark_takes_no_column_of_its_own() {
+        // `e` plus U+0301: the grid keeps one character per cell, so the mark is dropped rather than
+        // drawn beside its base as a stray box, and the column does not advance.
+        let mut output = Output::default();
+        output.set_size(6, 2);
+        output.push("e\u{301}X");
+        assert_eq!(output.display(DISPLAY_BYTES), "eX");
+        // A column address after a marked glyph still lands one column past the base.
+        let mut output = Output::default();
+        output.set_size(6, 2);
+        output.push("e\u{301}\u{1b}[1;3HY");
+        assert_eq!(output.display(DISPLAY_BYTES), "e Y");
     }
 
     #[test]
