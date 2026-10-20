@@ -16127,3 +16127,38 @@ a paragraph breaking mid-word exactly at the column boundary, as a terminal's ow
 | transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
 | DP-2 capture | — | `shots/344-terminal-wrap.png`, `status: passed`, 1200x900 |
 | app bin | — | **21** warnings |
+
+### Round 559 — lines and characters are inserted and deleted at the cursor
+
+**The gap.** The remaining screen operations a pager or editor leans on were still consumed silently:
+insert/delete line (`CSI L`/`M`) and insert/delete character (`CSI P`/`@`). A program that scrolls a
+region by deleting its top line, or clears a column by deleting characters, drew nothing.
+
+**The change.** `insert_lines` pushes blank rows down at the cursor and keeps the grid's height (the
+bottom rows fall out, as a terminal's do); `delete_lines` pulls the rows below up and blanks the bottom;
+`delete_chars` shifts the rest of the row left; `insert_chars` shifts it right and drops the overflow at
+the Host's column count. Each is wired to its sequence in the same private-mode-aware match as the other
+erase and addressing operations.
+
+**Tests.** `lines_and_characters_are_inserted_and_deleted_at_the_cursor` — two rows inserted at row 2,
+one row deleted so the deleted line is gone, three characters deleted from the middle of a row, and two
+blanks inserted at column 1. My first delete expectation kept the deleted line; the test states the
+correct rule instead.
+
+**No frame:** the operations are transient (a pager redraws over them), so they are test-covered rather
+than framed — the same call as round 541's behavioural round.
+
+**Still unbuilt, stated:** scroll regions (`CSI r`), `DECAWM` off, and combining marks.
+
+**Battery (round 559).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1562 passed**, 1 ignored |
+| app, default | **0** | **1506 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-bjw2t166`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-9j70y7fg`) |
+| transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
+| DP-2 capture | — | none: transient screen operations |
+| app bin | — | **21** warnings |

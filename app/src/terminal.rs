@@ -610,6 +610,44 @@ impl Screen {
             self.ink = saved.ink;
         }
     }
+    /// Insert `count` blank rows at the cursor, pushing the rows below down; the grid keeps its
+    /// height, so the bottom rows fall out, as a terminal's do.
+    fn insert_lines(&mut self, count: usize) {
+        let row = self.row.min(self.grid.len().saturating_sub(1));
+        for _ in 0..count {
+            self.grid.insert(row, Vec::new());
+            self.grid.truncate(self.rows.max(1));
+        }
+        self.column = 0;
+    }
+    /// Delete `count` rows at the cursor, pulling the rows below up and blanking the bottom.
+    fn delete_lines(&mut self, count: usize) {
+        let row = self.row.min(self.grid.len().saturating_sub(1));
+        for _ in 0..count.min(self.grid.len() - row) {
+            self.grid.remove(row);
+            self.grid.push(Vec::new());
+        }
+        self.column = 0;
+    }
+    /// Delete `count` characters at the cursor, shifting the rest of the row left and padding the end.
+    fn delete_chars(&mut self, count: usize) {
+        let column = self.column;
+        let line = self.line();
+        let end = (column + count).min(line.len());
+        line.drain(column..end);
+    }
+    /// Insert `count` blanks at the cursor, shifting the rest of the row right and dropping overflow.
+    fn insert_chars(&mut self, count: usize) {
+        let column = self.column;
+        let cols = self.cols;
+        let line = self.line();
+        for _ in 0..count {
+            line.insert(column.min(line.len()), Cell::blank());
+        }
+        if cols > 0 {
+            line.truncate(cols);
+        }
+    }
     /// Move the cursor within the grid, clamped to it.
     fn place(&mut self, row: usize, column: usize) {
         self.row = row.min(self.grid.len().saturating_sub(1));
@@ -653,6 +691,10 @@ impl Screen {
                                 let enter = final_byte == Some('h');
                                 self.alternate_screen(enter)
                             }
+                            Some('L') if !private => self.insert_lines(first),
+                            Some('M') if !private => self.delete_lines(first),
+                            Some('P') if !private => self.delete_chars(first),
+                            Some('@') if !private => self.insert_chars(first),
                             Some('K') if !private => {
                                 self.erase_line(numbers.first().copied().unwrap_or(0))
                             }
@@ -2940,6 +2982,30 @@ mod tests {
             !terminal.shells_failed(),
             "an answered read clears the flag"
         );
+    }
+
+    #[test]
+    fn lines_and_characters_are_inserted_and_deleted_at_the_cursor() {
+        // Insert two rows at the cursor: the rows below move down and the bottom falls away.
+        let mut output = Output::default();
+        output.set_size(0, 4);
+        output.push("one\ntwo\u{1b}[2;1H\u{1b}[2L");
+        assert_eq!(output.display(DISPLAY_BYTES), "one\n\n\ntwo");
+        // Delete one row: the rows below move up, so the deleted line is gone.
+        let mut output = Output::default();
+        output.set_size(0, 4);
+        output.push("one\ntwo\nthree\u{1b}[2;1H\u{1b}[1M");
+        assert_eq!(output.display(DISPLAY_BYTES), "one\nthree");
+        // Delete three characters at column 1 of `abcXYZ`.
+        let mut output = Output::default();
+        output.set_size(0, 2);
+        output.push("abcXYZ\u{1b}[1;4H\u{1b}[3P");
+        assert_eq!(output.display(DISPLAY_BYTES), "abc");
+        // Insert two blanks at column 1, pushing the rest right.
+        let mut output = Output::default();
+        output.set_size(0, 2);
+        output.push("abc\u{1b}[1;2H\u{1b}[2@");
+        assert_eq!(output.display(DISPLAY_BYTES), "a  bc");
     }
 
     #[test]
