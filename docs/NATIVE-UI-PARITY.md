@@ -16545,3 +16545,55 @@ restructured.
 | DP-2 capture | — | `shots/349-terminal-share.png`, `status: passed`, 1200x900 |
 | `xtask verify --suite all` | **—** | still unavailable: `dsh-xtask` is mid-migration and does not compile |
 | format debt | **—** | moved to `xtask format-debt`; last measured 0 |
+
+### Round 572 — the three-builder rewrite, specified to the line
+
+**Why a plan and not a patch.** Three attempts (567, 569, 570) have failed to give the terminal output a
+true fill, and each failed in a different way: Fill collapses, a naive split reorders the panel, and
+pulling the output out of the single column breaks scoping and borrows. The remaining work is a rewrite,
+and this round writes it down with the exact cut points so the next attempt starts executing instead of
+rediscovering.
+
+**The function to rewrite:** `ui.rs::terminal_view`, lines 19456–~20160 of `app/src/ui.rs` at commit
+`4f6ae06` — one `&self` method that builds a single `body` column and returns
+`scrollable(container(container(body)...))`.
+
+**Three builders, three signatures** (all `&self`, all returning `Element<'_, Message>`, so each can
+borrow `self.terminal`, `self.chat_lane()` and `self.terminal_context()` independently):
+
+```rust
+fn terminal_header(&self, ticket: &Ticket, context: &Context, enabled: bool) -> Element<'_, Message>;
+fn terminal_output(&self) -> Element<'_, Message>;   // the rich-text screen, owns the scrollable
+fn terminal_footer(&self, ticket: &Ticket, enabled: bool) -> Element<'_, Message>;  // input, Write, notice
+```
+
+**The code-order constraint the failures exposed.** The output block and the write row are both built
+*inside* the `else` branch of "is a terminal selected", and the notice line comes after both. So the
+footer must be built by a function that reads only `self` state, not by continuing the same column: the
+`lines` borrow cannot escape the branch, and a `header` binding made there is invisible at the return.
+
+**The composition, once the three exist:**
+
+```rust
+let header = self.terminal_header(&ticket, &context, enabled);
+let output = self.terminal_output();
+let footer = self.terminal_footer(&ticket, enabled);
+container(
+    column![
+        scrollable(container(header).max_width(self.chat_lane())).height(Length::Shrink),
+        container(output).height(Length::Fill),
+        container(footer).max_width(self.chat_lane()),
+    ]
+    .height(Length::Fill),
+)
+.padding(24)
+```
+
+**Frame matrix the rewrite must pass** (each inspected, not just captured): 1200x900 (`terminal-panel`),
+1200x520 with the output present (a short window must keep the header and footer reachable), and 1200x900
+with a `Resize…` review open (the review lives in the header and must not be pushed off). The failure
+mode to watch is round 569's: the footer appearing above the output.
+
+**No code this round:** the plan is the artifact. The suites were re-measured on the unchanged tree:
+fixture **1569**, default **1513**, app bin **21** warnings (22 with the summary line). `xtask verify
+--suite all` and `format-debt` remain unavailable while `tools/xtask` is mid-migration.
