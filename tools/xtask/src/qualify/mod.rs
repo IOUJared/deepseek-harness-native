@@ -4,6 +4,7 @@
 //! directory, the isolated child environment, the owned-process guard and the
 //! per-mode component run. No Host, model, login or desktop setting is touched.
 pub mod app;
+pub mod layout;
 
 use crate::compositor::{Facts, window_facts};
 use crate::proc;
@@ -499,6 +500,7 @@ pub fn run(arguments: &[String]) -> i32 {
                 probe: true,
             },
         ),
+        "details" => layout::run(&root.join("app")),
         "dialog" => dialog(&root, &output, scale),
         "codex" => codex(&root, &output, scale),
         other => {
