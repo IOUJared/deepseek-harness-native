@@ -153,6 +153,28 @@ Also outstanding, outside `*.py`: `core/src/process_tests.rs` spawns `/usr/bin/p
 as a forked fake-process tree for supervisor containment. It needs a small Rust
 fixture binary (or a `sh`/`setsid` chain) before `python3` can leave CI.
 
+## Blocked on hardware or on a dependent file
+
+The remaining Python cannot be deleted by porting alone:
+
+- `qualify-private-native-seat.py` needs a reviewed headless Gamescope seat run
+  (`gamescope` with `--headless`, a private `WAYLAND_DISPLAY`, an EIS socket beside
+  the isolated runtime) to verify its spawn and teardown; its contracts are ported
+  in `seat`.
+- `qualify-draft-restart.py`, `qualify-composed-settings.py`,
+  `qualify-native-app.py` and `benchmarks/run.py` already have Rust replacements;
+  they stay only because the seat imports `draft-restart`, which imports
+  `settings`, which imports `native-app`, which imports the benchmark library.
+- `qualify-native-drop.py` imports the seat module.
+
+A next session should, in order: (1) run the seat qualification once on hardware
+and port its spawn/teardown with that evidence; (2) delete `draft-restart`,
+`settings`, `native-app` and `benchmarks/run.py` together; (3) port
+`native-drop`. The tests already ported (`drafts`, `draft-restart` validators,
+`composed` settings runner, `app` root, `proc`/`bench`) are the gates for that
+deletion.
+
+
 ## Out of scope
 
 The sibling `deepseek-harness-linux` repository keeps its Python: `python/sdk`,
