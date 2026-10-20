@@ -16485,3 +16485,29 @@ the input row below it. Splitting by "everything after the label" is what reorde
 **Measured after the revert:** `cargo check` app bin **21** warnings; the terminal suite was green (79
 tests) on the reverted tree in round 568; `dsh-xtask` is still mid-migration, so the full battery remains
 unavailable and the app suites are gated directly with cargo.
+
+### Round 570 — the split's real shape: a rewrite, not a patch
+
+**What was tried.** Round 569's correction, applied: pull the output container out of `body` into its own
+`output_area` element, cut the footer at the write row, and compose `column![header(Shrink),
+output(Fill), footer(Shrink)]`.
+
+**What it showed, in the compiler rather than the frame.** The panel's builder is one sequential `body`
+column with the output and the write row pushed from **inside** the `else` branch of
+"is a terminal selected". Cutting the footer there leaves `header` bound inside that branch and
+unavailable at the return; declaring the slot outside and filling it inside produces a type error on the
+`Option<Element>` because the borrowed `lines` cannot outlive the branch. Both are symptoms of the same
+thing: the three regions cannot be carved out of the existing single column.
+
+**The honest conclusion.** Filling the pane needs `terminal_view` **rewritten** as three named builders —
+`fn terminal_header(&self, ...)`, `fn terminal_output(&self, ...)`, `fn terminal_footer(&self, ...)` — each
+returning an `Element`, composed in one return. That is a refactor of a ~250-line function with its own
+frame comparison at 1200x900 and a short window; it is not a two-edit patch, and two attempts have now
+proved that. The 240px box stands until that refactor is scheduled as its own round.
+
+**Reverted:** `app/src/ui.rs` is back to `4cd78bb`'s state; `cargo check` measures **21** warnings
+(22 with the summary line). No code committed.
+
+**Gate status:** unchanged — `dsh-xtask` is still mid-migration (its `verify` does not compile), so the
+app suites remain the reliable measurement (fixture **1568**, default **1512** at round 568) and
+`verify --suite all` / `format-debt` are recorded as unavailable, not passed.
