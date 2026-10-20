@@ -132,7 +132,7 @@ Deliberate differences, all measured against the Python originals:
 
 | Release packaging | `.github/scripts/package_release.py`, `publish_release.py` + guards | Deleted: `xtask release package` assembles the assets and `xtask release publish` runs the draft→verify→publish flow; the CI workflow calls them and the packager link now points at `release.rs` |
 
-| Development package qualifier | `scripts/qualify-development-package.py` (in progress) | `devpackage`: the report contract (owned stop, application id, single workspace/session, cursor, screenshot) and the private PNG capture match are ported; the launcher orchestration, resource samples and Node identity remain |
+| Development package qualifier | `scripts/qualify-development-package.py` (in progress) | `devpackage` is fully ported (report contract, capture match, launcher orchestration, resource samples, warm CPU window, explicit-Node inode identity) and wired as `xtask qualify development-package`; the Python file stays only because `qualify-explicit-node.py` imports it |
 
 ## Remaining
 

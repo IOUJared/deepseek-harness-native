@@ -469,6 +469,8 @@ pub fn run(arguments: &[String]) -> i32 {
     let mut sdk = false;
     let mut fail_at = String::from("none");
     let mut viewport_minimum = false;
+    let mut package_dir = PathBuf::from(".");
+    let mut node_path: Option<PathBuf> = None;
     let mut output_binary: PathBuf =
         crate::root().join("app/target/debug/examples/draft_composed_smoke");
     let mut arguments = arguments[1..].iter();
@@ -505,6 +507,16 @@ pub fn run(arguments: &[String]) -> i32 {
             }
             "--binary" => {
                 output_binary = PathBuf::from(arguments.next().ok_or("--binary needs a value")?);
+                Ok(())
+            }
+            "--package" => {
+                package_dir = PathBuf::from(arguments.next().ok_or("--package needs a value")?);
+                Ok(())
+            }
+            "--node" => {
+                node_path = Some(PathBuf::from(
+                    arguments.next().ok_or("--node needs a value")?,
+                ));
                 Ok(())
             }
             "--viewport" => {
@@ -563,6 +575,9 @@ pub fn run(arguments: &[String]) -> i32 {
         "composed-export" => export::run(&root, &output, scale),
         "draft-restart" => drafts::run(&root, &output, &output_binary, scale),
         "draft-interruption" => interruption::run(&root, &output, &output_binary),
+        "development-package" => {
+            devpackage::run(&root, &package_dir, &output, node_path.as_deref(), scale)
+        }
         "composed-decisions" => {
             let viewport = if viewport_minimum { "minimum" } else { "full" };
             decisions::run(&root, &output, scale, viewport)
