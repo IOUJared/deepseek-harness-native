@@ -49,12 +49,14 @@ its own last column keeps that column instead of wrapping (round 562), `SGR 4`/`
 (round 565). Since then the protocol gained the sequences a TUI leans on: erase-character (`CSI N X`,
 round 605), scroll up/down (`CSI N S`/`T`, round 606), cursor save/restore in both spellings (`ESC 7`/`8`
 and `CSI ? 1048 h`/`l`, rounds 607 and 610), scrollback erase (`CSI 3 J`, round 609) and bold cancellation
-returning a colour to its base half (`SGR 22`, round 608).
+returning a colour to its base half (`SGR 22`, round 608). A combining mark takes no column of its own and
+composes onto the cell before the cursor, stepping over a wide glyph's continuation cell; one cell keeps at
+most 16 marks (round 669). The terminal's **cursor** is painted as a block from the same render pass that
+builds the rows (rounds 621–626).
 
-What is still absent is **not** protocol: a combining mark takes no column of its own and is dropped (one
-character per cell cannot compose it), and the panel does not draw the terminal's **cursor** — the screen
-knows where it is, but nothing paints a block there yet. The panel is a monochrome-per-cell renderer of that
-screen, not a second emulator.
+What is still absent is **not** protocol: `terminal/retain` and a docked multi-terminal tab strip, and the
+reference's automatic fit-to-pane (native keeps a reviewed resize control instead). The panel is a cell
+renderer of that screen, not a second emulator.
 
 **The output does not fill the pane, and here is exactly why (rounds 567–568).** The panel is one
 `scrollable` over the whole body — `scrollable(container(container(body).max_width(...).padding(24)))` in

@@ -400,9 +400,12 @@ struct Saved {
 }
 
 /// One screen cell: a character and the colour it was written with.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct Cell {
     character: char,
+    /// Combining marks drawn over `character`, in the order the Host sent them. Bounded by
+    /// [`MAX_CELL_MARKS`] so a hostile stream cannot grow one cell without limit.
+    marks: String,
     ink: Option<u8>,
     /// SGR `4`: drawn with an underline.
     underline: bool,
@@ -417,6 +420,7 @@ impl Cell {
     fn blank() -> Self {
         Self {
             character: ' ',
+            marks: String::new(),
             ink: None,
             underline: false,
             background: None,
@@ -425,12 +429,15 @@ impl Cell {
     }
 }
 
+/// Most combining marks one cell keeps. Real graphemes use one or two; the bound keeps a hostile
+/// stream from growing a cell without limit.
+const MAX_CELL_MARKS: usize = 16;
+
 /// The columns one character occupies: two for the East Asian wide and fullwidth ranges and for
 /// emoji, one for everything else. A single-column terminal would misalign a CJK prompt against the
 /// text below it, which is what a `CSI H` layout notices first.
 fn columns(character: char) -> usize {
-    // A combining mark has no column of its own: the grid keeps one character per cell and cannot
-    // compose it onto the base, so it is dropped rather than drawn beside it as a stray box.
+    // A combining mark has no column of its own: it composes onto the cell before the cursor.
     let mark = matches!(character as u32,
         0x0300..=0x036F
             | 0x0483..=0x0489
@@ -571,6 +578,21 @@ impl Screen {
         // starts the next row rather than letting the screen grow sideways.
         let width = columns(character);
         if width == 0 {
+            // The mark joins the cell before the cursor, stepping over a wide glyph's continuation
+            // cell; a mark with no base at the line's start is dropped rather than drawn alone.
+            if self.column == 0 {
+                return;
+            }
+            let mut index = self.column - 1;
+            let line = self.line();
+            if line.get(index).is_some_and(|cell| cell.continuation) {
+                index = index.saturating_sub(1);
+            }
+            if let Some(cell) = line.get_mut(index)
+                && cell.marks.chars().count() < MAX_CELL_MARKS
+            {
+                cell.marks.push(character);
+            }
             return;
         }
         let paper = self.paper;
@@ -587,6 +609,7 @@ impl Screen {
         let ink = self.ink;
         let cell = Cell {
             character,
+            marks: String::new(),
             ink,
             underline: self.underline,
             background: paper,
@@ -596,12 +619,14 @@ impl Screen {
         while line.len() <= column + width - 1 {
             line.push(Cell::blank());
         }
+        let underline = cell.underline;
         line[column] = cell;
         if width == 2 {
             line[column + 1] = Cell {
                 character: ' ',
+                marks: String::new(),
                 ink,
-                underline: cell.underline,
+                underline,
                 background: paper,
                 continuation: true,
             };
@@ -1007,7 +1032,11 @@ impl Screen {
             blocks.push(
                 line.iter()
                     .filter(|cell| !cell.continuation)
-                    .map(|cell| cell.character)
+                    .map(|cell| {
+                        let mut text = cell.character.to_string();
+                        text.push_str(&cell.marks);
+                        text
+                    })
                     .collect(),
             );
         }
@@ -1126,10 +1155,15 @@ impl Output {
                             && *underline == cell.underline
                             && *background == cell.background =>
                     {
-                        text.push(cell.character)
+                        text.push(cell.character);
+                        text.push_str(&cell.marks);
                     }
                     _ => runs.push((
-                        cell.character.to_string(),
+                        {
+                            let mut text = cell.character.to_string();
+                            text.push_str(&cell.marks);
+                            text
+                        },
                         cell.ink,
                         cell.underline,
                         cell.background,
@@ -3532,18 +3566,58 @@ mod tests {
     }
 
     #[test]
-    fn a_combining_mark_takes_no_column_of_its_own() {
-        // `e` plus U+0301: the grid keeps one character per cell, so the mark is dropped rather than
-        // drawn beside its base as a stray box, and the column does not advance.
+    fn a_combining_mark_joins_its_base_cell_without_a_column() {
+        // `e` plus U+0301 composes onto the base cell: one column, drawn as the glyph + its mark.
         let mut output = Output::default();
         output.set_size(6, 2);
         output.push("e\u{301}X");
-        assert_eq!(output.display(DISPLAY_BYTES), "eX");
+        assert_eq!(output.display(DISPLAY_BYTES), "e\u{301}X");
         // A column address after a marked glyph still lands one column past the base.
         let mut output = Output::default();
         output.set_size(6, 2);
         output.push("e\u{301}\u{1b}[1;3HY");
-        assert_eq!(output.display(DISPLAY_BYTES), "e Y");
+        assert_eq!(output.display(DISPLAY_BYTES), "e\u{301} Y");
+        // A mark with no base at the line's start is dropped rather than drawn alone.
+        let mut output = Output::default();
+        output.set_size(6, 2);
+        output.push("\u{301}X");
+        assert_eq!(output.display(DISPLAY_BYTES), "X");
+        // A mark after a wide glyph joins the base, not the continuation cell.
+        let mut output = Output::default();
+        output.set_size(6, 2);
+        output.push("\u{4e16}\u{301}X");
+        assert_eq!(output.display(DISPLAY_BYTES), "\u{4e16}\u{301}X");
+        // One cell keeps a bounded number of marks, so a hostile stream cannot grow it forever.
+        let mut output = Output::default();
+        output.set_size(6, 2);
+        output.push("e");
+        for _ in 0..40 {
+            output.push("\u{301}");
+        }
+        assert_eq!(
+            output
+                .display(DISPLAY_BYTES)
+                .chars()
+                .filter(|character| *character == '\u{301}')
+                .count(),
+            16
+        );
+        // The same bytes the combining fixture carries compose onto their own base.
+        let mut output = Output::default();
+        output.set_size(80, 3);
+        output.push("cafe\u{301} ok\n");
+        assert!(output.display(DISPLAY_BYTES).starts_with("cafe\u{301} ok"));
+        // The painted run carries the composed text, not the base alone.
+        let mut output = Output::default();
+        output.set_size(6, 2);
+        output.push("e");
+        output.push("\u{301}");
+        let paint = output.display_paint(DISPLAY_BYTES);
+        assert!(
+            paint.rows[0][0].0.starts_with("e\u{301}"),
+            "the run is {:?}",
+            paint.rows[0][0].0
+        );
     }
 
     #[test]

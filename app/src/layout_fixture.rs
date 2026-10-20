@@ -219,6 +219,7 @@ pub const PRESETS: &[&str] = &[
     "terminal-address",
     "terminal-colors",
     "terminal-wide",
+    "terminal-combining",
     "terminal-altscreen",
     "terminal-wrap",
     "terminal-underline",
@@ -353,7 +354,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         "terminal-clear" => Some((Size::new(1200.0, 900.0), 1.0)),
         "terminal-address" => Some((Size::new(1200.0, 900.0), 1.0)),
         "terminal-colors" => Some((Size::new(1200.0, 900.0), 1.0)),
-        "terminal-wide" => Some((Size::new(1200.0, 900.0), 1.0)),
+        "terminal-wide" | "terminal-combining" => Some((Size::new(1200.0, 900.0), 1.0)),
         "terminal-altscreen" => Some((Size::new(1200.0, 900.0), 1.0)),
         "terminal-wrap" => Some((Size::new(1200.0, 900.0), 1.0)),
         "terminal-underline" => Some((Size::new(1200.0, 900.0), 1.0)),
@@ -387,6 +388,7 @@ pub fn preset_size(preset: &str) -> Option<(Size, f32)> {
         | "terminal-address"
         | "terminal-colors"
         | "terminal-wide"
+        | "terminal-combining"
         | "terminal-altscreen"
         | "terminal-wrap"
         | "terminal-underline"
@@ -4595,6 +4597,7 @@ pub fn build(
         || preset == "terminal-address"
         || preset == "terminal-colors"
         || preset == "terminal-wide"
+        || preset == "terminal-combining"
         || preset == "terminal-altscreen"
         || preset == "terminal-wrap"
         || preset == "terminal-underline"
@@ -4704,6 +4707,14 @@ pub fn build(
                     3,
                     "\u{1b}[2J\u{1b}[H GNU nano 8.2   notes.txt\n\n [ Modified ]\n\n^G Help   ^O Write Out   ^X Exit\n",
                 ),
+            ]
+        } else if preset == "terminal-combining" {
+            // Marks the shell printed after their base: the panel composes them onto the cell, so
+            // an accented name and a decomposed path each take one column and stay aligned.
+            [
+                (1, "PUBLIC $ printf 'cafe\\u0301 ok\\n'\ncafe\u{301} ok\n"),
+                (2, "e\u{301}cole  ·  nai\u{308}ve  ·  \u{4e16}\u{301}界\n"),
+                (3, "files: 4 · exit 0\n"),
             ]
         } else if preset == "terminal-wide" {
             // A CJK name in a listing: the glyphs take two columns each, so the size column stays

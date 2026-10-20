@@ -6430,7 +6430,7 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Workspace browser: grouped/animated rows, drag order, per-row menus | difference: workspace filter + navigation sheet |
 | Directory picker: Host chooser and in-app browse | cloned (directories only; no create-directory; the app's Host serves browse, so Browse… falls back to the in-app list and `pick` reports unavailable) |
 | Workflow-run surface | cloned (folded `tool-workflow/*` card, five run states including the round-525 `Interrupted` for a stoppless run in a closed turn; a closed step alone does not interrupt, a named limit) |
-| Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, **reviewed resize (round 540)**, shell discovery with a remembered preference, output bounds, and **a native screen emulator core** (rounds 552–559: redraw, erase, addressing, insert/delete, ANSI colours, wide glyphs, wrapping, scrollback, alternate screen). The screen protocol is complete; what remains is not a sequence but a capability: the reference's automatic fit-to-pane, `terminal/retain` and a docked multi-terminal tab — recorded in `docs/NATIVE-TERMINAL.md`. |
+| Terminal | cloned to the panel's own slice: list, follow, keystrokes, create review, close review, **rename review (round 539)**, **reviewed resize (round 540)**, shell discovery with a remembered preference, output bounds, and **a native screen emulator core** (rounds 552–559: redraw, erase, addressing, insert/delete, ANSI colours, wide glyphs, wrapping, scrollback, alternate screen; a combining mark composes onto its base cell, round 669). The screen protocol is complete; what remains is not a sequence but a capability: the reference's automatic fit-to-pane, `terminal/retain` and a docked multi-terminal tab — recorded in `docs/NATIVE-TERMINAL.md`. |
 | Dockkit layout presets | difference: native fixed layout with its own preferences |
 | Locales (zh/en) | difference: English-only |
 
@@ -18326,3 +18326,34 @@ one remaining difference on this surface; the row itself and the tail card match
 | transport | **0** | 62 + 17 + 91 + 7 passed |
 | app bin | — | **21** warnings (22 with the summary line) |
 | battery | **passed** | **17 checks, 0 failing** (`verification-dc3b482c1781`) |
+
+### Round 669 — a combining mark composes onto its base cell
+
+**The gap.** `docs/NATIVE-TERMINAL.md` recorded it as a limitation: the grid kept one `char` per cell, so a
+decomposed accent (`e` + U+0301) was dropped rather than drawn, and a shell printing a decomposed name lost
+the mark. The reference's terminal composes it like any emulator.
+
+**The change.** `Cell` gained a bounded `marks` string (`MAX_CELL_MARKS = 16`). `put` attaches a zero-width
+character to the cell before the cursor — stepping over a wide glyph's continuation cell, and dropping a mark
+that has no base at the line's start — without advancing the column. Both the plain-text renderer and
+`display_paint` compose `character + marks`, so the painted run carries the whole grapheme.
+
+**Test.** `a_combining_mark_joins_its_base_cell_without_a_column` — one column and the composed text, a
+column address still lands past the base, a base-less mark is dropped, a mark after a wide glyph joins the
+base, 40 marks clamp to 16, the paint run starts with the composed text, and the fixture's own `cafe` +
+U+0301 string composes.
+
+**Frame.** `shots/368-terminal-combining.png` (1200×900, new `terminal-combining` preset): the OUTPUT block
+shows `café ok`, `école · naïve · 世界` and `files: 4 · exit 0`, every accent composed over its base rather
+than dropped.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| format | **0** | `cargo fmt` applied; format-debt 0 files, 0 hunks |
+| app, fixture | **0** | **1600 passed**, 1 ignored |
+| app, default | **0** | **1544 passed**, 1 ignored |
+| transport | **0** | 62 + 17 + 91 + 7 passed |
+| app bin | — | **21** warnings (22 with the summary line) |
+| battery | **passed** | **17 checks, 0 failing** (`verification-526912410ae0`) |
