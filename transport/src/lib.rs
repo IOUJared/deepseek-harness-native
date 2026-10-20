@@ -13,7 +13,7 @@ mod question;
 pub mod terminal;
 pub mod upload;
 pub use http::{
-    Limits, NativeClient, SecretLaunchUrl, SessionFeedbackOutcome, SESSION_FEEDBACK_CATEGORIES,
+    Limits, NativeClient, SESSION_FEEDBACK_CATEGORIES, SecretLaunchUrl, SessionFeedbackOutcome,
 };
 pub use mux::{Mux, NativeStream};
 pub use question::QuestionClaim;

@@ -17840,3 +17840,22 @@ two states), and this round says that rather than implying a new frame.
 | app, default | **0** | **1534 passed**, 1 ignored |
 | app bin | — | **21** warnings (22 with the summary line) |
 | `layout_smoke` | — | builds with the new variant named |
+
+### Round 650 — the battery passes, all 17 checks
+
+**Result: `passed`** (`verification-9343e3611d57`) — **17 checks, 0 failing**. This is the first fully green
+battery of the session.
+
+**It took three runs, and both failures were mine, in order:**
+
+1. `format-debt` — the `pub use` I added to `transport/src/lib.rs` in round 646 was never formatted; `cargo fmt`
+   for that package fixed it (and `format-debt` then reported 0 files, 0 hunks).
+2. `binary-freshness` — formatting that file moved a source after the artifacts were built, so the guard
+   refused to certify the stale binaries. Rebuilding **both** artifacts and re-running produced `passed`.
+
+**The order matters and is worth keeping:** format first, then rebuild, then verify. Formatting after a build
+invalidates `binary-freshness` even when nothing else changed — the guard is right, and it must be fed in that
+order.
+
+**State:** session feedback is end-to-end (transport, worker, header entry point, dialog, outcomes, test);
+suites fixture **1590** / default **1534**; app bin **21** real warnings; transport 7 with 0 warnings.
