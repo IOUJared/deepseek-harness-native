@@ -244,8 +244,8 @@ class InstallerTests(unittest.TestCase):
 class PackagingFileTests(unittest.TestCase):
     def test_pkgbuild_is_self_contained_and_pins_the_released_archive(self):
         text = (ROOT / "packaging/PKGBUILD").read_text()
-        self.assertIn("sha256sums=('a2f97dd899ae978d01f5fb0cbf3e6d04b83bca86e3bd6c7eeaea13029647b594')", text)
-        self.assertIn("pkgver=2026.10.10.r2", text)
+        self.assertIn("sha256sums=('29bf25543e14787c16153e0ba204aa0262980db67f645df6aafa8c09a03ac7d1')", text)
+        self.assertIn("pkgver=2026.10.20.r1", text)
         self.assertIn("ai.deepseek.harness.native.app.desktop", text)
         self.assertIn("ai.deepseek.harness.native.app.svg", text)
         self.assertIn("0.2.1-alpha.1", text)
