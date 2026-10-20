@@ -6,7 +6,7 @@
 //! events and samples. Nothing here changes the live compositor.
 use crate::proc;
 use serde::Serialize;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
@@ -20,9 +20,7 @@ use std::time::{Duration, Instant};
 
 pub const PREFIX: &str = "DSH_BENCH:";
 
-/// One compositor entry for this test pid, limited to the five fields the runner
-/// reports. Kept as raw JSON so integer sizes stay integers in evidence.
-pub type Facts = Map<String, Value>;
+pub use crate::compositor::Facts;
 
 #[derive(Clone, Debug)]
 pub struct Limits {
@@ -100,56 +98,6 @@ struct BenchState {
     errors: Vec<String>,
     phase: String,
     facts: Option<Facts>,
-}
-
-/// Only this test pid's compositor facts are inspected; other windows are ignored.
-fn probe_window(pid: i32) -> Option<Facts> {
-    let mut child = Command::new("hyprctl")
-        .args(["-j", "clients"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    let mut stream = child.stdout.take()?;
-    let reader = std::thread::spawn(move || {
-        let mut raw = Vec::new();
-        let _ = stream.read_to_end(&mut raw);
-        raw
-    });
-    let deadline = Instant::now() + Duration::from_secs(2);
-    loop {
-        match child.try_wait().ok()? {
-            Some(status) => {
-                if !status.success() {
-                    return None;
-                }
-                break;
-            }
-            None if Instant::now() >= deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
-                break;
-            }
-            None => std::thread::sleep(Duration::from_millis(10)),
-        }
-    }
-    let raw = reader.join().ok()?;
-    if raw.len() > 1024 * 1024 {
-        return None;
-    }
-    let entries: Vec<Value> = serde_json::from_slice(&raw).ok()?;
-    let entry = entries
-        .into_iter()
-        .find(|entry| entry.get("pid").and_then(Value::as_i64) == Some(pid as i64))?;
-    let mut facts = Facts::new();
-    for key in ["pid", "class", "xwayland", "mapped", "size"] {
-        facts.insert(
-            key.to_string(),
-            entry.get(key).cloned().unwrap_or(Value::Null),
-        );
-    }
-    Some(facts)
 }
 
 fn numbers(value: Option<&Value>) -> Option<Vec<f64>> {
@@ -331,7 +279,7 @@ pub fn run_one(spec: RunSpec<'_>, limits: &Limits) -> io::Result<Report> {
                         state.events.push(value);
                         drop(state);
                         if probe && matches!(kind.as_str(), "ready" | "settled_geometry") {
-                            let facts = probe_window(pid);
+                            let facts = crate::compositor::window_facts(pid);
                             reader_state.lock().unwrap().facts = facts;
                         }
                     }

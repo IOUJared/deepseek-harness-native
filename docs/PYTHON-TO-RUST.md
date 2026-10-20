@@ -26,6 +26,7 @@ file is the stage map; it is deleted with the last Python file.
 | Idle sampler | `scripts/measure-native-idle.py` | `xtask idle` (same warm-window identity rules) |
 | Archive verifier | `scripts/verify-development-archive.py` | `xtask archive verify` (same member bounds, extraction modes and inventory checks) |
 | History tools | `app/measure_native_history.py`, `app/compare_native_history.py` | `xtask history measure` / `xtask history compare` |
+| Dialog/Codex fixtures | `scripts/qualify-dialog-components.py`, `scripts/qualify-codex-components.py` | `xtask qualify dialog` / `xtask qualify codex`, on a shared `qualify` module (`prepare`, isolated environment, owned-component run) |
 | Their guards | 4 Python test modules | 65 tests in `tools/xtask` (`src/*` units + `tests/cli.rs`) |
 | Entry point | `check.sh` → `python3` | `check.sh` → `cargo run -- verify` |
 
@@ -61,6 +62,12 @@ Deliberate differences, all measured against the Python originals:
   rejects a native report that lacks `fixtureMetrics` instead of crashing on it.
 - `app/` no longer has a Python guard, so the `app-guards` discovery is gone from
   the test suite; the history guards are `xtask history` tests.
+- The compositor window probe moved out of the benchmark runner into
+  `compositor.rs` so the component qualifiers share one implementation instead of
+  growing a second.
+- The `qualify` module now owns `prepare` and the isolated child environment, but
+  `scripts/qualify-native-app.py` keeps its own copies until its dependents are
+  ported. That duplication is transitional and is the next thing to remove.
 - The benchmark runner is tested end to end against a stand-in script (protocol
   parsing, sampling, a killed overrunning child), except `benchmarks/run.py` was
   not compared against `xtask bench run` on a real app: that needs a GPU/Wayland
@@ -71,8 +78,8 @@ Deliberate differences, all measured against the Python originals:
 
 | Family | Files | Lines | Target |
 |---|---|---|---|
-| `scripts/qualify-*` | 24 | 3,947 | `xtask qualify <name>`; the assertions are already Rust examples writing `result.json` |
-| `scripts/test_*`, `app/*.py` | 25 | 3,621 | Rust tests next to the qualifiers; rewrite each guard's subject, never copy it verbatim |
+| `scripts/qualify-*` | 22 | 3,811 | `xtask qualify <name>`; the assertions are already Rust examples writing `result.json` |
+| `scripts/test_*`, `app/*.py` | 24 | 3,584 | Rust tests next to the qualifiers; rewrite each guard's subject, never copy it verbatim |
 | `.github/scripts/*` | 4 | 387 | `xtask package` / `xtask publish`; `tar` + `flate2` are already dependencies, `gh` stays a child process |
 | `development-launcher.py` | 1 | 356 | **Shipped** as `launch.py` in the development package: a Rust `dsh-native-launch` binary replaces it, so the archive stops requiring Python 3.11+; update the archive verifier and install docs together |
 | `benchmarks/run.py` + `test_runner.py` | 2 | 417 | Deleted with the qualification family, whose scripts import the library; `xtask bench run` is already the replacement |

@@ -6,11 +6,13 @@
 //! compatible with the reports those scripts wrote (see [`verify::CheckResult`]).
 pub mod archive;
 pub mod bench;
+pub mod compositor;
 pub mod fmtdebt;
 pub mod history;
 pub mod idle;
 pub mod json;
 pub mod proc;
+pub mod qualify;
 pub mod snapshot;
 pub mod tempdir;
 pub mod verify;
