@@ -837,24 +837,24 @@ mod tests {
             ("/etc/hosts", Some("/work/repo"), None, "/etc/hosts"),
             // Outside the workspace but under home: drawn from `~`.
             (
-                "/home/jared/notes/a.md",
+                "/home/public/notes/a.md",
                 Some("/work/repo"),
-                Some("/home/jared"),
+                Some("/home/public"),
                 "~/notes/a.md",
             ),
-            ("/home/jared", None, Some("/home/jared"), "~"),
+            ("/home/public", None, Some("/home/public"), "~"),
             // An already-relative argument is drawn as recorded.
             (
                 "src/a.rs",
                 Some("/work/repo"),
-                Some("/home/jared"),
+                Some("/home/public"),
                 "src/a.rs",
             ),
             // A Windows root is stripped too, but `~` is a POSIX spelling.
             (
                 "C:\\repo\\a.rs",
                 Some("C:\\repo"),
-                Some("/home/jared"),
+                Some("/home/public"),
                 "a.rs",
             ),
             (
