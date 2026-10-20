@@ -59,6 +59,13 @@ approvals and questions, jobs, subagents, deliverables (summary, file list, desk
 round 475, `NATIVE-FORMATTED-DETAILS.md:48`), message feedback (rating, categories, note dialog), settings (general, API, Cloudflare,
 Codex, plugins, shortcuts) and workspace open (Host chooser and in-app folder list) work end to end.
 
+**Round 684 re-walk.** Every reference client plugin slot was enumerated and mapped to a native
+surface; no unbuilt surface remains. The composer row's round-404 "still open" items were re-read
+against both sources and are now closed as parity or named deliberate limits (the rail's missing
+"thumbnails" are parity: the reference's composer `FileCard` draws a type glyph; the slash hint's
+placement is a plain-text-editor limit; multi-file batch selection is absent because every staged file
+takes its own consent review).
+
 **Deliberate differences:** the reference's right Sidebar (document preview, review
 tabs) is replaced by the full-page details panel and the scheduled-tasks page; sessions are grouped
 by time rather than the animated workspace browser (workspace filtering and the navigation sheet
@@ -6414,7 +6421,8 @@ means the reference behavior is replaced on purpose and the reason is recorded a
 | Reference surface | Native status |
 | --- | --- |
 | Chat: renderer, thoughts, turn triggers, copy/branch/edit/fork | cloned (search is a native addition: the reference has no conversation Find bar and leaves text search to the browser's own find, exposing collapsed subtrees to it through `hidden="until-found"`) (markdown: tables, footnotes, math, strikethrough, task items, literal raw HTML, headings/rules/tables/fenced blocks inside a container, quote-and-list nesting in either order, and a nested image's alt folded into the outer run — no plain Markdown construct falls back to text since round 538; math draws its source, since no native typesetter exists, and a task item draws a box glyph where the reference draws a disabled input — see the renderer note below) |
-| Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned (a composer audit found further divergences, recorded in round 404 and still open: the slash menu groups its two sources as the reference does (`Commands`, then `Skills`), states `Loading…` while the advertisement is in flight and shows a command's argument hint under the draft (the reference draws it inside the editor), draws the `@` menu's directory breadcrumb trail (round 546) and labels a subagent child's row `Subagents` apart from `Sessions` (round 547), though the references register no separate subagent trigger source, files are chosen one at a time through a path field, no image thumbnails in the rail, and a send awaiting admission is stated by the composer's own banner (with Check, Review and Stop-original) rather than as a queue row;  steering the whole queue is a `Steer all` control on the strip (the reference triggers it from an empty draft); and these deliberate differences: the reference inverts its submission policy on Cmd/Ctrl+Enter (`view-binding.ts:120-130`), while native keeps Ctrl+Enter a plain send alias by the user's explicit confirmation (`docs/SESSION-PROMPT.md`); and native's goal bar states a running goal's controls where the reference adds `hint.goal`/`hint.goal.active` ghost copy beside the draft) |
+| Composer: slash (a `/` anywhere in the draft opens the menu, as the reference scans back to whitespace), the running primary button stating `Queue message`/`Steer message`, `@` files/sessions, attachments, queue dock/actions, goal bar, todo dock, usage, context policy | cloned — round 404's audit items are now closed as parity or named deliberate limits (round 684): the slash menu groups `Commands` then `Skills`, states `Loading…` while the advertisement is in flight, draws the `@` menu's directory breadcrumb trail (round 546) and labels a subagent child's row `Subagents` (round 547); the reference's argument hint is drawn **inside** its editor while native states it under the draft — native's editor is a plain text field with no generated inline content (`composer_hint`; a platform limit, not missing data); staged files are chosen through the in-app picker and each gets its own consent review, so there is no multi-file batch selection (per-file consent is native's model); the rail has no image thumbnails **because the reference's composer `FileCard` draws a type glyph, not a picture** (`ui-attachment/src/FileCard.tsx:34-56`), so this is parity; a send awaiting admission is stated by the composer's own banner (with Check, Review and Stop-original) rather than as a queue row, and steering the whole queue is a `Steer all` control on the strip rather than the reference's empty-draft accelerated Enter — both deliberate, since native keeps Ctrl+Enter a plain send alias by the user's explicit confirmation (`docs/SESSION-PROMPT.md`); and native's goal bar states a running goal's controls where the reference adds `hint.goal`/`hint.goal.active` ghost copy beside the draft |
+
 | Sidebar: sessions, search, pin/archive/trash, workspace filter, navigation sheet | cloned (time-grouped list, not the grouped browser; the row hover preview is round 666) |
 | Settings: General, API, Cloudflare, Codex, plugins, shortcuts, agent presets | cloned (coding view is a local substitute; the preset section shows the roster and writes the new-task default, with no composition viewer — this Host build serves no `agentPresets/read` — and no Creator-mode entry) |
 | Schedules: page, history, edits, pickers, and the Session header's reminder chip with its popover (count, rule, next run, per-row delete; round 503) | cloned (the sidebar row's active-task clock is round 664; no hover cards, turn cards or right-Sidebar tab; the chip states its count as words where the web is icon-only, and its rows' names open the page where the web opens its right-Sidebar tab). A read-only audit of this surface found work still open, recorded in round 417: rows now state their rule, `Enabled`/`Inactive`, and their next-run and delivery instants as local text with a relative next-run form; the page has status tabs (All/Enabled/Inactive), a search field, next-time ordering, the reference's empty-state variants and its retention disclosure, and its `New` action, and a deletion outcome stated on the page where the reference shows a shell toast, and a linked-session control that opens the creating session (with the reference's archived/unavailable sentences when it cannot); the `schedule/changed` notification reloads an open catalog (round 541: `root()`'s Emit arm, unit-tested, with the Host's emission source-confirmed; its live arrival on a real session is still unobserved), while native's own reads remain on open, Refresh and after its own writes; a failed history read retries in place |
@@ -19000,3 +19008,46 @@ for operations this page starts (the page re-reads after each). No live Host was
 | app bin | — | **21** warnings (22 with the summary line) |
 | layout_smoke | — | **17** warnings |
 | battery | **passed** | **17 checks, 0 failing** (`verification-0bd94e828cca`) |
+
+### Round 684 — the final walk finds no unbuilt surface
+
+**Method.** This round enumerated every client UI package's slot registrations (`packages/client/ui-*/src/**/index.ts`)
+and mapped each slot family to a native surface or an already-named difference, then re-read the
+composer row's round-404 "still open" claims against the current native source. The reference is at its
+pinned `c6044cc50b`, so no newer surface entered the comparison.
+
+**What changed in the record, not the app.** Three claims were stale:
+
+1. "no image thumbnails in the rail" is parity, not a gap: the reference's composer `FileCard` draws a
+   file-type glyph and name/size (`ui-attachment/src/FileCard.tsx:34-56`); it has no picture thumbnail
+   in the rail either. Native draws the same glyph card.
+2. "files are chosen one at a time through a path field" no longer describes native: the in-app picker
+   browses, navigates and chooses a file, which then takes its own consent review
+   (`attachment_picker`/`attachment_ui`). Batch selection is absent because each file is reviewed
+   before upload, which is native's consent model.
+3. The slash command's argument hint placement is already stated in code as a limit: native's editor
+   is a plain text field with no generated inline content (`ui.rs`'s `composer_hint` comment), so the
+   hint sits under the draft. The steering gesture and admission banner are the user-confirmed
+   Ctrl+Enter difference and native's banner model, both named.
+
+**What remains.** Nothing unbuilt. The six user-only/blocked items and the deliberate differences in the
+tables above stand: the canvas context-ring dial (needs the `canvas` dependency approval), live
+`schedule/changed` arrival observation, right Sidebar tabs, dockkit presets, locales, markdown remote
+images (no fetch policy), web-only onboarding, the session-level feedback dialog (the Host serves no
+route for it) and the workflow-run interrupted-state limit.
+
+**Why this round has no frame or failing test.** It changes no UI and no behaviour; the only commit is
+the record itself. The battery below is the evidence that the app is still the one the previous round
+verified, rebuilt after the documentation edit.
+
+**Measured.**
+
+| gate | status | result |
+| --- | --- | --- |
+| format | **0** | `cargo fmt` applied; format-debt 0 files, 0 hunks |
+| app, fixture | **0** | **1615 passed**, 1 ignored |
+| app, default | **0** | **1559 passed**, 1 ignored |
+| transport | **0** | 70 + 17 + 91 + 7 passed |
+| app bin | — | **21** warnings (22 with the summary line) |
+| layout_smoke | — | **17** warnings |
+| battery | **passed** | **17 checks, 0 failing** (`verification-707c8098ff18`) |

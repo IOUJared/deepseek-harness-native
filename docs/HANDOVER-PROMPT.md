@@ -22,22 +22,22 @@ two checkouts, and the same standing permissions (local commits allowed, no push
 > (pinned `c6044cc50b`). Cite it as `file:line` in code comments and round notes.
 >
 > ### Last five rounds, so the next session starts oriented
-> - 679: **each bundle's declared rows are listed** with live state, and one row switches through its
->   own Confirm; frame `377`.
 > - 680: **an inspected spec installs** after one explicit Confirm, reporting bundle/version/restart or
 >   failure and re-reading; frame `378`.
 > - 681: **installs carry a request id**, a lost reply is recovered through `waitForInstall` (not a
 >   retry), and `cancelInstall` states cancelled/too-late/not-running; frame `379`.
 > - 682: **a failed install's pending package scripts are approved and retried**; frame `380`.
 > - 683: **the install's Host phase, per-registry attempt and a bounded pnpm log tail are shown**;
->   frame `381`. The plugin manager is now cloned through its full reference surface.
+>   frame `381`.
+> - 684: **the final walk** enumerated every reference client slot and found no unbuilt surface;
+>   the composer row's three stale claims were corrected and the round record is the only commit.
 >
-> **Current remainder:** only deliberate limits (the log tail is four chunks, not a full log viewer;
-> `plugin-manager/changed` invalidation covers operations this page starts). Version exemptions are
-> Host tools with no reference client surface. Blocked on the user: the canvas-dial dependency approval
-> (context meter stays a text reading) and the deferred live `schedule/changed` observation. Baselines:
-> fixture **1615** / default **1559**, 21 warnings, battery 17/17
-> (`verification-0bd94e828cca`).
+> **No unbuilt reference surface remains.** What stands is the user-only canvas context-ring approval
+> (the context meter is a text reading), the deferred live `schedule/changed` observation, and the named
+> deliberate differences (right Sidebar tabs, dockkit presets, locales, markdown remote images,
+> web-only onboarding, session-level feedback dialog, workflow-run interrupted state, terminal
+> fit-to-pane). Baselines: fixture **1615** / default **1559**, 21 warnings, battery 17/17
+> (`verification-707c8098ff18`).
 
 ---
 
