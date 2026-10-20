@@ -65,6 +65,11 @@ pub fn ppid(text: &str) -> Option<i32> {
     after_comm(text)?.get(1)?.parse().ok()
 }
 
+/// The process or thread start time from one `stat` body.
+pub fn start_ticks(text: &str) -> Option<u64> {
+    after_comm(text)?.get(19)?.parse().ok()
+}
+
 /// `(Rss, Pss)` from one `smaps_rollup` body; both are required.
 pub fn smaps_rollup(text: &str) -> Option<(u64, u64)> {
     let mut rss = None;

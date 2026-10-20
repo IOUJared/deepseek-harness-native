@@ -27,6 +27,7 @@ file is the stage map; it is deleted with the last Python file.
 | Archive verifier | `scripts/verify-development-archive.py` | `xtask archive verify` (same member bounds, extraction modes and inventory checks) |
 | History tools | `app/measure_native_history.py`, `app/compare_native_history.py` | `xtask history measure` / `xtask history compare` |
 | Dialog/Codex fixtures | `scripts/qualify-dialog-components.py`, `scripts/qualify-codex-components.py` | `xtask qualify dialog` / `xtask qualify codex`, on a shared `qualify` module (`prepare`, isolated environment, owned-component run) |
+| App qualifier (root) | `scripts/qualify-native-app.py` | `xtask qualify app`: owned-tree sampling, per-thread CPU, pidfd identity guard, SIGINT/SIGTERM cleanup, compositor mapping proxy, keyless-idle medians. The Python file **stays** until its qualification dependents are ported |
 | Their guards | 4 Python test modules | 65 tests in `tools/xtask` (`src/*` units + `tests/cli.rs`) |
 | Entry point | `check.sh` → `python3` | `check.sh` → `cargo run -- verify` |
 
@@ -65,9 +66,14 @@ Deliberate differences, all measured against the Python originals:
 - The compositor window probe moved out of the benchmark runner into
   `compositor.rs` so the component qualifiers share one implementation instead of
   growing a second.
-- The `qualify` module now owns `prepare` and the isolated child environment, but
-  `scripts/qualify-native-app.py` keeps its own copies until its dependents are
-  ported. That duplication is transitional and is the next thing to remove.
+- The `qualify` module now owns `prepare` and the isolated child environment, and
+  `xtask qualify app` can run the root workflow, but `scripts/qualify-native-app.py`
+  still exists for its 18 dependents and keeps its own copies of those helpers.
+  That duplication is transitional and grows the risk of the two drifting: do not
+  change one side's measurement rules without the other until the family moves.
+- The app run is tested end to end against a stand-in binary (spawn, sample, pidfd
+  guard, cleanup, private report); no real keyless app qualification was run, which
+  needs the built Host runtime and a Wayland session.
 - The benchmark runner is tested end to end against a stand-in script (protocol
   parsing, sampling, a killed overrunning child), except `benchmarks/run.py` was
   not compared against `xtask bench run` on a real app: that needs a GPU/Wayland

@@ -3,6 +3,8 @@
 //! Port of the shared half of `scripts/qualify-*.py`: a new private evidence
 //! directory, the isolated child environment, the owned-process guard and the
 //! per-mode component run. No Host, model, login or desktop setting is touched.
+pub mod app;
+
 use crate::compositor::{Facts, window_facts};
 use crate::proc;
 use serde_json::{Value, json};
@@ -125,13 +127,13 @@ pub fn private_json(path: &Path, value: &Value) -> io::Result<()> {
     )
 }
 
-fn pidfd_open(pid: i32) -> Option<i32> {
+pub(super) fn pidfd_open(pid: i32) -> Option<i32> {
     // Safe: a plain pid argument; a negative answer is an absence, not an error to raise.
     let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) as i32 };
     (fd >= 0).then_some(fd)
 }
 
-fn pidfd_send(fd: i32, signal: i32) {
+pub(super) fn pidfd_send(fd: i32, signal: i32) {
     // Safe: the descriptor was opened for this pid and is closed by the caller.
     unsafe {
         libc::syscall(
@@ -145,7 +147,7 @@ fn pidfd_send(fd: i32, signal: i32) {
 }
 
 /// A pidfd becomes readable when its process exits.
-fn pidfd_readable(fd: i32) -> bool {
+pub(super) fn pidfd_readable(fd: i32) -> bool {
     let mut poll = libc::pollfd {
         fd,
         events: libc::POLLIN,
@@ -423,7 +425,8 @@ fn codex(root: &Path, output: &Path, scale: f64) -> i32 {
 }
 
 fn usage() -> &'static str {
-    "usage: xtask qualify <dialog|codex> --output NEW_DIR [--scale 1.0|1.25]"
+    "usage: xtask qualify <app|dialog|codex> --output NEW_DIR [--scale 1.0|1.25] \
+     [--seconds 8-30] [--screenshot]"
 }
 
 fn parse_scale(arguments: &mut std::slice::Iter<'_, String>) -> Result<f64, String> {
@@ -443,6 +446,8 @@ pub fn run(arguments: &[String]) -> i32 {
     };
     let mut output: Option<PathBuf> = None;
     let mut scale = 1.0_f64;
+    let mut seconds: u32 = 10;
+    let mut screenshot = false;
     let mut arguments = arguments[1..].iter();
     while let Some(argument) = arguments.next() {
         let parsed: Result<(), String> = (|| match argument.as_str() {
@@ -454,6 +459,21 @@ pub fn run(arguments: &[String]) -> i32 {
             }
             "--scale" => {
                 scale = parse_scale(&mut arguments)?;
+                Ok(())
+            }
+            "--seconds" => {
+                seconds = arguments
+                    .next()
+                    .ok_or("--seconds needs a value")?
+                    .parse()
+                    .map_err(|_| "seconds is not a number")?;
+                if !(8..=30).contains(&seconds) {
+                    return Err("seconds must be 8-30".into());
+                }
+                Ok(())
+            }
+            "--screenshot" => {
+                screenshot = true;
                 Ok(())
             }
             other => Err(format!("unexpected argument: {other}")),
@@ -469,6 +489,16 @@ pub fn run(arguments: &[String]) -> i32 {
     };
     let root = crate::root();
     match command {
+        "app" => app::run(
+            &root,
+            &output,
+            &app::AppOptions {
+                scale,
+                seconds,
+                screenshot,
+                probe: true,
+            },
+        ),
         "dialog" => dialog(&root, &output, scale),
         "codex" => codex(&root, &output, scale),
         other => {
