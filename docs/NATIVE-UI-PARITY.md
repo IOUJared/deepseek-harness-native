@@ -17305,3 +17305,18 @@ Evidence archived under `app/evidence/terminal-cursor-20261020/`.
 | app, fixture | **0** | **1581 passed**, 1 ignored |
 | app, default | **0** | **1524 passed**, 1 ignored |
 | app bin | — | **21** warnings (22 with the summary line) |
+
+### Round 627 — the battery after the cursor landed
+
+**Both artifacts rebuilt, then the full battery** (`verification-23c4ae36bcf9`): **16 of 18** — unchanged,
+with the cursor paint in the release binaries.
+
+| check | result |
+| --- | --- |
+| format-debt, core/transport/app/xtask clippy, core, core-transport, transport, app, app-public, layout_smoke, scroll_app_smoke, xtask-guards, bridge, script-guards, benchmark-guards, app-guards, binary-freshness | passed |
+| **wayland-drops** | failed — needs a real seat (hardware-only) |
+| **release-guards** | failed — the leftover discovery entry for a ported stage (round 602) |
+
+**What the cursor change did not disturb:** the fourteen display tests (the paint keeps the cursor's runless
+row, `display_styled` still trims it), the 400-row cap (`one_paint_renders_only_the_newest_rows_it_can_show`
+still passes), and the transport, core and examples.
