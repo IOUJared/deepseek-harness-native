@@ -14,6 +14,19 @@ use dsh_native_transport::terminal::{
 
 /// Default PTY dimensions requested for a new Host terminal.
 pub const DEFAULT_COLS: u64 = 80;
+/// Every terminal action that mutates Host state, in the order the panel's copy names them. The
+/// sentence below is generated from this list, so adding an action cannot leave the copy listing
+/// only the older ones.
+pub const MUTATING_ACTIONS: [&str; 5] = ["create", "write", "rename", "resize", "close"];
+/// The panel's limits-unavailable sentence, generated so it never lists a stale subset.
+pub fn limits_unavailable_copy() -> String {
+    let names = MUTATING_ACTIONS;
+    let (last, rest) = names.split_last().expect("a non-empty action list");
+    format!(
+        "Host limits unavailable: this Session has no registered Agent. History is listed below, but {} and {last} cannot run.",
+        rest.join(", ")
+    )
+}
 pub const DEFAULT_ROWS: u64 = 24;
 /// Bounded panel output: at most this many retained chunks and bytes.
 pub const OUTPUT_CHUNKS: usize = 400;
@@ -2423,6 +2436,19 @@ mod tests {
             !terminal.shells_failed(),
             "an answered read clears the flag"
         );
+    }
+
+    #[test]
+    fn the_limits_sentence_is_generated_from_the_actions_it_names() {
+        let copy = limits_unavailable_copy();
+        assert!(copy.starts_with("Host limits unavailable"), "{copy}");
+        for action in MUTATING_ACTIONS {
+            assert!(copy.contains(action), "{action} missing from {copy}");
+        }
+        // Commas between, `and` before the last: `create, write, rename, resize and close`.
+        assert!(copy.contains("create, write, rename, resize and close cannot run"));
+        assert!(!copy.contains(", and"), "no Oxford comma: {copy}");
+        assert_eq!(MUTATING_ACTIONS.len(), 5, "one entry per mutating action");
     }
 
     #[test]

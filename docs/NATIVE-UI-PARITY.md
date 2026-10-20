@@ -15749,3 +15749,38 @@ reference registers none for subagents either (`ui-reference`, `ui-skill` and `u
 | transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
 | DP-2 capture | — | `shots/336-reference-subagents.png`, `status: passed`, 1040x620 |
 | app bin | — | **21** warnings |
+
+### Round 548 — the terminal panel's copy names every action it refuses, and the doc describes the panel it has
+
+**Two drifts, one cause.** Rounds 539 and 540 added rename and resize to the terminal panel, and left
+two statements behind: the panel's limits-unavailable sentence still said only "create, write and close
+cannot run", and `docs/NATIVE-TERMINAL.md` still said "Resize exists in the transport but the panel
+always requests `80×24`" two sentences after admitting the reviewed resize control.
+
+**The sentence is now generated.** `terminal::MUTATING_ACTIONS` lists the five actions and
+`limits_unavailable_copy()` builds the sentence from the list, so adding an action cannot leave the copy
+naming only the older ones; the view draws the generated string. `the_limits_sentence_is_generated_from_
+the_actions_it_names` pins the wording (comma-separated with `and` before the last, no Oxford comma) and
+that all five appear.
+
+**The doc now describes the panel.** `NATIVE-TERMINAL.md` gains steps 9 (rename) and 10 (resize), a
+corrected "left out" paragraph that separates `terminal/retain` from the deliberate manual resize, the
+five mutating actions in the authority list with their two new indeterminate notices, a distinction
+between the terminal's admission fencing and a *session* rename/fork, and a note that the copy is
+generated.
+
+**Frame.** `shots/337-terminal-limits.png` (1040x620, the existing `terminal-panel` preset): "...History
+is listed below, but create, write, rename, resize and close cannot run."
+
+**Battery (round 548).**
+
+| gate | status | result |
+| --- | --- | --- |
+| app, fixture | **0** | **1553 passed**, 1 ignored |
+| app, default | **0** | **1497 passed**, 1 ignored |
+| format debt | **0** | 0 files, 0 hunks after `cargo fmt` |
+| clippy suite | **0** | core, transport and app passed (`verification-ivzjjdo4`) |
+| examples suite | **0** | layout_smoke, scroll_app_smoke passed (`verification-jfc4_fxb`) |
+| transport / core / JS | — | unchanged this round (60+17+91+7, 115, 419/0) |
+| DP-2 capture | — | `shots/337-terminal-limits.png`, `status: passed`, 1040x620 |
+| app bin | — | **21** warnings |

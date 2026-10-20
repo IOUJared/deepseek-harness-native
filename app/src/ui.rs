@@ -19501,13 +19501,7 @@ impl App {
                 );
             }
             None => {
-                body = body.push(
-                    label(
-                        "Host limits unavailable: this Session has no registered Agent. History is listed below, but create, write and close cannot run.",
-                        MUTED,
-                    )
-                    .size(10),
-                );
+                body = body.push(label(crate::terminal::limits_unavailable_copy(), MUTED).size(10));
             }
         }
         body = body.push(label("SHELL", MUTED).size(10));

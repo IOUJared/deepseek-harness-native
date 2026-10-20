@@ -28,30 +28,41 @@ spawns a shell or child process; the Host owns every PTY and its process range.
    (`locales.ts:35`, round 457).
 8. **The shell choice is remembered** across launches as the `layout.terminalShell` preference, so a
    reopened create review starts on the shell you last chose (rounds 461–462).
+9. **Rename** opens a review on the title the Host reports, refuses a title that is empty, over 120
+   characters, control-bearing or unchanged, and installs the new title only from the Host's ACK
+   (round 539, `terminal-controller/src/index.ts` `rename`).
+10. **Resize** opens a review on the size the Host reports, refuses zero, out-of-bounds or unchanged
+    dimensions, and adopts the acknowledged size only from the Host's ACK (round 540).
 
-Left out of this slice: `terminal/retain`. Resize is a reviewed control in the panel (round 540)
-rather than the reference's automatic fit-to-pane, because native mounts no terminal emulator.
-Resize exists in the transport but the panel always requests `80×24`, clamped to the limits the
-Host advertised for the Session. There is also **no terminal emulator**: the screen is a sanitized
-text panel, so a full-screen TUI's keys reach the process but its escape-driven screen does not
-render (`docs/FEATURE-PARITY.md`).
+Left out of this slice: `terminal/retain` (which only means something with docked terminal tabs).
+Resize is a reviewed control in the panel (round 540) rather than the reference's automatic
+fit-to-pane, because native mounts no terminal emulator: a create requests `80×24`, clamped to the
+limits the Host advertised, and a later resize replaces that request with the size the operator
+confirms. There is also **no terminal emulator**: the screen is a sanitized text panel, so a
+full-screen TUI's keys reach the process but its escape-driven screen does not render
+(`docs/FEATURE-PARITY.md`).
 
 ## Authority and consent
 
 - Copy in the panel states plainly that **the shell runs on the Host with the Host's authority**,
   that this app is a client, and that input is interpreted by the Host shell, not normalized here.
-- Create, close and write are mutating. Each is an explicit **Review → Confirm** (write is the
-  explicit **Write** action) and the app holds no optimistic state:
+- Create, close, rename, resize and write are mutating. Each is an explicit **Review → Confirm**
+  (write is the explicit **Write** action) and the app holds no optimistic state:
   - A create adds nothing until the Host ACK returns the **exact requested identity**.
   - A close removes nothing until the Host confirms it.
+  - A rename changes no title until the Host acknowledges the reviewed one.
+  - A resize changes no size until the Host acknowledges the reviewed dimensions.
   - A write clears the typed line only after the Host accepts it.
-- Create and close use the same owned-ticket/epoch fencing as rename/fork: epoch, session
-  generation, target and panel serial are checked on every admission. They share the app's
-  single management flight, so a create/close cannot race a rename, fork, export or registry
-  mutation (and those cannot race it).
+- Every one of them uses the same owned-ticket/epoch fencing as a *session* rename or fork — epoch,
+  session generation, target and panel serial checked on every admission — and shares the app's
+  single management flight, so a terminal write cannot race a session rename, fork, export or
+  registry mutation (and those cannot race it).
 - No automatic retry. A refusal, timeout or disconnect is surfaced as an indeterminate outcome
-  (`CreatingIndeterminate`, `ClosingIndeterminate`, `WriteIndeterminate`) and requires a new
-  explicit action.
+  (`CreatingIndeterminate`, `ClosingIndeterminate`, `RenamingIndeterminate`,
+  `ResizingIndeterminate`, `WriteIndeterminate`) and requires a new explicit action.
+- The panel's own copy for a Session without a registered Agent is **generated from the list of
+  mutating actions** (`terminal::MUTATING_ACTIONS`), so it cannot go on naming only the older ones
+  (round 548).
 
 ## Bounds
 
