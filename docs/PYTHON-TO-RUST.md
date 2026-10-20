@@ -134,12 +134,14 @@ Deliberate differences, all measured against the Python originals:
 
 | Launcher and package | `development-launcher.py`, `build-development-package.py`, `qualify-development-package.py`, `qualify-explicit-node.py` + guards | Deleted: `xtask launch`, `xtask release package`, `xtask qualify development-package` and `xtask qualify explicit-node` replace them; the archive ships `launch` |
 
+| Composed registry | `scripts/qualify-composed-registry.py` + guard | Deleted: `xtask qualify composed-registry` (stage contract, PNG writer profile, owned run). The guard's validator and PNG cases are Rust tests; its three orchestration cases exercise the shared pin/probe/cleanup path and have no dedicated unit test |
+
 ## Remaining
 
 | Family | Files | Lines | Target |
 |---|---|---|---|
-| `scripts/qualify-*` | 7 | 1,885 | `xtask qualify <name>`; the assertions are already Rust examples writing `result.json` |
-| `scripts/test_*` | 6 | 1,294 | Rust tests next to the qualifiers; rewrite each guard's subject, never copy it verbatim. `app/` has no Python left |
+| `scripts/qualify-*` | 6 | 1,490 | `xtask qualify <name>`; the assertions are already Rust examples writing `result.json` |
+| `scripts/test_*` | 5 | 921 | Rust tests next to the qualifiers; rewrite each guard's subject, never copy it verbatim. `app/` has no Python left |
 | `benchmarks/run.py` | 1 | 330 | Deleted with the qualification family, whose scripts import the library; `xtask bench run` is already the replacement and `test_runner.py` is already deleted |
 
 Also outstanding, outside `*.py`: `core/src/process_tests.rs` spawns `/usr/bin/python3`
